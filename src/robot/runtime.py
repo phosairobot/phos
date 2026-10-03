@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import shutil
 from dataclasses import asdict, is_dataclass, replace
 import logging
 import time
@@ -22,6 +25,7 @@ from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalS
                         RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
 from robot.core.expression_reaction import ExpressionReactionPolicy
+from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.runtime import EyeRenderLoop
@@ -56,6 +60,7 @@ class PhosRuntime:
         led_ring_controller: Optional[LEDRingController] = None,
         presence_interpreter: Optional[PresenceInterpreter] = None,
         attention_manager: Optional[AttentionManager] = None,
+        startup: Optional[StartupReadiness] = None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
@@ -69,6 +74,8 @@ class PhosRuntime:
         self._led_ring_controller = led_ring_controller
         self._presence_interpreter = presence_interpreter
         self._attention_manager = attention_manager
+        self._startup = startup or StartupReadiness()
+        self._ready_sound_played = False
         self._environmental_interpreter = None
         self._loop = None
         self._vision_changed: Optional[asyncio.Event] = None
@@ -171,6 +178,7 @@ class PhosRuntime:
             "active_visual_source": self._behavior_engine.base_visual_source,
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
+            "startup": self._startup.document(),
         }
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
@@ -296,32 +304,98 @@ class PhosRuntime:
         self._stopping = False
         self._loop = asyncio.get_running_loop()
         self._vision_changed = asyncio.Event()
+        splash = self._config.resolve_startup_splash_image() if self._config else None
+        sound = self._config.resolve_startup_ready_sound() if self._config else None
+        splash_configured = (self._config.startup_splash_image if self._config and self._config.startup_splash_image is not None
+                             else "package:robot.assets/images/phos-startup-800x600.png")
+        sound_configured = (self._config.startup_ready_sound_file if self._config and self._config.startup_ready_sound_file is not None
+                            else "package:robot.assets/audio/phos-startup.wav")
+        player = self._config.startup_ready_sound_player if self._config else None
+        player_resolved = shutil.which(player) if player else None
+        logger.info(
+            "PHOS STARTUP ASSETS: splash.configured=%s splash.resolved=%s splash.exists=%s splash.readable=%s; "
+            "sound.configured=%s sound.resolved=%s sound.exists=%s sound.readable=%s sound.player=%s sound.player_resolved=%s sound.device=%s",
+            splash_configured, splash,
+            bool(splash and splash.is_file()), bool(splash and splash.is_file() and os.access(splash, os.R_OK)),
+            sound_configured, sound,
+            bool(sound and sound.is_file()), bool(sound and sound.is_file() and os.access(sound, os.R_OK)),
+            player, player_resolved, self._config.startup_ready_sound_device if self._config else None,
+        )
+        self._startup.begin("display", required=True)
+        self._startup.begin("core", required=True)
+        self._startup.begin("vision")
+        self._startup.begin("sensors")
+        self._startup.begin("led_ring")
         try:
             await self.core.start()
+            self._startup.set("display", StartupState.READY)
+            self._startup.set("core", StartupState.READY)
             if self._sensor_service is not None:
                 await self._sensor_service.start()
+            self._startup.set("sensors", StartupState.READY if self._config and (self._config.environmental_enabled or self._config.ccs811_enabled or self._config.imu_enabled) else StartupState.UNAVAILABLE, "optional sensors disabled" if self._config and not (self._config.environmental_enabled or self._config.ccs811_enabled or self._config.imu_enabled) else None)
             if self._air_quality_service is not None:
                 await self._air_quality_service.start()
             if self._imu_service is not None:
                 await self._imu_service.start()
             if self._led_ring_controller is not None:
                 self._led_ring_controller.start()
+            self._startup.set("led_ring", StartupState.READY if self._config and self._config.led_ring_enabled else StartupState.UNAVAILABLE, "optional LED ring disabled" if self._config and not self._config.led_ring_enabled else None)
             logger.info("PHOS core, behavior engine, and renderer started")
             if self._vision_pipeline is not None and self._config is not None and (self._config.vision_enabled or self._vision_forced):
                 # Stop must also release a partially started camera/pipeline.
                 self._vision_started = True
                 await self._vision_pipeline.start()
                 logger.info("PHOS vision pipeline and camera started")
+                self._startup.set("vision", StartupState.READY)
+            else:
+                self._startup.set("vision", StartupState.UNAVAILABLE, "optional vision disabled")
             self._started = True
+            logger.info("STARTUP: %s", self._startup.overall_state.value)
+            self._play_ready_sound()
             logger.info("PHOS runtime started")
         except asyncio.CancelledError:
             await self.stop()
             raise
         except Exception:
+            self._startup.set("core", StartupState.FAILED, "runtime startup failure")
             logger.exception("PHOS runtime failed during startup")
             await self._transition_to_error("runtime startup failure")
             await self.stop()
             raise
+
+    def _play_ready_sound(self) -> None:
+        if self._ready_sound_played or self._config is None:
+            return
+        logger.info("STARTUP SOUND: enabled=%s configured_path=%s device=%s", self._config.startup_ready_sound_enabled, self._config.startup_ready_sound_file, self._config.startup_ready_sound_device)
+        if not self._config.startup_ready_sound_enabled:
+            return
+        sound = self._config.resolve_startup_ready_sound()
+        logger.info("STARTUP SOUND: resolved_path=%s exists=%s readable=%s", sound, bool(sound and sound.is_file()), bool(sound and sound.is_file() and os.access(sound, os.R_OK)))
+        if not sound.is_file() or not os.access(sound, os.R_OK):
+            logger.warning("STARTUP SOUND FAILED: reason=file_not_found path=%s", sound)
+            return
+        command = [self._config.startup_ready_sound_player, "-q"]
+        player = shutil.which(command[0])
+        logger.info("STARTUP SOUND PLAYER: configured=%s resolved=%s", command[0], player)
+        if player is None:
+            logger.warning("STARTUP SOUND FAILED: reason=player_not_found player=%s", command[0])
+            return
+        command[0] = player
+        if self._config.startup_ready_sound_device is not None:
+            command.extend(("-D", self._config.startup_ready_sound_device))
+        command.append(str(sound))
+        logger.info("STARTUP SOUND COMMAND: %r", command)
+        try:
+            logger.info("READY SOUND: playback_started")
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            logger.info("STARTUP SOUND RESULT: returncode=%s stdout=%s stderr=%s", result.returncode, result.stdout.strip(), result.stderr.strip())
+            if result.returncode:
+                logger.warning("READY SOUND: playback_failed")
+                return
+            self._ready_sound_played = True
+            logger.info("READY SOUND: playback_success")
+        except OSError as error:
+            logger.warning("READY SOUND: playback_failed reason=%s", error)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         """Run until requested to stop or a supervised subsystem fails."""
@@ -442,6 +516,14 @@ def build_runtime(
     presence = PresenceInterpreter(core.events)
     attention = AttentionManager(core.events, lost_hold_seconds=config.attention_lost_hold_ms / 1000)
     vision_holder = {"pipeline": vision_pipeline}
+    startup = StartupReadiness()
+
+    def startup_view() -> dict:
+        view = startup.document()
+        splash_image = config.resolve_startup_splash_image()
+        view["splash"] = {"image": str(splash_image),
+                          "title": config.startup_splash_title, "subtitle": config.startup_splash_subtitle}
+        return view
     eye_render_loop = EyeRenderLoop(
         EyeRenderer(width=config.display_width, height=config.display_height,
                     transition_seconds=config.display_transition_seconds, iris_color=config.iris_color),
@@ -451,6 +533,7 @@ def build_runtime(
         fullscreen=config.fullscreen,
         preview_supplier=lambda: _preview_view(vision_holder["pipeline"]),
         preview_settings=_preview_settings(config),
+        startup_supplier=startup_view if config.startup_splash_enabled else None,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)
@@ -514,7 +597,7 @@ def build_runtime(
     runtime = PhosRuntime(core, behavior_engine, eye_render_loop, vision_pipeline=resolved_vision,
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
-                       presence_interpreter=presence, attention_manager=attention)
+                       presence_interpreter=presence, attention_manager=attention, startup=startup)
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

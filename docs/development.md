@@ -171,6 +171,37 @@ emotion inference or a direct classifier-to-renderer mapping. Existing complete
 documents missing this known block receive the scoped default injection above;
 strict validation still rejects all other missing or unknown fields.
 
+### Startup experience configuration
+
+`startup.splash.enabled` keeps the local face display on a lightweight PHOS
+startup screen until the runtime reaches `ready` or acceptable `degraded` state.
+`startup.splash.image`, `title`, and `subtitle` configure the deep-navy branded
+screen. A null image/file selects PHOS's installed `robot.assets` PNG/WAV;
+non-null overrides are resolved relative to the loaded `phos.json`, never the
+process working directory. The screen is deliberately unlike normal eyes and is
+flushed once before synchronous subsystem startup continues.
+`failed` remains on that screen. `startup.ready_sound` is an optional local WAV
+file played once with the lightweight system `aplay` command after the transition;
+when enabled its file must be readable. The cursor is hidden only on the local
+Tk face canvas, without disabling touch/pointer events or changing Web Admin.
+`player` is currently `aplay`; optional `device` is passed as `aplay -D DEVICE`.
+At startup, `STARTUP ASSETS` logs the configured and resolved splash/sound paths
+plus existence and readability. The Tk loader then logs the image format and
+dimensions, or its loader exception. The ready-sound log includes the resolved
+`aplay` binary, full command, return code, and stderr. For Pi troubleshooting,
+run that logged command manually (for example `aplay -q -D default path/to/ready.wav`).
+The `phos.service` unit runs `src/robot/main.py` with
+`--config %h/phos/config/phos.json` and `WorkingDirectory=%h/phos`; it sets no
+audio-session environment variables. Package defaults therefore do not depend
+on either the working directory or a developer home directory; ALSA selection is
+limited to the optional `startup.ready_sound.device` value.
+The repository configuration selects the packaged
+`robot.assets/images/phos-startup-800x600.png` and `robot.assets/audio/phos-startup.wav`.
+`run_pi.sh` transfers them as part of `src/`, and a wheel includes them as package
+data. The helper deliberately preserves an existing Pi `config/phos.json`; merge
+the `startup` block from the repository configuration into an already deployed
+configuration before expecting these defaults to take effect.
+
 ### Reusable configuration API and web layer
 
 `robot.config.RuntimeConfig` is the existing typed surface moved out of runtime;

@@ -30,6 +30,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.setuptools.package-data]
+"robot.assets" = ["images/*.png", "audio/*.wav"]
 "robot.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/swagger-ui/*"]
 
 [tool.setuptools.dynamic]

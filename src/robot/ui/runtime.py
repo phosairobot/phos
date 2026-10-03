@@ -14,6 +14,7 @@ from robot.core.behaviors import Behavior
 from .display import CameraPreviewSettings, CameraPreviewView, EyeDisplay
 from .eyes import EyeRenderer
 from .state import FaceState
+from robot.core.startup import StartupState
 
 
 class EyeRenderLoop(Behavior):
@@ -31,6 +32,7 @@ class EyeRenderLoop(Behavior):
         fullscreen: bool = True,
         preview_supplier: Optional[Callable[[], Optional[CameraPreviewView]]] = None,
         preview_settings: Optional[CameraPreviewSettings] = None,
+        startup_supplier: Optional[Callable[[], dict]] = None,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive.")
@@ -41,6 +43,7 @@ class EyeRenderLoop(Behavior):
         self._fullscreen = fullscreen
         self._preview_supplier = preview_supplier
         self._preview_settings = preview_settings or CameraPreviewSettings()
+        self._startup_supplier = startup_supplier
         self._task: Optional[asyncio.Task[None]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._appearance_lock = Lock()
@@ -82,7 +85,8 @@ class EyeRenderLoop(Behavior):
                 self._preview_settings = pending_preview
             initial = self._renderer.render(self._state_supplier(), timestamp=time.monotonic())
             self._display.open(initial.width, initial.height, fullscreen=self._fullscreen)
-            self._display.draw(initial)
+            self._draw(initial)
+            self._display.poll_keys()
             self._task = asyncio.create_task(self._run(), name="eye-render-loop")
             with self._appearance_lock:
                 self._appearance_ready = True
@@ -137,9 +141,20 @@ class EyeRenderLoop(Behavior):
             started_at = time.monotonic()
             frame = self._renderer.render(self._state_supplier(), timestamp=started_at)
             preview = self._preview_supplier() if self._preview_supplier is not None and self._preview_settings.enabled else None
-            if self._preview_settings.enabled:
-                self._display.draw(frame, preview, self._preview_settings)
-            else:
-                self._display.draw(frame)
+            self._draw(frame, preview)
             self._display.poll_keys()
             await asyncio.sleep(max(0.0, self._frame_interval - (time.monotonic() - started_at)))
+
+    def _draw(self, frame, preview=None) -> None:
+        if self._startup_supplier is not None:
+            startup = self._startup_supplier()
+            state = startup["overall_state"]
+            if state not in {StartupState.READY.value, StartupState.DEGRADED.value}:
+                splash = startup.get("splash", {})
+                self._display.draw_startup(state=state, message="Starting..." if state == "starting" else "Unable to start",
+                                           image_path=splash.get("image"), title=splash.get("title", "PHOS"), subtitle=splash.get("subtitle", "Starting..."))
+                return
+        if self._preview_settings.enabled:
+            self._display.draw(frame, preview, self._preview_settings)
+        else:
+            self._display.draw(frame)

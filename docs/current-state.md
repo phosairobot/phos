@@ -26,6 +26,25 @@ canonical `.[all]` runtime dependency aggregate, prepares the configured local
 ONNX model, and performs software-only smoke checks. Physical hardware setup
 and acceptance remain separate.
 
+PHOS 1.4.0 Slice 1 adds a local startup splash owned by the existing eye display.
+Runtime readiness records required display/core and optional Vision, sensors, and
+LED outcomes as `ready`, `degraded`, or `failed`; normal eyes appear only for
+ready/degraded startup. Optional local ready sound and face-display-only cursor
+hiding are configured through the canonical `startup` section. Physical Pi
+asset diagnostics now report the resolved splash/sound paths, readability,
+splash loader result, and `aplay` outcome. Default PHOS assets are packaged
+under `robot.assets`; explicit config overrides remain configuration-relative.
+Physical Pi acceptance remains pending.
+
+### Startup-experience Pi acceptance (pending)
+
+On power-on, confirm the splash appears before normal eyes; it must remain while
+components initialize. Confirm one ready sound when configured, normal eyes only
+after ready/degraded state, and a persistent startup error for a critical failure.
+Verify an unavailable optional sensor permits degraded startup. Move a mouse over
+the face display to confirm its cursor is hidden, then open Web Admin and confirm
+the browser cursor remains normal. Touch behavior is not implemented in this slice.
+
 ## Present in the repository
 
 ### Core and behavior

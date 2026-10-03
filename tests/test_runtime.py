@@ -1,5 +1,7 @@
 import asyncio
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -67,8 +69,52 @@ class FailingInitialDrawDisplay(MemoryEyeDisplay):
     def draw(self, frame):
         raise RuntimeError("display unavailable")
 
+    def draw_startup(self, *, state, message, image_path=None, title="PHOS", subtitle="Starting..."):
+        raise RuntimeError("display unavailable")
+
     def close(self):
         self.closed = True
+
+
+def _runtime_with_sound_config(tmp_path, *, sound_file=None):
+    from robot.config import load_document
+
+    document = load_document()
+    document["startup"]["ready_sound"]["enabled"] = True
+    document["startup"]["ready_sound"]["file"] = sound_file
+    runtime = build_runtime(config=RuntimeConfig.from_file(), eye_display=MemoryEyeDisplay())
+    runtime._config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    return runtime
+
+
+def test_ready_sound_reports_missing_file(tmp_path, caplog):
+    runtime = _runtime_with_sound_config(tmp_path, sound_file="missing.wav")
+    runtime._play_ready_sound()
+    assert "reason=file_not_found" in caplog.text
+    assert runtime._ready_sound_played is False
+
+
+def test_ready_sound_reports_missing_player(tmp_path, monkeypatch, caplog):
+    runtime = _runtime_with_sound_config(tmp_path)
+    monkeypatch.setattr("robot.runtime.shutil.which", lambda _player: None)
+    runtime._play_ready_sound()
+    assert "reason=player_not_found" in caplog.text
+    assert runtime._ready_sound_played is False
+
+
+def test_ready_sound_preserves_failure_and_only_marks_success(tmp_path, monkeypatch, caplog):
+    runtime = _runtime_with_sound_config(tmp_path)
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr("robot.runtime.shutil.which", lambda _player: "/usr/bin/aplay")
+    monkeypatch.setattr("robot.runtime.subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="ALSA error"))
+    runtime._play_ready_sound()
+    assert "returncode=1" in caplog.text
+    assert "ALSA error" in caplog.text
+    assert runtime._ready_sound_played is False
+
+    monkeypatch.setattr("robot.runtime.subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""))
+    runtime._play_ready_sound()
+    assert runtime._ready_sound_played is True
 
 
 def make_vision(events, camera, *, faces=None, observation=None):
@@ -140,6 +186,7 @@ def test_reloading_iris_appearance_updates_running_renderer_without_restarting_r
     async def exercise():
         document = load_document()
         document["display"]["iris_color"] = "cyan"
+        document["startup"]["ready_sound"]["enabled"] = False
         path = tmp_path / "phos.json"
         path.write_text(json.dumps(document))
         config = RuntimeConfig.from_file(path)
