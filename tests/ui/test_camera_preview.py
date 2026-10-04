@@ -1,6 +1,7 @@
 """Preview image transport and error handling without camera/display hardware."""
 
 from concurrent.futures import Future
+import logging
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -53,3 +54,38 @@ def test_preview_failure_is_logged_once_until_recovery(caplog):
     display._preview_future.set_result((2, 1, b"P6 2 1 255\n" + b"\x00" * 6))
     display._draw_preview(preview, settings, 800, 600)
     assert not display._preview_failed
+
+
+def test_invalid_startup_image_logs_loader_failure_without_crashing(caplog):
+    display = TkEyeDisplay()
+    display._root = SimpleNamespace(winfo_width=lambda: 800, winfo_height=lambda: 600)
+    display._canvas = Mock()
+    display._tk = SimpleNamespace(PhotoImage=Mock(side_effect=RuntimeError("unsupported image")))
+    display.draw_startup(state="starting", message="Starting...", image_path="/missing/image.webp")
+    assert "STARTUP SPLASH LOAD FAILED" in caplog.text
+    assert "unsupported image" in caplog.text
+
+
+def test_startup_splash_is_one_centered_full_screen_item(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    splash = tmp_path / "phos-startup-800x600.png"
+    splash.touch()
+    photo = SimpleNamespace(width=lambda: 800, height=lambda: 600)
+    display = TkEyeDisplay()
+    display._root = SimpleNamespace(winfo_geometry=lambda: "800x600+0+0")
+    display._canvas = Mock()
+    display._canvas.winfo_width.return_value = 800
+    display._canvas.winfo_height.return_value = 600
+    display._canvas.create_image.return_value = 17
+    display._tk = SimpleNamespace(PhotoImage=Mock(return_value=photo))
+
+    display.draw_startup(state="starting", message="Starting...", image_path=str(splash))
+    display.draw_startup(state="starting", message="Starting...", image_path=str(splash))
+
+    display._tk.PhotoImage.assert_called_once_with(file=str(splash))
+    display._canvas.create_image.assert_called_once_with(400, 300, image=photo, anchor="center")
+    assert display._startup_photo is photo
+    assert "root_geometry=800x600+0+0" in caplog.text
+    assert "canvas_size=800x600" in caplog.text
+    assert "source_size=800x600" in caplog.text
+    assert "resized_size=800x600" in caplog.text

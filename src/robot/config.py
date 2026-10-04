@@ -8,6 +8,7 @@ import os
 import tempfile
 import sys
 import copy
+from importlib import resources
 from dataclasses import asdict, dataclass, fields, field
 from pathlib import Path
 from typing import Optional, Tuple
@@ -65,11 +66,29 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
     try:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
         # Explicit schema evolution only: no general missing-key permissiveness.
-        if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve() and any(section not in document for section in ("presence", "attention", "expression_reactions")):
-            default = json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-            for section in ("presence", "attention", "expression_reactions"):
+        if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
+            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch")
+            missing_sections = tuple(section for section in evolving_sections if section not in document)
+            # A complete explicit config is self-contained; do not consult a
+            # separate default document merely to validate it.
+            default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+                       if missing_sections else None)
+            for section in missing_sections:
                 if section not in document:
                     document[section] = copy.deepcopy(default[section])
+                    if section == "startup":
+                        # Existing configurations did not opt in to an audio asset;
+                        # retain their hardware-independent startup behavior.
+                        document[section]["ready_sound"]["enabled"] = False
+                        document[section]["ready_sound"]["file"] = None
+            startup = document.get("startup")
+            default_startup = default["startup"] if default is not None else None
+            if isinstance(startup, dict) and default_startup is not None:
+                for section in ("splash", "ready_sound"):
+                    value = startup.get(section)
+                    if isinstance(value, dict):
+                        for key, default_value in default_startup[section].items():
+                            value.setdefault(key, copy.deepcopy(default_value))
         return document
     except json.JSONDecodeError as error:
         raise ConfigurationError(f"{path}: invalid JSON at line {error.lineno}, column {error.colno}") from error
@@ -151,6 +170,9 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
+    "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
+    "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
+                "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
     "behavior": {"blink_interval_seconds": "blink_interval_seconds", "gaze_interval_seconds": "gaze_interval_seconds",
                  "face_gaze_smoothing": "face_gaze_smoothing", "reaction_decay_per_second": "reaction_decay_per_second",
                  "imu_reaction_strength": "imu_reaction_strength", "imu_tilt_gaze_strength": "imu_tilt_gaze_strength",
@@ -210,7 +232,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file"}
+_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size"}
 
@@ -255,6 +277,25 @@ class RuntimeConfig:
     presence_led_left_duration_ms: int
     presence_led_left_direction: str
     attention_lost_hold_ms: int
+    touch_enabled: bool
+    touch_tap_max_duration_ms: int
+    touch_tap_max_movement_px: int
+    touch_long_press_min_duration_ms: int
+    touch_long_press_max_movement_px: int
+    touch_swipe_min_distance_px: int
+    touch_swipe_max_vertical_drift_px: int
+    touch_swipe_max_duration_ms: int
+    touch_reaction_enabled: bool
+    touch_reaction_duration_ms: int
+    touch_reaction_cooldown_ms: int
+    startup_splash_enabled: bool
+    startup_splash_image: Optional[Path]
+    startup_splash_title: str
+    startup_splash_subtitle: str
+    startup_ready_sound_enabled: bool
+    startup_ready_sound_file: Optional[Path]
+    startup_ready_sound_player: str
+    startup_ready_sound_device: Optional[str]
     environmental_enabled: bool
     environmental_i2c_address: str
     environmental_poll_interval_seconds: float
@@ -457,6 +498,16 @@ class RuntimeConfig:
     def resolve_path(self, path: Optional[Path]) -> Optional[Path]:
         return None if path is None else (self._base_dir / path).resolve()
 
+    @staticmethod
+    def _bundled_asset_path(relative_path: str) -> Path:
+        return Path(str(resources.files("robot.assets").joinpath(relative_path)))
+
+    def resolve_startup_splash_image(self) -> Path:
+        return self.resolve_path(self.startup_splash_image) or self._bundled_asset_path("images/phos-startup-800x600.png")
+
+    def resolve_startup_ready_sound(self) -> Path:
+        return self.resolve_path(self.startup_ready_sound_file) or self._bundled_asset_path("audio/phos-startup.wav")
+
     @property
     def vision_enabled(self) -> bool:
         return self.face_tracking_enabled or self.expression_enabled or self.camera_preview_enabled
@@ -578,7 +629,8 @@ class RuntimeConfig:
             raise ConfigurationError("presence LED directions must be clockwise or counter_clockwise")
         for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
-                     "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled"):
+                     "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
+                     "startup_splash_enabled", "startup_ready_sound_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ConfigurationError(f"{name} must be a boolean")
         for name in ("camera_resolution", "expression_input_size", "detector_min_size"):
@@ -603,6 +655,13 @@ class RuntimeConfig:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:
             raise ConfigurationError("display.environment_overlays_enabled must be a boolean")
+        for name in ("startup_splash_title", "startup_splash_subtitle"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
+                raise ConfigurationError(f"{name} must be a nonempty string")
+        if not isinstance(self.startup_ready_sound_player, str) or self.startup_ready_sound_player != "aplay":
+            raise ConfigurationError("startup.ready_sound.player must be aplay")
+        if self.startup_ready_sound_device is not None and (not isinstance(self.startup_ready_sound_device, str) or not self.startup_ready_sound_device.strip()):
+            raise ConfigurationError("startup.ready_sound.device must be a nonempty ALSA device or null")
         if not isinstance(self.camera_preview_position, str) or self.camera_preview_position not in {
             "top_left", "top_right", "bottom_left", "bottom_right"
         }:
@@ -644,3 +703,7 @@ class RuntimeConfig:
         if log is not None and (not log.parent.is_dir() or not os.access(log.parent, os.W_OK)
                                 or (log.exists() and (not log.is_file() or not os.access(log, os.W_OK)))):
             raise ConfigurationError(f"logging.file: writable file/parent required: {log}")
+        if self.startup_ready_sound_enabled:
+            sound = self.resolve_startup_ready_sound()
+            if not sound.is_file() or not os.access(sound, os.R_OK):
+                raise ConfigurationError(f"startup.ready_sound.file: readable file required: {sound}")

@@ -41,6 +41,11 @@
     }
   },
   "attention": {"lost_hold_ms": 800},
+  "touch": {"enabled": true, "tap": {"max_duration_ms": 350, "max_movement_px": 20}, "long_press": {"min_duration_ms": 800, "max_movement_px": 20}, "swipe": {"min_distance_px": 100, "max_vertical_drift_px": 80, "max_duration_ms": 1000}, "reaction": {"enabled": true, "duration_ms": 700, "cooldown_ms": 400}},
+  "startup": {
+    "splash": {"enabled": true, "image": null, "title": "PHOS", "subtitle": "Starting..."},
+    "ready_sound": {"enabled": true, "file": null, "player": "aplay", "device": null}
+  },
   "behavior": {
     "blink_interval_seconds": [3.5, 6.5],
     "gaze_interval_seconds": [2.5, 5.5],
