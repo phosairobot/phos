@@ -24,3 +24,4 @@ __all__ = [
     "TkEyeDisplay",
     "VisualAccent",
 ]
+from .touch import TouchEvent, TouchInputAdapter, TouchKind

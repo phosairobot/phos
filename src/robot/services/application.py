@@ -28,6 +28,7 @@ from robot.core.attention import (ATTENTION_CHANGED, ATTENTION_TARGET_ACQUIRED,
 from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
 from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESSION_REACTION_COMPLETED,
                                             EXPRESSION_REACTION_SUPPRESSED)
+from robot.core.touch import TOUCH_EVENT_NAMES
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -171,6 +172,20 @@ class RemoteApplicationService:
                      "payload": payload}
             for listener in tuple(self._listeners):
                 listener(event)
+        # A separate WSGI worker receives snapshots over the bounded lifecycle
+        # channel.  Convert only a newly observed completed gesture into the
+        # same edge event emitted by an in-process application service.
+        touch = current.get("touch", {})
+        touch_key = touch.get("last_event_at")
+        kind = touch.get("last_event")
+        if touch_key is not None and kind in TOUCH_EVENT_NAMES and self._last.get("touch_gesture") != touch_key:
+            self._last["touch_gesture"] = touch_key
+            payload = {key: touch.get(key) for key in ("x", "y", "normalized_x", "normalized_y", "duration_ms")}
+            payload["kind"] = kind
+            event = {"type": TOUCH_EVENT_NAMES[kind],
+                     "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), "payload": payload}
+            for listener in tuple(self._listeners):
+                listener(event)
 
 
 class PhosApplicationService:
@@ -198,6 +213,8 @@ class PhosApplicationService:
             self._core.events.subscribe(EXPRESSION_REACTION_STARTED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_COMPLETED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_SUPPRESSED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
+            *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
+              for name in TOUCH_EVENT_NAMES.values()],
         ]
 
     def close(self):
@@ -214,12 +231,12 @@ class PhosApplicationService:
                     self._listeners.remove(listener)
         return unsubscribe
 
-    def _emit(self, event_type: str, payload: dict):
+    def _emit(self, event_type: str, payload: dict, *, force: bool = False):
         # State-change events can arrive through more than one runtime path;
         # suppress identical consecutive payloads before crossing adapters.
         frozen = repr(payload)
         with self._lock:
-            if self._last.get(event_type) == frozen:
+            if not force and self._last.get(event_type) == frozen:
                 return
             self._last[event_type] = frozen
             listeners = tuple(self._listeners)
@@ -289,6 +306,14 @@ class PhosApplicationService:
         return {"state": plain["state"], "target": {"id": plain["target_id"], "x": plain["target_x"],
                 "y": plain["target_y"], "confidence": plain["confidence"]}, "acquired_at": plain["acquired_at"],
                 "last_seen": plain["last_seen"]}
+
+    def touch(self) -> dict:
+        reader = getattr(self._runtime, "touch_status", None)
+        if reader is not None:
+            return self._plain(reader())
+        return {"enabled": False, "last_event": None, "last_event_at": None,
+                "x": None, "y": None, "normalized_x": None, "normalized_y": None,
+                "duration_ms": None}
 
     def observed_expression(self) -> dict:
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
@@ -393,6 +418,7 @@ class PhosApplicationService:
         result["attention"] = self.attention()
         result["observed_expression"] = self.observed_expression()
         result["expression_reaction"] = self.expression_reaction()
+        result["touch"] = self.touch()
         result.setdefault("sensors", self.sensors())
         self._emit("visual_state_changed", result["visual"])
         return result
@@ -411,6 +437,7 @@ class PhosApplicationService:
         self._emit("attention_changed", self.attention())
         self._emit("observed_expression_changed", self.observed_expression())
         self._emit("expression_reaction_changed", self.expression_reaction())
+        self._emit("touch_changed", self.touch())
 
     def config(self) -> dict:
         if self._lifecycle is None:

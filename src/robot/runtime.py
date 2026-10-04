@@ -24,6 +24,7 @@ from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorServi
 from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalSettings, Event, EventBus,
                         RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
+from robot.core.touch import TOUCH_EVENT, TOUCH_EVENT_NAMES, TouchStatus
 from robot.core.expression_reaction import ExpressionReactionPolicy
 from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
@@ -76,6 +77,7 @@ class PhosRuntime:
         self._attention_manager = attention_manager
         self._startup = startup or StartupReadiness()
         self._ready_sound_played = False
+        self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
         self._loop = None
         self._vision_changed: Optional[asyncio.Event] = None
@@ -179,7 +181,12 @@ class PhosRuntime:
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
             "startup": self._startup.document(),
+            "touch": self.touch_status(),
         }
+
+    def touch_status(self) -> dict:
+        """Read-only completed-gesture state for application adapters."""
+        return self._touch_status.document()
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
         """Apply validated interpretation settings without reopening the IMU."""
@@ -517,6 +524,17 @@ def build_runtime(
     attention = AttentionManager(core.events, lost_hold_seconds=config.attention_lost_hold_ms / 1000)
     vision_holder = {"pipeline": vision_pipeline}
     startup = StartupReadiness()
+    def publish_touch(event) -> None:
+        runtime = runtime_holder.get("runtime")
+        if not config.touch_enabled or runtime is None or not runtime._started:
+            return
+        payload = {"kind": event.kind.value, "x": event.x, "y": event.y,
+                   "normalized_x": event.normalized_x, "normalized_y": event.normalized_y,
+                   "duration_ms": event.duration_ms}
+        runtime._touch_status = runtime._touch_status.record(event)
+        logger.info("TOUCH EVENT kind=%s x=%s y=%s duration_ms=%s", event.kind.value, event.x, event.y, event.duration_ms)
+        asyncio.create_task(core.events.publish(Event(TOUCH_EVENT, payload)))
+        asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 
     def startup_view() -> dict:
         view = startup.document()
@@ -534,6 +552,8 @@ def build_runtime(
         preview_supplier=lambda: _preview_view(vision_holder["pipeline"]),
         preview_settings=_preview_settings(config),
         startup_supplier=startup_view if config.startup_splash_enabled else None,
+        touch_handler=publish_touch,
+        touch_settings={"tap_max_duration_ms": config.touch_tap_max_duration_ms, "tap_max_movement_px": config.touch_tap_max_movement_px, "long_press_min_duration_ms": config.touch_long_press_min_duration_ms, "long_press_max_movement_px": config.touch_long_press_max_movement_px, "swipe_min_distance_px": config.touch_swipe_min_distance_px, "swipe_max_vertical_drift_px": config.touch_swipe_max_vertical_drift_px, "swipe_max_duration_ms": config.touch_swipe_max_duration_ms},
     )
     core.add_behavior(presence)
     core.add_behavior(attention)

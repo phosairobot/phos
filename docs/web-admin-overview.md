@@ -54,6 +54,10 @@ motion, visual source and overlay intent without reimplementing sensor
 interpreters in the browser. Runtime controls and overlay choices are populated
 from Remote API capabilities on Controls, not browser-maintained enum lists.
 
+The same read-only status cards show face-display touch telemetry: enabled
+state, the last completed semantic gesture, position, normalized position,
+duration and timestamp. Raw pointer input is neither retained nor streamed.
+
 ## Save, reload, restart
 
 <div class="phos-callout" markdown>

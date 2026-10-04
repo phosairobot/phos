@@ -67,8 +67,13 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
         # Explicit schema evolution only: no general missing-key permissiveness.
         if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
-            default = json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-            for section in ("presence", "attention", "expression_reactions", "startup"):
+            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch")
+            missing_sections = tuple(section for section in evolving_sections if section not in document)
+            # A complete explicit config is self-contained; do not consult a
+            # separate default document merely to validate it.
+            default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+                       if missing_sections else None)
+            for section in missing_sections:
                 if section not in document:
                     document[section] = copy.deepcopy(default[section])
                     if section == "startup":
@@ -77,8 +82,8 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                         document[section]["ready_sound"]["enabled"] = False
                         document[section]["ready_sound"]["file"] = None
             startup = document.get("startup")
-            default_startup = default["startup"]
-            if isinstance(startup, dict):
+            default_startup = default["startup"] if default is not None else None
+            if isinstance(startup, dict) and default_startup is not None:
                 for section in ("splash", "ready_sound"):
                     value = startup.get(section)
                     if isinstance(value, dict):
@@ -165,6 +170,7 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
+    "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
     "behavior": {"blink_interval_seconds": "blink_interval_seconds", "gaze_interval_seconds": "gaze_interval_seconds",
@@ -271,6 +277,17 @@ class RuntimeConfig:
     presence_led_left_duration_ms: int
     presence_led_left_direction: str
     attention_lost_hold_ms: int
+    touch_enabled: bool
+    touch_tap_max_duration_ms: int
+    touch_tap_max_movement_px: int
+    touch_long_press_min_duration_ms: int
+    touch_long_press_max_movement_px: int
+    touch_swipe_min_distance_px: int
+    touch_swipe_max_vertical_drift_px: int
+    touch_swipe_max_duration_ms: int
+    touch_reaction_enabled: bool
+    touch_reaction_duration_ms: int
+    touch_reaction_cooldown_ms: int
     startup_splash_enabled: bool
     startup_splash_image: Optional[Path]
     startup_splash_title: str

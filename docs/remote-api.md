@@ -40,7 +40,7 @@ All read endpoints use `GET` and return JSON.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `/api/v1/status` | Consolidated robot, visual, environmental, motion, health, presence and attention state. |
+| `/api/v1/status` | Consolidated robot, visual, environmental, motion, health, presence, attention and touch state. |
 | `/api/v1/presence` | Current provider-neutral Presence read model. |
 | `/api/v1/attention` | Current provider-neutral Attention read model and optional target. |
 | `/api/v1/observed-expression` | Latest uncertain classifier observation for the selected face. |
@@ -74,6 +74,12 @@ and not a statement of a person's emotion. It returns HTTP 200 with
 freshness window has expired); this does not imply that Presence is `no_one`. When available, confidence is the actual classifier
 confidence. `observed_expression_changed` SSE events are emitted only when
 availability or label changes, not for confidence jitter alone.
+
+Touch is physical-input telemetry, not a remote command. Its read model reports
+only the last valid completed `tap`, `long_press`, `swipe_left`, or
+`swipe_right`; raw pointer movement and startup-splash input are not recorded.
+The SSE stream emits the matching edge event name once per completed gesture,
+with position, normalized position and duration payload fields.
 
 ## Capabilities
 

@@ -12,6 +12,7 @@ import time
 from typing import Any, Deque, List, Optional
 
 from .eyes import EyeFrame, EyeGeometry
+from .touch import TouchInputAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,10 @@ class TkEyeDisplay(EyeDisplay):
         self._startup_photo = None
         self._startup_image_item = None
         self._startup_image_path = None
+        self._touch_adapter = None
+
+    def set_touch_handler(self, handler, **settings) -> None:
+        self._touch_adapter = TouchInputAdapter(handler, **settings)
 
     def open(self, width: int, height: int, *, fullscreen: bool) -> None:
         if self._root is not None:
@@ -173,6 +178,8 @@ class TkEyeDisplay(EyeDisplay):
         canvas = tk.Canvas(root, highlightthickness=0, borderwidth=0)
         canvas.pack(fill=tk.BOTH, expand=True)
         canvas.configure(cursor="none")
+        canvas.bind("<ButtonPress-1>", lambda event: self._touch_adapter and self._touch_adapter.down(event.x, event.y))
+        canvas.bind("<ButtonRelease-1>", lambda event: self._touch_adapter and self._touch_adapter.release(event.x, event.y))
         self._root = root
         self._canvas = canvas
         self._tk = tk

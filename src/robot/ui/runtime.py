@@ -33,6 +33,8 @@ class EyeRenderLoop(Behavior):
         preview_supplier: Optional[Callable[[], Optional[CameraPreviewView]]] = None,
         preview_settings: Optional[CameraPreviewSettings] = None,
         startup_supplier: Optional[Callable[[], dict]] = None,
+        touch_handler: Optional[Callable] = None,
+        touch_settings: Optional[dict] = None,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive.")
@@ -44,6 +46,8 @@ class EyeRenderLoop(Behavior):
         self._preview_supplier = preview_supplier
         self._preview_settings = preview_settings or CameraPreviewSettings()
         self._startup_supplier = startup_supplier
+        self._touch_handler = touch_handler
+        self._touch_settings = touch_settings or {}
         self._task: Optional[asyncio.Task[None]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._appearance_lock = Lock()
@@ -85,6 +89,8 @@ class EyeRenderLoop(Behavior):
                 self._preview_settings = pending_preview
             initial = self._renderer.render(self._state_supplier(), timestamp=time.monotonic())
             self._display.open(initial.width, initial.height, fullscreen=self._fullscreen)
+            if self._touch_handler is not None and hasattr(self._display, "set_touch_handler"):
+                self._display.set_touch_handler(self._touch_handler, **self._touch_settings)
             self._draw(initial)
             self._display.poll_keys()
             self._task = asyncio.create_task(self._run(), name="eye-render-loop")
