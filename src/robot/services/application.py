@@ -29,6 +29,9 @@ from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
 from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESSION_REACTION_COMPLETED,
                                             EXPRESSION_REACTION_SUPPRESSED)
 from robot.core.touch import TOUCH_EVENT_NAMES
+from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SESSION_CANCELLED, VOICE_SPEECH_ENDED,
+                                 VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
+from robot.voice.capture import UnsupportedCaptureRate
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -115,6 +118,10 @@ class RemoteApplicationService:
     def motion(self): return self._call("motion")
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
+    def voice(self): return self._call("voice")
+    def start_listening(self): return self._call("start_listening")
+    def stop_listening(self): return self._call("stop_listening")
+    def cancel_voice_session(self): return self._call("cancel_voice_session")
     def observed_expression(self): return self._call("observed_expression")
     def health(self): return self._call("health")
     def capabilities(self): return self._call("capabilities")
@@ -154,6 +161,7 @@ class RemoteApplicationService:
                 "attention_changed": current.get("attention", {}),
                 "observed_expression_changed": current.get("observed_expression", {}),
                 "expression_reaction_changed": current.get("expression_reaction", {}),
+                "voice_changed": current.get("voice", {}),
             }
         except ApplicationError:
             return
@@ -215,6 +223,8 @@ class PhosApplicationService:
             self._core.events.subscribe(EXPRESSION_REACTION_SUPPRESSED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
               for name in TOUCH_EVENT_NAMES.values()],
+            *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
+              for name in (VOICE_LISTENING_STARTED, VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED, VOICE_ERROR)],
         ]
 
     def close(self):
@@ -314,6 +324,10 @@ class PhosApplicationService:
         return {"enabled": False, "last_event": None, "last_event_at": None,
                 "x": None, "y": None, "normalized_x": None, "normalized_y": None,
                 "duration_ms": None}
+
+    def voice(self) -> dict:
+        reader = getattr(self._runtime, "voice_status", None)
+        return self._plain(reader()) if reader is not None else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
 
     def observed_expression(self) -> dict:
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
@@ -419,6 +433,7 @@ class PhosApplicationService:
         result["observed_expression"] = self.observed_expression()
         result["expression_reaction"] = self.expression_reaction()
         result["touch"] = self.touch()
+        result["voice"] = self.voice()
         result.setdefault("sensors", self.sensors())
         self._emit("visual_state_changed", result["visual"])
         return result
@@ -438,6 +453,26 @@ class PhosApplicationService:
         self._emit("observed_expression_changed", self.observed_expression())
         self._emit("expression_reaction_changed", self.expression_reaction())
         self._emit("touch_changed", self.touch())
+        self._emit("voice_changed", self.voice())
+
+    def _voice_command(self, method, *, cancelled=False, operation):
+        loop = self._runtime._loop
+        if loop is None: raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return asyncio.run_coroutine_threadsafe(method(cancelled=cancelled) if method.__name__ == "stop_listening" else method(), loop).result(timeout=2)
+        except UnsupportedCaptureRate as error:
+            logger.exception("VOICE SESSION: failed operation=%s exception_type=%s exception_message=%s",
+                             operation, type(error).__name__, error)
+            raise ApplicationError("unsupported_capture_rate", "The selected microphone does not support a usable PCM16 capture rate.",
+                                   {"requested_rate": error.requested_rate, "device_default_rate": error.device_default_rate}, 503) from error
+        except Exception as error:
+            logger.exception("VOICE SESSION: failed operation=%s exception_type=%s exception_message=%s",
+                             operation, type(error).__name__, error)
+            raise ApplicationError("voice_unavailable", "Voice session could not be started or stopped.", {"reason": type(error).__name__}, 503) from error
+
+    def start_listening(self): return self._voice_command(self._runtime.start_listening, operation="start")
+    def stop_listening(self): return self._voice_command(self._runtime.stop_listening, operation="stop")
+    def cancel_voice_session(self): return self._voice_command(self._runtime.stop_listening, cancelled=True, operation="cancel")
 
     def config(self) -> dict:
         if self._lifecycle is None:

@@ -30,6 +30,7 @@ from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.runtime import EyeRenderLoop
+from robot.voice import PyAudioCaptureProvider, ResamplingAudioCaptureProvider, VoiceCaptureSession, VoskSTTProvider
 from robot.vision import (
     ExpressionSmoother,
     OpenCVExpressionProvider,
@@ -62,6 +63,7 @@ class PhosRuntime:
         presence_interpreter: Optional[PresenceInterpreter] = None,
         attention_manager: Optional[AttentionManager] = None,
         startup: Optional[StartupReadiness] = None,
+        voice_session: Optional[VoiceCaptureSession] = None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
@@ -77,6 +79,7 @@ class PhosRuntime:
         self._attention_manager = attention_manager
         self._startup = startup or StartupReadiness()
         self._ready_sound_played = False
+        self._voice_session = voice_session
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
         self._loop = None
@@ -182,11 +185,22 @@ class PhosRuntime:
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
             "startup": self._startup.document(),
             "touch": self.touch_status(),
+            "voice": self.voice_status(),
         }
 
     def touch_status(self) -> dict:
         """Read-only completed-gesture state for application adapters."""
         return self._touch_status.document()
+
+    def voice_status(self) -> dict:
+        return self._voice_session.status() if self._voice_session else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
+
+    async def start_listening(self):
+        if self._voice_session is None: raise RuntimeError("Voice is unavailable")
+        return await self._voice_session.start()
+
+    async def stop_listening(self, *, cancelled=False):
+        return self.voice_status() if self._voice_session is None else await self._voice_session.stop(cancelled=cancelled)
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
         """Apply validated interpretation settings without reopening the IMU."""
@@ -524,6 +538,19 @@ def build_runtime(
     attention = AttentionManager(core.events, lost_hold_seconds=config.attention_lost_hold_ms / 1000)
     vision_holder = {"pipeline": vision_pipeline}
     startup = StartupReadiness()
+    async def voice_transition(target, reason):
+        if core.state is not target:
+            await core.transition_to(target, reason=reason)
+    voice = VoiceCaptureSession(
+        ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
+            config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms), config.voice_processing_sample_rate),
+        VoskSTTProvider(config.resolve_path(config.voice_stt_model_path), config.voice_stt_language), core.events, voice_transition,
+        enabled=config.voice_enabled, sample_rate=config.voice_processing_sample_rate, channels=config.voice_channels, chunk_ms=config.voice_chunk_ms,
+        speech_start_ms=config.voice_speech_start_ms, silence_end_ms=config.voice_silence_end_ms,
+        min_utterance_ms=config.voice_min_utterance_ms, max_utterance_ms=config.voice_max_utterance_ms,
+        pre_roll_ms=config.voice_pre_roll_ms, threshold=config.voice_vad_threshold,
+        debug_dump_utterance_wav=config.voice_debug_dump_utterance_wav,
+        debug_utterance_wav_path=config.resolve_path(config.voice_debug_utterance_wav_path))
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:
@@ -617,7 +644,7 @@ def build_runtime(
     runtime = PhosRuntime(core, behavior_engine, eye_render_loop, vision_pipeline=resolved_vision,
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
-                       presence_interpreter=presence, attention_manager=attention, startup=startup)
+                       presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice)
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

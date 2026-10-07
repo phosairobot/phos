@@ -32,7 +32,7 @@ validate_platform() {
 install_system_packages() {
     local -a packages=(
         build-essential ca-certificates git i2c-tools libcap-dev opencv-data python3-dev
-        python3-opencv python3-picamera2 python3-smbus python3-tk python3-venv
+        python3-opencv python3-picamera2 python3-pyaudio python3-smbus python3-tk python3-venv
         rpicam-apps wget
     )
     local sudo_cmd=()
@@ -74,6 +74,7 @@ from robot.config import RuntimeConfig
 RuntimeConfig.from_file()
 print(f"PHOS {__version__} software imports and configuration are ready; OpenCV {cv2.__version__}")
 '
+    "$VENV/bin/python" tools/check_opencv.py
     "$VENV/bin/pip" check
 }
 

@@ -67,12 +67,22 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
         # Explicit schema evolution only: no general missing-key permissiveness.
         if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
-            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch")
+            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice")
             missing_sections = tuple(section for section in evolving_sections if section not in document)
+            voice_document = document.get("voice")
+            needs_voice_defaults = (isinstance(voice_document, dict)
+                                    and ("processing" not in voice_document
+                                         or not isinstance(voice_document.get("input"), dict)
+                                         or "device_index" not in voice_document.get("input", {})
+                                         or not isinstance(voice_document.get("vad"), dict)
+                                         or "pre_roll_ms" not in voice_document.get("vad", {})
+                                         or not isinstance(voice_document.get("debug"), dict)
+                                         or "dump_utterance_wav" not in voice_document.get("debug", {})
+                                         or "utterance_wav_path" not in voice_document.get("debug", {})))
             # A complete explicit config is self-contained; do not consult a
             # separate default document merely to validate it.
             default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-                       if missing_sections else None)
+                       if missing_sections or needs_voice_defaults else None)
             for section in missing_sections:
                 if section not in document:
                     document[section] = copy.deepcopy(default[section])
@@ -81,6 +91,16 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                         # retain their hardware-independent startup behavior.
                         document[section]["ready_sound"]["enabled"] = False
                         document[section]["ready_sound"]["file"] = None
+            if isinstance(document.get("voice"), dict) and default is not None:
+                voice = document["voice"]
+                voice.setdefault("processing", copy.deepcopy(default["voice"]["processing"]))
+                voice.setdefault("input", copy.deepcopy(default["voice"]["input"]))
+                voice["input"].setdefault("device_index", None)
+                voice.setdefault("vad", copy.deepcopy(default["voice"]["vad"]))
+                voice["vad"].setdefault("pre_roll_ms", default["voice"]["vad"]["pre_roll_ms"])
+                voice.setdefault("debug", copy.deepcopy(default["voice"]["debug"]))
+                voice["debug"].setdefault("dump_utterance_wav", default["voice"]["debug"]["dump_utterance_wav"])
+                voice["debug"].setdefault("utterance_wav_path", default["voice"]["debug"]["utterance_wav_path"])
             startup = document.get("startup")
             default_startup = default["startup"] if default is not None else None
             if isinstance(startup, dict) and default_startup is not None:
@@ -170,6 +190,7 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
+    "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language"}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
@@ -232,7 +253,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image"}
+_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size"}
 
@@ -277,6 +298,24 @@ class RuntimeConfig:
     presence_led_left_duration_ms: int
     presence_led_left_direction: str
     attention_lost_hold_ms: int
+    voice_enabled: bool
+    voice_input_device: Optional[str]
+    voice_input_device_index: Optional[int]
+    voice_capture_sample_rate: Optional[int]
+    voice_processing_sample_rate: int
+    voice_channels: int
+    voice_chunk_ms: int
+    voice_speech_start_ms: int
+    voice_silence_end_ms: int
+    voice_min_utterance_ms: int
+    voice_max_utterance_ms: int
+    voice_pre_roll_ms: int
+    voice_vad_threshold: int
+    voice_debug_dump_utterance_wav: bool
+    voice_debug_utterance_wav_path: Path
+    voice_stt_provider: str
+    voice_stt_model_path: Optional[Path]
+    voice_stt_language: Optional[str]
     touch_enabled: bool
     touch_tap_max_duration_ms: int
     touch_tap_max_movement_px: int
@@ -623,11 +662,30 @@ class RuntimeConfig:
             number(name, minimum=0 if name != "expression_reactions_duration_ms" else 1, inclusive=True, maximum=60000, integer=True)
         number("expression_crop_margin", inclusive=True, maximum=.5)
         number("attention_lost_hold_ms", minimum=0, inclusive=True, maximum=60000, integer=True)
+        for name in ("voice_processing_sample_rate", "voice_channels", "voice_chunk_ms", "voice_speech_start_ms", "voice_silence_end_ms", "voice_min_utterance_ms", "voice_max_utterance_ms", "voice_vad_threshold"):
+            number(name, minimum=1, inclusive=True, maximum=192000 if name == "voice_processing_sample_rate" else 60000, integer=True)
+        number("voice_pre_roll_ms", minimum=0, inclusive=True, maximum=1000, integer=True)
+        if self.voice_capture_sample_rate is not None:
+            number("voice_capture_sample_rate", minimum=8000, inclusive=True, maximum=192000, integer=True)
+        if self.voice_processing_sample_rate != 16000 or self.voice_channels != 1:
+            raise ConfigurationError("voice.processing requires 16 kHz mono PCM")
+        if self.voice_chunk_ms not in {10, 20, 30, 40, 50, 60} or self.voice_speech_start_ms < self.voice_chunk_ms or self.voice_silence_end_ms < self.voice_chunk_ms or self.voice_min_utterance_ms >= self.voice_max_utterance_ms:
+            raise ConfigurationError("voice VAD timing is invalid")
+        if self.voice_input_device is not None and (not isinstance(self.voice_input_device, str) or not self.voice_input_device.strip()):
+            raise ConfigurationError("voice input or STT provider is invalid")
+        if self.voice_input_device_index is not None and (type(self.voice_input_device_index) is not int or self.voice_input_device_index < 0):
+            raise ConfigurationError("voice.input.device_index must be a nonnegative integer or null")
+        if self.voice_debug_utterance_wav_path is None:
+            raise ConfigurationError("voice.debug.utterance_wav_path must be a nonempty path")
+        if self.voice_stt_provider != "local":
+            raise ConfigurationError("voice input or STT provider is invalid")
+        if self.voice_stt_language is not None and (not isinstance(self.voice_stt_language, str) or not self.voice_stt_language.strip()):
+            raise ConfigurationError("voice.stt.language must be a nonempty string or null")
         for name in ("presence_led_entered_duration_ms", "presence_led_left_duration_ms"):
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:
             raise ConfigurationError("presence LED directions must be clockwise or counter_clockwise")
-        for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
+        for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
                      "startup_splash_enabled", "startup_ready_sound_enabled"):
@@ -707,3 +765,7 @@ class RuntimeConfig:
             sound = self.resolve_startup_ready_sound()
             if not sound.is_file() or not os.access(sound, os.R_OK):
                 raise ConfigurationError(f"startup.ready_sound.file: readable file required: {sound}")
+        if self.voice_enabled and self.voice_stt_model_path is not None:
+            model = self.resolve_path(self.voice_stt_model_path)
+            if model is None or not model.is_dir() or not os.access(model, os.R_OK):
+                raise ConfigurationError(f"voice.stt.model_path: readable model directory required: {model}")

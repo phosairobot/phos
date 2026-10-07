@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 
 from flask import Flask
@@ -25,6 +26,68 @@ class Runtime:
 
     def apply_base_visual_source(self, config):
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
+
+
+class _VoiceFuture:
+    def __init__(self, result=None, error=None):
+        self._result, self._error = result, error
+
+    def result(self, timeout):
+        if self._error:
+            raise self._error
+        return self._result
+
+
+def test_voice_start_failure_logs_traceback_and_keeps_stable_503(monkeypatch, caplog):
+    runtime = Runtime()
+    runtime._loop = object()
+
+    async def start_listening():
+        return {"state": "listening"}
+
+    runtime.start_listening = start_listening
+
+    def failed_submit(coroutine, loop):
+        coroutine.close()
+        return _VoiceFuture(error=RuntimeError("microphone exploded"))
+
+    monkeypatch.setattr("robot.services.application.asyncio.run_coroutine_threadsafe", failed_submit)
+    app = Flask(__name__)
+    app.register_blueprint(create_api(PhosApplicationService(runtime)))
+
+    with caplog.at_level(logging.ERROR):
+        response = app.test_client().post("/api/v1/voice/listen")
+
+    assert response.status_code == 503
+    assert response.json == {"error": {"code": "voice_unavailable",
+                                        "message": "Voice session could not be started or stopped.",
+                                        "details": {"reason": "RuntimeError"}}}
+    assert "VOICE SESSION: failed operation=start exception_type=RuntimeError exception_message=microphone exploded" in caplog.text
+    assert "Traceback" in caplog.text
+    assert "microphone exploded" not in response.get_data(as_text=True)
+
+
+def test_voice_start_success_still_returns_session_status(monkeypatch):
+    runtime = Runtime()
+    runtime._loop = object()
+
+    async def start_listening():
+        return {"state": "listening", "listening": True}
+
+    runtime.start_listening = start_listening
+
+    def successful_submit(coroutine, loop):
+        coroutine.close()
+        return _VoiceFuture(result={"state": "listening", "listening": True})
+
+    monkeypatch.setattr("robot.services.application.asyncio.run_coroutine_threadsafe", successful_submit)
+    app = Flask(__name__)
+    app.register_blueprint(create_api(PhosApplicationService(runtime)))
+
+    response = app.test_client().post("/api/v1/voice/listen")
+
+    assert response.status_code == 200
+    assert response.json == {"state": "listening", "listening": True}
 
 
 def test_versioned_status_and_stable_error_document():
