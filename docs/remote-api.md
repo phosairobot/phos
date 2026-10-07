@@ -43,6 +43,7 @@ All read endpoints use `GET` and return JSON.
 | `/api/v1/status` | Consolidated robot, visual, environmental, motion, health, presence, attention and touch state. |
 | `/api/v1/presence` | Current provider-neutral Presence read model. |
 | `/api/v1/attention` | Current provider-neutral Attention read model and optional target. |
+| `/api/v1/voice` | Voice/STT availability and the last completed transcript; never raw audio. |
 | `/api/v1/observed-expression` | Latest uncertain classifier observation for the selected face. |
 | `/api/v1/state` | Lifecycle state and whether Core is running. |
 | `/api/v1/environment` | Environmental sensor availability and current measurements when available. |
@@ -61,6 +62,14 @@ curl --cookie "$PHOS_ADMIN_COOKIE" http://127.0.0.1:8080/api/v1/environment
 
 Unavailable, stale, disabled, and warming-up sensor states remain explicit in
 responses; clients must not treat missing measurements as current data.
+
+## Voice capture
+
+`POST /api/v1/voice/listen` starts one explicit capture session;
+`POST /api/v1/voice/stop` ends it, and `POST /api/v1/voice/cancel` discards it.
+These commands go through the application service and do not expose microphone
+or STT-provider controls. Semantic SSE events cover listening, speech edges,
+transcription completion, cancellation and safe errors.
 
 Presence has `no_one`, `person_present`, and reserved `person_engaged` values.
 Attention has `idle`, `acquiring`, `tracking`, and `lost` values. Target ID is

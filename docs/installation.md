@@ -34,10 +34,40 @@ loads ONNX directly: **onnxruntime, TensorFlow and PyTorch are not required**.
 
 The APT packages are `build-essential`, `ca-certificates`, `git`, `i2c-tools`,
 `libcap-dev`, `opencv-data`, `python3-dev`, `python3-opencv`,
-`python3-picamera2`, `python3-smbus`, `python3-tk`, `python3-venv`,
+`python3-picamera2`, `python3-pyaudio`, `python3-smbus`, `python3-tk`, `python3-venv`,
 `rpicam-apps`, and `wget`.
 `.[all]` includes the existing Web Admin/Remote API, Vision, AWS,
 environmental, CCS811, IMU, and LED-ring Python support.
+
+### OpenCV provider invariant
+
+PHOS intentionally uses the Raspberry Pi OS `python3-opencv` package as its
+only `cv2` provider, inherited by `.venv` through `--system-site-packages`.
+`.[all]` must not install `opencv-python`, `opencv-python-headless`, or an
+OpenCV contrib wheel: those distributions overwrite the same `cv2` namespace
+and can leave Haar cascades or binary modules mismatched. PHOS uses OpenCV for
+Haar detection and DNN/ONNX processing, not HighGUI windows; the face display
+is Tk.
+The accepted PHOS runtime range is OpenCV `>=4.10,<5`; it is enforced by the
+installer smoke check because the Debian package, rather than PyPI metadata,
+owns that version selection. NumPy remains system/package-manager compatible;
+PHOS does not pin or downgrade it. Python 3.13 remains supported, with the
+separate voice extra retaining `audioop-lts`; voice does not depend on OpenCV.
+
+If an earlier installation ran an affected `.[all]`, recreate the virtual
+environment rather than uninstalling overlapping files in place:
+
+```bash
+cd ~/phos
+deactivate 2>/dev/null || true
+rm -rf .venv
+./scripts/install-phos.sh
+.venv/bin/python tools/check_opencv.py
+```
+
+The check prints the loaded `cv2` path/version and Haar-data path, and fails if
+multiple known Python OpenCV distributions are visible or the face cascade
+cannot load.
 
 ### Advanced/manual installation
 
@@ -46,7 +76,7 @@ manually:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential ca-certificates git i2c-tools libcap-dev opencv-data python3-dev python3-opencv python3-picamera2 python3-smbus python3-tk python3-venv rpicam-apps wget
+sudo apt install -y build-essential ca-certificates git i2c-tools libcap-dev opencv-data python3-dev python3-opencv python3-picamera2 python3-pyaudio python3-smbus python3-tk python3-venv rpicam-apps wget
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install --upgrade pip setuptools wheel
 .venv/bin/pip install -e '.[all]'

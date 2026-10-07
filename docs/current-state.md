@@ -106,7 +106,8 @@ the browser cursor remains normal. Touch behavior is not implemented in this sli
 - This code predates the newer vertical-milestone discipline. Preserve it, but do not use its existence as a reason to expand unfinished subsystems automatically.
 
 ### Voice / TTS
-- Voice package exists, but the complete microphone -> STT -> LLM -> TTS -> playback vertical slice is not yet implemented.
+- Slice 3 provides explicit microphone capture, energy VAD and provider-neutral local STT through an optional Vosk model. It ends at an observable transcript; audio is not served. Temporary physical STT debugging is opt-in through `voice.debug.dump_utterance_wav` and overwrites one configured WAV file.
+- LLM, TTS and playback remain outside this slice.
 - TTS architecture remains provider-neutral with Piper as the preferred first local engine to benchmark when that milestone begins.
 
 ## Current development priority

@@ -108,7 +108,7 @@ remains separate from implementation.
 | Remote-control API | Authenticated service-mediated control, authorization and documented contracts. |
 | Advanced OS administration | Raspberry Pi reboot, if a future safe permission boundary is approved. |
 | MCP server | Service-mediated tools; no direct hardware or subsystem-internal access. |
-| STT | Microphone capture, VAD and speech recognition. |
+| STT | Completed Slice 3: explicit microphone capture, VAD and provider-neutral speech recognition; target-Pi validation remains pending. |
 | TTS | Provider-neutral synthesis, playback and speaker verification. |
 | Conversational LLM | End-to-end conversation through LLMProvider; existing skeletons are not a delivered conversation feature. |
 | Home Assistant | Integration/tool layer and explicit permissions; not the reasoning core. |

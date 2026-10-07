@@ -1,6 +1,7 @@
 """Configuration tests use temporary files and never construct a real AWS client."""
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -236,3 +237,28 @@ def test_explicit_file_loading_does_not_consult_another_default_file(document, t
     path = write_config(tmp_path, document)
     monkeypatch.setattr(module, "DEFAULT_CONFIG_PATH", tmp_path / "missing-default.json")
     assert RuntimeConfig.from_file(path).display_fps == document["display"]["fps"]
+
+
+def test_legacy_voice_document_receives_pre_roll_default(document, tmp_path):
+    del document["voice"]["vad"]["pre_roll_ms"]
+    config = RuntimeConfig.from_file(write_config(tmp_path, document))
+    assert config.voice_pre_roll_ms == 300
+
+
+def test_legacy_voice_document_receives_debug_defaults(document, tmp_path):
+    del document["voice"]["debug"]
+    config = RuntimeConfig.from_file(write_config(tmp_path, document))
+    assert not config.voice_debug_dump_utterance_wav
+    assert config.voice_debug_utterance_wav_path == Path("/tmp/phos-last-utterance.wav")
+
+
+@pytest.mark.parametrize("value", [-1, 1001, 1.5, "300"])
+def test_voice_pre_roll_requires_integer_milliseconds_in_range(document, tmp_path, value):
+    document["voice"]["vad"]["pre_roll_ms"] = value
+    with pytest.raises(ConfigurationError): RuntimeConfig.from_file(write_config(tmp_path, document))
+
+
+@pytest.mark.parametrize("key,value", [("dump_utterance_wav", "false"), ("utterance_wav_path", None), ("utterance_wav_path", "")])
+def test_voice_debug_configuration_is_strict(document, tmp_path, key, value):
+    document["voice"]["debug"][key] = value
+    with pytest.raises(ConfigurationError): RuntimeConfig.from_file(write_config(tmp_path, document))
