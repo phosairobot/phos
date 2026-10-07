@@ -1,0 +1,670 @@
+:root {
+  --phos-bg: #050b18;
+  --phos-surface: #0b1730;
+  --phos-surface-soft: #101f3e;
+
+  --phos-blue: #1976ff;
+  --phos-blue-bright: #42a5ff;
+  --phos-cyan: #49e7ff;
+
+  --phos-text: #eef6ff;
+  --phos-muted: #a9bbd2;
+}
+
+/* =========================================================
+   MkDocs Material dark scheme
+   ========================================================= */
+
+[data-md-color-scheme='slate'] {
+  --md-default-bg-color: var(--phos-bg);
+  --md-default-fg-color: var(--phos-text);
+  --md-default-fg-color--light: var(--phos-muted);
+
+  --md-primary-fg-color: #081329;
+  --md-primary-fg-color--light: #0c1b38;
+  --md-primary-fg-color--dark: #040915;
+
+  --md-accent-fg-color: var(--phos-cyan);
+
+  --md-code-bg-color: #0a1428;
+  --md-code-fg-color: #d9ebff;
+
+  --md-typeset-color: var(--phos-text);
+  --md-typeset-a-color: var(--phos-cyan);
+}
+
+/* =========================================================
+   Header / tabs
+   ========================================================= */
+
+.md-header,
+.md-tabs {
+  background: rgba(5, 11, 24, 0.94);
+  backdrop-filter: blur(14px);
+}
+
+.md-header {
+  border-bottom: 1px solid rgba(73, 231, 255, 0.15);
+}
+
+.md-tabs {
+  border-bottom: 1px solid rgba(25, 118, 255, 0.16);
+}
+
+.md-header__button.md-logo img {
+  border-radius: 50%;
+}
+
+/* =========================================================
+   Typography
+   ========================================================= */
+
+.md-typeset {
+  color: var(--phos-text);
+}
+
+.md-typeset p,
+.md-typeset li,
+.md-typeset td {
+  color: #e6efff;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  color: var(--phos-text);
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h1 {
+  font-weight: 750;
+}
+
+.md-typeset h2 {
+  border-bottom: 1px solid rgba(73, 231, 255, 0.16);
+  padding-bottom: 0.35em;
+  margin-top: 2.2em;
+}
+
+.md-typeset a {
+  color: var(--phos-cyan);
+}
+
+.md-typeset a:hover {
+  color: #9af4ff;
+}
+
+/* =========================================================
+   Buttons
+   ========================================================= */
+
+.md-typeset .md-button {
+  border-color: rgba(73, 231, 255, 0.52);
+  border-radius: 0.45rem;
+  font-weight: 650;
+}
+
+.md-typeset .md-button:hover {
+  background: rgba(25, 118, 255, 0.18);
+  border-color: var(--phos-cyan);
+}
+
+/* =========================================================
+   Footer
+   ========================================================= */
+
+.md-footer {
+  background: #030713;
+}
+
+/* =========================================================
+   PHOS homepage hero
+   ========================================================= */
+
+.phos-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  min-height: 31rem;
+
+  padding: clamp(2rem, 6vw, 4.5rem);
+  margin: -1rem auto 3rem;
+
+  text-align: center;
+
+  border: 1px solid rgba(73, 231, 255, 0.16);
+  border-radius: 1.2rem;
+
+  background:
+    radial-gradient(
+      circle at 50% 25%,
+      rgba(25, 118, 255, 0.22),
+      transparent 32%
+    ),
+    linear-gradient(135deg, #06122a, #050914 65%);
+
+  overflow: hidden;
+  position: relative;
+}
+
+.phos-hero::after {
+  content: '';
+  position: absolute;
+
+  width: 28rem;
+  height: 28rem;
+
+  right: -14rem;
+  bottom: -18rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.16);
+  border-radius: 50%;
+
+  box-shadow:
+    0 0 0 3rem rgba(25, 118, 255, 0.03),
+    0 0 0 6rem rgba(25, 118, 255, 0.025);
+
+  pointer-events: none;
+}
+
+.phos-hero-copy {
+  position: relative;
+  z-index: 1;
+
+  width: 100%;
+  max-width: 56rem;
+
+  margin: 0 auto;
+
+  text-align: center;
+}
+
+.phos-hero-copy h1,
+.phos-hero-copy h2,
+.phos-hero-copy p {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.phos-logo {
+  width: 5.5rem;
+  border-radius: 50%;
+  box-shadow: 0 0 35px rgba(73, 231, 255, 0.5);
+}
+
+.phos-hero h1 {
+  font-size: clamp(3.5rem, 10vw, 7rem);
+  line-height: 0.9;
+
+  margin: 0.6rem auto;
+
+  background: linear-gradient(100deg, #ffffff, var(--phos-cyan));
+
+  -webkit-background-clip: text;
+  background-clip: text;
+
+  color: transparent;
+}
+
+.phos-hero h2 {
+  max-width: 46rem;
+
+  margin-left: auto;
+  margin-right: auto;
+
+  color: #dceeff;
+  border: 0;
+
+  font-size: clamp(1.25rem, 2.5vw, 1.8rem);
+  font-weight: 500;
+}
+
+.phos-version {
+  text-align: center;
+  color: var(--phos-muted);
+}
+
+/* =========================================================
+   Hero actions
+   ========================================================= */
+
+.phos-actions {
+  display: flex;
+  flex-wrap: wrap;
+
+  justify-content: center;
+  align-items: center;
+
+  gap: 0.7rem;
+  margin-top: 1.7rem;
+}
+
+.phos-actions .md-button {
+  border-color: rgba(73, 231, 255, 0.6);
+  color: var(--phos-text);
+}
+
+.phos-actions .md-button--primary {
+  background: var(--phos-blue);
+  border-color: var(--phos-blue);
+}
+
+/* =========================================================
+   PHOS eyes
+   ========================================================= */
+
+.phos-eyes {
+  position: relative;
+  z-index: 1;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  width: 100%;
+
+  gap: clamp(0.4rem, 2vw, 1.2rem);
+
+  margin: 2.5rem auto 0;
+
+  transform: none;
+}
+
+.phos-eye {
+  width: min(15vw, 205px);
+  aspect-ratio: 1.65;
+
+  justify-self: center;
+
+  border-radius: 50% 50% 48% 48%;
+
+  background: radial-gradient(
+    ellipse at center,
+    #effcff 0 8%,
+    #8ef4ff 9% 13%,
+    #1789ff 14% 25%,
+    #07152e 26% 48%,
+    transparent 49%
+  );
+
+  filter: drop-shadow(0 0 28px #1976ff)
+    drop-shadow(0 0 75px rgba(73, 231, 255, 0.3));
+
+  position: relative;
+
+  animation: phos-float 6s ease-in-out infinite;
+}
+
+.phos-eye--right {
+  animation-delay: -2.2s;
+}
+
+.phos-eye::before,
+.phos-eye::after {
+  content: '';
+
+  position: absolute;
+
+  inset: -15%;
+
+  border: 1px solid rgba(73, 231, 255, 0.22);
+  border-radius: 50%;
+
+  transform: rotate(-18deg);
+}
+
+.phos-eye::after {
+  inset: -29% 0;
+  transform: rotate(25deg);
+}
+
+.phos-eye-iris {
+  position: absolute;
+
+  inset: 28% 36%;
+
+  border-radius: 50%;
+
+  background: #07101f;
+  box-shadow: inset 0 0 10px #000;
+}
+
+.phos-eye-pupil,
+.phos-eye-glint {
+  position: absolute;
+
+  border-radius: 50%;
+
+  background: white;
+}
+
+.phos-eye-pupil {
+  width: 28%;
+  height: 28%;
+
+  left: 38%;
+  top: 30%;
+
+  box-shadow: 0 0 14px white;
+}
+
+.phos-eye-glint {
+  width: 6%;
+  height: 6%;
+
+  left: 48%;
+  top: 35%;
+}
+
+@keyframes phos-float {
+  50% {
+    transform: translateY(-10px) scale(1.02);
+  }
+}
+
+/* =========================================================
+   Intro blocks
+   ========================================================= */
+
+.phos-intro {
+  max-width: 52rem;
+
+  margin: 0 auto 2.5rem;
+
+  text-align: center;
+
+  font-size: 1.15rem;
+
+  color: var(--phos-muted);
+}
+
+.phos-page-intro {
+  max-width: 48rem;
+
+  margin: 0.4rem 0 2rem;
+
+  color: var(--phos-muted);
+
+  font-size: 1.08rem;
+}
+
+.phos-kicker {
+  display: block;
+
+  margin-bottom: 0.55rem;
+
+  color: var(--phos-cyan);
+
+  font-size: 0.72rem;
+  font-weight: 800;
+
+  letter-spacing: 0.13em;
+}
+
+/* =========================================================
+   Stats
+   ========================================================= */
+
+.phos-stat-row {
+  display: grid;
+
+  grid-template-columns: repeat(3, 1fr);
+
+  gap: 1px;
+
+  margin: 0 0 2.8rem;
+
+  background: rgba(73, 231, 255, 0.18);
+
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-radius: 0.8rem;
+
+  overflow: hidden;
+}
+
+.phos-stat-row > div {
+  padding: 1.1rem 1.25rem;
+
+  background: var(--phos-surface);
+}
+
+.phos-stat-row strong {
+  display: block;
+
+  color: var(--phos-cyan);
+
+  font-size: 1.25rem;
+}
+
+.phos-stat-row span {
+  color: var(--phos-muted);
+
+  font-size: 0.85rem;
+}
+
+/* =========================================================
+   Cards
+   ========================================================= */
+
+.phos-grid {
+  display: grid;
+
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+  gap: 1rem;
+
+  margin: 1.5rem 0 2.5rem;
+}
+
+.phos-card {
+  min-height: 100%;
+
+  padding: 1.35rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.15);
+  border-radius: 0.8rem;
+
+  background: linear-gradient(
+    145deg,
+    rgba(16, 31, 62, 0.85),
+    rgba(7, 15, 31, 0.9)
+  );
+
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.phos-card:hover {
+  transform: translateY(-3px);
+
+  border-color: rgba(73, 231, 255, 0.44);
+
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.25),
+    0 0 24px rgba(25, 118, 255, 0.08);
+}
+
+.phos-card h3 {
+  color: #dff7ff;
+  margin-top: 0.1rem;
+}
+
+.phos-card-icon {
+  color: var(--phos-cyan);
+
+  font-size: 1.45rem;
+
+  text-shadow: 0 0 16px var(--phos-cyan);
+}
+
+/* =========================================================
+   Status badges
+   ========================================================= */
+
+.phos-status {
+  display: inline-block;
+
+  margin-bottom: 0.7rem;
+
+  padding: 0.2rem 0.45rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.42);
+  border-radius: 99px;
+
+  color: var(--phos-cyan);
+
+  font-size: 0.62rem;
+  font-weight: 800;
+
+  letter-spacing: 0.08em;
+}
+
+.phos-status--optional {
+  color: #a9c6ff;
+
+  border-color: rgba(122, 164, 255, 0.45);
+}
+
+/* =========================================================
+   Flow / pipeline
+   ========================================================= */
+
+.phos-flow,
+.phos-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 0.6rem;
+
+  padding: 1.2rem;
+  margin: 1.5rem 0;
+
+  border-radius: 0.8rem;
+
+  background: #08172f;
+
+  color: #dff7ff;
+}
+
+.phos-flow span,
+.phos-pipeline span {
+  padding: 0.35rem 0.65rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.3);
+
+  border-radius: 99px;
+}
+
+.phos-flow b {
+  color: var(--phos-cyan);
+}
+
+/* =========================================================
+   Callout
+   ========================================================= */
+
+.phos-callout {
+  margin: 1.5rem 0;
+
+  padding: 1rem 1.2rem;
+
+  border-left: 3px solid var(--phos-cyan);
+
+  border-radius: 0 0.55rem 0.55rem 0;
+
+  background: linear-gradient(
+    90deg,
+    rgba(25, 118, 255, 0.14),
+    rgba(25, 118, 255, 0.03)
+  );
+
+  color: #dcecff;
+}
+
+/* =========================================================
+   Tables
+   ========================================================= */
+
+.md-typeset table:not([class]) {
+  border: 1px solid rgba(73, 231, 255, 0.2);
+}
+
+.md-typeset table:not([class]) th {
+  background: #10264b;
+
+  color: #effaff;
+}
+
+/* =========================================================
+   Accessibility / reduced motion
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================================
+   Mobile
+   ========================================================= */
+
+@media screen and (max-width: 720px) {
+  .phos-hero {
+    min-height: auto;
+
+    padding: 2.4rem 1.2rem;
+
+    margin: 0 auto 2rem;
+
+    border-radius: 0.8rem;
+
+    text-align: center;
+  }
+
+  .phos-hero-copy {
+    width: 100%;
+
+    text-align: center;
+  }
+
+  .phos-eyes {
+    margin-top: 1.8rem;
+
+    transform: none;
+  }
+
+  .phos-eye {
+    width: min(31vw, 155px);
+  }
+
+  .phos-logo {
+    width: 4.2rem;
+  }
+
+  .phos-actions {
+    justify-content: center;
+  }
+
+  .phos-stat-row {
+    grid-template-columns: 1fr;
+  }
+
+  .phos-flow,
+  .phos-pipeline {
+    justify-content: center;
+  }
+}

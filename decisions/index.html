@@ -1,0 +1,2700 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An expressive AI-powered robot platform built on Raspberry Pi.">
+      
+      
+      
+        <link rel="canonical" href="https://phosairobot.github.io/phos/decisions/">
+      
+      
+        <link rel="prev" href="../voice/">
+      
+      
+        <link rel="next" href="../current-state/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/phos.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture decisions - PHOS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/css/phos.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture-decisions" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PHOS" class="md-header__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PHOS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture decisions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../how-phos-works/" class="md-tabs__link">
+          
+  
+  
+  How PHOS Works
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../hardware-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Hardware
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../installation-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Installation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../web-admin-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Web Admin
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../documentation/" class="md-tabs__link">
+          
+  
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PHOS" class="md-nav__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    PHOS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How PHOS Works
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How PHOS Works
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-phos-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision & Expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environmental-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environmental Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-admin-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-model-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision model evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-administration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API contract notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TTS strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice capture and STT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#adr-001-python-as-primary-language" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-001 — Python as primary language
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-002-hardware-abstraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-002 — Hardware abstraction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-003-raspberry-pi-3-is-the-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-003 — Raspberry Pi 3 is the baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-004-provider-independent-llm-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-004 — Provider-independent LLM interface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-005-primary-llm-is-not-assumed-to-run-on-raspberry-pi-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-005 — Primary LLM is not assumed to run on Raspberry Pi 3
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-006-provider-neutral-tts-and-separate-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-006 — Provider-neutral TTS and separate playback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-007-lightweight-raspberry-pi-vision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-007 — Lightweight Raspberry Pi Vision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-008-behavior-mediates-vision-and-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-008 — Behavior mediates Vision and UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-009-architecture-first-multi-agent-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-009 — Architecture-first multi-agent workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-010-project-identity-phos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-010 — Project identity: PHOS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-011-hierarchical-agentsmd-owns-phos-specific-agent-guidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-011 — Hierarchical AGENTS.md owns PHOS-specific agent guidance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-012-runnable-vertical-milestones" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-012 — Runnable vertical milestones
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-013-general-coding-skill-and-phos-guidance-are-separate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-013 — General coding skill and PHOS guidance are separate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-014-optional-cloud-facial-expression-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-014 — Optional cloud facial-expression adapter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-015-one-canonical-runtime-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-015 — One canonical runtime configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-016-optional-local-web-administration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-016 — Optional local web administration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-017-phos-100-scope-and-shared-control-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-017 — PHOS 1.0.0 scope and shared control services
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-018-validated-reload-and-supervisor-owned-restart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-018 — Validated reload and supervisor-owned restart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-019-configurable-lightweight-eye-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-019 — Configurable lightweight eye appearance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-020-live-application-of-named-eye-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-020 — Live application of named eye appearance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-021-local-diagnostic-camera-preview-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-021 — Local diagnostic camera preview composition
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ADR-021 — Local diagnostic camera preview composition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#100-hardening-clarification-adr-018021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.0.0 hardening clarification (ADR-018/021)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-022-optional-bme280-environmental-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-022 — Optional BME280 environmental service
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ADR-022 — Optional BME280 environmental service">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adr-022-extension-selectable-bme280-bmp280" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-022 extension — selectable BME280 / BMP280
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-023-ccs811-through-the-existing-sensor-service-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-023 — CCS811 through the existing sensor service pattern
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-024-optional-mpu-6050-imu-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 — Optional MPU-6050 IMU service
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ADR-024 — Optional MPU-6050 IMU service">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-motion-interpretation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Motion interpretation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-motion-visual-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Motion visual intent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-reliable-sustained-tilt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Reliable sustained tilt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-amplified-imu-visual-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Amplified IMU visual intent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-directional-imu-eye-asymmetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Directional IMU eye asymmetry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-025-optional-semantic-ws2812b-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-025 — Optional semantic WS2812B output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../current-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Current implementation handoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.3.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.2.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.0.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.0.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#adr-001-python-as-primary-language" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-001 — Python as primary language
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-002-hardware-abstraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-002 — Hardware abstraction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-003-raspberry-pi-3-is-the-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-003 — Raspberry Pi 3 is the baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-004-provider-independent-llm-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-004 — Provider-independent LLM interface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-005-primary-llm-is-not-assumed-to-run-on-raspberry-pi-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-005 — Primary LLM is not assumed to run on Raspberry Pi 3
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-006-provider-neutral-tts-and-separate-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-006 — Provider-neutral TTS and separate playback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-007-lightweight-raspberry-pi-vision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-007 — Lightweight Raspberry Pi Vision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-008-behavior-mediates-vision-and-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-008 — Behavior mediates Vision and UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-009-architecture-first-multi-agent-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-009 — Architecture-first multi-agent workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-010-project-identity-phos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-010 — Project identity: PHOS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-011-hierarchical-agentsmd-owns-phos-specific-agent-guidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-011 — Hierarchical AGENTS.md owns PHOS-specific agent guidance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-012-runnable-vertical-milestones" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-012 — Runnable vertical milestones
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-013-general-coding-skill-and-phos-guidance-are-separate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-013 — General coding skill and PHOS guidance are separate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-014-optional-cloud-facial-expression-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-014 — Optional cloud facial-expression adapter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-015-one-canonical-runtime-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-015 — One canonical runtime configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-016-optional-local-web-administration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-016 — Optional local web administration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-017-phos-100-scope-and-shared-control-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-017 — PHOS 1.0.0 scope and shared control services
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-018-validated-reload-and-supervisor-owned-restart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-018 — Validated reload and supervisor-owned restart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-019-configurable-lightweight-eye-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-019 — Configurable lightweight eye appearance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-020-live-application-of-named-eye-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-020 — Live application of named eye appearance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-021-local-diagnostic-camera-preview-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-021 — Local diagnostic camera preview composition
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ADR-021 — Local diagnostic camera preview composition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#100-hardening-clarification-adr-018021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.0.0 hardening clarification (ADR-018/021)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-022-optional-bme280-environmental-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-022 — Optional BME280 environmental service
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ADR-022 — Optional BME280 environmental service">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adr-022-extension-selectable-bme280-bmp280" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-022 extension — selectable BME280 / BMP280
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-023-ccs811-through-the-existing-sensor-service-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-023 — CCS811 through the existing sensor service pattern
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adr-024-optional-mpu-6050-imu-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 — Optional MPU-6050 IMU service
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ADR-024 — Optional MPU-6050 IMU service">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-motion-interpretation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Motion interpretation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-motion-visual-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Motion visual intent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-reliable-sustained-tilt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Reliable sustained tilt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-amplified-imu-visual-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Amplified IMU visual intent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-024-extension-directional-imu-eye-asymmetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-024 extension — Directional IMU eye asymmetry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adr-025-optional-semantic-ws2812b-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ADR-025 — Optional semantic WS2812B output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/phosairobot/phos/edit/main/decisions.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="architecture-decisions">Architecture Decisions</h1>
+<h2 id="adr-001-python-as-primary-language">ADR-001 — Python as primary language</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Python is the primary application language.</p>
+<p><strong>Why</strong>
+- Strong Raspberry Pi ecosystem
+- Excellent AI/audio/computer-vision ecosystem
+- Fast iteration
+- Good maintainability for a personal robotics project</p>
+<p>C/C++ may be introduced for a hardware driver, microcontroller firmware or a performance-critical component when justified.</p>
+<h2 id="adr-002-hardware-abstraction">ADR-002 — Hardware abstraction</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Hardware access is isolated behind explicit interfaces/adapters, with physical-device implementation under <code>src/robot/hardware/</code> where applicable.</p>
+<p><strong>Why</strong>
+- Testing without physical hardware
+- Easier hardware replacement
+- Cleaner AI/core layers</p>
+<h2 id="adr-003-raspberry-pi-3-is-the-baseline">ADR-003 — Raspberry Pi 3 is the baseline</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Solutions should remain practical on Raspberry Pi 3 unless a later hardware upgrade is explicitly documented.</p>
+<p>Expensive AI inference may use a remote machine/API or an optimized local model.</p>
+<h2 id="adr-004-provider-independent-llm-interface">ADR-004 — Provider-independent LLM interface</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>All language-model access uses <code>LLMProvider</code>.</p>
+<p><strong>Why</strong>
+- Switch between OpenAI, Anthropic and local/self-hosted models without rewriting robot behavior.
+- Prevent vendor SDK types from leaking through the architecture.
+- Make AI behavior unit-testable using fake providers.
+- Allow future routing between fast, powerful and offline models.</p>
+<h2 id="adr-005-primary-llm-is-not-assumed-to-run-on-raspberry-pi-3">ADR-005 — Primary LLM is not assumed to run on Raspberry Pi 3</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>The Pi 3 runs robot orchestration, UI, hardware and integration logic. The primary LLM may run through a cloud API or on a LAN server. Small local models may be explored as offline fallbacks.</p>
+<h2 id="adr-006-provider-neutral-tts-and-separate-playback">ADR-006 — Provider-neutral TTS and separate playback</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Speech synthesis uses <code>TTSProvider</code>. Audio playback/device management is a distinct responsibility. Piper is the preferred first local TTS implementation to benchmark on Raspberry Pi 3.</p>
+<h2 id="adr-007-lightweight-raspberry-pi-vision">ADR-007 — Lightweight Raspberry Pi Vision</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Use Picamera2 for Raspberry Pi Camera capture, lightweight OpenCV face detection, and a configurable lightweight ONNX expression classifier through OpenCV DNN. Expression classification is an uncertain visual observation, not mind/emotion inference. Identity recognition and image persistence are out of scope by default.</p>
+<h2 id="adr-008-behavior-mediates-vision-and-ui">ADR-008 — Behavior mediates Vision and UI</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Vision does not drive the renderer directly. Stable observations plus <code>RobotState</code> feed <code>BehaviorEngine</code>, which produces UI-neutral <code>FaceState</code>. <code>EyeRenderer</code> consumes <code>FaceState</code>. PHOS does not mechanically mirror negative human facial-expression observations.</p>
+<h2 id="adr-009-architecture-first-multi-agent-workflow">ADR-009 — Architecture-first multi-agent workflow</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Architecture/docs own WHAT and WHY. Coding agents such as Codex own HOW and CODE. Git/repository files are the source of truth.</p>
+<p>Coding agents may propose architectural changes but must not silently implement changes that conflict with accepted decisions. If implementation reveals a conflict, report it and document an approved resolution before redesigning the system.</p>
+<h2 id="adr-010-project-identity-phos">ADR-010 — Project identity: PHOS</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>The project name is <strong>PHOS</strong>. Documentation, agent instructions and user-facing project references use PHOS.</p>
+<p>The existing Python package namespace <code>robot</code> remains unchanged. Renaming the package is a separate implementation migration requiring explicit approval.</p>
+<h2 id="adr-011-hierarchical-agentsmd-owns-phos-specific-agent-guidance">ADR-011 — Hierarchical AGENTS.md owns PHOS-specific agent guidance</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Durable PHOS-specific instructions live in the root <code>AGENTS.md</code>, nested subsystem <code>AGENTS.md</code> files and <code>docs/</code>. More specific instructions apply to the directory they govern.</p>
+<p>Avoid duplicating detailed architecture across root instructions, nested instructions and skills.</p>
+<h2 id="adr-012-runnable-vertical-milestones">ADR-012 — Runnable vertical milestones</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>Complete and verify one runnable capability before deliberately introducing or expanding the next major subsystem. Preferred progression is eyes -&gt; face tracking -&gt; expression reactions -&gt; voice -&gt; integrations.</p>
+<p>Code that already exists ahead of the currently verified milestone is preserved, but it should not drive automatic scope expansion.</p>
+<h2 id="adr-013-general-coding-skill-and-phos-guidance-are-separate">ADR-013 — General coding skill and PHOS guidance are separate</h2>
+<p><strong>Status:</strong> Accepted</p>
+<p>The reusable coding-agent skill is project-neutral and contains only implementation workflow. PHOS-specific facts, hardware constraints, architecture, milestone order and subsystem rules live in this repository through hierarchical <code>AGENTS.md</code> files and <code>docs/</code>.</p>
+<p>The project does not require a PHOS-specific skill.</p>
+<h2 id="adr-014-optional-cloud-facial-expression-adapter">ADR-014 — Optional cloud facial-expression adapter</h2>
+<p><strong>Status:</strong> Accepted (explicitly requested extension of ADR-007).</p>
+<p>Keep local ONNX as default and add selectable AWS Rekognition behind the existing
+ExpressionProvider. Capture, tracking, selection and cropping stay local; only
+selected stable crops leave the Pi when AWS is explicitly selected. Cloud work
+is single-flight, asynchronous, rate-limited and cached with expiry/backoff;
+there is no implicit fallback. Cached reads are not independent temporal evidence.
+The existing semantic/behavior/UI boundaries remain unchanged. This extends
+ADR-007's local baseline without replacing it. See Vision for policy and privacy.</p>
+<p>Normal settings belong to RuntimeConfig and must be reusable by a future web
+configuration layer. Secrets stay outside application settings in standard AWS
+credential resolution. No web interface is part of this change.</p>
+<h2 id="adr-015-one-canonical-runtime-configuration">ADR-015 — One canonical runtime configuration</h2>
+<p><strong>Status:</strong> Accepted (explicit user-requested configuration centralization).</p>
+<p>Use <code>config/phos.json</code> for all current non-secret application settings. Required
+sections map to the existing typed RuntimeConfig surface in <code>robot.config</code>;
+CloudExpressionConfig remains a typed provider subset. Validate types, ranges,
+relationships and active paths before building subsystems. CLI defaults and
+provider-specific JSON files are replaced by this file. Existing setting flags
+remain deprecated explicit overrides for a separately announced migration.</p>
+<p>The committed file safely starts only eyes; camera/expression processing is
+opt-in. Keep geometric/semantic safeguards and renderer implementation constants
+in their subsystems. New normal runtime settings extend the central schema/file.
+Reusable loading, validation, serialization and atomic persistence are independent
+of CLI and available for the future web milestone. Secrets remain external;
+no web UI or live reload is part of this change.</p>
+<h2 id="adr-016-optional-local-web-administration">ADR-016 — Optional local web administration</h2>
+<p><strong>Status:</strong> Accepted (explicit user-requested web administration milestone).</p>
+<p>Add a lightweight Flask/Waitress administration adapter in a separate process
+owned by application startup. Reuse RuntimeConfig schema, validation and atomic
+persistence; expose saved settings separately from the startup snapshot. No hot
+reload. Canonical web settings opt into LAN binding; default disabled/loopback
+preserves the existing runtime. The optional web dependencies stay outside Core,
+Vision and rendering.</p>
+<p>Use one administrator, an external owner-only salted password-hash file, mandatory
+bootstrap password change, expiring signed sessions with server-side revocation,
+CSRF protection and bounded password attempts. AWS secrets remain external. HTTP
+is trusted-LAN-only; Internet/TLS/proxy deployment is outside this milestone.
+Details and local recovery belong in the <a href="../web-administration/">web manual</a>.</p>
+<h2 id="adr-017-phos-100-scope-and-shared-control-services">ADR-017 — PHOS 1.0.0 scope and shared control services</h2>
+<p><strong>Status:</strong> Accepted (explicit release-finalization request).</p>
+<p>Freeze 1.0.0 at the existing runtime, eyes, tracking, local/AWS expression and
+canonical configuration/web administration scope. Hardware availability does
+not bring sensors, LEDs, conversation, remote API or MCP into this release.
+Keep one authoritative version in <code>robot.__version__</code>, consumed by packaging
+and runtime/status reporting. Separate automated release checks from physical
+acceptance and expression accuracy.</p>
+<p>Future Web/API/MCP/Voice control surfaces must reuse application services and
+must not access hardware or subsystem internals. Shared validation, authorization
+and behavior semantics belong in those services, not in duplicated adapters.
+See the release record and roadmap for scope and deferred capabilities.</p>
+<h2 id="adr-018-validated-reload-and-supervisor-owned-restart">ADR-018 — Validated reload and supervisor-owned restart</h2>
+<p><strong>Status:</strong> Accepted (explicit requested addition to 1.0.0 finalization).</p>
+<p>Extend ADR-016/017 only with shared lifecycle operations. Saving and active state
+are separate. Validate the complete canonical file before reload; logging level
+has a safe live apply boundary. Other settings require restart unless separately
+approved.
+A user systemd service owns application replacement after graceful exit status
+75. No adapter executes arbitrary OS commands or self-spawns a replacement.
+Manual launches do not offer browser restart. Confirmation and CSRF protect
+restart, and status/reload/restart require completed administrator bootstrap.
+Web/API/MCP/Voice must reuse application services; OS reboot is deferred.</p>
+<h2 id="adr-019-configurable-lightweight-eye-appearance">ADR-019 — Configurable lightweight eye appearance</h2>
+<p><strong>Status:</strong> Accepted (explicit eye-system improvement request).</p>
+<p>Keep rendering within BehaviorEngine → FaceState → EyeRenderer → display.
+A canonical, named <code>display.iris_color</code> selects the base iris theme; semantic
+accent tint remains derived from FaceState. The Tk display uses inexpensive
+layered Canvas primitives for eye-body depth, iris/pupil separation and
+reflections. No image pipeline, graphics dependency or provider-specific visual
+logic is introduced. Unsafe display geometry/backend changes require PHOS restart.</p>
+<h2 id="adr-020-live-application-of-named-eye-appearance">ADR-020 — Live application of named eye appearance</h2>
+<p><strong>Status:</strong> Accepted (explicit runtime reload requirement).</p>
+<p>This decision extends ADR-018's reloadability classification: canonical
+<code>display.iris_color</code> joins logging level in the safe reloadable field allowlist.
+The lifecycle service validates the entire file and sends typed settings through
+the runtime service to the render-loop queue. The queue applies the theme on the
+display event loop, where EyeRenderer smoothly interpolates its current iris
+color. No subsystem restarts. Mixed reloads apply logging and appearance while
+retaining pending restart-required fields. Web adapters cannot access renderer
+state directly.</p>
+<h2 id="adr-021-local-diagnostic-camera-preview-composition">ADR-021 — Local diagnostic camera preview composition</h2>
+<p><strong>Status:</strong> Accepted (explicit optional preview request).</p>
+<p>Keep one Picamera2/Vision pipeline owner. When enabled, retain only the latest
+captured frame and existing selected-face/expression diagnostics in memory, then
+pass a UI-neutral value through PhosRuntime to a bounded, low-rate display
+composition layer. EyeRenderer remains Vision-agnostic. Preview is disabled by
+default, local to the PHOS display, never persisted or served over the network,
+and is live-reloadable without restarting PHOS or an already-running camera and
+Vision pipeline. Enabling preview may start the dormant existing pipeline;
+disabling it releases the camera only when no other Vision feature uses it.</p>
+<h3 id="100-hardening-clarification-adr-018021">1.0.0 hardening clarification (ADR-018/021)</h3>
+<p>Release hardening preserves the existing scope and boundaries. Runtime/worker
+failures must exit nonzero so the documented supervisor can recover. Preview
+reload acknowledges camera lifecycle acceptance before recording active settings;
+failed/cancelled starts release resources. Previously successful appearance
+changes remain recorded if a later hardware application fails. Invalid canonical
+configuration still applies nothing. The committed preview default remains off.
+Deprecated, functional CLI overrides remain during the ADR-015 migration; they
+are not a second persisted configuration or the production launch path.</p>
+<h2 id="adr-022-optional-bme280-environmental-service">ADR-022 — Optional BME280 environmental service</h2>
+<p><strong>Status:</strong> Accepted (explicit BME280 integration request, separately approved
+follow-on to the frozen 1.0.0 baseline).</p>
+<p>Use a small synchronous <code>EnvironmentalSensorProvider</code> contract and immutable
+<code>EnvironmentalReading</code> (temperature °C, relative humidity %, pressure hPa).
+The BME280 adapter owns I2C bus 1 via optional RPi.bme280/smbus2; vendor imports
+are lazy. A dedicated single worker owns device initialization/read/close and
+publishes a lock-protected, in-memory latest snapshot through the sensor service.
+No hardware call runs in the asyncio renderer or a web request. Failures retry
+with bounded backoff and rate-limited warnings; stale/failed readings are never
+presented as current. Native calls cannot be safely interrupted, so shutdown
+bounds its wait without concurrent close or replacement workers.</p>
+<p>Canonical <code>sensors.bme280</code> is disabled by default; every field requires restart.
+The new required section follows the existing explicit config-merge migration
+policy. Runtime exposes a read-only snapshot via the existing lifecycle status
+channel to the authenticated Sensors editor. It adds no network control API,
+behavior input, event stream or general dashboard. CCS811, GY-521, LED ring,
+voice, MCP and Home Assistant remain deferred. Real Pi acceptance is separate
+from fake-provider tests; the 1.0.0 release history/version is not rewritten.</p>
+<h3 id="adr-022-extension-selectable-bme280-bmp280">ADR-022 extension — selectable BME280 / BMP280</h3>
+<p><strong>Status:</strong> Accepted (explicit environmental sensor extension request).</p>
+<p>Replace the BME280-specific configuration block with <code>sensors.environmental</code>
+plus a required <code>type</code> selector. Preserve common settings and the explicit
+configuration migration policy. Every sensor change still requires restart.
+The provider-neutral reading has nullable <code>humidity_percent</code>; BME280 provides
+humidity, BMP280 cannot. Runtime status includes type and explicit measurement
+capabilities even when disabled/unavailable; Web Admin renders unsupported
+humidity distinctly from unavailable readings.</p>
+<p>Keep RPi.bme280 for BME280; its sampling API requires humidity registers. Add
+Pimoroni bmp280 for BMP280, reusing worker-owned smbus2 bus 1 and the existing
+service, retry, freshness and lifecycle boundaries. Strict chip IDs prevent
+silent reinterpretation. No behavior integration or other sensor scope is added.</p>
+<h2 id="adr-023-ccs811-through-the-existing-sensor-service-pattern">ADR-023 — CCS811 through the existing sensor service pattern</h2>
+<p><strong>Status:</strong> Accepted (explicit CCS811 integration request).</p>
+<p>Add <code>AirQualitySensorProvider</code> / immutable <code>AirQualityReading</code> for eCO2 ppm and
+TVOC ppb alongside the environmental contract. eCO2 is estimated equivalent
+CO2, never direct NDIR CO2. Reuse the established worker/retry/freshness/lifecycle
+implementation, without coupling sensors to behavior, Vision or rendering.
+Canonical <code>sensors.ccs811</code> defaults disabled, uses bus 1 and configurable
+0x5a/0x5b, and requires restart for all settings. Web Admin uses the existing
+service snapshot/configuration boundaries.</p>
+<p>Select the existing lightweight smbus2 dependency with a local register adapter
+based on ams DS000459, avoiding a new GPIO/I2C framework. Fixed mode 1 and a
+20-minute conditioning gate remain hardware policy. Expected no-data/warm-up
+polls retain initialization; physical failures retry with bounded backoff.
+Automatic compensation accepts fresh service-level temperature plus humidity,
+never assumes BMP280 humidity and restores device defaults on loss of source.
+No baseline persistence, firmware updating, GPIO wake control, GY-521, WS2812B
+or additional control surface is included. Exact breakout electrical validation,
+first-use burn-in and sustained Pi operation remain separate physical acceptance.</p>
+<h2 id="adr-024-optional-mpu-6050-imu-service">ADR-024 — Optional MPU-6050 IMU service</h2>
+<p><strong>Status:</strong> Accepted (explicit GY-521 integration request).</p>
+<p>Add typed <code>IMUSensorProvider</code> / immutable <code>IMUReading</code> and reuse the existing
+bounded sensor worker for an optional bus-1 MPU-6050 adapter. Canonical
+<code>sensors.imu</code> defaults disabled, permits <code>0x68</code>/<code>0x69</code>, and requires restart for
+all fields. Report acceleration in m/s² and angular velocity in °/s through the
+existing runtime status and Web Admin boundaries. Use smbus2 directly and fixed
+±2 g / ±250 °/s scales; do not add automatic offset calibration, orientation
+fusion, interrupts, gestures or behavior integration. Physical wiring and board
+acceptance remain separate from this implementation.</p>
+<h3 id="adr-024-extension-motion-interpretation">ADR-024 extension — Motion interpretation</h3>
+<p>Add a lightweight, pure <code>MotionInterpreter</code> after raw IMU readings. It produces
+debounced STILL, MOVING, four tilt, SHAKE and IMPACT observations with a bounded
+low-pass filter, temporal confirmation and event cooldown. Thresholds are
+canonical <code>sensors.imu.motion</code> settings and reload through the runtime service
+without touching I2C. No behavior, rendering, orientation fusion or hardware
+interrupt contract is introduced.</p>
+<h3 id="adr-024-extension-motion-visual-intent">ADR-024 extension — Motion visual intent</h3>
+<p>Permit stable motion state changes to enter Core as provider-neutral local
+events. BehaviorEngine maps them to FaceState only: persistent tilt/movement in
+IDLE and bounded shake/impact alert overlays. Core states retain priority and
+EyeRenderer remains unaware of IMU concepts. Eight live-reloadable <code>behavior.imu_*</code>
+settings provide visible intensity, tilt gaze range and eye asymmetry, separate transient strengths,
+durations and
+cooldown without exposing renderer geometry or changing the base iris theme.</p>
+<h3 id="adr-024-extension-reliable-sustained-tilt">ADR-024 extension — Reliable sustained tilt</h3>
+<p>The user-approved classifier correction removes the movement gate on tilt.
+Filtered normalized gravity, signed mounting axes, enter/exit hysteresis and
+temporal confirmation give tilt priority below impact/shake and above movement.
+Preserve the public tilt threshold key with normalized-component semantics; add
+an exit threshold and explicit mounting mapping to canonical live configuration.
+Use a fixed time-based low-pass filter and 20 Hz default sampling, without AHRS
+or changes to BehaviorEngine/EyeRenderer. See installation for conventions,
+limitations, diagnostics and physical verification.</p>
+<h3 id="adr-024-extension-amplified-imu-visual-intent">ADR-024 extension — Amplified IMU visual intent</h3>
+<p>Keep the established IMU event → BehaviorEngine → FaceState boundary. Increase
+persistent motion and tilt intent for visibility on the 800×600 display, while
+using separately configurable shake and impact strengths so impact is always
+stronger. FaceState retains its existing geometry clamps; alert accents remain
+temporary semantic intent, preserving the configured base iris. The seven
+<code>behavior.imu_*</code> settings reload live and do not alter the motion interpreter.</p>
+<h3 id="adr-024-extension-directional-imu-eye-asymmetry">ADR-024 extension — Directional IMU eye asymmetry</h3>
+<p>Add an optional signed <code>FaceState.eye_asymmetry</code> intent. It requests mirrored
+left/right eye openness without naming an IMU state in the renderer. Behavior
+sets it from stable horizontal tilt: left tilt opens the left eye and right tilt
+opens the right eye by the same configured amount; forward/back and non-tilt IMU
+states request equal eyes. This explicit value overrides the expression
+profile's ordinary asymmetry, while EyeRenderer continues to clamp and
+independently interpolate received eye targets. The one live-reloadable behavior
+setting remains architecture-neutral and preserves robot-state priority.</p>
+<h3 id="adr-025-optional-semantic-ws2812b-output">ADR-025 — Optional semantic WS2812B output</h3>
+<p>Add a lazy <code>rpi-ws281x</code> hardware provider behind a root-owned helper and a
+separate low-rate unprivileged LED controller.
+The controller reads only the existing immutable <code>FaceState</code> semantic accent and
+reaction strength, mapping it to a small uniform steady/pulse/fade vocabulary.
+It must not receive raw Vision, IMU or sensor input, and provider failures must
+not affect Core or eye rendering. Canonical <code>led_ring</code> settings keep pin/count
+restart-only; enabled state and visual settings reload through the shared
+lifecycle service. The ring is disabled and count-unconfigured by default until
+physical wiring is accepted.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../voice/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Voice capture and STT">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Voice capture and STT
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../current-state/" class="md-footer__link md-footer__link--next" aria-label="Next: Current implementation handoff">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Current implementation handoff
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/phosairobot/phos" target="_blank" rel="noopener" title="PHOS on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://x.com/phosairobot" target="_blank" rel="noopener" title="PHOS on X" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.instagram.com/phosairobot/" target="_blank" rel="noopener" title="PHOS on Instagram" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M224.3 141a115 115 0 1 0-.6 230 115 115 0 1 0 .6-230m-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1-.6-149.2m93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1-53.6 0m129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8M399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.action.edit", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

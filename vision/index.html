@@ -1,0 +1,2616 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An expressive AI-powered robot platform built on Raspberry Pi.">
+      
+      
+      
+        <link rel="canonical" href="https://phosairobot.github.io/phos/vision/">
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../vision-model-evaluation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/phos.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Vision reference - PHOS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/css/phos.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vision" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PHOS" class="md-header__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PHOS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Vision reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../how-phos-works/" class="md-tabs__link">
+          
+  
+  
+  How PHOS Works
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../hardware-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Hardware
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../installation-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Installation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../web-admin-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Web Admin
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../documentation/" class="md-tabs__link">
+          
+  
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PHOS" class="md-nav__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    PHOS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How PHOS Works
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How PHOS Works
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-phos-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision & Expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environmental-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environmental Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-admin-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cameraprovider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CameraProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-camera-picture-in-picture-preview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local camera picture-in-picture preview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#facedetector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FaceDetector
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#face-continuity-and-expression-crops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Face continuity and expression crops
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Face continuity and expression crops">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#physical-crop-verification-on-raspberry-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical crop verification on Raspberry Pi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expressionprovider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExpressionProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#raspberry-pi-3-performance-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raspberry Pi 3 performance policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#semantic-evidence-and-temporal-confirmation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantic evidence and temporal confirmation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-usefulness-and-geometric-cues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model usefulness and geometric cues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ai-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initial-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initial implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Initial implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#camera-channel-order-inconsistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Camera channel-order inconsistency
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presence-and-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presence and attention
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Presence and attention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#observed-facial-expression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observed facial expression
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expression-reaction-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expression reaction policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#selectable-local-aws-expressions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selectable local / AWS expressions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Selectable local / AWS expressions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cloud-request-and-evidence-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cloud request and evidence policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-model-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision model evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-administration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API contract notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TTS strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice capture and STT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../current-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Current implementation handoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.3.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.2.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.0.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.0.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cameraprovider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CameraProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-camera-picture-in-picture-preview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local camera picture-in-picture preview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#facedetector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FaceDetector
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#face-continuity-and-expression-crops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Face continuity and expression crops
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Face continuity and expression crops">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#physical-crop-verification-on-raspberry-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical crop verification on Raspberry Pi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expressionprovider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExpressionProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#raspberry-pi-3-performance-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raspberry Pi 3 performance policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#semantic-evidence-and-temporal-confirmation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantic evidence and temporal confirmation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-usefulness-and-geometric-cues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model usefulness and geometric cues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ai-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initial-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initial implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Initial implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#camera-channel-order-inconsistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Camera channel-order inconsistency
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#presence-and-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presence and attention
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Presence and attention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#observed-facial-expression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observed facial expression
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expression-reaction-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expression reaction policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#selectable-local-aws-expressions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selectable local / AWS expressions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Selectable local / AWS expressions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cloud-request-and-evidence-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cloud request and evidence policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/phosairobot/phos/edit/main/vision.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="vision">Vision</h1>
+<h2 id="goal">Goal</h2>
+<p>Add local visual perception using Raspberry Pi Camera while keeping the
+application independent from Picamera2, OpenCV and any specific ML model.</p>
+<p>The system classifies <strong>visible facial expressions</strong>. It must not claim to
+know a person's true internal emotional state.</p>
+<h2 id="architecture">Architecture</h2>
+<div class="highlight"><pre><span></span><code>Raspberry Pi Camera
+        |
+        v
+  CameraProvider
+        |
+        v
+   FaceDetector
+        +--&gt; normalized face position --&gt; Robot Core --&gt; BehaviorEngine --&gt; FaceState
+        |
+        +--&gt; ExpressionProvider --&gt; temporal smoothing --&gt; Robot Core
+</code></pre></div>
+<h2 id="cameraprovider">CameraProvider</h2>
+<p>Initial implementation: <code>Picamera2CameraProvider</code>.</p>
+<p>Default target:
+- 640x480 RGB
+- Picamera2 hidden behind the provider abstraction
+- capture frequency may be higher than inference frequency</p>
+<h2 id="local-camera-picture-in-picture-preview">Local camera picture-in-picture preview</h2>
+<p>The optional diagnostic preview uses the same <code>VisionPipeline</code> camera owner and
+the latest in-memory frame; display code never opens Picamera2 or another
+capture path. It is disabled by default. When enabled, a small (default 25%
+display-width) bordered image appears at the bottom-right of the PHOS display,
+with optional selected face box and already-produced raw/semantic expression
+labels. No image or video is persisted or sent to Web Admin or another network
+service. A single latest-frame reference and one bounded resize/encoding job
+prevent backlog; preview refresh is capped at 5 FPS by default. The resize runs
+off the Tk eye-render thread.</p>
+<p>The display passes raw binary PPM data to Tk. Preview encoding or image-loading
+failures are logged as <code>Could not render camera preview</code> once per failure streak,
+so a missing overlay can be diagnosed without flooding the log or stopping eyes.</p>
+<p>Manage the preview in Web Admin → Vision. Save the canonical configuration and
+use System → Reload configuration to apply enabled state, corner, scale, maximum
+FPS and diagnostic labels without restarting PHOS. If the preview is the only
+Vision feature enabled, reload starts the existing Vision pipeline/camera once;
+disabling it releases that pipeline when face tracking and expression
+recognition are also disabled. Changing preview options while Vision is already
+running does not restart Vision or the camera. Camera/display geometry and
+other Vision settings remain restart-required.</p>
+<h2 id="facedetector">FaceDetector</h2>
+<p>Initial implementation: <code>OpenCVFaceDetector</code>.</p>
+<p>Start with OpenCV Haar Cascade because it is lightweight enough for a
+Raspberry Pi 3. A DNN detector may replace it later without changing callers.</p>
+<h2 id="face-continuity-and-expression-crops">Face continuity and expression crops</h2>
+<p>The detector previously sorted boxes by area and the pipeline selected the
+largest independently on every frame. That allowed a larger false positive or
+second face to replace the previous target immediately; rectangular crops also
+changed aspect ratio before model resize. These code paths explain a mechanism
+for instability, but bounding-box logs alone cannot establish that a detection
+is actually a face. The historical camera tests did not visually verify crops.</p>
+<p><code>FaceSelector</code>, an internal geometric helper in Vision, now associates detections
+with the last selected box. It does not recognize identity or store images.</p>
+<ul>
+<li>Initial acquisition chooses the largest valid detection, with deterministic
+  position tie-breaking. Invalid/out-of-frame boxes and aspect ratios outside
+  0.5–2.0 are rejected. Haar settings and model preprocessing remain unchanged.</li>
+<li>Continuations require width and height ratios between 2/3 and 1.5, center
+  displacement no greater than 0.60 times the previous longest side, and either
+  IoU of at least 0.15 or displacement no greater than 0.25 sides. Compatible
+  candidates rank by <code>2 * IoU - normalized_distance - absolute_log_size_changes</code>,
+  rather than area. Other boxes are logged as competing detections or rejected
+  position/size jumps. These are conservative geometric heuristics, not proof
+  of a real face or person identity.</li>
+<li>The last match is remembered for at most one second. Missing/rejected boxes
+  do not advance that timeout. During a miss, no stale box reaches inference
+  or gaze; existing face-lost behavior runs and expression evidence resets.
+  After expiry a new acquisition is allowed, without mixing expression evidence
+  across tracks. Frame-size changes also reset continuity.</li>
+<li>Gaze immediately receives the selected <strong>current detection's</strong> normalized
+  center through the existing event. Expression inference waits for two
+  consecutive matching detection cycles, including after a miss. This rejects
+  one-frame expression crops while retaining responsive face tracking.</li>
+<li>Crop side length uses the longest detected side with an EMA coefficient of
+  0.5 to reduce scale jitter. The center follows the current detection, avoiding
+  added gaze/crop motion lag. The square always contains the current detected
+  face, even when smoothing would otherwise make it too small.</li>
+<li>Default margin is 10% per side: a stationary 100-pixel face yields a 120-pixel
+  square. Set <code>expression.crop_margin</code> in <code>config/phos.json</code> (valid range 0–0.5). Near image edges the
+  square shifts inside the frame; margin is reduced if necessary. If no square
+  can contain the detected face within the image, expression inference is
+  skipped. There is no padding, non-square stretching, or saved image.</li>
+</ul>
+<p>Set <code>logging.expression_diagnostics</code> true in the central JSON to log every detection
+cycle's full box list, selected box, selection reason, rejected boxes/reasons,
+and expression eligibility. Expression passes also log the final crop rectangle,
+margin and smoothed size. With tracking alone, use
+<code>vision.face_tracking_enabled=true</code> and <code>expression.enabled=false</code> in JSON to isolate detection
+without running FER. Disable diagnostics after testing to limit log volume.
+The paired benchmark uses the same selector and default square crop policy,
+and records detected/selected/rejected boxes and selection reasons numerically.
+Historical benchmark results used independent largest-box selection and tight
+rectangular crops, so they are not directly comparable preprocessing baselines.</p>
+<h3 id="physical-crop-verification-on-raspberry-pi">Physical crop verification on Raspberry Pi</h3>
+<ol>
+<li>Start with the empty scene, then enter and hold still for 20–30 seconds.
+   Persistent selected boxes while nobody is present indicate false positives;
+   the new continuity rules cannot reject a consistently detected background
+   pattern merely because it is stable. Confirm the real face is in view using
+   the camera preview separately if needed; stop PHOS before another process
+   acquires the camera. No preview/image storage is added to the runtime.</li>
+<li>Move slowly left/right and nearer/farther. Look for <code>continuity_match</code>, modest
+   crop-size changes, correct gaze, and consistently square crop coordinates.
+   Inspect whether boxes cover the actual face; numeric stability is insufficient
+   evidence of correct framing. Repeated <code>size_jump</code>/<code>position_jump</code> during normal
+   movement may mean these initial gates need Pi-side tuning.</li>
+<li>Introduce a second person, including a larger face away from the current
+   target. PHOS should retain the first plausible track. Crossing/overlapping
+   people remain ambiguous without identity recognition.</li>
+<li>Leave/re-enter, move abruptly, or briefly occlude the face. Rejected detections
+   must not reach FER; gaze uses existing face-loss behavior. Reacquisition after
+   the one-second timeout requires a second matching detection before inference.</li>
+<li>Approach each image edge. Verify crop coordinates stay within 640x480 and the
+   detected face remains contained. Then repeat neutral/smile/surprise at a fixed
+   distance and lighting while comparing FER outputs. Do not infer model accuracy
+   until framing is verified. Check display smoothness, CPU load and shutdown.</li>
+</ol>
+<p>This change does not tune FERPlus semantic thresholds or BehaviorEngine reactions.
+No fresh physical camera evidence has been collected for these selection defaults.</p>
+<h2 id="expressionprovider">ExpressionProvider</h2>
+<p>Initial implementation: <code>OpenCVExpressionProvider</code>.</p>
+<p>Use an ONNX model loaded through <code>cv2.dnn.readNetFromONNX</code>.</p>
+<p>Typical labels may include:
+- angry
+- disgusted
+- fearful
+- happy
+- sad
+- surprised
+- neutral</p>
+<p>The replacement candidate is OpenCV Zoo MobileFaceNet FP32 ONNX; see
+<a href="../vision-model-evaluation/">model evaluation</a> for its contract, limitations,
+measurements and paired camera test. It runs through the existing provider and
+runtime configuration. Production promotion awaits Pi camera verification.</p>
+<p>The previous baseline is ONNX Model Zoo <code>emotion-ferplus-8.onnx</code>. Its output labels must stay
+in this exact order: <code>neutral</code>, <code>happiness</code>, <code>surprise</code>, <code>sadness</code>, <code>anger</code>,
+<code>disgust</code>, <code>fear</code>, <code>contempt</code>.</p>
+<h2 id="raspberry-pi-3-performance-policy">Raspberry Pi 3 performance policy</h2>
+<p>Do not run expression inference for every camera frame.</p>
+<p>Suggested initial targets:
+- camera capture/preview: up to 15-30 FPS when useful
+- face detection: about 3-5 FPS
+- expression inference: about 2-5 FPS</p>
+<p>Prefer cropping the face and resizing it to a small model input such as
+64x64 or 96x96.</p>
+<p>Avoid full PyTorch/TensorFlow runtimes on Raspberry Pi 3 unless a concrete
+need justifies them. Prefer OpenCV DNN + ONNX.</p>
+<h2 id="semantic-evidence-and-temporal-confirmation">Semantic evidence and temporal confirmation</h2>
+<p><code>ExpressionProvider</code> retains its model-specific top label/confidence and now
+also supplies the complete labelled probability distribution. <code>ExpressionSmoother</code>
+interprets that distribution before accumulating temporal evidence. Only four
+semantic labels leave this path: <code>neutral</code>, <code>happy</code> (smile/happy-like),
+<code>surprised</code> (surprise-like), and <code>unknown</code>. These are visible appearance cues,
+not measurements of internal emotion or direct measurements of eyelid opening.</p>
+<p>Conservative initial defaults (not calibrated accuracy guarantees):</p>
+<table>
+<thead>
+<tr>
+<th>Semantic candidate</th>
+<th>Minimum probability</th>
+<th>Margin over next raw class</th>
+<th>Consecutive samples</th>
+<th>Minimum duration</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>happy / happiness</td>
+<td>0.80</td>
+<td>0.30</td>
+<td>3</td>
+<td>800 ms</td>
+</tr>
+<tr>
+<td>surprise / surprised</td>
+<td>0.85</td>
+<td>0.35</td>
+<td>3</td>
+<td>600 ms</td>
+</tr>
+<tr>
+<td>neutral, only when explicitly enabled after calibration</td>
+<td>0.95</td>
+<td>0.50</td>
+<td>3</td>
+<td>1200 ms</td>
+</tr>
+</tbody>
+</table>
+<p>The existing <code>minimum_confidence</code> constructor setting is an additional floor;
+it cannot lower these class thresholds. The class floors already imply strong
+margins for normalized distributions; the margin check makes the ambiguity rule
+explicit. Evidence must remain consecutive and gaps must not exceed 1.5 seconds.
+A changed candidate, rejected/missing prediction, no face, duplicate/backward
+timestamp or excessive gap resets confirmation. Count alone cannot confirm a
+burst of fast samples. Storage is bounded to the confirmation count, with recent
+confidence averaged; duration records the current uninterrupted run.</p>
+<p><strong>UNKNOWN is abstention, never a neutral vote.</strong> Missing distributions (including
+legacy top-label-only providers), malformed probabilities, negative/unsupported
+classes, weak evidence and pending confirmation produce UNKNOWN. No negative
+FER class maps to a PHOS expression. A missing face still uses the existing
+face-lost event and clears evidence. Face tracking remains independent.</p>
+<p>Neutral is <strong>disabled by default</strong>, including in the runtime and benchmark.
+The recorded Pi comparisons show false neutral even at high confidence, so
+raising a threshold alone is insufficient justification for accepting it.
+<code>ExpressionSmoother(neutral_enabled=True)</code> is available for a subsequently
+validated model/camera configuration; it still requires positive neutral
+probability, margin and temporal evidence. There is deliberately no automatic
+fallback from rejected smile/surprise to neutral.</p>
+<p>The existing <code>vision.visual_expression_stable</code> event carries confirmed useful
+observations <strong>or explicit UNKNOWN</strong>, preserving its name and payload fields.
+For UNKNOWN, <code>confidence=0</code> means no accepted semantic evidence, not a model
+probability, and <code>observed_for_ms=0</code>. <code>VisionResult</code> carries the same expression;
+its status is UNSTABLE during confirmation, UNKNOWN on rejection, and STABLE
+on acceptance. NOT_DUE/no-face remain separate outcomes.</p>
+<p>UNKNOWN does not refresh or replace a BehaviorEngine reaction. PHOS preserves
+its current face momentarily while the existing decay returns it to baseline
+(at 0.30 strength/second, at most three seconds from strength 0.90). That baseline
+NEUTRAL face is <strong>not</strong> a claim that the observed person looks neutral.
+Confirmed happy observations refresh the warm reaction. Surprise is a temporary
+reaction: repeated surprise observations cannot refresh it. A confirmed happy
+or neutral observation rearms surprise, with at least four seconds between
+surprise triggers; UNKNOWN and face loss do not rearm it. RobotState retains
+priority, and renderer interpolation and gaze remain unchanged.</p>
+<p>With <code>logging.expression_diagnostics=true</code>, each inference logs raw scores/probabilities, ranked
+top classes, final semantic result, acceptance/rejection reason and temporal
+candidate/count/duration/confirmation. Reasons include <code>neutral_not_calibrated</code>,
+<code>below_class_threshold</code>, <code>unsupported_class</code>, <code>missing_distribution</code>,
+<code>invalid_distribution</code>, <code>temporal_pending</code>, and <code>confirmed</code>. Images are not saved.
+The paired benchmark uses this same policy and includes distributions, reasons,
+temporal state, UNKNOWN fraction and raw-neutral fraction alongside accepted
+semantic statistics. Old benchmark measurements predate this policy.</p>
+<h2 id="model-usefulness-and-geometric-cues">Model usefulness and geometric cues</h2>
+<p>The <a href="../vision-model-evaluation/">recorded paired camera evaluation</a> demonstrated
+neither reliable smile/surprise discrimination nor reliable neutral detection.
+Both models repeatedly selected neutral for prompted non-neutral poses; poor
+face coverage and unverified crops prevent assigning model-level accuracy.
+FER remains useful as an experimental source of probability evidence and timing
+measurements. This policy contains its failures; it cannot recover a smile that
+the model scores as neutral or prove that a confident smile score is correct.</p>
+<p>Inspection of <code>OpenCVFaceDetector</code> and <code>FaceRegion</code> shows only a Haar bounding
+rectangle and normalized center. No mouth corners, eyelid points, eye opening,
+landmarks or calibrated neutral facial geometry are available. Rectangle size
+and movement cannot establish a smile or surprise. Consequently no geometric
+expression claim or new detector/framework is introduced. A future lightweight
+cue adapter would need independently validated mouth/eyelid measurements and
+Pi 3 end-to-end timing before fusion; a heavy landmark runtime is not justified
+by the current evidence. Existing camera channel-order inconsistency remains a
+separate documented limitation below; this change preserves that runtime.</p>
+<h2 id="semantics">Semantics</h2>
+<p>Facial-expression classifiers are uncertain visual observations.</p>
+<p>Prefer:
+- "the visible expression appears positive"
+- "happy-like expression detected"</p>
+<p>Avoid:
+- "the person is happy"
+- psychological conclusions based solely on facial appearance</p>
+<h2 id="ai-integration">AI integration</h2>
+<p>Vision must not invoke the LLM directly.</p>
+<p>Preferred flow:</p>
+<div class="highlight"><pre><span></span><code>Vision -&gt; Robot Event/State -&gt; Agent context
+</code></pre></div>
+<p>Simple UI/behavior reactions should be possible without involving the LLM.</p>
+<h2 id="initial-implementation">Initial implementation</h2>
+<p><code>VisionPipeline</code> is the lifecycle-managed service implementing this flow. It
+captures RGB frames in memory and rate-limits Haar face detection. For every
+detection interval with a face, it publishes <code>vision.face_position</code>, whose
+<code>face_position.x</code> and <code>face_position.y</code> are the detected face center normalized
+to <code>[-1, 1]</code> in camera coordinates. Vision does not choose pupil geometry;
+<code>BehaviorEngine</code> clamps and smooths that provider-neutral attention input into
+<code>FaceState</code>. When a face is lost, Vision publishes <code>vision.face_lost</code>.</p>
+<p>Expression inference remains optional and independently rate-limited. When it
+is configured, the pipeline publishes stable observations as
+<code>vision.visual_expression_stable</code>; its payload contains
+<code>visual_expression.label</code>, <code>confidence</code>, and <code>observed_for_ms</code> and does not
+make a claim about internal emotional state.</p>
+<p><code>BehaviorEngine</code> is the only consumer that turns accepted semantic observations
+into eye intent, following the evidence/UNKNOWN rules above. The provider-neutral
+behavior and visual-accent contract lives in <code>docs/architecture.md</code>.</p>
+<p>The default Pi adapter uses <code>Picamera2CameraProvider</code> at 640x480. Install the
+Pi Camera and OpenCV dependencies using the Raspberry Pi OS instructions in
+<code>docs/installation.md</code>, which includes the MobileFaceNet candidate launch command.
+For rollback/comparison, the ONNX Model Zoo FER+ baseline expects a
+<code>1x1x64x64</code> grayscale input and emits eight scores. The provider converts the
+RGB face crop to grayscale before creating its OpenCV DNN blob. Configure <code>expression.enabled=true</code>, <code>expression.provider="local"</code>, and replace
+the <code>expression.local</code> object in <code>config/phos.json</code> with:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"model_path"</span><span class="p">:</span><span class="w"> </span><span class="s2">"../models/expression/emotion-ferplus-8.onnx"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"labels"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"neutral"</span><span class="p">,</span><span class="w"> </span><span class="s2">"happiness"</span><span class="p">,</span><span class="w"> </span><span class="s2">"surprise"</span><span class="p">,</span><span class="w"> </span><span class="s2">"sadness"</span><span class="p">,</span><span class="w"> </span><span class="s2">"anger"</span><span class="p">,</span><span class="w"> </span><span class="s2">"disgust"</span><span class="p">,</span><span class="w"> </span><span class="s2">"fear"</span><span class="p">,</span><span class="w"> </span><span class="s2">"contempt"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"input_size"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="mi">64</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"grayscale"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"mean"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"swap_rb"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Then run <code>python3 src/robot/main.py --config config/phos.json</code>.</p>
+<p>FER+ preprocessing uses unscaled grayscale pixel values (<code>scale=1</code>), zero mean
+and no channel swap. <code>happiness</code> and <code>surprise</code> are candidates for happy and surprised semantics;
+<code>sadness</code>, <code>anger</code>, <code>disgust</code>, <code>fear</code>, and <code>contempt</code> produce UNKNOWN. These model-specific names never reach
+the renderer.</p>
+<p>For temporary Pi-side inspection without saving camera data, set
+<code>logging.expression_diagnostics=true</code> in JSON. It logs the selected face rectangle and
+crop shape, the grayscale/blob shapes, raw FER+ scores, softmax probabilities,
+forward inference time, and whether the smoother rejected or published the observation. Disable the
+setting after diagnosis because it logs every expression inference.
+Face tracking alone needs no ONNX model: set <code>vision.face_tracking_enabled=true</code>
+and <code>expression.enabled=false</code>, then use the same config-file startup command.</p>
+<h3 id="camera-channel-order-inconsistency">Camera channel-order inconsistency</h3>
+<p>The camera adapter currently requests Picamera2 <code>RGB888</code>, which yields BGR
+array bytes despite the adapter's RGB documentation. The detector and legacy
+FER+ grayscale conversion use <code>COLOR_RGB2GRAY</code>. The MobileFaceNet configuration
+swaps channels to obtain the required RGB tensor. This evaluation preserves
+the existing detector and FER+ baseline so results compare against current PHOS;
+it does not silently change the camera contract. A future correction must update
+camera, detector and expression configurations together and repeat the baseline.
+See the <a href="https://github.com/raspberrypi/picamera2/blob/main/picamera2/request.py">Picamera2 format mapping</a>.</p>
+<h2 id="presence-and-attention">Presence and attention</h2>
+<p>The selected face is converted to a provider-neutral observation before it
+reaches Presence or Attention. It carries a runtime-local target ID, normalized
+<code>x</code>/<code>y</code> position, normalized width/height, an optional detector confidence, and
+a timestamp. A missing detector confidence remains unavailable; PHOS does not
+invent <code>1.0</code> confidence.</p>
+<p><code>PresenceInterpreter</code> uses enter/leave hysteresis to move between <code>no_one</code> and
+<code>person_present</code>. It emits <code>person_entered</code> and <code>person_left</code> only on confirmed
+edges, never for every video frame. <code>person_engaged</code> is reserved in the state
+vocabulary but no eye-contact, identity, voice, or other engagement inference
+is implemented.</p>
+<p><code>AttentionManager</code> keeps target continuity separately from Presence. Its states
+are <code>idle</code>, <code>acquiring</code>, <code>tracking</code>, and <code>lost</code>: a candidate first enters
+<code>acquiring</code>, then a subsequent eligible observation enters <code>tracking</code>; failed
+acquisition returns to <code>idle</code>. A changed target ID emits <code>attention_target_changed</code>.
+Confirmed departure produces <code>attention_target_lost</code>, holds <code>lost</code> for canonical
+<code>attention.lost_hold_ms</code>, then returns to <code>idle</code>. Acquisition and loss events
+are edge-triggered. Behavior consumes this semantic state to update <code>FaceState</code>;
+neither component drives the renderer directly.</p>
+<h3 id="observed-facial-expression">Observed facial expression</h3>
+<p>The same selected-face path also exposes an <strong>Observed Expression</strong> read model:
+an uncertain expression-classifier result for the visible selected face. It is
+not a confirmed emotion, mood, identity, PHOS's expression, or an identity
+recognition result. The model retains the classifier's real confidence, provider
+and configured local-model filename when available; no detector or Presence
+confidence is substituted.</p>
+<p>Known provider aliases are normalized once in this read model (for example,
+<code>happiness</code> to <code>happy</code>, <code>surprise</code> to <code>surprised</code>, and <code>sadness</code> to <code>sad</code>),
+without treating an unknown value as neutral. The preview overlay and Remote
+API consume this same state. A valid result remains current for 1.5 seconds to
+bridge ordinary inference-frame gaps, then becomes explicitly unavailable.</p>
+<p>Face selection has independent sibling consumers: Presence answers whether
+someone is present, while the expression classifier describes the selected
+face's current visual resemblance. A disabled, slow, missing, or failing
+classifier produces an unavailable observation only. It never changes Presence
+hysteresis, Presence events, Attention, or face-loss semantics.</p>
+<h3 id="expression-reaction-policy">Expression reaction policy</h3>
+<p><code>ObservedExpression</code> is classifier telemetry; <code>ExpressionReactionPolicy</code> is a
+separate conservative behavioral decision; and <code>ReactionIntent</code> is a transient
+semantic request consumed by <code>BehaviorEngine</code>. PHOS's resulting expression is
+its own visual output, not a mirror of a person. The default policy requires
+70% confidence, 500ms label confirmation, and a 2500ms per-reaction cooldown;
+it displays reactions for 1200ms. Happy maps to HAPPY, surprised to SURPRISED,
+and sad/fearful/angry to CURIOUS; neutral, disgust and unknown labels do not
+react. Reactions are suppressed outside IDLE or during a motion transient, and
+preserve attention gaze and environmental overlays.</p>
+<h2 id="selectable-local-aws-expressions">Selectable local / AWS expressions</h2>
+<p><code>expression.provider</code> in <code>config/phos.json</code> selects <code>local</code> (existing ONNX
+settings) or <code>aws</code> (<code>AWSExpressionProvider</code>). With <code>expression.enabled=true</code>,
+either selection enables the camera; AWS needs no ONNX file. The canonical file
+disables expressions and standalone face tracking until explicitly enabled. Capture, Haar detection, geometric selection and square
+cropping remain local. Only the selected crop is JPEG encoded in memory, capped
+at 512 pixels on its longest side, and sent to Rekognition <code>DetectFaces</code> with
+<code>Attributes=["EMOTIONS"]</code>. AWS always includes some default face attributes;
+PHOS ignores these except face confidence. Multiple returned faces cause
+abstention, not remote target selection. No S3, video streaming, identity
+recognition, image files or biometric database is used.</p>
+<p><strong>Privacy:</strong> selecting AWS sends cropped facial images off the Raspberry Pi to
+AWS for processing. Choose local mode to keep these images on the Pi. Neither
+mode can establish a person's actual emotional state.</p>
+<p>The adapter translates HAPPY/SURPRISED/CALM to happy/surprised/neutral; all other
+categories contribute to unknown. AWS confidences are not assumed to be a
+softmax distribution: missing mass becomes unknown and totals above one are
+scaled down. Weak confidence is never amplified. These are conservative adapter
+scores, not calibrated probabilities. The existing semantic thresholds still
+apply, including neutral abstention. AWS types and labels never leave the adapter.
+See the official <a href="https://docs.aws.amazon.com/rekognition/latest/APIReference/API_DetectFaces.html">DetectFaces contract</a>.</p>
+<h3 id="cloud-request-and-evidence-policy">Cloud request and evidence policy</h3>
+<ul>
+<li>Two matching local detections plus one further second of uninterrupted eligible
+  crops are required. Loss, reacquisition, invalid crops or a new geometric track
+  invalidate cache and pending evidence. This is geometric stability, not identity.</li>
+<li>At most one background request exists. <code>asyncio.to_thread</code> runs SDK work;
+  <code>classify</code> polls without awaiting the network, keeping local tracking/rendering
+  independent. An invalidated in-flight response is discarded. Shutdown drains
+  the worker; SDK connect/read timeouts apply, though credential resolution can
+  add delay and an already transmitted request cannot be recalled.</li>
+<li>Requests start at least 30 seconds apart (also capped at two per minute through
+  minimum spacing). No automatic SDK retries are enabled, preventing hidden
+  billable retries. Counters include attempted requests, even preparation failures.</li>
+<li>A 16×16 grayscale crop comparison skips substantially identical crops before
+  the 60-second refresh deadline. Mean absolute pixel change must exceed 0.08
+  on a 0–1 scale to request earlier, still respecting cooldown. This is a cheap
+  image-change heuristic, not expression or person recognition.</li>
+<li>Cached evidence expires 90 seconds after sampling, not after network completion.
+  Similar input refreshes at 60 seconds, allowing overlap while waiting. Changed
+  input may refresh after 30 seconds. An optional session cap defaults to zero
+  (unlimited); expiry still produces UNKNOWN once the cap is exhausted.</li>
+<li>Three <strong>distinct successful samples</strong> with consistent accepted semantics are
+  needed for confirmation. Cached reads do not increment counts or duration.
+  Cloud evidence permits a maximum sample gap equal to its TTL; the local
+  1.5-second rule is unchanged. With similar crops, first confirmation takes
+  approximately two minutes, and is evidence from sparse samples, not proof
+  of a continuously held expression. Confirmed cached evidence remains usable
+  only within TTL. Gaps/expiry/loss/rejection reset confirmation.</li>
+<li>Failures clear current evidence and return UNKNOWN, logging only exception
+  type (never SDK error text, credentials or images). Retry delay doubles from
+  60 seconds to a 600-second cap; normal cooldown also applies. There is no
+  automatic provider fallback. Missing SDK, credentials, region or permission
+  is handled through the same bounded failure path.</li>
+</ul>
+<p>For one hour of uninterrupted eligible face presence, similar crops produce
+about <strong>60 requests</strong>; sufficiently changing crops can produce at most <strong>120</strong>
+with defaults. Loss, failures and session caps reduce calls. These are attempt
+bounds for a running session, not AWS price estimates. Restarting resets the
+counter/backoff. Rekognition accuracy, network behavior and Pi performance have
+not been verified on physical hardware by the unit tests.</p>
+<p>At startup look for <code>Expression provider: aws</code> or <code>local</code>. With
+<code>logging.expression_diagnostics=true</code>, rate-limited cloud policy logs show requested, cache,
+unchanged, cooldown/backoff, stable-face-pending or session-limit reasons,
+latency, neutral labels/confidence, discarded results and session attempt count.
+Existing local selection debug logs remain per detection; disable debug for
+normal operation. No request occurs without an eligible crop, so missing-face
+reasons are visible in local selection diagnostics.</p>
+<p>Operator commands and credentials: <a href="../installation/#optional-aws-expression-mode">installation</a>.
+All settings and authoritative defaults: <a href="../development/#configuration">development configuration</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../architecture/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Architecture reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Architecture reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../vision-model-evaluation/" class="md-footer__link md-footer__link--next" aria-label="Next: Vision model evaluation">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Vision model evaluation
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/phosairobot/phos" target="_blank" rel="noopener" title="PHOS on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://x.com/phosairobot" target="_blank" rel="noopener" title="PHOS on X" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.instagram.com/phosairobot/" target="_blank" rel="noopener" title="PHOS on Instagram" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M224.3 141a115 115 0 1 0-.6 230 115 115 0 1 0 .6-230m-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1-.6-149.2m93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1-53.6 0m129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8M399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.action.edit", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

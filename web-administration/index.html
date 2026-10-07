@@ -1,0 +1,2390 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An expressive AI-powered robot platform built on Raspberry Pi.">
+      
+      
+      
+        <link rel="canonical" href="https://phosairobot.github.io/phos/web-administration/">
+      
+      
+        <link rel="prev" href="../installation/">
+      
+      
+        <link rel="next" href="../remote-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/phos.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Web Admin manual - PHOS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/css/phos.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#phos-web-administration-user-manual" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PHOS" class="md-header__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PHOS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Web Admin manual
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../how-phos-works/" class="md-tabs__link">
+          
+  
+  
+  How PHOS Works
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../hardware-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Hardware
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../installation-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Installation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../web-admin-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Web Admin
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../documentation/" class="md-tabs__link">
+          
+  
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PHOS" class="md-nav__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    PHOS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How PHOS Works
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How PHOS Works
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-phos-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision & Expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environmental-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environmental Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-admin-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-model-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision model evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin manual
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install-and-enable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install and enable
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#first-login-and-password-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First login and password changes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-presence-and-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live presence and attention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#edit-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edit configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-password-recovery-and-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local password recovery and storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-and-operational-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security and operational limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-on-the-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification on the Pi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#login-request-rejected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Login request rejected
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#save-vs-reload-vs-restart-phos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Save vs Reload vs Restart PHOS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sensors-bme280-bmp280" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sensors — BME280 / BMP280
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sensors — BME280 / BMP280">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-air-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 air quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gy-521-mpu-6050-motion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GY-521 / MPU-6050 motion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API contract notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TTS strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice capture and STT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../current-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Current implementation handoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.3.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.2.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.0.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.0.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install-and-enable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install and enable
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#first-login-and-password-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First login and password changes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-presence-and-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live presence and attention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#edit-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edit configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-password-recovery-and-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local password recovery and storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-and-operational-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security and operational limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-on-the-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification on the Pi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#login-request-rejected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Login request rejected
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#save-vs-reload-vs-restart-phos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Save vs Reload vs Restart PHOS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sensors-bme280-bmp280" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sensors — BME280 / BMP280
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sensors — BME280 / BMP280">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-air-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 air quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gy-521-mpu-6050-motion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GY-521 / MPU-6050 motion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/phosairobot/phos/edit/main/web-administration.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="phos-web-administration-user-manual">PHOS web administration user manual</h1>
+<p>PHOS includes an optional single-administrator configuration editor. It uses the
+same JSON model and validation as startup, with no camera, AWS or display access
+from the web worker. Saving never applies settings. Reload applies logging level,
+supported eye appearance and camera preview settings; other runtime changes
+require restarting PHOS.</p>
+<h2 id="install-and-enable">Install and enable</h2>
+<p>Use the <a href="../installation/#recommended-unified-installer">PHOS 1.3.0 installation procedure</a>
+on the Pi (Python 3.11+). Its unified installer creates the canonical environment
+and installs the Web Admin dependency together with all other supported runtime
+components. For contributor-specific manual setup, use the concise
+<a href="../installation/#advancedmanual-installation">advanced/manual path</a>; do not create
+a separate Web Admin environment.</p>
+<p>The canonical <code>web</code> section defaults to <code>enabled: false</code>, <code>host: "127.0.0.1"</code>,
+<code>port: 8080</code>, preserving eyes-only startup without extra dependencies. Existing
+deployments must add this required section to their complete JSON file; source
+sync does not overwrite deployed settings.</p>
+<p>For access from another device on a <strong>trusted LAN</strong>, edit the existing section:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">"web"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"enabled"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"host"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.0.0.0"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"port"</span><span class="p">:</span><span class="w"> </span><span class="mi">8080</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>An explicit LAN interface IP is more restrictive than <code>0.0.0.0</code>, which binds all
+IPv4 interfaces. IPv6 literals are also accepted. Hostnames are not bind settings.
+No separate web CLI flags exist.</p>
+<p>Use the <a href="../installation/#managed-startup-and-browser-restart">user systemd service</a>
+for production and browser restart. For a foreground diagnostic run:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>/home/pi/phos
+.venv/bin/python<span class="w"> </span>src/robot/main.py<span class="w"> </span>--config<span class="w"> </span>config/phos.json
+</code></pre></div>
+<p>With dependencies already available to system Python, the unchanged command is
+<code>python3 src/robot/main.py --config config/phos.json</code>.
+Open <strong>http://<PI-LAN-IP>:8080/</strong> from your phone, tablet or desktop. Obtain the
+Pi address locally with <code>hostname -I</code>. With the default loopback binding, only
+<strong>http://127.0.0.1:8080/</strong> on the Pi can connect. A custom port changes both URLs.
+<code>web.host</code> and <code>web.port</code> are startup-only listener settings: save the complete
+canonical JSON and restart PHOS (for example, <code>systemctl --user restart
+phos.service</code>) before using the newly configured address. They are not applied
+by Reload configuration.
+Do not configure router port forwarding or expose this interface to the Internet.</p>
+<h2 id="first-login-and-password-changes">First login and password changes</h2>
+<ol>
+<li>Enter the bootstrap password <strong><code>phos</code></strong>; there is no username field.</li>
+<li>The editor remains inaccessible until you change that password.</li>
+<li>Enter current password <code>phos</code>, a different new password of 12–256 characters,
+   and its confirmation. Prefer a long, unique passphrase.</li>
+<li>Log in again using the new password. Configuration is now available.</li>
+</ol>
+<p>Use <strong>Change password</strong> later; current password and confirmation are required.
+Every successful change ends all sessions, including your own. <strong>Log out</strong> also
+invalidates that session on the server. Sessions expire after 30 minutes from
+login (not extended by activity) and all expire when PHOS restarts. Up to 32
+sessions are retained; a new login beyond that retires the oldest.</p>
+<p>The single account permits five password-verification attempts per minute across
+all clients, including successful logins and password-change attempts. Wait one
+minute after a throttle message. This global budget prevents bypass by changing
+IP or cookies, but another LAN client can temporarily deny login. Limits reset
+on restart. There is no persistent lockout or remote password reset.</p>
+<h2 id="live-presence-and-attention">Live presence and attention</h2>
+<p>Dashboard and PHOS Status show read-only Presence state, people count,
+Attention state, target ID, normalized target position, and confidence. The
+initial semantic status snapshot is refreshed through the existing SSE stream;
+edge events refresh the target state without adding a writable vision control.
+Unavailable detector confidence is displayed as unavailable rather than as a
+synthetic 100% value.</p>
+<p>They also show <strong>Observed Expression</strong> separately from PHOS's own expression.
+This is a read-only, uncertain selected-face classifier result with availability,
+label, confidence, provider, model and observation time. It may be unavailable
+while Presence remains present; it never controls PHOS expression or state.</p>
+<h2 id="edit-configuration">Edit configuration</h2>
+<p>The administration home is <strong>Dashboard</strong>. The sidebar groups read-only and
+writable runtime pages under Basic/Advanced, followed by configuration Settings;
+<strong>System Actions</strong> is a direct Advanced destination. The same navigation appears
+on every authenticated page and wraps for phone and tablet screens. The current
+page is highlighted. No frontend framework is needed.</p>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>Settings and actions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dashboard</td>
+<td>Read-only overview and navigation to configuration pages.</td>
+</tr>
+<tr>
+<td>PHOS Status</td>
+<td>Read-only semantic state and subsystem health summary.</td>
+</tr>
+<tr>
+<td>Controls</td>
+<td>Writable runtime actions only: separate Robot State, Expression, Visual Source and Overlay cards. Each action uses Remote API capabilities and reports feedback in its own card.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Web bind address (<code>web.host</code>) and port (<code>web.port</code>). Wi-Fi, DNS and other OS networking remain managed on the Pi.</td>
+</tr>
+<tr>
+<td>Display &amp; Appearance</td>
+<td>Display dimensions, fps, fullscreen and transitions; blink/gaze intervals, gaze smoothing and reaction decay from <code>behavior</code>.</td>
+</tr>
+<tr>
+<td>Vision</td>
+<td>Face tracking, camera resolution/cadence, face detection and optional display-only camera picture-in-picture preview.</td>
+</tr>
+<tr>
+<td>Expression Recognition</td>
+<td>Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group.</td>
+</tr>
+<tr>
+<td>Display &amp; Appearance</td>
+<td>Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration.</td>
+</tr>
+<tr>
+<td>Sensors</td>
+<td>Environmental type (BME280/BMP280), CCS811 air quality, environmental behavior and GY-521/MPU-6050 motion: enable, I2C address, polling and stale timeout; read-only current readings, interpreter state/reason, age and sensor health from the parent runtime. Hardware settings require Restart PHOS; IMU and environmental interpretation settings use Reload configuration.</td>
+</tr>
+<tr>
+<td>Logging</td>
+<td>Supported log level, output file and expression diagnostics. No credential/payload logging switches; SDK credential/request debug output remains suppressed.</td>
+</tr>
+<tr>
+<td>Web Administration / Security</td>
+<td>Enable/disable web administration (<code>web.enabled</code>) and a link to the separate password-change page. Passwords are never runtime configuration.</td>
+</tr>
+<tr>
+<td>Diagnostics</td>
+<td>Read-only runtime health and saved-versus-active configuration diagnostics.</td>
+</tr>
+<tr>
+<td>System Actions</td>
+<td>Reload configuration and, when managed by the documented systemd service, review/confirm Restart PHOS. Restart is visually marked as disruptive; reboot and shutdown are not supported.</td>
+</tr>
+</tbody>
+</table>
+<p>Active-configuration information is shown in <strong>Diagnostics</strong>, visually separated
+from editable settings. Deprecated CLI overrides, if used, appear in startup
+settings but do not change the saved file. The software version comes from the authoritative <code>robot.__version__</code>; live
+health is not inferred from the active configuration snapshot.</p>
+<p>Every editable page has its own <strong>Save</strong> button. It merges only that page's
+fields into the same canonical JSON file, validates the <strong>complete configuration</strong>,
+and atomically saves it. Other areas are preserved. There are no per-page
+configuration files or independent validation schemas. Save before navigating
+away: unsaved input is not carried between pages. A save in another tab makes
+previously loaded pages stale, including pages in other areas.</p>
+<p>Fields use checkboxes, numeric inputs, text inputs, comma-separated arrays and
+provider/log-level dropdowns. Optional paths/region may be blank. Numeric pairs
+are entered as <code>640, 480</code> or <code>3.5, 6.5</code>; labels are entered in model-output order.
+The canonical model remains authoritative for all ranges, types and relationships;
+see <a href="../development/#field-reference">the field reference</a>.</p>
+<p>Navigation is defined by a small domain registry, separate from the canonical
+schema. Future implemented subsystems can add areas there. LED Ring,
+Audio, Voice, LLM, Home Assistant, Remote API and MCP have no settings or
+placeholder pages in this milestone.</p>
+<p>Choose <strong>local</strong> or <strong>aws</strong> under Expression Recognition. The matching provider fields are
+shown; switching keeps the inactive provider's settings for later use. Both
+sections remain accessible if JavaScript is disabled. Enabling local expressions
+requires a readable ONNX model and valid labels. AWS selection does not require
+an ONNX file. Switching the provider does not implicitly enable expressions.</p>
+<p><strong>AWS mode sends selected face crops to AWS when expressions are enabled.</strong>
+Credentials remain exclusively in the external SDK chain/environment/profile/
+role mechanism. There are no access-key, secret-key or token fields. This editor
+does not probe credential availability or make AWS requests.</p>
+<p><strong>Save</strong> on an editable page converts fields and calls the same model validation and
+atomic persistence used elsewhere. Invalid input leaves the file unchanged,
+displays an error in the relevant group and preserves non-sensitive input.
+If validation finds a problem in another area, the page links to that area;
+the current changes remain unsaved. All fields, including
+inactive provider fields, must remain valid. After a validation error all provider
+groups are shown so inactive settings can also be corrected. Config-relative model/log
+paths keep their existing interpretation. Missing active model paths can be
+repaired in the editor while PHOS is already running; malformed JSON or invalid
+schema edited outside the UI requires local repair.</p>
+<p>Successful saves report that configuration is saved and direct you to <strong>System
+ actions</strong>. Save alone does not change running settings. Use Reload for logging,
+eye appearance and camera preview settings, or Restart PHOS for all other changes.
+Turning web off takes effect at
+restart. A page loaded before another save is rejected as stale: reload it
+before editing again. Do not edit the JSON simultaneously from the terminal.</p>
+<p>Saving flushes a temporary file in the same directory, then atomically replaces
+the target file. A validation or replacement failure preserves the old target.
+No automatic previous-version backup is kept. Before editing, use for example:</p>
+<div class="highlight"><pre><span></span><code>cp<span class="w"> </span>config/phos.json<span class="w"> </span>config/phos.json.backup
+</code></pre></div>
+<p>To recover, stop PHOS, restore a known-good complete file with
+<code>cp config/phos.json.backup config/phos.json</code>, and restart. An interrupted worker
+may leave an unused hidden temporary file; it is never loaded as configuration.</p>
+<h2 id="local-password-recovery-and-storage">Local password recovery and storage</h2>
+<p>Credential data is in <strong><code>.phos-admin/password.json</code> beside the selected JSON
+file</strong>: normally <code>/home/pi/phos/config/.phos-admin/password.json</code>. This stores
+only a salted Werkzeug PBKDF2-SHA256 hash (1,000,000 iterations) and the mandatory
+change flag. No plaintext password, session key or AWS credential is stored.
+The directory is owner-only (<code>0700</code>) and file owner-only (<code>0600</code>); run PHOS as
+its normal OS user. All selected configuration files in the same directory
+share this administrator store. Only one PHOS web instance per store is supported.</p>
+<p>Forgotten password recovery requires local filesystem/terminal access:</p>
+<ol>
+<li>Stop PHOS completely.</li>
+<li>Disable LAN access temporarily by setting <code>web.host</code> to <code>127.0.0.1</code>, or
+   disconnect the Pi from the network during bootstrap.</li>
+<li>Move the entire credential directory aside (choose an unused backup name):</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>/home/pi/phos
+mv<span class="w"> </span>config/.phos-admin<span class="w"> </span>config/.phos-admin-recovery-backup
+</code></pre></div>
+<ol>
+<li>Restart PHOS. A missing credential directory is created with bootstrap
+   password <code>phos</code>. Complete the mandatory change locally.</li>
+<li>Restore the desired trusted-LAN binding and restart. Retired hash backups
+   remain sensitive local files; do not commit or share them.</li>
+</ol>
+<p>For a custom configuration, use its parent directory instead of <code>config/</code>.
+A missing or corrupt password file <em>inside an existing directory</em> fails closed;
+it never silently re-enables <code>phos</code>. Use the same whole-directory recovery
+procedure. Do not delete only <code>password.json</code> while the server is running.</p>
+<h2 id="security-and-operational-limits">Security and operational limits</h2>
+<ul>
+<li>This milestone serves <strong>HTTP</strong>, without TLS. Passwords and session cookies
+  can be intercepted on an untrusted network. Only use a trusted LAN; perform
+  initial password setup locally where possible. Public Internet access, cloud
+  access and reverse-proxy/TLS deployment are outside this milestone.</li>
+<li>Flask signed cookies use a random per-worker secret, HttpOnly and
+  SameSite=Strict. Secure is intentionally unset because this server uses HTTP;
+  setting it would prevent LAN browser login over HTTP. Server-side random
+  session IDs allow logout/password-change revocation and absolute expiry.</li>
+<li>Flask-WTF protects all POST actions, including login, password changes, saves
+  and logout, against CSRF. Pages use escaping, a restrictive content security
+  policy, no-store caching and anti-framing headers. Password fields are never
+  repopulated. Request bodies and credentials are not logged.</li>
+<li>Waitress runs in a separate process with two threads, bounded connections and
+  request sizes. Password hashing cannot block the render event loop, but all
+  work still shares the Pi's limited CPU. Measure performance on target hardware.</li>
+<li>The worker starts before the runtime; a startup failure prevents a misleading
+  enabled-but-unreachable launch. Missing dependencies, invalid credential
+  permissions and occupied ports must be fixed locally. Shutdown terminates
+  the worker and releases its port, even if runtime startup fails. If the worker
+  crashes later, the parent shuts down and exits nonzero for supervisor recovery.</li>
+<li>Filesystem access is trusted. The editor can select model/cascade/log paths
+  within the privileges of the PHOS OS account. Run as a normal user, not root.</li>
+<li>Configurations/credentials are atomically replaced, but there is no automatic
+  backup, cross-process edit lock, arbitrary subsystem hot reload or high-availability service. A dead web worker
+  now causes graceful parent shutdown and a nonzero exit for systemd recovery.</li>
+</ul>
+<p>Implementation uses <a href="https://flask.palletsprojects.com/en/stable/web-security/">Flask security guidance</a>,
+<a href="https://flask-wtf.readthedocs.io/en/1.2.x/csrf/">Flask-WTF CSRF protection</a>,
+<a href="https://werkzeug.palletsprojects.com/en/stable/utils/#werkzeug.security.generate_password_hash">Werkzeug password hashing</a>
+and <a href="https://docs.pylonsproject.org/projects/waitress/en/stable/arguments.html">Waitress</a>.</p>
+<h2 id="verification-on-the-pi">Verification on the Pi</h2>
+<p>Enable LAN access, start PHOS, complete the first login, and check the editor
+from a phone and desktop. Open Display &amp; Appearance, save a harmless display setting and confirm the eyes
+keep running unchanged until restart. Verify the saved value after restart,
+then test logout, wrong password and local recovery. If camera tracking is
+already enabled, confirm it stays responsive while logging in/saving. Provider
+switches still require the model/AWS setup and physical verification described
+in <a href="../installation/">installation</a> and <a href="../vision/">Vision</a>; automated web tests
+use no camera, display, actual credentials or AWS calls.</p>
+<h2 id="login-request-rejected">Login request rejected</h2>
+<p>A form/session verification error occurs before the password is checked. Reload
+<code>http://&lt;PI-LAN-IP&gt;:8080/login</code> after restarting PHOS and allow cookies for that
+address. Old tabs contain tokens invalidated by a restart. If it persists, check
+the terminal for <code>Administration CSRF rejection</code>; the reason is logged without
+passwords or token values. Browser favicon/missing-page requests do not clear
+the login session. Update the Pi's source if using the initial implementation.</p>
+<h2 id="save-vs-reload-vs-restart-phos">Save vs Reload vs Restart PHOS</h2>
+<p>Lifecycle actions are on <strong>System actions</strong>, separate from editable domain forms.
+System / Status remains read-only and links to those actions. Every operation
+requires administrator authentication after mandatory bootstrap rotation;
+state changes also require CSRF protection.</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Save on a domain page</td>
+<td>Validates and atomically persists the full canonical JSON. Does not change active settings.</td>
+</tr>
+<tr>
+<td>Reload configuration</td>
+<td>Reads that same file, validates every setting and active path with startup's model, then applies logging level, iris theme, LED ring visual settings and all <code>vision.camera_preview</code> settings through shared runtime services. Shows applied fields and remaining restart-required fields.</td>
+</tr>
+<tr>
+<td>Restart PHOS</td>
+<td>Requires the managed service and explicit confirmation. Validates the saved file, requests graceful application shutdown, then systemd starts PHOS again from disk.</td>
+</tr>
+</tbody>
+</table>
+<p>If any setting/path is invalid, Reload applies <strong>nothing</strong>, including logging
+level. Restart is also rejected before shutdown when the saved file is invalid.
+No-op reloads report no changes. SDK logging stays at WARNING or above even when
+PHOS logging is switched to DEBUG. No credentials, tokens or request payloads
+are exposed by this feature.</p>
+<p>The <strong>Display &amp; Appearance</strong> page also offers the canonical <code>display.iris_color</code>
+choice: cyan, blue, green, turquoise, amber, violet or white. It configures the
+base iris theme; semantic accent tints still come from BehaviorEngine-produced
+FaceState. Save it with the other Display &amp; Appearance fields, then use Reload
+configuration. The renderer receives the validated appearance through the
+runtime's display-loop update boundary; the iris color blends smoothly into the
+next frames. PHOS, Vision, camera, BehaviorEngine and providers keep running.
+Expression semantics do not enter the renderer directly.</p>
+<p>The <strong>Vision</strong> page also manages the optional camera preview on the physical
+PHOS display. It is off by default; choose a corner, scale and maximum preview
+FPS, then select whether to show the current face box and expression diagnostics.
+Save and use Reload configuration to apply these fields immediately. The preview
+uses the existing camera owner and latest in-memory frame, stays on the local
+display, and is neither recorded nor exposed over this administration interface.</p>
+<p>Iris color and camera preview settings are reloadable. Display geometry, cadence,
+fullscreen and behavioral timing still require restart. Other implemented settings requiring restart are
+web enabled/host/port; camera resolution/tracking/detection; expression enabled/provider, preprocessing,
+smoothing and AWS policy; log destination and expression diagnostics. Switching
+local/AWS is never done live. Password changes use their separate immediate
+session-revoking mechanism, independent of Save/Reload.</p>
+<p>The page shows configuration path, last successful startup/reload UTC time,
+whether saved and active settings differ, reloadable differences and fields
+requiring restart. Active settings are tracked by the parent application service,
+not inferred from the saved file. The timestamp does not mean restart-only
+settings were applied: those remain listed as pending. Runtime health and AWS
+credential availability are not monitored.</p>
+<p>To reload, open System actions and click <strong>Reload configuration</strong>. To restart,
+click <strong>Review and confirm restart</strong>, read the interruption notice, check the
+confirmation checkbox and press <strong>Restart PHOS</strong>. GET/page navigation never
+restarts anything. A confirmation can be used only once. The acknowledgement is:
+<strong>Restart requested. PHOS will reload the configuration on startup.</strong></p>
+<p>Expect temporary web loss and log in again after a few seconds. A slow connection
+may lose the acknowledgement as shutdown begins; check the service locally before
+retrying. The saved network settings determine the new URL. If web administration
+was disabled, use the Pi terminal to enable it again. Unsaved form edits are lost.</p>
+<p>Follow <a href="../installation/#managed-startup-and-browser-restart">managed startup</a> to
+install the user service. Manual terminal launches support Reload, but browser
+Restart is unavailable; stop and rerun the normal startup command locally. Do
+not run a manual copy beside the service (camera/port contention). No reboot,
+arbitrary command execution, privileged shell or generic service-management API
+is provided. <strong>Reboot Raspberry Pi</strong> is deferred beyond 1.3.0.</p>
+<p>Configuration must remain valid until restart completes. Avoid concurrent local
+file edits; a file changed or hardware removed after validation can still cause
+startup to fail. Systemd bounds repeated startup failures; inspect its journal
+and repair locally as described in installation. A lifecycle channel failure
+reports unavailable rather than pretending that settings were applied.</p>
+<p>Preview reload failures are shown as errors and logged in the parent. Earlier
+successful appearance changes may already be active; inspect System actions
+after correcting the camera/dependency problem. Invalid JSON/schema applies
+nothing. An accepted preview configuration does not certify live image quality;
+check the physical display and logs. The lifecycle channel waits up to five
+seconds. If a native camera start takes longer, the action may still complete;
+the response reports uncertainty and the channel stays unavailable until PHOS
+restarts. Check locally rather than assuming the operation was cancelled.</p>
+<h2 id="sensors-bme280-bmp280">Sensors — BME280 / BMP280</h2>
+<p>After <a href="../installation/#optional-environmental-sensor">I2C setup</a>, open
+<strong>Sensors</strong>, select <strong>Type → BME280</strong> or <strong>BMP280</strong>, enable the sensor, choose the actual <code>0x76</code>/<code>0x77</code> address and save.
+Polling and stale timeout are seconds; the editor uses canonical validation.
+All changes, including timing and disable, require <strong>System actions → Restart
+PHOS</strong> (or a manual stop/start). Reload leaves them pending without touching
+sensor, display or Vision services. Saving enabled does not mean a sensor exists.</p>
+<p>The read-only panel reflects the parent application/status service at page load:
+it shows the runtime's semantic robot state, active visual source, resolved
+expression and interpreted motion state alongside the provider-neutral sensor
+snapshot. The web worker never imports or reads a sensor provider directly.
+Temperature
+(°C), relative humidity (%) for BME280, and atmospheric/station pressure (hPa), last successful
+UTC update, age in seconds, and status. Refresh for another snapshot after saving
+any edits. This is not an automatically refreshing dashboard. No sensor driver
+runs in the web worker and no extra network sensor endpoint is introduced.</p>
+<p>BMP280 has no humidity sensor: its value is null and the panel shows <strong>Not
+supported</strong>, including when unavailable. The panel shows the active sensor type
+and uses explicit capabilities from runtime. A saved selection does not change
+the displayed active type/capabilities until restart.</p>
+<p>Status is disabled, starting, available, unavailable, stale or stopped. Failed
+and stale measurements are hidden, while last-update/age remain visible for
+diagnosis. Before the first successful read there is no timestamp. Missing
+libraries/hardware, wrong chip/address and I/O errors show unavailable; errors
+are sanitized to their exception type. Consult the Pi journal and installation
+troubleshooting. A broken parent channel shows status unavailable, never guessed
+values from saved configuration. Sensor failures do not change PHOS behavior.</p>
+<p>Selecting a sensor type does not install its driver. If the sensor error is
+<code>ModuleNotFoundError</code> and the Pi journal says <code>No module named 'bmp280'</code>, follow
+the <a href="../installation/#missing-bmp280-driver">BMP280 driver recovery instructions</a>
+to install and verify the dependency in PHOS's virtual environment. Check the
+active configuration path under System / Status if the logged sensor type
+differs from the file you edited.</p>
+<h3 id="ccs811-air-quality">CCS811 air quality</h3>
+<p>The same <strong>Sensors</strong> page has a <strong>CCS811 air quality</strong> configuration group:
+enabled, address (<code>0x5a</code>/<code>0x5b</code>), polling interval and stale timeout. Install its
+optional dependency and verify wiring using the
+<a href="../installation/#optional-ccs811-air-quality-sensor">CCS811 setup instructions</a>.
+Every setting requires <strong>Save → System actions → Restart PHOS</strong>; Reload leaves
+changes pending. The committed default is disabled.</p>
+<p>The read-only panel shows <strong>eCO2 (estimated equivalent CO2), ppm</strong>, <strong>TVOC, ppb</strong>,
+last successful UTC update, age, health and compensation input. eCO2 is not a
+direct NDIR CO2 measurement. Values are hidden during <code>warming_up</code>, unavailable,
+stale or disabled states; the initial timestamp is absent. Refresh for a new
+snapshot; this page does not acquire hardware or automatically stream readings.</p>
+<p>The runtime withholds readings for 20 minutes after initialization. A new
+sensor needs longer first-use conditioning; see installation. Missing DATA_READY
+keeps polling without restarting the conditioning period. Fault recovery or
+PHOS restart does initialize it again. Fresh BME280 temperature/humidity may
+supply compensation automatically. BMP280 lacks humidity; stale, failed or
+missing environmental data use clearly labeled device defaults. The panel
+reports the input last written, not a guarantee that the displayed gas sample
+already incorporates it. Consult the journal for hardware ERROR_ID diagnostics.</p>
+<h3 id="gy-521-mpu-6050-motion">GY-521 / MPU-6050 motion</h3>
+<p>The <strong>GY-521 / MPU-6050 motion</strong> group edits enabled state, <code>0x68</code>/<code>0x69</code> address,
+polling and stale timeout, which require <strong>System actions → Restart PHOS</strong>. Its
+motion threshold subgroup is live-reloadable: save then use <strong>Reload
+configuration</strong>, without resetting the sensor. The
+read-only panel shows acceleration X/Y/Z in m/s² and angular velocity X/Y/Z in
+°/s, interpreted motion state, tilt direction, last event, timestamp, age and status. <code>Factory scale only; no offset calibration</code>
+means the adapter converted its ±2 g / ±250 °/s raw scale but did not require a
+motionless startup calibration. Values are hidden whenever unavailable or stale;
+the page never opens I2C itself. Setup and Pi verification are in the
+<a href="../installation/#optional-gy-521-mpu-6050-imu">MPU-6050 installation guide</a>.</p>
+<p>IMU visual intensity and timing appear under <strong>Display &amp; Appearance → Eye
+behavior</strong>. They are applied by <strong>Reload configuration</strong>. Persistent movement and
+tilt react while their motion state remains active; SHAKE and IMPACT use brief
+alert overlays followed by smooth decay. <code>imu_tilt_eye_asymmetry_strength</code>
+mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
+the strongest alert remains unambiguous. Robot states such as
+sleeping, speaking and error retain priority.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../installation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Installation reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Installation reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../remote-api/" class="md-footer__link md-footer__link--next" aria-label="Next: Remote API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Remote API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/phosairobot/phos" target="_blank" rel="noopener" title="PHOS on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://x.com/phosairobot" target="_blank" rel="noopener" title="PHOS on X" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.instagram.com/phosairobot/" target="_blank" rel="noopener" title="PHOS on Instagram" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M224.3 141a115 115 0 1 0-.6 230 115 115 0 1 0 .6-230m-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1-.6-149.2m93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1-53.6 0m129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8M399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.action.edit", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

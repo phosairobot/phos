@@ -1,0 +1,2826 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An expressive AI-powered robot platform built on Raspberry Pi.">
+      
+      
+      
+        <link rel="canonical" href="https://phosairobot.github.io/phos/installation/">
+      
+      
+        <link rel="prev" href="../hardware/">
+      
+      
+        <link rel="next" href="../web-administration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/phos.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Installation reference - PHOS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/css/phos.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#phos-installation-on-raspberry-pi" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PHOS" class="md-header__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PHOS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Installation reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../how-phos-works/" class="md-tabs__link">
+          
+  
+  
+  How PHOS Works
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../hardware-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Hardware
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../installation-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Installation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../web-admin-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Web Admin
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../documentation/" class="md-tabs__link">
+          
+  
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PHOS" class="md-nav__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    PHOS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How PHOS Works
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How PHOS Works
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-phos-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision & Expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environmental-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environmental Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-admin-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-model-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision model evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#phos-130-reproducible-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHOS 1.3.0 reproducible installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-unified-installer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended: unified installer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommended: unified installer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#opencv-provider-invariant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCV provider invariant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#advancedmanual-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced/manual installation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#camera-and-display-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Camera and display check
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-phos-and-web-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure PHOS and Web Admin
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-onnx-expression-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local ONNX expression model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-phos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start PHOS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managed-startup-and-browser-restart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managed startup and browser restart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-aws-expression-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional AWS expression mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-environmental-sensor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional environmental sensor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional environmental sensor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#missing-bmp280-driver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Missing BMP280 driver
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-gy-521-mpu-6050-imu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional GY-521 / MPU-6050 IMU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-ws2812b-rgb-led-ring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional WS2812B RGB LED ring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional WS2812B RGB LED ring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enable-the-ring-on-a-deployed-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enable the ring on a deployed Pi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-ccs811-air-quality-sensor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional CCS811 air-quality sensor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional CCS811 air-quality sensor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-conditioning-baseline-and-compensation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 conditioning, baseline and compensation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-verification-and-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 verification and troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-reads-0x81-after-power-cycling-then-0xff-after-phos-starts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 reads 0x81 after power cycling, then 0xff after PHOS starts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-administration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API contract notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TTS strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice capture and STT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../current-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Current implementation handoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.3.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.2.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.0.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.0.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#phos-130-reproducible-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PHOS 1.3.0 reproducible installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-unified-installer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended: unified installer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommended: unified installer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#opencv-provider-invariant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCV provider invariant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#advancedmanual-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced/manual installation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#camera-and-display-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Camera and display check
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-phos-and-web-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure PHOS and Web Admin
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-onnx-expression-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local ONNX expression model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-phos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start PHOS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managed-startup-and-browser-restart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managed startup and browser restart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-aws-expression-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional AWS expression mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-environmental-sensor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional environmental sensor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional environmental sensor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#missing-bmp280-driver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Missing BMP280 driver
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-gy-521-mpu-6050-imu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional GY-521 / MPU-6050 IMU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-ws2812b-rgb-led-ring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional WS2812B RGB LED ring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional WS2812B RGB LED ring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enable-the-ring-on-a-deployed-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enable the ring on a deployed Pi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-ccs811-air-quality-sensor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional CCS811 air-quality sensor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional CCS811 air-quality sensor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-conditioning-baseline-and-compensation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 conditioning, baseline and compensation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-verification-and-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 verification and troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-reads-0x81-after-power-cycling-then-0xff-after-phos-starts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 reads 0x81 after power cycling, then 0xff after PHOS starts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/phosairobot/phos/edit/main/installation.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="phos-installation-on-raspberry-pi">PHOS installation on Raspberry Pi</h1>
+<h2 id="phos-130-reproducible-installation">PHOS 1.3.0 reproducible installation</h2>
+<p>Use Raspberry Pi OS <strong>with a graphical desktop</strong>, Python 3.11+ and an 800×600
+HDMI display on the Pi 3. Tk needs an active X display (XWayland on a Wayland
+desktop). Raspberry Pi OS Lite alone is insufficient. The recommended production
+launch is the user systemd service below; terminal launch is for diagnostics.
+These instructions use the desktop user's <code>~/phos</code> (<code>/home/pi/phos</code> for user <code>pi</code>).</p>
+<p>This is a reproducible source/dependency procedure, not a frozen OS image. Record
+<code>cat /etc/os-release</code>, <code>uname -m</code>, <code>python3 --version</code> and apt package versions
+with the release acceptance results. Actual fresh-Pi acceptance is still pending;
+see <a href="../release-1.3.0/#testing-and-release-gates">release checklist</a>.</p>
+<h2 id="recommended-unified-installer">Recommended: unified installer</h2>
+<p>On the Pi, as the desktop user:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~
+git<span class="w"> </span>clone<span class="w"> </span>https://github.com/phosairobot/phos.git<span class="w"> </span>phos
+<span class="nb">cd</span><span class="w"> </span>~/phos
+./scripts/install-phos.sh
+</code></pre></div>
+<p>Use the audited commit when it becomes available; no <code>v1.3.0</code> tag is assumed to
+exist yet. The source checkout already contains <code>config/phos.json</code>; do not create
+an incomplete JSON file. The installer validates Raspberry Pi OS/Debian ARM,
+installs required APT packages, creates/reuses <code>.venv</code>, installs canonical
+<code>.[all]</code> runtime extras, prepares the local ONNX model, and performs
+software-only smoke checks. It does not require connected hardware. OpenCV DNN
+loads ONNX directly: <strong>onnxruntime, TensorFlow and PyTorch are not required</strong>.</p>
+<p>The APT packages are <code>build-essential</code>, <code>ca-certificates</code>, <code>git</code>, <code>i2c-tools</code>,
+<code>libcap-dev</code>, <code>opencv-data</code>, <code>python3-dev</code>, <code>python3-opencv</code>,
+<code>python3-picamera2</code>, <code>python3-pyaudio</code>, <code>python3-smbus</code>, <code>python3-tk</code>, <code>python3-venv</code>,
+<code>rpicam-apps</code>, and <code>wget</code>.
+<code>.[all]</code> includes the existing Web Admin/Remote API, Vision, AWS,
+environmental, CCS811, IMU, and LED-ring Python support.</p>
+<h3 id="opencv-provider-invariant">OpenCV provider invariant</h3>
+<p>PHOS intentionally uses the Raspberry Pi OS <code>python3-opencv</code> package as its
+only <code>cv2</code> provider, inherited by <code>.venv</code> through <code>--system-site-packages</code>.
+<code>.[all]</code> must not install <code>opencv-python</code>, <code>opencv-python-headless</code>, or an
+OpenCV contrib wheel: those distributions overwrite the same <code>cv2</code> namespace
+and can leave Haar cascades or binary modules mismatched. PHOS uses OpenCV for
+Haar detection and DNN/ONNX processing, not HighGUI windows; the face display
+is Tk.
+The accepted PHOS runtime range is OpenCV <code>&gt;=4.10,&lt;5</code>; it is enforced by the
+installer smoke check because the Debian package, rather than PyPI metadata,
+owns that version selection. NumPy remains system/package-manager compatible;
+PHOS does not pin or downgrade it. Python 3.13 remains supported, with the
+separate voice extra retaining <code>audioop-lts</code>; voice does not depend on OpenCV.</p>
+<p>If an earlier installation ran an affected <code>.[all]</code>, recreate the virtual
+environment rather than uninstalling overlapping files in place:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+deactivate<span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+rm<span class="w"> </span>-rf<span class="w"> </span>.venv
+./scripts/install-phos.sh
+.venv/bin/python<span class="w"> </span>tools/check_opencv.py
+</code></pre></div>
+<p>The check prints the loaded <code>cv2</code> path/version and Haar-data path, and fails if
+multiple known Python OpenCV distributions are visible or the face cascade
+cannot load.</p>
+<h3 id="advancedmanual-installation">Advanced/manual installation</h3>
+<p>For contributors or constrained deployments, install the same supported runtime
+manually:</p>
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>apt<span class="w"> </span>update
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>build-essential<span class="w"> </span>ca-certificates<span class="w"> </span>git<span class="w"> </span>i2c-tools<span class="w"> </span>libcap-dev<span class="w"> </span>opencv-data<span class="w"> </span>python3-dev<span class="w"> </span>python3-opencv<span class="w"> </span>python3-picamera2<span class="w"> </span>python3-pyaudio<span class="w"> </span>python3-smbus<span class="w"> </span>python3-tk<span class="w"> </span>python3-venv<span class="w"> </span>rpicam-apps<span class="w"> </span>wget
+python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>--system-site-packages<span class="w"> </span>.venv
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip<span class="w"> </span>setuptools<span class="w"> </span>wheel
+.venv/bin/pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s1">'.[all]'</span>
+</code></pre></div>
+<p>Then prepare the model below and run the installer smoke-check commands. The
+script remains the recommended path because it performs those steps consistently.</p>
+<div class="highlight"><pre><span></span><code>.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import robot; from robot.config import RuntimeConfig; RuntimeConfig.from_file(); print('PHOS configuration ready')"</span>
+.venv/bin/pip<span class="w"> </span>check
+</code></pre></div>
+<p>Alternative source transfer: review the destination in <code>run_pi.sh</code> and run it
+from your development checkout. It copies release scripts, including the WS2812B
+helper, seeds a missing configuration and preserves existing Pi
+settings/models/administrator data; it neither installs dependencies nor restarts
+PHOS. Upgrades must merge new required fields from the complete
+canonical schema. The script has a site-specific destination, not auto-discovery.</p>
+<h2 id="camera-and-display-check">Camera and display check</h2>
+<p>Before starting PHOS, run this from the Pi desktop with the camera connected:</p>
+<div class="highlight"><pre><span></span><code>rpicam-hello<span class="w"> </span>--timeout<span class="w"> </span><span class="m">5000</span>
+.venv/bin/python<span class="w"> </span>src/robot/ui/demo.py
+</code></pre></div>
+<p>Close the camera test before PHOS acquires it. In the eye demo use <code>1</code>–<code>5</code> for
+expressions, arrows for gaze and <code>q</code> to exit. Resolve camera connection/desktop
+permission problems before proceeding. Camera packages and setup follow
+<a href="https://www.raspberrypi.com/documentation/computers/camera_software.html">Raspberry Pi's supported camera documentation</a>.</p>
+<h2 id="configure-phos-and-web-admin">Configure PHOS and Web Admin</h2>
+<p>Edit <code>~/phos/config/phos.json</code>. Release defaults start only eyes: tracking,
+expressions, camera preview, environmental sensors, CCS811 and Web Admin are disabled. Keep this complete file;
+all required sections (<code>web</code>, <code>display</code>, <code>led_ring</code>, <code>presence</code>, <code>attention</code>,
+<code>behavior</code>, <code>vision</code>, <code>expression</code>, <code>expression_reactions</code>, <code>sensors</code>, <code>logging</code>)
+are required, including inactive provider fields and <code>vision.camera_preview</code>.
+Paths inside JSON resolve relative to its directory.</p>
+<p>For trusted-LAN administration set <code>web.enabled</code> to <code>true</code> and <code>web.host</code> to the
+Pi's LAN address or <code>0.0.0.0</code>; default port is 8080. No AWS/password secrets belong
+in JSON. Validate before any camera/display startup:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+<span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"</span>
+</code></pre></div>
+<p>Enable gaze with <code>vision.face_tracking_enabled: true</code>. Enable the local display
+picture-in-picture with <code>vision.camera_preview.enabled: true</code> (it is <strong>not a web
+video stream</strong>). Keep expressions off until choosing one provider below.</p>
+<h2 id="local-onnx-expression-model">Local ONNX expression model</h2>
+<p>The unified installer downloads and verifies the configured MobileFaceNet model
+unless the local copy already has the expected checksum. For manual installation,
+prepare it with:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+mkdir<span class="w"> </span>-p<span class="w"> </span>models/expression
+wget<span class="w"> </span>-O<span class="w"> </span>models/expression/facial_expression_recognition_mobilefacenet_2022july.onnx<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/facial_expression_recognition/facial_expression_recognition_mobilefacenet_2022july.onnx
+<span class="nb">echo</span><span class="w"> </span><span class="s1">'4f61307602fc089ce20488a31d4e4614e3c9753a7d6c41578c854858b183e1a9  models/expression/facial_expression_recognition_mobilefacenet_2022july.onnx'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sha256sum<span class="w"> </span>-c<span class="w"> </span>-
+wget<span class="w"> </span>-O<span class="w"> </span>models/expression/opencv-zoo-LICENSE<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://raw.githubusercontent.com/opencv/opencv_zoo/main/LICENSE
+</code></pre></div>
+<p>Stop if the checksum differs. Set <code>expression.enabled: true</code> and
+<code>expression.provider: "local"</code>; retain the supplied model path, labels and
+preprocessing. No AWS dependency is needed. The candidate's recognition quality
+is not established; read <a href="../vision-model-evaluation/">model evaluation</a>.
+Keep neutral reactions disabled until calibrated. Revalidate the JSON.</p>
+<h2 id="start-phos">Start PHOS</h2>
+<p>For a first foreground check from the desktop:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+.venv/bin/python<span class="w"> </span>src/robot/main.py<span class="w"> </span>--config<span class="w"> </span>config/phos.json
+</code></pre></div>
+<p>Check the startup version is <strong>1.3.0</strong> and the logged configuration path is the
+file you edited. Escape leaves fullscreen; Ctrl+C stops PHOS. Stop this process
+before installing/starting the production service below.</p>
+<p>When web is enabled, open <code>http://&lt;PI-LAN-IP&gt;:8080/</code>, enter <code>phos</code>, set a different
+12–256 character password, then log in again. There is no username. Password
+changes revoke all sessions. Use the <a href="../web-administration/">administration manual</a>
+for domain editing, validation, recovery and trusted-LAN HTTP limitations.</p>
+<h2 id="managed-startup-and-browser-restart">Managed startup and browser restart</h2>
+<p>The <strong>recommended production launch</strong> is <code>deploy/phos.service</code>, a user systemd
+service running with the desktop user's camera/display/file permissions. No root
+service, sudo endpoint or adapter-owned shell command is involved. From a terminal
+<strong>in that user's Pi graphical desktop</strong>, after stopping any foreground PHOS:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+mkdir<span class="w"> </span>-p<span class="w"> </span>~/.config/systemd/user
+cp<span class="w"> </span>deploy/phos.service<span class="w"> </span>~/.config/systemd/user/phos.service
+systemctl<span class="w"> </span>--user<span class="w"> </span>import-environment<span class="w"> </span>DISPLAY
+<span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">XAUTHORITY</span><span class="k">:-</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">  </span>systemctl<span class="w"> </span>--user<span class="w"> </span>import-environment<span class="w"> </span>XAUTHORITY
+<span class="k">fi</span>
+systemctl<span class="w"> </span>--user<span class="w"> </span>daemon-reload
+systemctl<span class="w"> </span>--user<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>phos.service
+systemctl<span class="w"> </span>--user<span class="w"> </span>status<span class="w"> </span>phos.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>The unit uses <code>%h/phos</code>, <code>.venv/bin/python</code> and <code>%h/phos/config/phos.json</code>. Adjust
+WorkingDirectory/ExecStart locally if installing elsewhere. Tk must have a usable
+DISPLAY and authorization; do not enable lingering/headless boot for this app.
+Login startup depends on the desktop activating <code>graphical-session.target</code> and
+importing its display environment. Check <code>systemctl --user is-active
+graphical-session.target</code>. If the desktop does not manage that target/environment,
+run the import commands and <code>systemctl --user start phos.service</code> at each desktop
+login. Automatic login startup on that desktop remains an acceptance prerequisite.</p>
+<p>Operations:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+systemctl<span class="w"> </span>--user<span class="w"> </span>stop<span class="w"> </span>phos.service
+systemctl<span class="w"> </span>--user<span class="w"> </span>start<span class="w"> </span>phos.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>In Web Admin, <strong>System actions → Reload configuration</strong> applies logging level,
+iris theme and every camera-preview setting. Other changed fields remain listed
+as restart-required. <strong>Restart PHOS</strong> requires confirmation, shuts down the runtime
+and worker, exits with code 75 and lets systemd start the same entry point after
+three seconds. Reconnect at the saved host/port and log in again. Disabling web
+intentionally removes browser access. Manual launches cannot offer browser restart.
+This never reboots the Pi.</p>
+<p>Unexpected runtime or web-worker failure exits nonzero for systemd recovery.
+The unit limits starts to three per 60 seconds and kills the entire service
+control group on stop (20-second shutdown deadline). An explicit <code>systemctl stop</code>
+does not restart it. Fix configuration/dependency/display errors before recovery:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>reset-failed<span class="w"> </span>phos.service
+systemctl<span class="w"> </span>--user<span class="w"> </span>start<span class="w"> </span>phos.service
+</code></pre></div>
+<p>The service marker <code>PHOS_SERVICE_MANAGED=1</code> plus systemd's <code>INVOCATION_ID</code> enables
+browser restart; neither is a normal runtime setting. Do not set the marker in
+manual launches. See <a href="https://github.com/systemd/systemd/blob/main/man/systemd.service.xml">systemd service semantics</a>.</p>
+<h2 id="optional-aws-expression-mode">Optional AWS expression mode</h2>
+<p>Camera/OpenCV remain required. The unified installer already includes the
+optional SDK; confirm its import with:</p>
+<div class="highlight"><pre><span></span><code>.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import boto3; print('AWS SDK import OK')"</span>
+</code></pre></div>
+<p>Configure credentials <strong>outside the repository</strong> using the
+<a href="https://docs.aws.amazon.com/boto3/latest/guide/credentials.html">standard Boto3 credential chain</a>,
+preferably the service user's <code>~/.aws/credentials</code> and <code>~/.aws/config</code> or a role.
+Protect credential files with owner-only permissions. The default shared profile
+needs no shell environment import. The AWS account must allow
+<code>rekognition:DetectFaces</code> in the selected supported region; no S3 access is needed.</p>
+<p>For a named profile already configured for this desktop user:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">AWS_PROFILE</span><span class="o">=</span>phos
+systemctl<span class="w"> </span>--user<span class="w"> </span>import-environment<span class="w"> </span>AWS_PROFILE
+systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+</code></pre></div>
+<p>For externally supplied environment credentials, import only the existing names
+needed by your session before service start/restart:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>import-environment<span class="w"> </span>AWS_ACCESS_KEY_ID<span class="w"> </span>AWS_SECRET_ACCESS_KEY<span class="w"> </span>AWS_DEFAULT_REGION
+<span class="c1"># Only when using temporary credentials:</span>
+systemctl<span class="w"> </span>--user<span class="w"> </span>import-environment<span class="w"> </span>AWS_SESSION_TOKEN
+</code></pre></div>
+<p>Do not put secret values in JSON, unit files, shell history or issue logs. The
+service does not automatically inherit interactive shell variables. Region
+precedence is <code>expression.aws.region</code>, <code>AWS_REGION</code>, then SDK settings
+(<code>AWS_DEFAULT_REGION</code> or profile). PHOS does not load a <code>.env</code> file.</p>
+<p>Set <code>expression.enabled: true</code>, <code>expression.provider: "aws"</code> and the non-secret
+<code>expression.aws</code> policy. No ONNX model is required. Restart PHOS. <strong>Selected facial
+crops leave the Pi and are sent to AWS</strong>. Import checks and automated tests make
+no AWS calls. Perform live AWS acceptance only with an authorized account.</p>
+<p>Requests are single-flight, cached, rate-limited and backed off on error; they do
+not silently switch providers. Diagnostics show sanitized latency/request counts.
+Switching provider or disabling expressions requires restart. See
+<a href="../vision/#cloud-request-and-evidence-policy">Vision policy</a>.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li>Missing <code>cv2</code>/<code>picamera2</code>: use the apt packages and the venv created with
+  <code>--system-site-packages</code>; verify imports with <code>.venv/bin/python</code>.</li>
+<li>Missing image: confirm <code>vision.camera_preview.enabled</code>, the startup config
+  path, and updated Python source; reload/restart. Check <code>phos.log</code> or journal for
+  <code>Camera preview reload failed</code> or <code>Could not render camera preview</code>.</li>
+<li>Tk startup failure: launch/import DISPLAY and XAUTHORITY from the actual desktop
+  session; SSH alone does not supply display authorization.</li>
+<li>No faces: check lighting/framing and <code>rpicam-hello</code> with PHOS stopped. Use
+  <code>logging.expression_diagnostics</code> temporarily; restart to apply it.</li>
+<li>Config save/reload rejection: correct the complete schema and active model/log
+  paths. Save alone never changes the running configuration.</li>
+<li>No browser after restart: use the newly saved address/port, check the journal
+  and service start limit. Restart invalidates sessions.</li>
+</ul>
+<p>Deprecated per-setting CLI overrides are still functional for compatibility;
+production uses only <code>--config</code>. Supported eye and Vision diagnostic commands
+remain available; no obsolete provider-specific JSON files are required.</p>
+<h2 id="optional-environmental-sensor">Optional environmental sensor</h2>
+<p>This is an optional PHOS 1.3.0 capability. Leave it
+disabled until wired according to <a href="../hardware/#bme280">hardware notes</a>. Confirm
+the breakout accepts 3.3 V power/logic; the exact board revision is not assumed.
+With PHOS stopped, on Raspberry Pi OS as the desktop/service user:</p>
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>apt<span class="w"> </span>update
+sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>i2c-tools
+sudo<span class="w"> </span>raspi-config<span class="w"> </span>nonint<span class="w"> </span>do_i2c<span class="w"> </span><span class="m">0</span>
+sudo<span class="w"> </span>usermod<span class="w"> </span>-aG<span class="w"> </span>i2c<span class="w"> </span><span class="s2">"</span><span class="nv">$USER</span><span class="s2">"</span>
+sudo<span class="w"> </span>reboot
+</code></pre></div>
+<p>Reboot ensures the I2C interface and desktop/user-service group membership take
+effect. Alternatively enable <strong>Interface Options → I2C</strong> in <code>sudo raspi-config</code>.
+See <a href="https://www.raspberrypi.com/documentation/computers/configuration.html">Raspberry Pi configuration documentation</a>.
+After logging back into the desktop, stop PHOS before probing its bus:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>stop<span class="w"> </span>phos.service
+ls<span class="w"> </span>-l<span class="w"> </span>/dev/i2c-1
+id<span class="w"> </span>-nG
+i2cdetect<span class="w"> </span>-y<span class="w"> </span><span class="m">1</span><span class="w"> </span>0x76<span class="w"> </span>0x77
+<span class="nb">cd</span><span class="w"> </span>~/phos
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'RPi.bme280&gt;=0.2.4,&lt;0.3'</span><span class="w"> </span><span class="s1">'bmp280&gt;=1.0.0,&lt;2'</span><span class="w"> </span><span class="s1">'smbus2&gt;=0.4,&lt;1'</span>
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>check
+.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import bme280, bmp280, smbus2; print('Environmental driver imports OK')"</span>
+</code></pre></div>
+<p>For a foreground-only installation, stop the foreground process instead of the
+systemctl command. The scan should show <code>76</code> or <code>77</code>; <code>--</code> means no response,
+while <code>UU</code> means a kernel driver owns that address. Do not force competing access.
+A responding address alone does not identify the chip: PHOS checks its chip
+ID against the selected type (BME280 0x60, BMP280 0x58). Keep the bus at its default speed. No sudo is needed for the PHOS process.
+If access is denied, confirm <code>i2c</code> membership and the device permissions after reboot.</p>
+<p>The optional package extra is <code>.[environmental]</code> for both sensors; <code>.[bme280]</code>
+and <code>.[bmp280]</code> install only the selected driver. Source launch uses the pip
+dependencies above. <a href="https://pypi.org/project/RPi.bme280/">RPi.bme280</a>
+is a small pure-Python compensation/sampling driver using <code>smbus2</code>, without a
+CircuitPython/graphics/numerical stack. It is an older library; the adapter is
+isolated and target-Pi verification is still required.</p>
+<p>RPi.bme280 0.2.4 always accesses humidity registers and has no BMP280 sampling
+API. It is retained for existing BME280 behavior. BMP280 uses the small pure-Python
+<a href="https://github.com/pimoroni/bmp280-python">Pimoroni bmp280</a> 1.x driver (with
+<code>i2cdevice</code>), passed the adapter-owned <code>smbus2.SMBus(1)</code>. Its forced-mode update
+supplies temperature and pressure from one conversion. No CircuitPython, numeric
+framework or second bus owner is introduced. Only the selected driver is imported.</p>
+<p>For an existing config, first merge the required <code>sensors</code> object from the new
+canonical file as described in <a href="../development/#environmental-configuration-migration">migration</a>.
+In Web Admin → Sensors (or directly in the complete JSON), select type <strong>BME280</strong> or <strong>BMP280</strong>, set enabled to true,
+choose the detected address, and set polling/stale timing. The canonical defaults
+are maintained in <code>config/phos.json</code>. Save, validate and restart:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+<span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"</span>
+systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>Manual launch: <code>.venv/bin/python src/robot/main.py --config config/phos.json</code>.
+Open <strong>Web Admin → Sensors</strong> and refresh the page to see current °C, % relative
+humidity (BME280 only) and hPa, UTC last-update time, age and health. BMP280
+humidity is null and shown as <strong>Not supported</strong>. The active type remains visible
+when a different saved type is awaiting restart. Save alone changes only
+the file; Reload leaves <strong>all five</strong> environmental fields pending for Restart PHOS.</p>
+<p>Missing libraries, wrong address, absent hardware, invalid readings or I/O errors
+make the sensor unavailable without stopping eyes/Vision/web. Retrying starts at
+the polling interval, doubles to a maximum of 60 seconds (or the configured poll
+interval if longer), and resets after success. Error warnings are limited to one
+per minute; measurements are DEBUG-only. Old measurements are hidden immediately
+after failure or when their age reaches the stale timeout. Last-update/age remain
+visible. A slow I2C call occupies one worker only; no queue or replacement threads
+accumulate. Shutdown waits at most one second for that worker; a stuck native
+call is cleaned up when it returns or by process exit.</p>
+<p>Physical acceptance: verify the actual address and chip, compare the supported measurements
+with a reference, check advancing timestamps over several polls, then test a
+wrong address and recovery after correcting it/restarting. Power off before
+changing wiring. Confirm eyes, camera and web remain responsive with a missing
+sensor; confirm disable plus restart removes sensor bus activity. Record actual
+module, wiring, Pi OS, readings and service logs. No physical acceptance is
+claimed by the mock tests.</p>
+<h3 id="missing-bmp280-driver">Missing BMP280 driver</h3>
+<p>If the journal reports <code>ModuleNotFoundError: No module named 'bmp280'</code>, install
+the driver into the same Python environment used to run PHOS. On the Raspberry
+Pi, for the documented installation:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'bmp280&gt;=1.0.0,&lt;2'</span><span class="w"> </span><span class="s1">'smbus2&gt;=0.4,&lt;1'</span>
+.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import bmp280, smbus2; print('Driver OK')"</span>
+</code></pre></div>
+<p>The sensor service retries automatically after installation. To restart the
+managed service explicitly:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>For a manual launch, stop and rerun PHOS with the same virtual environment.
+Selecting BMP280 in Web Admin does not install its optional Python dependency.
+If imports succeed but the runtime still reports a missing module, check that
+the service uses this virtual environment and checkout.</p>
+<p>The sensor type in the warning is the active runtime selection. For BMP280,
+the deployed <code>sensors.environmental</code> block must have <code>"type": "bmp280"</code> and
+<code>"enabled": true</code>. Check the configuration path shown in Web Admin → System /
+Status; a development-machine file may differ from the Pi's file. Saved sensor
+configuration changes require Restart PHOS even though driver failures retry
+automatically.</p>
+<h2 id="optional-gy-521-mpu-6050-imu">Optional GY-521 / MPU-6050 IMU</h2>
+<p>PHOS reads the GY-521's MPU-6050 accelerometer and gyroscope on I2C bus 1. Stop
+PHOS before wiring or probing the bus. Connect <strong>VCC to 3.3 V</strong>, <strong>GND to GND</strong>,
+<strong>SDA to GPIO2/pin 3</strong>, and <strong>SCL to GPIO3/pin 5</strong>. Ensure the specific breakout
+uses 3.3 V I2C logic. Leave INT/XDA/XCL unconnected. AD0 low is <code>0x68</code>; AD0 high
+is <code>0x69</code>.</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>stop<span class="w"> </span>phos.service
+i2cdetect<span class="w"> </span>-y<span class="w"> </span><span class="m">1</span><span class="w"> </span>0x68<span class="w"> </span>0x69
+<span class="nb">cd</span><span class="w"> </span>~/phos
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'smbus2&gt;=0.4,&lt;1'</span>
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>check
+</code></pre></div>
+<p>Expect <code>68</code> or <code>69</code>; <code>--</code> means no response and <code>UU</code> means another driver owns
+the device. The optional package extra is <code>.[imu]</code>. Merge the complete
+<code>sensors.imu</code> block from <code>config/phos.json</code> into an existing configuration, then
+enable it in <strong>Web Admin → Sensors → GY-521 / MPU-6050 motion</strong> (or set
+<code>"enabled": true</code> directly). All four fields require <strong>Restart PHOS</strong>:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+<span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"</span>
+systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>The status panel shows acceleration X/Y/Z in m/s² and angular velocity X/Y/Z in
+°/s, with timestamp, age and health. PHOS configures ±2 g / ±250 °/s and converts
+the raw readings using factory scale factors. It does not calibrate mounting
+offsets at startup: keep the robot still only when comparing baseline values, and
+expect one acceleration axis to include gravity. The interpreter estimates tilt from gravity; no full orientation fusion is implemented. If CCS811 shares bus 1, retain its documented
+10 kHz <code>i2c_arm_baudrate</code> setting.</p>
+<p>The motion interpreter prioritizes IMPACT, SHAKE, confirmed TILT, MOVING,
+then STILL. Tilt no longer requires the movement metric to be below threshold.
+It low-pass filters acceleration with a fixed 0.2-second time constant using
+sample elapsed time, then normalizes the gravity vector. The existing
+<code>tilt_threshold_m_s2</code> remains the enter setting, now measured as normalized
+lateral/forward gravity component times standard gravity, independent of total
+acceleration magnitude. Default 4.0 corresponds to about 24°;
+<code>tilt_exit_threshold_m_s2</code> defaults to 3.0 (about 18°). A confirmed direction
+holds until below exit; otherwise the largest component wins (lateral wins exact
+ties). <code>confirmation_seconds</code> defaults to 0.3 for entry, direction changes and
+exit. Brief vibration cannot confirm a tilt. At the default 0.05-second IMU poll
+interval (20 Hz), a normal 35° tilt settles in roughly half a second. Existing
+five-second polling deployments must change that setting and restart to obtain
+this responsiveness. Slower polling necessarily limits confirmation speed.</p>
+<p>Mounting is explicit: <code>lateral_axis</code> and <code>forward_axis</code> each select a distinct
+signed sensor axis (<code>x</code>, <code>-x</code>, <code>y</code>, <code>-y</code>, <code>z</code>, <code>-z</code>). Defaults retain the old
+X/Y convention: positive mapped lateral acceleration means TILT_RIGHT, negative
+means TILT_LEFT; positive mapped forward means TILT_FORWARD, negative means
+TILT_BACK. At level, both mapped components should be near zero, with gravity
+on the unused axis. Verify by physically tilting right and forward; reverse signs
+or swap axes as needed. No startup calibration assumes that the robot is level.
+Diagnostic roll/pitch are <code>asin(mapped normalized lateral/forward)</code> in degrees:
+approximate signed inclinations, not full Euler attitude or yaw. Upside-down
+orientation is not distinguished. Sustained linear acceleration cannot be fully
+distinguished from gravity by this accelerometer-only method; freefall-like
+filtered magnitudes below 0.25 g do not provide tilt evidence.</p>
+<p>Movement still compares filtered acceleration magnitude with gravity (default
+1.5 m/s²); shake requires opposite high gyro samples (180 °/s); impact uses raw
+total acceleration (25 m/s²). Both override tilt. The event cooldown (2 seconds)
+does not delay stable state publication. All motion settings apply through Web
+Admin → Sensors → GY-521 / MPU-6050 motion → Save → Reload configuration,
+without reopening I2C. Reload clears pending tilt evidence and filter history.
+Enable DEBUG logging temporarily to see <code>IMU motion</code> diagnostics at most once
+per second: filtered acceleration, pitch/roll, movement metric, normalized
+enter/exit thresholds, tilt candidate, winning classification/reason, confirmed
+state and confirmation duration. MOVING explains whether gravity is too small
+or tilt is below threshold; a pending tilt leaves the previous state visible
+until confirmation completes.</p>
+<p>For interpreter acceptance on Pi: rest level, tilt each direction about 35° and
+hold one second, gently vibrate while holding tilt, then return level. Confirm
+STILL → the correct TILT → STILL in status and diagnostics; level vertical
+movement should produce MOVING. Verify mounting signs before assessing eye
+reactions. Save/reload thresholds and confirm the provider is not reopened.</p>
+<p>With visual reactions enabled, sustained tilt visibly moves pupils in the tilt
+direction and remains active while tilt is observed. Defaults use 86% of the safe
+gaze range. Horizontal tilt uses <code>imu_tilt_eye_asymmetry_strength</code> 0.18:
+TILT<em>LEFT opens the left eye and closes the right by the same amount; TILT_RIGHT
+mirrors it. Left/right use shared openness 1.12 before that split; forward and
+back keep equal eyes at 1.23 and 0.82 respectively.
+MOVING recenters pupils, opens to 1.16 and uses 0.63 reaction strength. SHAKE is
+a 1.18-open, 0.88-strength surprised alert for 1.35 seconds; IMPACT is the
+stronger 1.25-open, 1.0-strength alert for 1.0 second. Both hold for 55% of the
+duration and then decay smoothly. Configure the eight <code>behavior.imu*\*</code> values in
+Web Admin → Display &amp; Appearance → Eye behavior, save and use </em><em>Reload
+configuration</em>*. Impact strength must remain greater than shake strength. The
+base iris theme returns after an alert because the alert is temporary semantic
+tint, not an appearance change.</p>
+<p>For physical display acceptance, enable the IMU and DEBUG logging, then confirm
+that MOVING recenters the pupils, each held tilt produces the documented gaze
+direction and mirrored eye-size change, SHAKE produces a clear amber surprised response and IMPACT is
+visibly wider/brighter/stronger. Let each alert expire and verify the configured
+iris theme returns. Confirm sleeping, speaking and error remain visually
+authoritative over IMU intent.</p>
+<p>For Pi acceptance, verify the detected address and WHO_AM_I, stable six-axis
+values, wrong-address recovery, a restart, and coexistence with every connected
+I2C sensor. Record board revision and wiring before treating it as accepted.</p>
+<h2 id="optional-ws2812b-rgb-led-ring">Optional WS2812B RGB LED ring</h2>
+<p>PHOS uses the optional <code>rpi-ws281x</code> provider for a WS2812B ring. Decide the
+actual ring count, data GPIO and power arrangement before following the enable
+sequence below.</p>
+<p>The default <code>led_ring</code> block is disabled and uses <code>led_count: 0</code> as an explicit
+unconfigured value. Set the exact count, supported data GPIO and <code>enabled: true</code>
+only after the helper starts successfully. GPIO pin and LED count require a
+restart; enabled state, brightness, base color, semantic following and update
+rate can later use Web Admin → Display &amp; Appearance → WS2812B LED ring → Save →
+<strong>Reload configuration</strong>. The status snapshot reports disabled, starting,
+available or unavailable plus the current semantic state/effect.</p>
+<p><code>rpi-ws281x</code> requires privileged mailbox and physical-memory access. PHOS keeps
+the desktop/camera service unprivileged and uses the separate root-owned
+<code>deploy/phos-led.service</code> helper instead.</p>
+<h3 id="enable-the-ring-on-a-deployed-pi">Enable the ring on a deployed Pi</h3>
+<p>From the development checkout, first run the deployment script. It transfers
+<code>scripts/phos_ws2812b_helper.py</code>, the standalone smoke test and the service-unit
+template to <code>~/phos</code>; it does not install or restart the root service:</p>
+<div class="highlight"><pre><span></span><code>./run_pi.sh
+</code></pre></div>
+<p>On the Pi, install the driver into the same virtual environment used by the
+helper. In <code>~/phos/deploy/phos-led.service</code>, set <code>--count</code> and <code>--pin</code> to the
+physical ring's exact LED count and BCM data GPIO. Its Python path and working
+directory must also match the PHOS installation. Then install or update the
+unit and start it:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'rpi-ws281x&gt;=5.0,&lt;6'</span>
+sudo<span class="w"> </span>cp<span class="w"> </span>deploy/phos-led.service<span class="w"> </span>/etc/systemd/system/phos-led.service
+sudo<span class="w"> </span>systemctl<span class="w"> </span>daemon-reload
+sudo<span class="w"> </span>systemctl<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>phos-led.service
+sudo<span class="w"> </span>systemctl<span class="w"> </span>restart<span class="w"> </span>phos-led.service
+sudo<span class="w"> </span>systemctl<span class="w"> </span>status<span class="w"> </span>phos-led.service<span class="w"> </span>--no-pager
+ls<span class="w"> </span>-l<span class="w"> </span>/run/phos-led.sock
+</code></pre></div>
+<p>The helper owns only <code>/run/phos-led.sock</code>, which is writable by the <code>gpio</code> group.
+The normal PHOS user service sends bounded RGB frames to that socket and never
+opens <code>/dev/vcio</code> or <code>/dev/mem</code>. The service must report <code>active (running)</code> and
+the socket must exist before enabling PHOS LED output.</p>
+<p>The available LED base colors are green <code>#00FF40</code>, red <code>#FF1A1A</code>, yellow
+<code>#FFD400</code>, blue <code>#007BFF</code>, violet <code>#A020F0</code>, white <code>#FFFFFF</code>, cyan <code>#00E5FF</code>,
+turquoise <code>#00FFC8</code>, orange <code>#FF7A00</code>, and magenta <code>#FF00C8</code>. PHOS sends these
+as logical RGB and uniformly scales them for <code>brightness</code>; it does not apply
+gamma correction. The helper explicitly configures standard WS2812B <code>GRB</code> wire
+order, so do not reorder the configured palette values.</p>
+<p>Next update the deployed canonical <code>~/phos/config/phos.json</code> so its count and
+GPIO exactly match the helper. Replace its <code>led_ring</code> object with values for the
+actual ring; for a 12-pixel ring on BCM GPIO 18:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">"led_ring"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"enabled"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"led_count"</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"gpio_pin"</span><span class="p">:</span><span class="w"> </span><span class="mi">18</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"brightness"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.30</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"base_color"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cyan"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"follow_visual_state"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"update_rate_hz"</span><span class="p">:</span><span class="w"> </span><span class="mf">10.0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"imu_reactions_enabled"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"directional_strength"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.65</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"directional_sector_size"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"shake_strength"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.85</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"impact_strength"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"imu_animation_color"</span><span class="p">:</span><span class="w"> </span><span class="s2">"yellow"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"directional_animation_speed"</span><span class="p">:</span><span class="w"> </span><span class="mf">12.0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"bottom_led_index"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"forward_led_index"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"clockwise"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Keep the surrounding JSON valid. <code>run_pi.sh</code> deliberately preserves an existing
+Pi configuration, so it does not make this configuration change for you. Start
+PHOS with the new configuration:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+</code></pre></div>
+<p>After LED count or GPIO changes, update both the helper unit and <code>phos.json</code>,
+then restart <code>phos-led.service</code> followed by <code>phos.service</code>. Brightness, base
+color, semantic following and update rate may instead use Web Admin → Display &amp;
+Appearance → WS2812B LED ring → Save → <strong>Reload configuration</strong>.</p>
+<p>To isolate wiring and driver setup from PHOS, stop the PHOS service and run the
+standalone color smoke test. It requires the exact LED count and leaves the ring
+off when it finishes:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>stop<span class="w"> </span>phos.service
+<span class="nb">cd</span><span class="w"> </span>~/phos
+sudo<span class="w"> </span>.venv/bin/python<span class="w"> </span>scripts/test_ws2812b.py<span class="w"> </span>--count<span class="w"> </span><span class="m">12</span><span class="w"> </span>--pin<span class="w"> </span><span class="m">18</span>
+</code></pre></div>
+<p>Replace <code>12</code> and <code>18</code> with the actual count and BCM GPIO. It shows red, green,
+blue and white at low brightness. This temporary root invocation is diagnostic;
+do not run the normal PHOS service as root.</p>
+<p>Power the ring from a correctly sized 5 V supply as determined from the actual
+ring's documentation and LED count. Do not draw LED power from a GPIO pin. Tie
+the Pi and LED-supply grounds together. WS2812B data reliability may require a
+3.3 V-to-5 V logic-level shifter; use the ring maker's recommended data-line
+protection and supply decoupling. Verify wiring without PHOS first, then start
+with low brightness. A driver, permission or write failure only disables ring
+output; PHOS eyes and other services continue.</p>
+<p>The ring is steady in its configured base color when neutral. Warm/curious use a
+gentle pulse, alert uses a short yellow pulse, sleepy a dim violet fade and error
+a steady red. Existing transient alert strength drives the alert pulse, so shake
+and impact require no direct IMU-to-LED coupling. After an alert or directional
+fill, confirm the currently resolved persistent state returns: environmental
+color when active, otherwise the configured base color.</p>
+<h2 id="optional-ccs811-air-quality-sensor">Optional CCS811 air-quality sensor</h2>
+<p>Follow the shared <a href="#optional-environmental-sensor">I2C enablement and permissions setup</a>
+above once. Before powering the Pi, verify the exact module and
+<a href="../hardware/#keyestudio-sen-ccs811">CCS811 wiring</a>, including nWAKE and Pi-side
+logic levels. Do not apply the BME280 supply assumption to an unidentified
+Keyestudio board. With PHOS stopped, as its desktop/service user:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>stop<span class="w"> </span>phos.service
+ls<span class="w"> </span>-l<span class="w"> </span>/dev/i2c-1
+id<span class="w"> </span>-nG
+i2cdetect<span class="w"> </span>-y<span class="w"> </span><span class="m">1</span><span class="w"> </span>0x5a<span class="w"> </span>0x5b
+<span class="nb">cd</span><span class="w"> </span>~/phos
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'smbus2&gt;=0.4,&lt;1'</span>
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>check
+.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import smbus2; print('CCS811 I2C dependency OK')"</span>
+</code></pre></div>
+<p>For a foreground launch, stop that process instead of systemctl. Expect <code>5a</code> or
+<code>5b</code>; <code>--</code> is no response, and <code>UU</code> means a kernel driver owns the address.
+Do not force competing access. A response does not prove chip identity: PHOS
+checks HW_ID. Only one PHOS process should own these sensor addresses.</p>
+<p>The optional package extra is <code>.[ccs811]</code>. PHOS uses its small CCS811 register
+adapter over <a href="https://smbus2.readthedocs.io/en/latest/">smbus2</a>, the same I2C
+library as the environmental adapters. No separate <code>ccs811</code> Python package,
+Blinka/CircuitPython framework or GPIO dependency is required. Imports are lazy;
+a disabled CCS811 needs no optional dependency. A <code>ModuleNotFoundError</code> for
+<code>smbus2</code> means install it using the exact virtual environment in the service's
+ExecStart, then retry or restart.</p>
+<p>Merge the required <code>sensors.ccs811</code> block from <code>config/phos.json</code> into existing
+deployment JSON, preserving <code>sensors.environmental</code> and all other settings.
+Missing fields fail validation even when disabled; <code>run_pi.sh</code> preserves existing
+JSON and does not migrate it. In <strong>Web Admin → Sensors → CCS811 air quality</strong>,
+enable it, choose the detected address and set host polling/stale timeout.
+Save alone changes the file. All four fields require <strong>Restart PHOS</strong>; Reload
+leaves them pending. For the documented deployment:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>~/phos
+<span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"</span>
+systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>Manual launch uses <code>.venv/bin/python src/robot/main.py --config config/phos.json</code>.
+The runtime starts the firmware application and selects device mode 1 (one-second
+measurements). Host polling does not change that drive mode. Readings are withheld
+for 20 minutes after every initialization, including reconnect/restart; the UI
+shows <code>warming_up</code>, no values and no fabricated timestamp. No-data polls retain
+the initialized device and resume at the configured interval. Faults use the
+existing bounded backoff and rate-limited warnings without stopping eyes/Vision.</p>
+<h3 id="ccs811-conditioning-baseline-and-compensation">CCS811 conditioning, baseline and compensation</h3>
+<p>The <a href="https://www.mouser.com/datasheet/2/588/CCS811_DS000459_7-00-1594304.pdf">ams CCS811 datasheet, v1-06</a>
+describes 20-minute conditioning, a 60-minute first-power-on period and continuing
+early-life changes over 48 hours. Allow at least an hour on a new sensor and
+record stability over 48 hours during physical acceptance. PHOS does not persist
+sensor lifetime, so its 20-minute gate is not certification of first-use accuracy.
+It relies on device automatic baseline correction; it neither saves/restores a
+baseline nor writes a copied example baseline. Baseline persistence is follow-up
+work requiring device-specific validation.</p>
+<p>Fresh, valid temperature and humidity from the environmental service are passed
+automatically to CCS811. BME280 can supply both; BMP280 cannot. If unavailable,
+stale or outside the compensation range, the adapter explicitly restores device
+default inputs (25 °C / 50% RH). Those are algorithm assumptions, not measured
+room conditions. The UI identifies the last compensation input; the device may
+apply a changed input after the next gas sample. ENV_DATA writes are deduplicated.
+This is supported by the device register protocol through smbus2, without coupling
+the CCS811 adapter to another hardware provider.</p>
+<h3 id="ccs811-verification-and-troubleshooting">CCS811 verification and troubleshooting</h3>
+<p>Refresh <strong>Web Admin → Sensors</strong> after saving edits. After conditioning expect
+eCO2 in ppm (estimated equivalent CO2, <strong>not direct NDIR CO2</strong>) and TVOC in ppb,
+advancing UTC timestamps, age and health. A valid low TVOC value can be zero;
+unavailable/stale readings instead show Unavailable. Do not interpret a successful
+poll or eCO2 as a calibrated direct CO2 measurement.</p>
+<p>Verify actual board revision, power/logic levels, nWAKE, address and chip identity.
+Check both sensors together with eyes/Vision/Web Admin running. With BME280,
+confirm environmental compensation; with BMP280 or disabled environmental sensing,
+confirm device defaults. Verify a wrong configured address produces unavailable
+without stopping PHOS, then correct it and restart. Power off before changing
+wires; disabling CCS811 plus restart should remove CCS811 transactions.</p>
+<p>If the address responds but reads fail, inspect journal error codes, wiring,
+pull-ups, power and clock-stretch handling on the Pi's I2C controller. CCS811
+uses clock stretching; detecting it alone does not verify reliable transfers.
+For the Raspberry Pi 3, configure the shared I2C bus at 10 kHz before retrying
+CCS811. This setting affects every device on bus 1, including BME280/BMP280.</p>
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>nano<span class="w"> </span>/boot/firmware/config.txt
+</code></pre></div>
+<p>On older Raspberry Pi OS installations, use <code>/boot/config.txt</code> instead. In the
+<code>[all]</code> section, retain I2C enablement and add or update this single setting:</p>
+<div class="highlight"><pre><span></span><code><span class="na">dtparam</span><span class="o">=</span><span class="s">i2c_arm=on</span>
+<span class="na">dtparam</span><span class="o">=</span><span class="s">i2c_arm_baudrate=10000</span>
+</code></pre></div>
+<p>Do not leave multiple <code>i2c_arm_baudrate</code> entries with conflicting values. Save,
+then shut down and remove power from the CCS811 before starting again:</p>
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>poweroff
+</code></pre></div>
+<p>After restoring power, start PHOS and inspect its journal. The low bus speed is
+a Raspberry Pi system setting, not <code>poll_interval_seconds</code> in <code>phos.json</code>.
+PHOS does not alter bus speed or switch to a software I2C bus itself. Record Pi
+OS, module revision, address, sustained readings and recovery results before
+claiming hardware acceptance. DEBUG logs include reads and compensation changes;
+INFO does not log every sample. A stuck I/O call stays in one worker, with a
+bounded shutdown wait and cleanup by its owner when it returns.</p>
+<h3 id="ccs811-reads-0x81-after-power-cycling-then-0xff-after-phos-starts">CCS811 reads 0x81 after power cycling, then 0xff after PHOS starts</h3>
+<p>This observation points to a problem triggered during initialization; it does
+not by itself identify the exact transaction or prove a hardware fault. Normal
+startup now reads HW_ID/STATUS, issues APP_START only in boot mode, and verifies
+mode 1. It does <strong>not</strong> send SW_RESET on startup or reconnect. This follows the
+normal boot-to-application sequence in the datasheet linked above. A chip already
+in application mode is reused; the existing conditioning gate still applies.</p>
+<p>Initialization errors report address, failed phase and actual register values.
+For example, <code>read HW_ID: HW_ID=0xff, expected 0x81</code> differs from an invalid STATUS
+during <code>verify APP_START</code> or <code>verify MEAS_MODE</code>. All-ones STATUS is rejected as
+unreliable communication instead of being interpreted as valid application flags.
+DEBUG logs include the initial valid HW_ID/STATUS pair.</p>
+<p>To validate this change on the Pi:</p>
+<ol>
+<li>Stop PHOS and update <code>src/robot/hardware/ccs811.py</code> from this checkout into the
+   actual deployed checkout; editing the development copy alone has no effect.</li>
+<li>Prevent automatic PHOS startup for the test (temporarily
+   <code>systemctl --user disable --now phos.service</code> for the documented managed setup).
+   Shut down the Pi and remove power from the sensor as well to clear its existing
+   all-ones state. Keep the current wiring unchanged for this comparison.</li>
+<li>Boot and confirm HW_ID is 0x81 at 0x5a with PHOS stopped, then stop the checker
+   before <code>systemctl --user start phos.service</code>.</li>
+<li>Inspect <code>journalctl --user -u phos.service -n 100 --no-pager</code>. Successful startup
+   reports initialization followed by conditioning. If it fails, record the first
+   failure's phase and values; later retries may show only the already-failed bus.</li>
+<li>Restore automatic startup with <code>systemctl --user enable phos.service</code> when
+   testing is complete if it was previously enabled.</li>
+</ol>
+<p>Avoid simultaneous checker/PHOS access. This change is hardware-unverified; a
+persistent all-ones response can still require power recovery and investigation
+of power, wake and I2C timing. No automatic GPIO reset or bus-speed change is made.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../hardware/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Hardware reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Hardware reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../web-administration/" class="md-footer__link md-footer__link--next" aria-label="Next: Web Admin manual">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Web Admin manual
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/phosairobot/phos" target="_blank" rel="noopener" title="PHOS on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://x.com/phosairobot" target="_blank" rel="noopener" title="PHOS on X" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.instagram.com/phosairobot/" target="_blank" rel="noopener" title="PHOS on Instagram" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M224.3 141a115 115 0 1 0-.6 230 115 115 0 1 0 .6-230m-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1-.6-149.2m93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1-53.6 0m129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8M399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.action.edit", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

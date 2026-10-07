@@ -1,0 +1,2471 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An expressive AI-powered robot platform built on Raspberry Pi.">
+      
+      
+      
+        <link rel="canonical" href="https://phosairobot.github.io/phos/development/">
+      
+      
+        <link rel="prev" href="../api/">
+      
+      
+        <link rel="next" href="../ai/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/phos.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Development & configuration - PHOS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/css/phos.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#development-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PHOS" class="md-header__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PHOS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Development & configuration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Features
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../how-phos-works/" class="md-tabs__link">
+          
+  
+  
+  How PHOS Works
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../hardware-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Hardware
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../installation-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Installation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../web-admin-overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Web Admin
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../documentation/" class="md-tabs__link">
+          
+  
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PHOS" class="md-nav__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    PHOS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How PHOS Works
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How PHOS Works
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-phos-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision & Expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environmental-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environmental Awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-admin-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation hub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-model-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision model evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-administration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin manual
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Remote API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API contract notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#field-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-precedence-and-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation, precedence and migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presence-and-attention-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presence and attention configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expression-reaction-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expression reaction configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#startup-experience-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup experience configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reusable-configuration-api-and-web-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reusable configuration API and web layer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-version-and-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release version and installation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Release version and installation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environmental-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mpu-6050-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MPU-6050 configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tilt-interpretation-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tilt interpretation configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TTS strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice capture and STT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../current-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Current implementation handoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.3.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.2.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.0.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.0.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#field-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-precedence-and-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation, precedence and migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#presence-and-attention-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Presence and attention configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expression-reaction-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expression reaction configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#startup-experience-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup experience configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reusable-configuration-api-and-web-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reusable configuration API and web layer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-version-and-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release version and installation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Release version and installation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environmental-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ccs811-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCS811 configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mpu-6050-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MPU-6050 configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tilt-interpretation-configuration-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tilt interpretation configuration migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/phosairobot/phos/edit/main/development.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="development-guide">Development Guide</h1>
+<h2 id="local-development">Local development</h2>
+<p>The application should support a development mode that does not require Raspberry Pi hardware.</p>
+<p>Use interfaces and fakes/mocks for hardware.</p>
+<h2 id="configuration">Configuration</h2>
+<p><code>config/phos.json</code> is the <strong>single canonical configuration and complete example</strong>.
+The complete JSON structure and authoritative default values are in
+<a href="https://github.com/phosairobot/phos/blob/main/config/phos.json">the canonical file</a>; edit it directly and restart PHOS:</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>src/robot/main.py<span class="w"> </span>--config<span class="w"> </span>config/phos.json
+</code></pre></div>
+<p>No separate example/provider files or hidden JSON overlays are loaded. With no
+argument, startup resolves that same file relative to the source checkout, not
+its working directory. A custom <code>--config</code> selects one complete file instead.
+To keep a separate deployment copy, copy the full canonical file, edit it and
+pass its path explicitly. Keep deployment changes out of commits if inappropriate.
+No file may contain credentials.</p>
+<p>The eight required sections are <code>web</code>, <code>display</code>, <code>led_ring</code>, <code>behavior</code>, <code>vision</code>, <code>expression</code>
+(with <code>smoothing</code>, <code>local</code>, <code>aws</code>), <code>sensors</code> (with <code>environmental</code>, <code>ccs811</code> and <code>imu</code>) and <code>logging</code>. <code>vision</code> includes <code>detector</code>.
+Only the implemented environmental, CCS811 and MPU-6050 services have sensor configuration; there are no speculative runtime/voice settings. Every field in the
+canonical file is required, including null values and inactive-provider settings;
+a missing value is an error, not a second default hidden in code.</p>
+<h3 id="field-reference">Field reference</h3>
+<p>Values/defaults are maintained only in <code>config/phos.json</code>. All numeric values
+must be finite; booleans must be JSON booleans, not strings or numbers.</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Fields and purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sensors.environmental</code></td>
+<td><code>type</code>: <code>"bme280"</code> or <code>"bmp280"</code>; <code>enabled</code>: boolean; <code>i2c_address</code>: string <code>"0x76"</code> or <code>"0x77"</code> on bus 1; <code>poll_interval_seconds</code>: finite 1–3600 seconds; <code>stale_after_seconds</code>: finite, greater than poll interval and at most 86400 seconds. All five require PHOS restart.</td>
+</tr>
+<tr>
+<td><code>sensors.ccs811</code></td>
+<td><code>enabled</code>: boolean; <code>i2c_address</code>: canonical lowercase <code>"0x5a"</code> or <code>"0x5b"</code>, bus 1; <code>poll_interval_seconds</code>: finite 1–3600 seconds; <code>stale_after_seconds</code>: finite, greater than poll interval and at most 86400 seconds. All four require PHOS restart.</td>
+</tr>
+<tr>
+<td><code>sensors.imu</code></td>
+<td><code>enabled</code>: boolean; <code>i2c_address</code>: canonical lowercase <code>"0x68"</code> or <code>"0x69"</code>, bus 1; <code>poll_interval_seconds</code>: finite 0.05–3600 seconds; <code>stale_after_seconds</code>: finite, greater than poll interval and at most 86400 seconds. All four require PHOS restart.</td>
+</tr>
+<tr>
+<td><code>sensors.imu.motion</code></td>
+<td><code>movement_threshold_m_s2</code>, <code>tilt_threshold_m_s2</code>, <code>shake_threshold_deg_s</code>, <code>impact_threshold_m_s2</code>, <code>confirmation_seconds</code>, <code>cooldown_seconds</code>: finite thresholds/timing. Impact must exceed movement. Also required: <code>tilt_exit_threshold_m_s2</code> (positive, below enter; both at most standard gravity), and distinct signed <code>lateral_axis</code> / <code>forward_axis</code> mounting axes. All motion fields are live-reloadable and do not reinitialize I2C. See installation for normalized threshold semantics.</td>
+</tr>
+<tr>
+<td><code>led_ring</code></td>
+<td><code>enabled</code>: boolean; <code>led_count</code>: 0–1024 integer, positive when enabled; <code>gpio_pin</code>: GPIO 0–27; <code>brightness</code>: 0–1; <code>base_color</code> and <code>imu_animation_color</code>: named PHOS palette colors; <code>follow_visual_state</code>: boolean; <code>update_rate_hz</code>: 1–30. IMU effects add directional/shake/impact strengths (0–1; impact exceeds shake), fill speed, sector size, and physical <code>bottom_led_index</code> / <code>forward_led_index</code> / <code>clockwise</code> mapping (<code>forward_led_index</code> is the physical top). Left starts at the left quarter and fills clockwise; right mirrors it from the right quarter. Back grows in two fronts from bottom; forward grows in two fronts from top. Every fill replaces only reached underlying pixels; STILL resolves the current persistent environmental or base state rather than forcing base color. Changing animation color applies live and affects the next rendered frame. Pin/count require restart; all other fields are live-reloadable. Brightness uniformly scales logical RGB channels; WS2812B GRB ordering is handled only by the provider.</td>
+</tr>
+<tr>
+<td><code>behavior</code> IMU fields</td>
+<td><code>imu_reaction_strength</code>, <code>imu_tilt_gaze_strength</code>, <code>imu_shake_reaction_strength</code>, and <code>imu_impact_reaction_strength</code>: 0–1; impact strength must exceed shake strength. <code>imu_tilt_eye_asymmetry_strength</code>: 0–0.5 signed-eye delta. Shake/impact duration: 0.1–30 seconds; cooldown: 0–3600 seconds. These eight fields are live-reloadable.</td>
+</tr>
+<tr>
+<td><code>behavior.environmental</code></td>
+<td>Optional temperature/eCO2/TVOC interpretation. Temperature enter/exit values provide hysteresis; warning/bad eCO2 and TVOC thresholds ascend. Confirmation and recovery are positive seconds. All fields are live-reloadable and never reopen sensor hardware.</td>
+</tr>
+<tr>
+<td><code>web</code></td>
+<td><code>enabled</code>: start the administration worker; <code>host</code>: IPv4/IPv6 bind address; <code>port</code>: integer 1–65535. See the <a href="../web-administration/">web manual</a>.</td>
+</tr>
+<tr>
+<td><code>display</code></td>
+<td><code>width</code>, <code>height</code>: positive integer pixel dimensions; <code>fps</code>: positive integer display cadence; <code>fullscreen</code>: fullscreen startup; <code>transition_seconds</code>: positive renderer interpolation duration; <code>iris_color</code>: one of cyan, blue, green, turquoise, amber, violet or white. <code>base_visual_source</code> is <code>manual</code>, <code>environment</code>, or <code>state</code>. <code>environment_overlays_enabled</code> controls semantic sweat/snow/haze decorations; they never change eye geometry, iris, or LED output. These display fields are live-reloadable.</td>
+</tr>
+<tr>
+<td><code>behavior</code></td>
+<td><code>blink_interval_seconds</code>, <code>gaze_interval_seconds</code>: positive ascending <code>[minimum, maximum]</code> timing ranges; <code>face_gaze_smoothing</code>: gaze smoothing coefficient in (0,1]; <code>reaction_decay_per_second</code>: positive visual reaction decay.</td>
+</tr>
+<tr>
+<td><code>vision</code></td>
+<td><code>face_tracking_enabled</code>: camera/tracking without expression inference; <code>camera_resolution</code>: positive integer <code>[width,height]</code>; <code>capture_fps</code>, <code>detection_fps</code>: positive capture/detection cadences. <code>camera_preview</code> controls optional display-only picture-in-picture, disabled by default; all its fields (enabled, corner position, scale 0.1–0.4, maximum FPS 1–10 and three diagnostic toggles) are live-reloadable.</td>
+</tr>
+<tr>
+<td><code>vision.detector</code></td>
+<td><code>cascade_path</code>: custom readable Haar file or null for existing platform discovery; <code>scale_factor</code>: pyramid scale greater than 1; <code>min_neighbors</code>: nonnegative integer detection support; <code>min_size</code>: positive pixel pair no larger than the camera resolution.</td>
+</tr>
+<tr>
+<td><code>expression</code></td>
+<td><code>enabled</code>: expression processing, also enabling local tracking; <code>provider</code>: local/aws; <code>inference_fps</code>: positive local inference/cloud polling cadence; <code>crop_margin</code>: extra square-crop margin per side in [0,0.5].</td>
+</tr>
+<tr>
+<td><code>expression.smoothing</code></td>
+<td><code>minimum_confidence</code>: additional evidence floor in [0,1]; <code>minimum_observations</code>: positive integer count of distinct samples; <code>local_maximum_gap_seconds</code>: positive maximum gap for local evidence; <code>neutral_enabled</code>: enable neutral perception only after calibration. Cloud maximum gap is derived from its TTL.</td>
+</tr>
+<tr>
+<td><code>expression.local</code></td>
+<td><code>model_path</code>: ONNX path or null; <code>labels</code>: unique, nonempty strings in output order (array may be empty only when local inference is inactive); <code>input_size</code>: positive <code>[width,height]</code>; <code>scale</code>: positive preprocessing multiplier; <code>mean</code>: three finite channel means; <code>swap_rb</code>: swap BGR/RGB; <code>grayscale</code>: existing grayscale preprocessing. When grayscale is true, provider behavior ignores swap_rb.</td>
+</tr>
+<tr>
+<td><code>expression.aws</code></td>
+<td><code>region</code>: nonempty region string or null for external SDK/environment resolution; no credentials.</td>
+</tr>
+<tr>
+<td><code>expression.aws</code></td>
+<td><code>cooldown_seconds</code>: minimum request interval; <code>stable_seconds</code>: eligible local continuity before requesting; <code>refresh_seconds</code>: refresh unchanged input; <code>cache_ttl_seconds</code>: maximum sample age. All positive; refresh must be less than TTL.</td>
+</tr>
+<tr>
+<td><code>expression.aws</code></td>
+<td><code>max_requests_per_minute</code>: positive rate implemented as minimum spacing; <code>max_requests_per_session</code>: nonnegative integer cap, zero means unlimited; <code>change_threshold</code>: normalized crop difference threshold in [0,1]; <code>minimum_face_confidence</code>: AWS face-confidence floor in [0,1].</td>
+</tr>
+<tr>
+<td><code>expression.aws</code></td>
+<td><code>retry_initial_seconds</code>, <code>retry_max_seconds</code>: positive backoff limits, maximum at least initial; <code>connect_timeout_seconds</code>, <code>read_timeout_seconds</code>: positive SDK timeouts.</td>
+</tr>
+<tr>
+<td><code>logging</code></td>
+<td><code>level</code>: DEBUG/INFO/WARNING/ERROR/CRITICAL; <code>file</code>: output path or null for console only; <code>expression_diagnostics</code>: detailed Vision/cloud diagnostics. SDK debug output is suppressed to avoid exposing request/credential metadata.</td>
+</tr>
+</tbody>
+</table>
+<p>All JSON paths resolve relative to the selected JSON file's directory. The
+canonical local path therefore starts with <code>../models/</code>, and its log path points
+back to the checkout root. Active local models and explicit active cascades must
+be readable files. Inactive models need not exist; AWS mode needs no ONNX file.
+The log parent must already exist and be writable. PHOS does not create arbitrary
+configuration/model/log directories. ONNX content/model-output compatibility and
+physical device availability still require runtime verification.</p>
+<h3 id="provider-examples">Provider examples</h3>
+<p>Edit these fields <strong>inside the complete file</strong>, preserving the other fields.
+These are illustrative fragments, not additional partial configuration files:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">"expression"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"enabled"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">"provider"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local"</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>The canonical <code>expression.local</code> block already contains the MobileFaceNet input
+contract. Download its model using <a href="../installation/">installation</a>. For FER+
+rollback use the block in <a href="../vision/">Vision</a>, replacing every preprocessing
+field rather than depending on former CLI defaults.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">"expression"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"enabled"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">"provider"</span><span class="p">:</span><span class="w"> </span><span class="s2">"aws"</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>Keep the existing <code>expression.aws</code> block; optionally edit region and request
+policy. No fallback is supported. All camera selection/cropping stays local;
+AWS receives selected crops only. See <a href="../vision/">Vision</a> for privacy and policy.
+AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY and, for temporary credentials,
+AWS_SESSION_TOKEN are external environment credentials. AWS_REGION /
+AWS_DEFAULT_REGION, shared SDK profiles and roles are also supported.
+A null JSON region defers resolution to the external environment/SDK. Parsing
+never imports boto3, searches for credentials or contacts AWS.</p>
+<h3 id="validation-precedence-and-migration">Validation, precedence and migration</h3>
+<p>Startup reads one JSON, applies explicit deprecated CLI overrides, validates
+schema/types/ranges and active paths, then builds typed settings and constructs
+subsystems. Errors name the field or JSON line/column and exit with status 2
+before camera/display startup. Duplicate keys, unknown keys (including secrets),
+missing sections/fields and incompatible refresh/TTL or detector/camera sizes
+are rejected. Finite numeric validation also rejects NaN/infinity.</p>
+<p>Precedence: explicit legacy CLI value &gt; selected JSON value. CLI values have no
+independent defaults and never overwrite the file. <code>--expression-provider</code> or
+<code>--expression-model</code> also enables expression processing for compatibility;
+<code>--face-tracking</code> enables tracking without changing expression enablement.
+<code>--aws-region</code> overrides JSON region, followed by AWS_REGION, then the standard
+SDK AWS_DEFAULT_REGION/profile fallback. CLI model paths retain their old
+working-directory-relative interpretation; JSON paths are config-relative.</p>
+<p>Retained but deprecated: <code>--face-tracking</code>, <code>--expression-provider</code>,
+<code>--aws-region</code>, <code>--expression-model</code>, <code>--expression-labels</code>,
+<code>--expression-input-size</code>, <code>--expression-scale</code>, <code>--expression-mean</code>,
+<code>--expression-no-swap-rb</code>, <code>--expression-grayscale</code>, <code>--expression-debug</code>,
+<code>--expression-crop-margin</code>. Help and startup warn about this transition.
+<code>--config</code> and <code>--help</code> remain the supported primary interface. No runtime flags
+were removed in this migration. Migrate launch scripts now; remove compatibility
+flags only in a separately announced breaking change after consumers migrate.</p>
+<p>The old partial flat JSON format and <code>config/expression-local.json</code> /
+<code>config/expression-aws.json</code> are retired. To migrate, start from <code>config/phos.json</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Former field(s)</th>
+<th>Canonical destination</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>display_fps</code>, <code>fullscreen</code></td>
+<td><code>display.fps</code>, <code>display.fullscreen</code></td>
+</tr>
+<tr>
+<td><code>face_tracking_enabled</code>, <code>camera_resolution</code></td>
+<td>same names under <code>vision</code></td>
+</tr>
+<tr>
+<td><code>vision_capture_fps</code>, <code>face_detection_fps</code></td>
+<td><code>vision.capture_fps</code>, <code>vision.detection_fps</code></td>
+</tr>
+<tr>
+<td><code>expression_provider</code></td>
+<td><code>expression.provider</code>; set <code>expression.enabled</code> explicitly</td>
+</tr>
+<tr>
+<td><code>expression_inference_fps</code>, <code>expression_crop_margin</code></td>
+<td><code>expression.inference_fps</code>, <code>expression.crop_margin</code></td>
+</tr>
+<tr>
+<td><code>expression_minimum_confidence</code></td>
+<td><code>expression.smoothing.minimum_confidence</code></td>
+</tr>
+<tr>
+<td><code>expression_model_path</code>, <code>expression_labels</code>, <code>expression_input_size</code>, <code>expression_scale</code>, <code>expression_mean</code>, <code>expression_swap_rb</code>, <code>expression_grayscale</code></td>
+<td><code>expression.local</code> with the <code>expression_</code> prefix removed</td>
+</tr>
+<tr>
+<td><code>cloud_expression</code></td>
+<td><code>expression.aws</code> (same member names)</td>
+</tr>
+<tr>
+<td><code>expression_diagnostics</code></td>
+<td><code>logging.expression_diagnostics</code></td>
+</tr>
+</tbody>
+</table>
+<p>The current runtime previously combined flat dataclass defaults, CLI overrides,
+provider configuration, renderer/behavior/detector constructor defaults and
+hard-coded logging setup. Composition now passes all applicable settings
+explicitly from the canonical file. Standalone library/demo/benchmark constructor
+fallbacks remain for compatibility, but are not application configuration sources.
+Geometric face association gates, class-specific semantic safeguards, visual
+profiles and SDK JPEG implementation details remain implementation constants.
+No AI/voice settings are added for subsystems outside this runtime milestone.</p>
+<h3 id="presence-and-attention-configuration">Presence and attention configuration</h3>
+<p><code>presence.led_reactions</code> controls optional LED-only semantic reactions. Its
+<code>enabled</code> flag gates the feature; <code>entered</code> defaults to an 800 ms clockwise
+sweep and <code>left</code> to a 900 ms counter-clockwise sweep. Each nested block has a
+positive <code>duration_ms</code> and a <code>direction</code> of <code>clockwise</code> or
+<code>counter_clockwise</code>. <code>attention.lost_hold_ms</code> is a non-negative millisecond
+hold between a confirmed departure and <code>attention=idle</code>. Presence is below
+error/sleep and IMU shake/impact transient priority; after a sweep completes,
+the LED controller resolves the current persistent visual state rather than a
+cached pre-sweep state.</p>
+<p>Older full configuration documents that predate these two known blocks are
+migrated in memory by explicit default injection before normal exact-key
+validation. The file is not rewritten merely at startup; the migrated canonical
+blocks are persisted by the next ordinary configuration save. This is a scoped
+schema evolution rule: unknown/misspelled keys and unrelated missing fields
+continue to fail strict validation.</p>
+<h3 id="expression-reaction-configuration">Expression reaction configuration</h3>
+<p><code>expression_reactions</code> is a provider-neutral policy for the uncertain
+<code>ObservedExpression</code> read model. <code>enabled</code>, <code>min_confidence</code>,
+<code>confirmation_ms</code>, <code>cooldown_ms</code>, and <code>reaction_duration_ms</code> bound whether a
+supported observation may produce a transient PHOS response. It is not an
+emotion inference or a direct classifier-to-renderer mapping. Existing complete
+documents missing this known block receive the scoped default injection above;
+strict validation still rejects all other missing or unknown fields.</p>
+<h3 id="startup-experience-configuration">Startup experience configuration</h3>
+<p><code>startup.splash.enabled</code> keeps the local face display on a lightweight PHOS
+startup screen until the runtime reaches <code>ready</code> or acceptable <code>degraded</code> state.
+<code>startup.splash.image</code>, <code>title</code>, and <code>subtitle</code> configure the deep-navy branded
+screen. A null image/file selects PHOS's installed <code>robot.assets</code> PNG/WAV;
+non-null overrides are resolved relative to the loaded <code>phos.json</code>, never the
+process working directory. The screen is deliberately unlike normal eyes and is
+flushed once before synchronous subsystem startup continues.
+<code>failed</code> remains on that screen. <code>startup.ready_sound</code> is an optional local WAV
+file played once with the lightweight system <code>aplay</code> command after the transition;
+when enabled its file must be readable. The cursor is hidden only on the local
+Tk face canvas, without disabling touch/pointer events or changing Web Admin.
+<code>player</code> is currently <code>aplay</code>; optional <code>device</code> is passed as <code>aplay -D DEVICE</code>.
+At startup, <code>STARTUP ASSETS</code> logs the configured and resolved splash/sound paths
+plus existence and readability. The Tk loader then logs the image format and
+dimensions, or its loader exception. The ready-sound log includes the resolved
+<code>aplay</code> binary, full command, return code, and stderr. For Pi troubleshooting,
+run that logged command manually (for example <code>aplay -q -D default path/to/ready.wav</code>).
+The <code>phos.service</code> unit runs <code>src/robot/main.py</code> with
+<code>--config %h/phos/config/phos.json</code> and <code>WorkingDirectory=%h/phos</code>; it sets no
+audio-session environment variables. Package defaults therefore do not depend
+on either the working directory or a developer home directory; ALSA selection is
+limited to the optional <code>startup.ready_sound.device</code> value.
+The repository configuration selects the packaged
+<code>robot.assets/images/phos-startup-800x600.png</code> and <code>robot.assets/audio/phos-startup.wav</code>.
+<code>run_pi.sh</code> transfers them as part of <code>src/</code>, and a wheel includes them as package
+data. The helper deliberately preserves an existing Pi <code>config/phos.json</code>; merge
+the <code>startup</code> block from the repository configuration into an already deployed
+configuration before expecting these defaults to take effect.</p>
+<h3 id="reusable-configuration-api-and-web-layer">Reusable configuration API and web layer</h3>
+<p><code>robot.config.RuntimeConfig</code> is the existing typed surface moved out of runtime;
+<code>robot.runtime.RuntimeConfig</code> remains import-compatible. Cloud settings retain
+<code>CloudExpressionConfig</code>, re-exported from the AWS adapter for existing callers.
+JSON section names are mapped to typed fields at the boundary; raw dictionaries
+never reach providers or behaviors.</p>
+<ul>
+<li><code>load_document(path)</code> reads JSON for an editor without hardware/SDK imports.</li>
+<li><code>RuntimeConfig.from_file(path)</code> loads and validates a full file.</li>
+<li><code>RuntimeConfig.from_dict(document, base_dir=...)</code> validates edited settings
+  with the same schema/rules, including config-relative paths.</li>
+<li><code>config.to_dict()</code> returns the full serializable non-secret structure.</li>
+<li><code>config.save(path)</code> validates and atomically replaces a file, rebasing paths
+  if the file moves; a failed validation preserves the old file.</li>
+</ul>
+<p>Existing <code>RuntimeConfig(**overrides)</code> and <code>CloudExpressionConfig(**overrides)</code>
+Python calls overlay the canonical file for compatibility; they contain no
+independent numeric defaults. Runtime construction revalidates before hardware
+starts. New application code should use full-file/dict loading instead.</p>
+<p>The optional <a href="../web-administration/">web administration adapter</a> reuses this
+read/edit/validate/save boundary. It never accepts/stores/displays AWS credentials
+as normal settings. Its separate password store is not runtime configuration.
+Save does not apply settings. The lifecycle service can reload logging level,
+<code>display.iris_color</code> and all <code>vision.camera_preview</code> fields through runtime and
+display boundaries; other persisted changes require restart. Preview reload
+waits for runtime acceptance and preserves config-relative paths. The IPC client
+bounds its response wait to five seconds; a slow native camera start can finish
+after that timeout, so an unavailable response explicitly reports uncertainty
+and retires the channel until PHOS restarts. A hardware apply failure is reported; earlier successful appearance
+changes remain active and pending fields remain visible. This differs from an
+invalid configuration, which applies nothing.
+The editor may call <code>from_dict(..., check_paths=False)</code> to repair a removed model
+path; schema/types/ranges are still validated. Startup and saves always validate
+active paths.
+<code>robot.web.domains</code> maps canonical field paths into navigation and presentation
+only. Page saves merge the selected area's fields into the full document, reject
+out-of-area fields and run normal full-document validation/atomic persistence.
+The registry defines no defaults, types or validation rules. New implemented
+settings must be assigned to a domain; coverage tests require every canonical
+field to appear exactly once. Read-only General/Status pages cannot save settings.
+New non-secret runtime options must extend this canonical model/file, not add
+standalone CLI arguments or another configuration mechanism.</p>
+<h2 id="dependencies">Dependencies</h2>
+<p>Before adding a dependency, consider:</p>
+<ol>
+<li>Is the standard library sufficient?</li>
+<li>Is the dependency maintained?</li>
+<li>Does it work on Raspberry Pi 3?</li>
+<li>Does it materially simplify the implementation?</li>
+</ol>
+<h2 id="testing">Testing</h2>
+<p>Test:</p>
+<ul>
+<li>state transitions</li>
+<li>event handling</li>
+<li>AI tool contracts</li>
+<li>hardware adapters through fakes</li>
+<li>error handling</li>
+</ul>
+<p>Do not make ordinary unit tests depend on physical GPIO/audio/display hardware.</p>
+<p>For web development install <code>.[web]</code> plus pytest in a virtual environment and
+run <code>python -m pytest -q</code>. Web tests exercise real password hashing, CSRF,
+configuration persistence and an isolated local WSGI worker without hardware.</p>
+<h2 id="release-version-and-installation">Release version and installation</h2>
+<p><code>robot.__version__</code> in <code>src/robot/__init__.py</code> is authoritative. Setuptools derives
+metadata from that literal; do not add another independently maintained version.
+Source checkouts use <code>config/phos.json</code>; wheels install that same source document
+under the environment's <code>share/phos/config/</code> data directory. Explicit <code>--config</code>
+remains the supported deployment boundary; no alternate schema is introduced.
+The pinned Python 3.11+ web snapshot is <code>requirements-web.txt</code>; platform camera
+dependencies remain managed by Raspberry Pi OS. See the release record.</p>
+<p><code>robot.lifecycle</code> is the reusable lifecycle policy boundary. Its fixed operations
+are status/reload/restart; it never accepts arbitrary commands or configuration
+paths from callers. The web worker uses <code>robot.lifecycle_channel</code> to reach the
+parent-owned service. Confirmation/authentication remain adapter responsibilities;
+validation and restart capability policy are shared. Test both the service and
+adapter guards. Infrastructure service markers are deployment metadata, not
+ordinary JSON settings. No new runtime configuration section is needed.</p>
+<h3 id="environmental-configuration-migration">Environmental configuration migration</h3>
+<p>For an existing BME280 deployment, rename <code>sensors.bme280</code> to
+<code>sensors.environmental</code>, retain its four existing values and add <code>"type": "bme280"</code>.
+Do not retain both blocks. To use BMP280 choose <code>"type": "bmp280"</code>; humidity is
+unsupported. The Python RuntimeConfig fields now use the <code>environmental_</code> prefix.</p>
+<p>When updating a deployment without sensor settings, merge the complete <code>sensors</code> object from
+<code>config/phos.json</code> into its existing JSON, preserving other settings. The new
+section and all five fields are required even when disabled. As with previous
+schema additions, missing fields fail validation; no silent overlay/migration or
+second set of defaults is introduced. <code>run_pi.sh</code> preserves deployed JSON and
+does not perform this merge. Validate locally before restarting the service.
+No new CLI flags are added. Save/Reload classify every sensor difference as
+restart-required; unrelated services are not restarted by either action.</p>
+<p>Hardware-free sensor checks: <code>.venv/bin/python -m pytest -q tests/test_sensors.py</code>.
+The adapter uses lazy optional imports; disabled operation and ordinary tests
+need neither Linux I2C access nor the driver packages. Fake drivers test address,
+chip ID, calibration and unit mapping; the service tests failure recovery,
+staleness, polling and bounded shutdown independently of physical hardware.</p>
+<h3 id="ccs811-configuration-migration">CCS811 configuration migration</h3>
+<p>Merge the complete <code>sensors.ccs811</code> block from the canonical JSON into an existing
+deployment; preserve <code>sensors.environmental</code>. All four fields are required,
+including when disabled. Default values live only in <code>config/phos.json</code>.
+The typed surface uses the <code>ccs811_</code> prefix; no CLI overrides were added. Save
+and Reload do not reinitialize the device or change poll timing. Use Restart PHOS.</p>
+<p><code>AirQualityReading</code> carries integer <code>eco2_ppm</code> and <code>tvoc_ppb</code>; invalid values are
+rejected before publication. Device-specific ranges live in the CCS811 adapter.
+The shared worker handles lifecycle, stale values, retry/backoff and bounded
+shutdown for both sensor services. <code>SensorNotReady</code> preserves initialization
+and communicates conditioning/no new data; physical faults recreate the provider.
+Compensation passes an immutable <code>EnvironmentalCompensation</code> from a fresh
+service snapshot; it never invokes environmental hardware from the air-quality
+worker. Temperature must be within -25–50 °C and humidity within 0–100% for this
+compensation boundary. BMP280, disabled/failed/stale or out-of-range sources
+supply no compensation, restoring device defaults. Device constants such as
+conditioning/drive mode are adapter protocol policy, not duplicate JSON defaults.</p>
+<p>Run <code>.venv/bin/python -m pytest -q tests/test_air_quality.py tests/test_sensors.py</code>
+and the full suite. Tests use fake time, bus registers and providers, covering
+conditioning without a 20-minute sleep. See the
+<a href="../installation/#optional-ccs811-air-quality-sensor">installation guide</a> for
+physical verification and dependency commands.</p>
+<h3 id="mpu-6050-configuration-migration">MPU-6050 configuration migration</h3>
+<p>Merge the complete <code>sensors.imu</code> block from canonical JSON into an existing
+deployment, preserving the environmental and CCS811 blocks. The typed surface
+uses the <code>imu_</code> prefix. All four fields are required even when disabled and are
+restart-only. <code>IMUReading</code> contains finite acceleration values in m/s² and
+angular velocity values in °/s. It has no persisted calibration state: the
+adapter applies fixed factory scale factors only. Run
+<code>.venv/bin/python -m pytest -q tests/test_imu.py</code> before Pi validation.</p>
+<h3 id="tilt-interpretation-configuration-migration">Tilt interpretation configuration migration</h3>
+<p>Add <code>tilt_exit_threshold_m_s2</code>, <code>lateral_axis</code> and <code>forward_axis</code> from canonical
+<code>sensors.imu.motion</code> to existing deployments; missing fields fail validation.
+The existing tilt enter key is preserved but now refers to a normalized gravity
+component. Review enter/exit together. For responsive operation, adopt the
+canonical IMU poll interval and confirmation duration; polling requires restart,
+motion thresholds/mounting require only reload. See the installation guide for
+axis verification and DEBUG diagnostics.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../api/" class="md-footer__link md-footer__link--prev" aria-label="Previous: API contract notes">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                API contract notes
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../ai/" class="md-footer__link md-footer__link--next" aria-label="Next: AI strategy">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                AI strategy
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/phosairobot/phos" target="_blank" rel="noopener" title="PHOS on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://x.com/phosairobot" target="_blank" rel="noopener" title="PHOS on X" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.instagram.com/phosairobot/" target="_blank" rel="noopener" title="PHOS on Instagram" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M224.3 141a115 115 0 1 0-.6 230 115 115 0 1 0 .6-230m-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1-.6-149.2m93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1-53.6 0m129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8M399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.action.edit", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
