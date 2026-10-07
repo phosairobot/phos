@@ -10,6 +10,20 @@ This file is an implementation handoff for coding agents. It records what is pre
 - Microphone available; exact interface remains TBD.
 - Display/eyes and Pi Camera/tracking are documented as operational in `docs/hardware.md`; exact camera model remains unspecified.
 
+## PHOS 1.4.0 — Voice & Interaction Foundation
+
+PHOS 1.4.0 implements startup/readiness (splash, ready sound and hidden cursor),
+touch/gesture input, provider-neutral native-rate microphone capture, canonical
+16 kHz PCM16 processing, VAD, bounded pre-roll, local Vosk STT, and observable
+`LISTENING → THINKING → IDLE` sessions validated on Raspberry Pi 3.
+
+PHOS can capture and transcribe speech, but does not yet perform transcript →
+intent/command interpretation → application command → behavior/action. TTS,
+AudioOutputProvider, SPEAKING, wake words, continuous listening, conversational
+LLM, and Home Assistant remain deferred. The small local Vosk model has limited
+accuracy for longer phrases and non-native English accents. JSON remains the
+canonical 1.4.0 configuration format.
+
 ## PHOS 1.3.0 release candidate
 
 The source version is **1.3.0**. It adds stable Presence and Attention state,
