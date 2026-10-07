@@ -327,7 +327,7 @@ class PhosApplicationService:
 
     def voice(self) -> dict:
         reader = getattr(self._runtime, "voice_status", None)
-        return self._plain(reader()) if reader is not None else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_error": None}
+        return self._plain(reader()) if reader is not None else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
 
     def observed_expression(self) -> dict:
         pipeline = getattr(self._runtime, "_vision_pipeline", None)

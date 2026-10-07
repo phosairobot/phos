@@ -91,7 +91,7 @@ def test_capture_read_frames_yields_audio_and_logs_first_read(monkeypatch, caplo
         async for frame in provider.read_frames():
             await provider.stop()
             return frame
-    with caplog.at_level(logging.INFO): frame = asyncio.run(run())
+    with caplog.at_level(logging.DEBUG): frame = asyncio.run(run())
     assert len(frame) == 1323 * 2
     assert "VOICE AUDIO READ: waiting" in caplog.text
     assert "VOICE AUDIO READ: received bytes=2646" in caplog.text
@@ -152,7 +152,7 @@ def test_resampling_provider_yields_16k_pcm_and_logs_rates(caplog):
     async def run():
         await wrapped.start()
         async for frame in wrapped.read_frames(): return frame
-    with caplog.at_level(logging.INFO): frame = asyncio.run(run())
+    with caplog.at_level(logging.DEBUG): frame = asyncio.run(run())
     assert len(frame) % 2 == 0 and 940 <= len(frame) <= 970
     assert "VOICE AUDIO RESAMPLING: input_rate=44100 output_rate=16000" in caplog.text
     assert "VOICE AUDIO FRAME:" in caplog.text
@@ -185,7 +185,7 @@ def test_capture_session_transcribes_bounded_utterance_and_returns_idle(caplog):
         chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30, max_utterance_ms=1000, threshold=100)
     async def run():
         await session.start(); await session._task
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         asyncio.run(run())
     assert events == ["voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed"]
     assert session.status()["last_transcript"] == "hello PHOS" and session.status()["state"] == "idle"
@@ -223,7 +223,7 @@ def test_session_prepends_bounded_pre_roll_and_writes_exact_vosk_wav(tmp_path, c
         assert output.readframes(output.getnframes()) == expected
 
 
-def test_empty_stt_result_is_not_an_error_and_logs_raw_result(caplog):
+def test_empty_stt_result_is_not_an_error_and_logs_empty_transcript(caplog):
     class Capture:
         async def start(self): pass
         async def stop(self): pass
@@ -233,7 +233,8 @@ def test_empty_stt_result_is_not_an_error_and_logs_raw_result(caplog):
         chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30, max_utterance_ms=1000, threshold=100)
     with caplog.at_level(logging.INFO): asyncio.run(session._finalize(_pcm(300)))
     assert session.status()["last_transcript"] is None and session.status()["last_error"] is None
-    assert "VOICE STT RAW RESULT: text='' confidence=null language=null" in caplog.text
+    assert "VOICE TRANSCRIPT: <empty>" in caplog.text
+    assert session.status()["last_transcription_duration_ms"] is not None
 
 
 def test_debug_wav_write_failure_does_not_skip_stt(tmp_path, caplog):

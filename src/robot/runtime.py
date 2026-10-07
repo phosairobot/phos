@@ -193,7 +193,7 @@ class PhosRuntime:
         return self._touch_status.document()
 
     def voice_status(self) -> dict:
-        return self._voice_session.status() if self._voice_session else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_error": None}
+        return self._voice_session.status() if self._voice_session else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
 
     async def start_listening(self):
         if self._voice_session is None: raise RuntimeError("Voice is unavailable")

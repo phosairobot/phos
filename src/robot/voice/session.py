@@ -28,7 +28,7 @@ class VoiceStatus:
     enabled: bool; state: str = "idle"; listening: bool = False; speech_detected: bool = False
     stt_provider: Optional[str] = None; stt_available: bool = False; last_transcript: Optional[str] = None
     last_confidence: Optional[float] = None; language: Optional[str] = None
-    last_transcription_at: Optional[str] = None; last_error: Optional[str] = None
+    last_transcription_at: Optional[str] = None; last_transcription_duration_ms: Optional[int] = None; last_error: Optional[str] = None
     def document(self): return self.__dict__.copy()
 
 class VoiceCaptureSession:
@@ -57,7 +57,7 @@ class VoiceCaptureSession:
             if self._task and not self._task.done(): return self.status()
             self._pre_roll.clear()
             stage = "vad_ready"
-            logger.info("VOICE VAD: ready")
+            logger.debug("VOICE VAD: ready")
             stage = "stt_availability"
             logger.info("VOICE STT: provider=%s", self._status.stt_provider)
             logger.info("VOICE STT: available=%s", self._status.stt_available)
@@ -69,7 +69,7 @@ class VoiceCaptureSession:
             logger.exception("VOICE SESSION ERROR: stage=%s exception_type=%s exception_message=%s",
                              stage, type(error).__name__, error)
             raise
-        logger.info("VOICE AUDIO: capture started")
+        logger.debug("VOICE AUDIO: capture started")
         self._status = replace(self._status, state="listening", listening=True, last_error=None)
         try:
             stage = "listening_transition"
@@ -99,7 +99,7 @@ class VoiceCaptureSession:
                 now = time.monotonic()
                 if now - self._last_vad_level_log >= .5:
                     level = self._vad.level()
-                    logger.info("VOICE VAD LEVEL: rms=%s peak=%s threshold=%s speech_candidate_ms=%s speech_active=%s",
+                    logger.debug("VOICE VAD LEVEL: rms=%s peak=%s threshold=%s speech_candidate_ms=%s speech_active=%s",
                                 level["rms"], level["peak"], level["threshold"],
                                 level["speech_candidate_ms"], level["speech_active"])
                     self._last_vad_level_log = now
@@ -123,10 +123,12 @@ class VoiceCaptureSession:
     async def _finalize(self, pcm):
         duration = round(len(pcm) * 1000 / (self._sample_rate * self._channels * 2))
         await self._emit(VOICE_SPEECH_ENDED, {"duration_ms": duration})
+        logger.info("VOICE SPEECH: ended duration_ms=%s", duration)
         if duration < self._min_ms: await self._emit(VOICE_EMPTY_UTTERANCE, {"duration_ms": duration}); await self.stop(); return
         self._status = replace(self._status, state="thinking", listening=False, speech_detected=False); await self._transition(RobotState.THINKING, "voice_transcription")
         await self._emit(VOICE_TRANSCRIPTION_STARTED, {"provider": self._status.stt_provider})
-        logger.info("VOICE UTTERANCE: duration_ms=%s bytes=%s sample_rate=%s channels=%s rms=%s peak=%s",
+        logger.info("VOICE STT: started provider=%s audio_duration_ms=%s", self._status.stt_provider, duration)
+        logger.debug("VOICE UTTERANCE: duration_ms=%s bytes=%s sample_rate=%s channels=%s rms=%s peak=%s",
                     duration, len(pcm), self._sample_rate, self._channels,
                     audioop.rms(pcm, 2) if pcm else 0, audioop.max(pcm, 2) if pcm else 0)
         if self._debug_dump_utterance_wav:
@@ -134,13 +136,17 @@ class VoiceCaptureSession:
             except Exception as error:
                 logger.exception("VOICE DEBUG WAV ERROR: exception_type=%s exception_message=%s",
                                  type(error).__name__, error)
+        started_at = time.monotonic()
         try: result = await self._stt.transcribe(pcm, sample_rate=self._sample_rate, channels=self._channels)
         except Exception as error: await self._failure(error); return
-        logger.info("VOICE STT RAW RESULT: text=%r confidence=%s language=%s",
-                    result.text, result.confidence if result.confidence is not None else "null",
-                    result.language if result.language is not None else "null")
+        elapsed = round((time.monotonic() - started_at) * 1000)
+        logger.info("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)
+        logger.info("VOICE TRANSCRIPT: text=%r", result.text) if result.text else logger.info("VOICE TRANSCRIPT: <empty>")
+        if result.confidence is not None or result.language is not None:
+            logger.info("VOICE STT RESULT: confidence=%s language=%s", result.confidence, result.language)
         self._status = replace(self._status, last_transcript=result.text or None, last_confidence=result.confidence,
-                               language=result.language, last_transcription_at=result.completed_at or datetime.now(timezone.utc).isoformat(timespec="milliseconds"))
+                               language=result.language, last_transcription_at=result.completed_at or datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                               last_transcription_duration_ms=elapsed)
         await self._emit(VOICE_TRANSCRIPTION_COMPLETED, result.document()); await self.stop()
     def _write_debug_wav(self, pcm: bytes) -> None:
         with self._debug_utterance_wav_path.open("wb") as stream:
@@ -150,7 +156,7 @@ class VoiceCaptureSession:
                 output.setframerate(self._sample_rate)
                 output.writeframes(pcm)
         duration = round(len(pcm) * 1000 / (self._sample_rate * self._channels * 2))
-        logger.info("VOICE DEBUG WAV: path=%s bytes=%s duration_ms=%s",
+        logger.debug("VOICE DEBUG WAV: path=%s bytes=%s duration_ms=%s",
                     self._debug_utterance_wav_path, len(pcm), duration)
     async def _failure(self, error):
         self._status = replace(self._status, last_error=type(error).__name__)

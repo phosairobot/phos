@@ -46,3 +46,18 @@ processed-PCM pre-roll (300 ms by default) to preserve the beginning of an
 utterance. Immediately before local STT it logs whole-utterance duration, byte
 length, RMS and peak, conditionally writes the temporary WAV debug dump, and
 logs the provider's raw text, confidence and language result.
+
+## Raspberry Pi 3 physical baseline and benchmark
+
+Slice 3 is physically validated with a USB microphone on Raspberry Pi 3:
+44.1 kHz mono PCM16 PyAudio capture is resampled once to 16 kHz mono PCM16,
+then passes through energy VAD (threshold 50), 300 ms pre-roll and the local
+`models/vosk/vosk-model-small-en-us-0.15` English model. Model files are not
+committed. This small Vosk model validates the offline, provider-independent
+STT architecture; longer phrases and non-native English accents can be poor.
+
+For a manual benchmark, restart PHOS and test: `Hello`, `How are you`, `Hello
+PHOS`, `This is a test`, `What time is it`, and `Turn on the light`. Record the
+expected phrase, transcript, `VOICE STT: completed` duration, and a success,
+partial or poor rating. Confirm silence does not activate VAD, speech onset is
+not clipped, and inspect `/api/v1/voice` (or optionally the one debug WAV).

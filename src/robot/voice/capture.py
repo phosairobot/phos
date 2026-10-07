@@ -48,12 +48,12 @@ class PyAudioCaptureProvider:
             return self.device_index, info
         info = audio.get_default_input_device_info(); return info["index"], info
     async def start(self):
-        logger.info("VOICE AUDIO: start requested")
+        logger.debug("VOICE AUDIO: start requested")
         if not self.available(): raise RuntimeError("pyaudio_unavailable")
         import pyaudio
         self._audio = pyaudio.PyAudio()
         try:
-            logger.info("VOICE AUDIO: resolving input device")
+            logger.debug("VOICE AUDIO: resolving input device")
             index, info = self._resolve(self._audio)
         except Exception as error:
             logger.exception("VOICE SESSION ERROR: stage=audio_resolve exception_type=%s exception_message=%s",
@@ -73,7 +73,7 @@ class PyAudioCaptureProvider:
         logger.info("VOICE AUDIO: device resolved name=%r index=%s rate=%s channels=%s format=paInt16",
                     self.resolved_device_name, self.resolved_device_index, self.capture_rate, self.channels)
         try:
-            logger.info("VOICE AUDIO: stream opening input=True input_device_index=%s channels=%s format=paInt16 rate=%s frames_per_buffer=%s",
+            logger.debug("VOICE AUDIO: stream opening input=True input_device_index=%s channels=%s format=paInt16 rate=%s frames_per_buffer=%s",
                         index, self.channels, self.capture_rate, frames_per_buffer)
             self._stream = self._audio.open(format=pyaudio.paInt16, channels=self.channels, rate=self.capture_rate,
                                             input=True, input_device_index=index, frames_per_buffer=frames_per_buffer)
@@ -86,11 +86,11 @@ class PyAudioCaptureProvider:
     async def read_frames(self):
         frames = max(1, round(self.capture_rate * self.chunk_ms / 1000))
         first_read = True
-        logger.info("VOICE AUDIO: read loop started")
+        logger.debug("VOICE AUDIO: read loop started")
         while self._stream is not None:
             stream = self._stream
             try:
-                if first_read: logger.info("VOICE AUDIO READ: waiting")
+                if first_read: logger.debug("VOICE AUDIO READ: waiting")
                 # One awaited worker read at a time preserves capture backpressure and
                 # avoids blocking the event loop or accumulating per-frame tasks.
                 pcm = await asyncio.to_thread(stream.read, frames, exception_on_overflow=False)
@@ -101,11 +101,11 @@ class PyAudioCaptureProvider:
                                  type(error).__name__, error)
                 raise
             if first_read:
-                logger.info("VOICE AUDIO READ: received bytes=%s", len(pcm))
+                logger.debug("VOICE AUDIO READ: received bytes=%s", len(pcm))
                 first_read = False
             now = time.monotonic()
             if now - self._last_frame_log >= .5:
-                logger.info("VOICE AUDIO FRAME: bytes=%s capture_rate=%s processing_rate=%s",
+                logger.debug("VOICE AUDIO FRAME: bytes=%s capture_rate=%s processing_rate=%s",
                             len(pcm), self.capture_rate, self.capture_rate)
                 self._last_frame_log = now
             if self._stream is stream: yield pcm
@@ -122,7 +122,7 @@ class ResamplingAudioCaptureProvider:
     def available(self): return self._capture.available()
     async def start(self):
         await self._capture.start(); self._resampler = PCM16Resampler(self._capture.capture_rate, self.processing_rate)
-        logger.info("VOICE AUDIO: device=%r device_index=%s capture_rate=%s processing_rate=%s channels=%s format=PCM16", self._capture.resolved_device_name, self._capture.resolved_device_index, self._capture.capture_rate, self.processing_rate, self._capture.channels)
+        logger.debug("VOICE AUDIO: device=%r device_index=%s capture_rate=%s processing_rate=%s channels=%s format=PCM16", self._capture.resolved_device_name, self._capture.resolved_device_index, self._capture.capture_rate, self.processing_rate, self._capture.channels)
         if self._capture.capture_rate != self.processing_rate:
             logger.info("VOICE AUDIO RESAMPLING: input_rate=%s output_rate=%s",
                         self._capture.capture_rate, self.processing_rate)
@@ -132,7 +132,7 @@ class ResamplingAudioCaptureProvider:
             if pcm:
                 now = time.monotonic()
                 if now - self._last_frame_log >= .5:
-                    logger.info("VOICE AUDIO FRAME: bytes=%s capture_rate=%s processing_rate=%s",
+                    logger.debug("VOICE AUDIO FRAME: bytes=%s capture_rate=%s processing_rate=%s",
                                 len(pcm), self._capture.capture_rate, self.processing_rate)
                     self._last_frame_log = now
                 yield pcm
