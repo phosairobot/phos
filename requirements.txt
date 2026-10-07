@@ -2,6 +2,7 @@
 #
 # On Raspberry Pi OS, prefer the compatible system packages documented in
 # docs/installation.md: python3-picamera2, python3-opencv, and opencv-data.
-# This file is useful for non-Pi development environments.
-opencv-python-headless>=4.8
+# This file is useful for non-Pi development environments. On Raspberry Pi OS,
+# install python3-opencv and opencv-data through APT; do not install a PyPI cv2
+# distribution into PHOS's system-site-packages virtual environment.
 picamera2>=0.3

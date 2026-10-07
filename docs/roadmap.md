@@ -1,5 +1,17 @@
 # PHOS roadmap
 
+## PHOS 1.4.0 — Voice & Interaction Foundation
+
+- [x] Startup/readiness experience, splash, ready sound, hidden display cursor,
+  touch/gesture abstraction, and provider-neutral voice capture.
+- [x] Native-rate negotiation, one 16 kHz PCM16 resampling boundary, VAD, 300 ms
+  pre-roll, local Vosk STT, semantic lifecycle/voice status observability, and
+  Raspberry Pi 3 physical validation.
+- [ ] Future voice work: TTS/AudioOutputProvider/SPEAKING, command and intent
+  interpretation, LLM integration, wake word, continuous listening, and Home Assistant.
+- [ ] Configuration evolution: retain JSON in 1.4.0; centralize ownership and
+  persistence behind ConfigRepository before any YAML migration.
+
 ## PHOS 1.3.0 — Presence, Attention & Expression Awareness
 
 PHOS 1.3.0 integrates provider-neutral Presence and Attention, observed
@@ -108,7 +120,7 @@ remains separate from implementation.
 | Remote-control API | Authenticated service-mediated control, authorization and documented contracts. |
 | Advanced OS administration | Raspberry Pi reboot, if a future safe permission boundary is approved. |
 | MCP server | Service-mediated tools; no direct hardware or subsystem-internal access. |
-| STT | Microphone capture, VAD and speech recognition. |
+| STT | Completed Slice 3: physically validated explicit microphone capture, native-rate resampling, VAD, 300 ms pre-roll and provider-neutral local Vosk transcription. Small-model accuracy is a baseline, not a final quality target. |
 | TTS | Provider-neutral synthesis, playback and speaker verification. |
 | Conversational LLM | End-to-end conversation through LLMProvider; existing skeletons are not a delivered conversation feature. |
 | Home Assistant | Integration/tool layer and explicit permissions; not the reasoning core. |

@@ -15,6 +15,7 @@ from robot.motion import MotionState
 
 from .behaviors import Behavior
 from .events import Event, EventBus
+from .touch import TOUCH_EVENT
 from .runtime import STATE_CHANGED
 from .state import RobotState, VisualSource
 from .environmental import EnvironmentalState
@@ -105,6 +106,7 @@ class BehaviorEngine(Behavior):
         self._motion_transient = None
         self._motion_last_at = float("-inf")
         self._expression_reaction = None
+        self._touch_reaction_until = None
         self._environmental_state = EnvironmentalState.NORMAL
         # Standalone engine users retain historical environmental behavior;
         # application construction always supplies canonical configuration.
@@ -127,6 +129,8 @@ class BehaviorEngine(Behavior):
         resolved = self._with_motion_reaction(state, self._clock())
         manual = self.manual_expression_state()
         reaction = self._active_expression_reaction()
+        if self._touch_reaction_until is not None and self._clock() < self._touch_reaction_until and self._robot_state is RobotState.IDLE and self._motion_transient is None:
+            resolved = replace(resolved, expression=FaceExpression.CURIOUS, accent=VisualAccent.CURIOUS, reaction_strength=0.72, eye_open=1.12)
         if reaction is not None:
             expression = FaceExpression(reaction["reaction"])
             accent = {FaceExpression.HAPPY: VisualAccent.CURIOUS,
@@ -222,6 +226,7 @@ class BehaviorEngine(Behavior):
             self._events.subscribe(PERSON_LEFT, self._on_presence_event),
             self._events.subscribe(IMU_MOTION_STATE, self._on_motion_state),
             self._events.subscribe(ENVIRONMENTAL_STATE_CHANGED, self._on_environmental_state),
+            self._events.subscribe(TOUCH_EVENT, self._on_touch_event),
         ]
         now = self._clock()
         self._next_blink_at = now + random.uniform(*self._blink_interval)
@@ -405,6 +410,12 @@ class BehaviorEngine(Behavior):
                 event.data.get("temperature_overlay", "none"), event.data.get("air_quality_overlay", "none")))
         except (KeyError, TypeError, ValueError):
             return
+
+    async def _on_touch_event(self, event: Event) -> None:
+        if event.data.get("kind") != "tap" or self._robot_state is not RobotState.IDLE or self._motion_transient is not None:
+            return
+        self._touch_reaction_until = self._clock() + .7
+        logger.info("TOUCH REACTION accepted")
 
     def _with_motion_reaction(self, state: FaceState, now: float) -> FaceState:
         """Apply IMU intent only below RobotState priority, without UI geometry."""

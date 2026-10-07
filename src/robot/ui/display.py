@@ -7,10 +7,12 @@ from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import logging
+import os
 import time
 from typing import Any, Deque, List, Optional
 
 from .eyes import EyeFrame, EyeGeometry
+from .touch import TouchInputAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,10 @@ class EyeDisplay(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
+        raise NotImplementedError
+
+    @abstractmethod
     def poll_keys(self) -> List[str]:
         raise NotImplementedError
 
@@ -111,6 +117,7 @@ class MemoryEyeDisplay(EyeDisplay):
 
     def __init__(self) -> None:
         self.frames: List[EyeFrame] = []
+        self.startup_frames: List[tuple[str, str]] = []
 
     def open(self, width: int, height: int, *, fullscreen: bool) -> None:
         return None
@@ -118,6 +125,9 @@ class MemoryEyeDisplay(EyeDisplay):
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None) -> None:
         self.frames.append(frame)
+
+    def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
+        self.startup_frames.append((state, message))
 
     def poll_keys(self) -> List[str]:
         return []
@@ -141,6 +151,13 @@ class TkEyeDisplay(EyeDisplay):
         self._preview_failed = False
         self._preview_image_item = None
         self._preview_overlay_items = []
+        self._startup_photo = None
+        self._startup_image_item = None
+        self._startup_image_path = None
+        self._touch_adapter = None
+
+    def set_touch_handler(self, handler, **settings) -> None:
+        self._touch_adapter = TouchInputAdapter(handler, **settings)
 
     def open(self, width: int, height: int, *, fullscreen: bool) -> None:
         if self._root is not None:
@@ -160,6 +177,9 @@ class TkEyeDisplay(EyeDisplay):
         root.bind("<Key>", lambda event: self._keys.append(event.keysym))
         canvas = tk.Canvas(root, highlightthickness=0, borderwidth=0)
         canvas.pack(fill=tk.BOTH, expand=True)
+        canvas.configure(cursor="none")
+        canvas.bind("<ButtonPress-1>", lambda event: self._touch_adapter and self._touch_adapter.down(event.x, event.y))
+        canvas.bind("<ButtonRelease-1>", lambda event: self._touch_adapter and self._touch_adapter.release(event.x, event.y))
         self._root = root
         self._canvas = canvas
         self._tk = tk
@@ -170,6 +190,9 @@ class TkEyeDisplay(EyeDisplay):
         if self._root is None or self._canvas is None:
             raise RuntimeError("Display has not been opened.")
         self._canvas.delete("all")
+        self._startup_image_item = None
+        self._startup_image_path = None
+        self._startup_photo = None
         self._canvas.configure(background=frame.background)
         for eye in frame.eyes:
             self._draw_eye(eye, frame)
@@ -184,6 +207,38 @@ class TkEyeDisplay(EyeDisplay):
             if self._preview_future is not None:
                 self._preview_future.cancel()
                 self._preview_future = None
+
+    def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
+        if self._root is None or self._canvas is None:
+            raise RuntimeError("Display has not been opened.")
+        if self._startup_image_item is not None and self._startup_image_path == image_path:
+            return
+        self._canvas.delete("all")
+        self._canvas.configure(background="#02050D")
+        if image_path is None:
+            logger.warning("STARTUP SPLASH LOAD FAILED: path=None exception=no splash image configured")
+            return
+        try:
+            from pathlib import Path
+            path = Path(image_path)
+            root_geometry = self._root.winfo_geometry() if hasattr(self._root, "winfo_geometry") else "unknown"
+            canvas_width = self._canvas.winfo_width() if hasattr(self._canvas, "winfo_width") else "unknown"
+            canvas_height = self._canvas.winfo_height() if hasattr(self._canvas, "winfo_height") else "unknown"
+            logger.info("STARTUP SPLASH root_geometry=%s", root_geometry)
+            logger.info("STARTUP SPLASH canvas_size=%sx%s", canvas_width, canvas_height)
+            logger.info("STARTUP SPLASH LOADER: resolved_path=%s exists=%s readable=%s", path, path.is_file(), path.is_file() and os.access(path, os.R_OK))
+            photo = self._tk.PhotoImage(file=str(path))
+            logger.info("STARTUP SPLASH source_size=%sx%s", photo.width(), photo.height())
+            if (photo.width(), photo.height()) != (800, 600):
+                raise RuntimeError("startup splash must be a pre-rendered 800x600 PNG")
+            self._startup_photo = photo
+            self._startup_image_path = image_path
+            self._startup_image_item = self._canvas.create_image(400, 300, image=photo, anchor="center")
+            logger.info("STARTUP SPLASH resized_size=800x600")
+            logger.info("STARTUP SPLASH draw_position=(400,300)")
+            logger.info("STARTUP SPLASH anchor=center item=%s", self._startup_image_item)
+        except Exception as error:
+            logger.warning("STARTUP SPLASH LOAD FAILED: path=%s exception=%s", image_path, error)
 
     def poll_keys(self) -> List[str]:
         if self._root is not None:
@@ -203,6 +258,9 @@ class TkEyeDisplay(EyeDisplay):
         self._canvas = None
         self._tk = None
         self._preview_photo = None
+        self._startup_photo = None
+        self._startup_image_item = None
+        self._startup_image_path = None
         if self._preview_executor is not None:
             self._preview_executor.shutdown(wait=False, cancel_futures=True)
             self._preview_executor = None

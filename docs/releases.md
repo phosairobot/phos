@@ -1,5 +1,13 @@
 # Releases
 
+## PHOS 1.4.0 — Voice & Interaction Foundation
+
+The authoritative source version is **1.4.0**. It adds the startup and touch
+interaction foundation plus explicit local microphone capture, VAD, pre-roll,
+and provider-neutral Vosk STT baseline validated on Raspberry Pi 3.
+
+[Read the 1.4.0 release record](release-1.4.0.md){ .md-button .md-button--primary }
+
 ## PHOS 1.3.0 — Presence, Attention & Expression Awareness
 
 The authoritative source version is **1.3.0**. It adds semantic Presence and

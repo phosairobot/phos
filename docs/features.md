@@ -74,6 +74,23 @@ resolved persistent source returns afterward.
 </article>
 
 <article class="phos-card" markdown>
+<span class="phos-status">IMPLEMENTED</span>
+### Explicit speech capture
+An explicit, finite microphone session uses lightweight energy VAD and a
+provider-neutral STT boundary. Its transcript and availability are observable;
+PHOS does not persist or expose raw audio.
+</article>
+
+<article class="phos-card" markdown>
+<span class="phos-status">IMPLEMENTED</span>
+### Face-display touch telemetry
+Completed taps, long presses and horizontal swipes are recognized locally as
+semantic input. The last valid gesture is observable through the shared runtime
+snapshot, Remote API and read-only Web Admin diagnostics; raw pointer events
+are never exposed.
+</article>
+
+<article class="phos-card" markdown>
 <span class="phos-status phos-status--optional">OPTIONAL HARDWARE</span>
 ### WS2812B visual feedback
 An optional LED ring consumes provider-neutral `FaceState` intent through a
@@ -103,7 +120,7 @@ PHOS exposes a versioned local REST API for robot status, health, environmental 
 
 <div class="phos-callout" markdown>
 
-Voice/STT, TTS playback, conversational LLM operation, Home Assistant and MCP
+TTS playback, conversational LLM operation, Home Assistant and MCP
 are explicitly deferred. Existing interfaces or scaffolding are not
 evidence of an end-to-end delivered feature. [Read the roadmap](roadmap.md).
 

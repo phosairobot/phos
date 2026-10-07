@@ -55,6 +55,8 @@ if (provider) {
     const target = attention.target || {};
     const observedExpression = state.observed_expression || {};
     const expressionReaction = state.expression_reaction || {};
+    const touch = state.touch || {};
+    const voice = state.voice || {};
     display("robot.state", (state.robot || {}).state);
     display("visual.expression", visual.expression);
     display("visual.source", state.active_visual_source || visual.source);
@@ -84,6 +86,18 @@ if (provider) {
     display("expression_reaction.active", expressionReaction.active === undefined ? null : (expressionReaction.active ? "Active" : "Inactive"));
     display("expression_reaction.reaction", expressionReaction.reaction);
     display("expression_reaction.observed_label", expressionReaction.observed_label);
+    display("touch.enabled", touch.enabled === undefined ? null : (touch.enabled ? "Enabled" : "Disabled"));
+    display("touch.last_event", touch.last_event && touch.last_event.replaceAll("_", " "));
+    display("touch.position", touch.x === null || touch.x === undefined || touch.y === null || touch.y === undefined ? null : `${touch.x}, ${touch.y}`);
+    display("touch.normalized_position", Number.isFinite(touch.normalized_x) && Number.isFinite(touch.normalized_y) ? `${touch.normalized_x.toFixed(2)}, ${touch.normalized_y.toFixed(2)}` : null);
+    display("touch.duration", Number.isFinite(touch.duration_ms) ? `${touch.duration_ms} ms` : null);
+    display("touch.last_event_at", touch.last_event_at);
+    display("voice.enabled", voice.enabled === undefined ? null : (voice.enabled ? "Enabled" : "Disabled"));
+    display("voice.state", voice.state); display("voice.stt_provider", voice.stt_provider);
+    display("voice.stt_available", voice.stt_available === undefined ? null : (voice.stt_available ? "Available" : "Unavailable"));
+    display("voice.speech_detected", voice.speech_detected ? "Detected" : "Not detected");
+    display("voice.last_transcript", voice.last_transcript); display("voice.last_confidence", Number.isFinite(voice.last_confidence) ? `${(voice.last_confidence * 100).toFixed(0)}%` : null);
+    display("voice.language", voice.language); display("voice.last_error", voice.last_error);
     const subsystems = ((state.health || {}).subsystems) || {};
     display("health", Object.entries(subsystems).map(([name, item]) => `${name}: ${item.state}`).join(", "));
     if (note) note.textContent = "Semantic runtime state; retained while reconnecting.";
@@ -202,11 +216,19 @@ if (provider) {
     else if (event.type === "attention_changed") state.attention = payload;
     else if (event.type === "observed_expression_changed") state.observed_expression = payload;
     else if (event.type === "expression_reaction_changed") state.expression_reaction = payload;
+    else if (event.type === "touch_changed") state.touch = payload;
+    else if (event.type === "voice_changed") state.voice = payload;
+    else if (event.type.startsWith("voice_")) state.voice = {...(state.voice || {}), ...(event.type === "voice_transcription_completed" ? {last_transcript: payload.text, last_confidence: payload.confidence, language: payload.language, state: "idle"} : {})};
+    else if (["touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right"].includes(event.type)) {
+      state.touch = {...(state.touch || {}), last_event: payload.kind, x: payload.x, y: payload.y,
+        normalized_x: payload.normalized_x, normalized_y: payload.normalized_y, duration_ms: payload.duration_ms,
+        last_event_at: event.timestamp};
+    }
     if (event.type === "expression_reaction_changed") console.debug("SSE IN:", event.type, payload);
     else if (["person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost"].includes(event.type)) {
       snapshot(); return;
     }
-    else return;
+    else if (!["touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
     render(); syncControls();
   };
   const fallback = () => { if (!fallbackTimer) fallbackTimer = window.setInterval(snapshot, 30000); };
@@ -215,7 +237,7 @@ if (provider) {
     stream.onopen = async () => { const reconnect = opened; opened = true; retries = 0; setConnection("connected"); window.clearInterval(fallbackTimer); fallbackTimer = undefined; if (reconnect) await snapshot(); };
     // The SSE adapter uses named semantic events, so listen explicitly rather
     // than relying on EventSource's unnamed-message default.
-    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
+    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
       stream.addEventListener(type, (message) => { try { applyEvent(JSON.parse(message.data)); } catch (_) {} });
     }
     stream.onerror = () => { stream.close(); setConnection("reconnecting"); fallback(); const delay = Math.min(30000, 1000 * 2 ** Math.min(retries++, 5)); retryTimer = window.setTimeout(connect, delay); };

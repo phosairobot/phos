@@ -7,6 +7,7 @@ from .overlay import OverlayArbiter, OverlayOverride
 from .events import Event, EventBus
 from .presence import PresenceInterpreter, PresenceKind, PresenceState
 from .attention import AttentionManager, AttentionKind, AttentionState
+from .touch import TouchStatus
 from .runtime import CORE_STARTED, CORE_STOPPED, STATE_CHANGED, RobotCore
 from .state import InvalidStateTransition, RobotState, RobotStateMachine, StateTransition
 from .tasks import BackgroundTasks
@@ -31,6 +32,7 @@ __all__ = [
     "AttentionManager",
     "AttentionKind",
     "AttentionState",
+    "TouchStatus",
     "InvalidStateTransition",
     "RobotCore",
     "RobotState",

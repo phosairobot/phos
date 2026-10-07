@@ -10,6 +10,20 @@ This file is an implementation handoff for coding agents. It records what is pre
 - Microphone available; exact interface remains TBD.
 - Display/eyes and Pi Camera/tracking are documented as operational in `docs/hardware.md`; exact camera model remains unspecified.
 
+## PHOS 1.4.0 — Voice & Interaction Foundation
+
+PHOS 1.4.0 implements startup/readiness (splash, ready sound and hidden cursor),
+touch/gesture input, provider-neutral native-rate microphone capture, canonical
+16 kHz PCM16 processing, VAD, bounded pre-roll, local Vosk STT, and observable
+`LISTENING → THINKING → IDLE` sessions validated on Raspberry Pi 3.
+
+PHOS can capture and transcribe speech, but does not yet perform transcript →
+intent/command interpretation → application command → behavior/action. TTS,
+AudioOutputProvider, SPEAKING, wake words, continuous listening, conversational
+LLM, and Home Assistant remain deferred. The small local Vosk model has limited
+accuracy for longer phrases and non-native English accents. JSON remains the
+canonical 1.4.0 configuration format.
+
 ## PHOS 1.3.0 release candidate
 
 The source version is **1.3.0**. It adds stable Presence and Attention state,
@@ -25,6 +39,25 @@ The recommended Raspberry Pi OS installation path is now
 canonical `.[all]` runtime dependency aggregate, prepares the configured local
 ONNX model, and performs software-only smoke checks. Physical hardware setup
 and acceptance remain separate.
+
+PHOS 1.4.0 Slice 1 adds a local startup splash owned by the existing eye display.
+Runtime readiness records required display/core and optional Vision, sensors, and
+LED outcomes as `ready`, `degraded`, or `failed`; normal eyes appear only for
+ready/degraded startup. Optional local ready sound and face-display-only cursor
+hiding are configured through the canonical `startup` section. Physical Pi
+asset diagnostics now report the resolved splash/sound paths, readability,
+splash loader result, and `aplay` outcome. Default PHOS assets are packaged
+under `robot.assets`; explicit config overrides remain configuration-relative.
+Physical Pi acceptance remains pending.
+
+### Startup-experience Pi acceptance (pending)
+
+On power-on, confirm the splash appears before normal eyes; it must remain while
+components initialize. Confirm one ready sound when configured, normal eyes only
+after ready/degraded state, and a persistent startup error for a critical failure.
+Verify an unavailable optional sensor permits degraded startup. Move a mouse over
+the face display to confirm its cursor is hidden, then open Web Admin and confirm
+the browser cursor remains normal. Touch behavior is not implemented in this slice.
 
 ## Present in the repository
 
@@ -87,7 +120,8 @@ and acceptance remain separate.
 - This code predates the newer vertical-milestone discipline. Preserve it, but do not use its existence as a reason to expand unfinished subsystems automatically.
 
 ### Voice / TTS
-- Voice package exists, but the complete microphone -> STT -> LLM -> TTS -> playback vertical slice is not yet implemented.
+- Slice 3 provides explicit microphone capture, energy VAD and provider-neutral local STT through an optional Vosk model. It ends at an observable transcript; audio is not served. Temporary physical STT debugging is opt-in through `voice.debug.dump_utterance_wav` and overwrites one configured WAV file.
+- LLM, TTS and playback remain outside this slice.
 - TTS architecture remains provider-neutral with Piper as the preferred first local engine to benchmark when that milestone begins.
 
 ## Current development priority

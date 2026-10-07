@@ -1,8 +1,8 @@
 {
   "web": {
-    "enabled": false,
-    "host": "127.0.0.1",
-    "port": 8080
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8081
   },
   "display": {
     "width": 800,
@@ -10,16 +10,16 @@
     "fps": 30,
     "fullscreen": true,
     "transition_seconds": 0.18,
-    "iris_color": "cyan",
-    "base_visual_source": "manual",
+    "iris_color": "violet",
+    "base_visual_source": "environment",
     "environment_overlays_enabled": true
   },
   "led_ring": {
-    "enabled": false,
-    "led_count": 0,
+    "enabled": true,
+    "led_count": 12,
     "gpio_pin": 18,
     "brightness": 0.3,
-    "base_color": "cyan",
+    "base_color": "green",
     "follow_visual_state": true,
     "update_rate_hz": 10.0,
     "imu_reactions_enabled": true,
@@ -36,24 +36,39 @@
   "presence": {
     "led_reactions": {
       "enabled": true,
-      "entered": {"duration_ms": 800, "direction": "clockwise"},
-      "left": {"duration_ms": 900, "direction": "counter_clockwise"}
+      "entered": {
+        "duration_ms": 800,
+        "direction": "clockwise"
+      },
+      "left": {
+        "duration_ms": 900,
+        "direction": "counter_clockwise"
+      }
     }
   },
-  "attention": {"lost_hold_ms": 800},
-  "voice": {"enabled": false, "input": {"device": null, "device_index": null, "sample_rate": null, "channels": 1, "chunk_ms": 30}, "processing": {"sample_rate": 16000}, "vad": {"speech_start_ms": 120, "silence_end_ms": 700, "min_utterance_ms": 300, "max_utterance_ms": 12000, "pre_roll_ms": 300, "threshold": 50}, "debug": {"dump_utterance_wav": false, "utterance_wav_path": "/tmp/phos-last-utterance.wav"}, "stt": {"provider": "local", "model_path": null, "language": null}},
-  "touch": {"enabled": true, "tap": {"max_duration_ms": 350, "max_movement_px": 20}, "long_press": {"min_duration_ms": 800, "max_movement_px": 20}, "swipe": {"min_distance_px": 100, "max_vertical_drift_px": 80, "max_duration_ms": 1000}, "reaction": {"enabled": true, "duration_ms": 700, "cooldown_ms": 400}},
+  "attention": {
+    "lost_hold_ms": 800
+  },
+    "voice": {"enabled": true, "input": {"device": "USB PnP Sound Device: Audio", "device_index": 2, "sample_rate": 44100, "channels": 1, "chunk_ms": 30}, "processing": {"sample_rate": 16000}, "vad": {"speech_start_ms": 120, "silence_end_ms": 700, "min_utterance_ms": 300, "max_utterance_ms": 12000,"pre_roll_ms": 300,  "threshold": 50},"debug": {"dump_utterance_wav": true, "utterance_wav_path": "/tmp/phos-last-utterance.wav"},  "stt": {"provider": "local", "model_path": "/home/pi/phos/models/vosk/vosk-model-small-en-us-0.15", "language": null}},  
+   "touch": {"enabled": true, "tap": {"max_duration_ms": 350, "max_movement_px": 20}, "long_press": {"min_duration_ms": 800, "max_movement_px": 20}, "swipe": {"min_distance_px": 100, "max_vertical_drift_px": 80, "max_duration_ms": 1000}, "reaction": {"enabled": true, "duration_ms": 700, "cooldown_ms": 400}},
   "startup": {
-    "splash": {"enabled": true, "image": null, "title": "PHOS", "subtitle": "Starting..."},
+         "splash": {"enabled": true, "image": null, "title": "PHOS", "subtitle": "Starting..."},
     "ready_sound": {"enabled": true, "file": null, "player": "aplay", "device": null}
+ 
   },
   "behavior": {
-    "blink_interval_seconds": [3.5, 6.5],
-    "gaze_interval_seconds": [2.5, 5.5],
+    "blink_interval_seconds": [
+      3.5,
+      6.5
+    ],
+    "gaze_interval_seconds": [
+      2.5,
+      5.5
+    ],
     "face_gaze_smoothing": 0.35,
     "reaction_decay_per_second": 0.3,
-    "imu_reaction_strength": 0.9,
-    "imu_tilt_gaze_strength": 0.86,
+    "imu_reaction_strength": 0.88,
+    "imu_tilt_gaze_strength": 1.0,
     "imu_tilt_eye_asymmetry_strength": 0.18,
     "imu_shake_reaction_strength": 0.88,
     "imu_impact_reaction_strength": 1.0,
@@ -61,11 +76,11 @@
     "imu_impact_reaction_duration_seconds": 1.0,
     "imu_reaction_cooldown_seconds": 2.0,
     "environmental": {
-      "enabled": false,
+      "enabled": true,
       "cold_enter_temperature": 17.0,
       "cold_exit_temperature": 18.0,
-      "warm_enter_temperature": 27.0,
-      "warm_exit_temperature": 26.0,
+      "warm_enter_temperature": 27,
+      "warm_exit_temperature": 26,
       "air_quality_warning_eco2": 1200,
       "air_quality_warning_tvoc": 220,
       "air_quality_bad_eco2": 2000,
@@ -76,12 +91,15 @@
   },
   "vision": {
     "face_tracking_enabled": false,
-    "camera_resolution": [640, 480],
+    "camera_resolution": [
+      640,
+      480
+    ],
     "capture_fps": 15.0,
     "detection_fps": 4.0,
     "camera_preview": {
       "enabled": false,
-      "position": "bottom_right",
+      "position": "top_left",
       "scale": 0.25,
       "max_fps": 5,
       "show_face_box": true,
@@ -92,11 +110,14 @@
       "cascade_path": null,
       "scale_factor": 1.1,
       "min_neighbors": 5,
-      "min_size": [48, 48]
+      "min_size": [
+        48,
+        48
+      ]
     }
   },
   "expression": {
-    "enabled": false,
+    "enabled": true,
     "provider": "local",
     "inference_fps": 3.0,
     "crop_margin": 0.1,
@@ -107,28 +128,36 @@
       "neutral_enabled": false
     },
     "local": {
-      "model_path": "../models/expression/facial_expression_recognition_mobilefacenet_2022july.onnx",
+      "model_path": "../models/expression/emotion-ferplus-8.onnx",
       "labels": [
-        "angry",
-        "disgust",
-        "fearful",
-        "happy",
         "neutral",
-        "sad",
-        "surprised"
+        "happiness",
+        "surprise",
+        "sadness",
+        "anger",
+        "disgust",
+        "fear",
+        "contempt"
       ],
-      "input_size": [112, 112],
-      "scale": 0.00784313725490196,
-      "mean": [127.5, 127.5, 127.5],
-      "swap_rb": true,
-      "grayscale": false
+      "input_size": [
+        64,
+        64
+      ],
+      "scale": 1.0,
+      "mean": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "swap_rb": false,
+      "grayscale": true
     },
     "aws": {
       "region": null,
       "cooldown_seconds": 30.0,
       "stable_seconds": 1.0,
-      "refresh_seconds": 60.0,
       "cache_ttl_seconds": 90.0,
+      "refresh_seconds": 60.0,
       "max_requests_per_minute": 2.0,
       "max_requests_per_session": 0,
       "change_threshold": 0.08,
@@ -148,29 +177,29 @@
   },
   "sensors": {
     "environmental": {
-      "type": "bme280",
-      "enabled": false,
+      "type": "bmp280",
+      "enabled": true,
       "i2c_address": "0x76",
       "poll_interval_seconds": 5.0,
       "stale_after_seconds": 30.0
     },
     "ccs811": {
-      "enabled": false,
+      "enabled": true,
       "i2c_address": "0x5a",
       "poll_interval_seconds": 5.0,
       "stale_after_seconds": 30.0
     },
     "imu": {
-      "enabled": false,
+      "enabled": true,
       "i2c_address": "0x68",
-      "poll_interval_seconds": 0.05,
+      "poll_interval_seconds": 1,
       "stale_after_seconds": 30.0,
       "motion": {
         "movement_threshold_m_s2": 1.5,
-        "tilt_threshold_m_s2": 4.0,
         "tilt_exit_threshold_m_s2": 3.0,
         "lateral_axis": "x",
         "forward_axis": "y",
+        "tilt_threshold_m_s2": 4.0,
         "shake_threshold_deg_s": 180.0,
         "impact_threshold_m_s2": 25.0,
         "confirmation_seconds": 0.3,

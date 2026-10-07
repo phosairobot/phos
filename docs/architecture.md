@@ -153,13 +153,42 @@ The primary conversational model is not assumed to run on Raspberry Pi 3. Cloud 
 
 ## Voice architecture
 
-Preferred vertical path:
-
 ```text
-microphone -> STT -> RobotAgent/LLMProvider -> TTSProvider -> playback -> speaker
+USB microphone
+  -> AudioCaptureProvider (native device rate)
+  -> ResamplingAudioCaptureProvider
+  -> canonical PCM16 mono, 16 kHz
+  -> VAD -> bounded pre-roll -> VoiceCaptureSession
+  -> STTProvider -> VoskSTTProvider
+  -> VoiceStatus / semantic events -> RobotState
 ```
 
-TTS synthesis and playback/device management are separate responsibilities. Piper is the preferred first local TTS candidate to benchmark on Raspberry Pi 3, not a hard-coded dependency of callers.
+Capture rate and processing rate are deliberately separate. Raspberry Pi 3
+validation uses a USB microphone at 44.1 kHz, followed by the one canonical
+resampling boundary to the 16 kHz stream consumed by VAD and STT; microphones
+need not support 16 kHz natively.
+
+The current explicit session is `IDLE → LISTENING → THINKING → IDLE` and stops
+at transcription. VAD confirmation takes time, so its bounded 300 ms pre-roll
+preserves audio preceding speech-start confirmation. The validated baseline is
+threshold 50, speech start 120 ms, silence end 700 ms, minimum utterance 300
+ms, maximum utterance 12000 ms, and pre-roll 300 ms. These are validated
+baseline values, not universal calibration values.
+
+`STTProvider` keeps transcription provider-neutral; `VoskSTTProvider` is the
+first local/offline implementation, not PHOS's architectural identity. The
+small English Vosk model validates the local architecture but can have limited
+accuracy for longer phrases and non-native English accents.
+
+Voice input publishes status/events and uses centralized runtime state
+transitions. It does not control GPIO, renderers, LEDs, or `BehaviorEngine`.
+The unimplemented next boundary is: transcript → intent/command interpretation
+→ application command → behavior/action. TTS, playback, `SPEAKING`, wake words,
+continuous listening, LLM conversation, and Home Assistant remain future work.
+
+Physical validation on Raspberry Pi 3 with a USB microphone confirmed native
+capture, 44.1 kHz → 16 kHz resampling, VAD, preserved speech onset through
+pre-roll, local Vosk transcription, and return to `IDLE`.
 
 ## Vision architecture
 

@@ -103,6 +103,7 @@ nav:
       - Development & configuration: development.md
       - AI strategy: ai.md
       - TTS strategy: tts.md
+      - Voice capture and STT: voice.md
       - Architecture decisions: decisions.md
       - Current implementation handoff: current-state.md
 

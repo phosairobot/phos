@@ -14,11 +14,13 @@ bme280 = ["RPi.bme280>=0.2.4,<0.3", "smbus2>=0.4,<1"]
 web = ["Flask>=3.1,<4", "Flask-WTF>=1.2,<2", "Werkzeug>=3.1,<4", "waitress>=3.0.2,<4"]
 aws = ["boto3>=1.34"]
 vision = [
-    "opencv-python-headless>=4.8",
+    # Raspberry Pi OS supplies the sole cv2 provider (python3-opencv) so it
+    # remains compatible with Picamera2 in the system-site-packages venv.
     "picamera2>=0.3",
 ]
+voice = ["audioop-lts>=0.2.2,<0.3", "vosk>=0.3.45,<0.4"]
 all = [
-    "phos-robot[ccs811,imu,led-ring,environmental,web,aws,vision]",
+    "phos-robot[ccs811,imu,led-ring,environmental,web,aws,vision,voice]",
 ]
 
 [build-system]
@@ -30,6 +32,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.setuptools.package-data]
+"robot.assets" = ["images/*.png", "audio/*.wav"]
 "robot.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/swagger-ui/*"]
 
 [tool.setuptools.dynamic]
