@@ -228,8 +228,10 @@ paths are relative to the configuration file. Existing constructor fallback
 values are not consulted by application composition.
 
 The same file/dict validation, serialization and atomic persistence must be used
-by the optional web configuration interface. Credentials stay in the external AWS
-SDK chain and are never fields in application settings. New ordinary settings
+by the optional web configuration interface. Credentials are never fields in
+application settings. `SecretsService` keeps runtime-only provider credentials in
+an authenticated encrypted local store; its web facade reports slot status and
+permits replacement/removal but deliberately cannot read values. New ordinary settings
 must extend this central model/file, not standalone CLI arguments. Existing CLI
 settings are deprecated explicit overrides during migration. Logging level, display iris appearance and camera-preview settings can be reloaded through the lifecycle service; other subsystem changes require restart. See [configuration reference](development.md#configuration).
 
@@ -237,6 +239,10 @@ settings are deprecated explicit overrides during migration. Logging level, disp
 
 `robot.web` wraps the canonical configuration service with structured settings
 forms and an advanced YAML editor, both backed by the same ConfigRepository.
+The separate Credentials page uses the write-only `WebSecretsService` facade,
+never `SecretsService.get_secret`, so secrets cannot enter page rendering or an
+administrative response. Provider integration remains separate from this storage
+foundation.
 Waitress runs in a separate process owned by the main startup
 lifecycle, independent of rendering/Vision. The worker receives the startup
 settings for a saved-versus-startup comparison, not live status monitoring.

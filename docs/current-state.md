@@ -177,6 +177,12 @@ reuses this model for structured settings and an advanced YAML editor that saves
 back to the active source format; see below. Startup flags remain deprecated
 overrides pending a separately announced removal after consumers migrate.
 
+`SecretsService` is the separate encrypted, runtime-only local secret boundary.
+It keeps logical provider credentials out of configuration and source control;
+the Web Admin Credentials page is write-only and reports slot status without
+ever rendering stored values. No cloud/TTS provider consumes these credentials
+yet.
+
 ## Web administration
 
 Implemented: optional Flask/Waitress process, required canonical `web` section,

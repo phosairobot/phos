@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import timedelta
+import logging
 from pathlib import Path
 import secrets
 from threading import RLock
@@ -13,9 +14,13 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
 from robot.config import ConfigurationError
+from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
 from robot.web.domains import DOMAINS, GROUPS, domain_sections, error_domain
+from robot.web.secrets import WebSecretsService
+
+logger = logging.getLogger(__name__)
 
 
 class AuthenticationState:
@@ -52,7 +57,7 @@ class AuthenticationState:
 
 
 def create_app(config_path: Path, *, active_document=None, password_store=None, clock=time.monotonic,
-               lifecycle=None, application_service=None):
+               lifecycle=None, application_service=None, secrets_service=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=secrets.token_bytes(32), MAX_CONTENT_LENGTH=64 * 1024,
                       MAX_FORM_MEMORY_SIZE=64 * 1024, MAX_FORM_PARTS=256,
@@ -62,8 +67,9 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                       PERMANENT_SESSION_LIFETIME=timedelta(minutes=30))
     config = ConfigurationService(config_path)
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
+    web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
     auth = AuthenticationState(clock)
-    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config)
+    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets)
     csrf = CSRFProtect(app)
     if application_service is not None:
         from robot.web.api import create_api
@@ -169,6 +175,35 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             auth.sessions.pop(session.get("sid"), None)
             session.clear()
         return redirect(url_for("login"))
+
+    @app.route("/credentials", methods=["GET", "POST"])
+    def credentials():
+        error = None
+        if request.method == "POST":
+            action, name = request.form.get("action"), request.form.get("name")
+            allowed = {"csrf_token", "action", "name", "value", "confirm_remove"}
+            if set(request.form) - allowed or action not in {"set", "remove"}:
+                abort(400)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change:
+                    return redirect(url_for("login"))
+                try:
+                    if action == "set":
+                        web_secrets.set_secret(name, request.form.get("value", ""))
+                        flash("Credential configured.")
+                    else:
+                        if request.form.get("confirm_remove") != "yes":
+                            raise SecretsError("Confirm credential removal before continuing.")
+                        web_secrets.remove_secret(name)
+                        flash("Credential removed.")
+                except (SecretsError, ValueError) as exc:
+                    error = str(exc)
+                except OSError:
+                    logger.exception("Credential persistence failed for slot %s", name)
+                    error = "Credential could not be saved. Check local filesystem permissions."
+                else:
+                    return redirect(url_for("credentials"))
+        return render_template("credentials.html", slots=web_secrets.slots(), error=error), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():

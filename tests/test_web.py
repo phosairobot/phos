@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from robot.config import ConfigurationError, RuntimeConfig, load_document
+from robot.secrets import SecretsService
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
@@ -99,6 +100,50 @@ def test_bootstrap_login_forces_change_and_never_exposes_config(setup):
     assert data["must_change"] is True
     assert (path.parent / ".phos-admin").stat().st_mode & 0o777 == 0o700
     assert (path.parent / ".phos-admin/password.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_credentials_are_write_only_csrf_protected_and_persist_encrypted(setup, caplog):
+    app, path, _ = setup
+    assert app.test_client().get("/credentials").location == "/login"
+    client = authorize(app)
+    value = "do-not-render-or-log-this-secret"
+
+    page = client.get("/credentials")
+    body = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "ElevenLabs API Key" in body and "Not configured" in body
+    assert 'type="password"' in body and value not in body
+    assert not hasattr(app.extensions["phos_secrets"], "get_secret")
+    assert client.post("/credentials", data={"action": "set"}).status_code == 400
+
+    response = client.post("/credentials", data={
+        "csrf_token": csrf(page), "action": "set", "name": "tts.elevenlabs.api_key", "value": value,
+    })
+    assert response.status_code == 302 and response.location == "/credentials"
+    saved = client.get("/credentials").get_data(as_text=True)
+    assert "Configured" in saved and value not in saved
+    service = SecretsService(path.parent / ".phos-secrets")
+    assert service.get_secret("tts.elevenlabs.api_key") == value
+    assert value.encode("utf-8") not in service.store_path.read_bytes()
+
+    blank = client.post("/credentials", data={
+        "csrf_token": csrf(client.get("/credentials")), "action": "set",
+        "name": "tts.elevenlabs.api_key", "value": "",
+    })
+    assert blank.status_code == 400
+    assert service.get_secret("tts.elevenlabs.api_key") == value
+    not_confirmed = client.post("/credentials", data={
+        "csrf_token": csrf(client.get("/credentials")), "action": "remove",
+        "name": "tts.elevenlabs.api_key",
+    })
+    assert not_confirmed.status_code == 400
+    removed = client.post("/credentials", data={
+        "csrf_token": csrf(client.get("/credentials")), "action": "remove",
+        "name": "tts.elevenlabs.api_key", "confirm_remove": "yes",
+    })
+    assert removed.status_code == 302
+    assert not service.has_secret("tts.elevenlabs.api_key")
+    assert value not in caplog.text
 
 
 def test_existing_phos_images_are_used_as_responsive_visuals(setup):

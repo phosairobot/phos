@@ -47,6 +47,10 @@ interfaces; keep secrets external. The web administration adapter must reuse
 this model and validation; future configurable subsystems extend the same
 configuration/editor architecture rather than adding separate mechanisms.
 Administrator credentials and all other secrets stay outside runtime JSON.
+Secrets must never appear in runtime configuration, logs, Web responses, API
+payloads, tests' expected output, or documentation examples. Runtime code may
+resolve them only through `SecretsService`; Web-facing code uses its write-only
+facade and must never read a stored value.
 See `docs/development.md` for the schema and migration policy. Do not duplicate schema/defaults in AGENTS files.
 
 ## Architecture boundaries

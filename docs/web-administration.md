@@ -164,6 +164,25 @@ Credentials remain exclusively in the external SDK chain/environment/profile/
 role mechanism. There are no access-key, secret-key or token fields. This editor
 does not probe credential availability or make AWS requests.
 
+## Credentials
+
+**Settings → Credentials** is a write-only local store for the implemented
+provider-neutral slots: ElevenLabs API Key, Google TTS Credentials and Cartesia
+API Key. It reports only **Configured** or **Not configured**. Values are never
+shown back, masked, included in responses, or logged. A blank password field is
+always a new value; use the explicit confirmation checkbox to remove one.
+
+The store is separate from `phos.yaml`/legacy JSON: a local `.phos-secrets/`
+directory beside the active configuration contains an authenticated encrypted
+`secrets.enc` file and a separate `secret.key`. PHOS creates the key only for a
+new empty store. If an existing encrypted store has no key, or cannot be
+authenticated/decrypted, startup fails safely rather than regenerating or
+overwriting it. Permissions are restricted on a best-effort basis for the PHOS
+account. This protects against accidental disclosure in configuration, source
+control, normal Web administration and logs; it does **not** protect against a
+host/root-level compromise. Back up or recover the key and encrypted store
+together. This foundation does not itself configure or contact a cloud provider.
+
 **Save** on an editable page converts fields and calls the same model validation and
 atomic persistence used elsewhere. Invalid input leaves the file unchanged,
 displays an error in the relevant group and preserves non-sensitive input.
