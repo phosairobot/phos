@@ -227,6 +227,10 @@ starts. New application code should use full-file/dict loading instead.
 The optional [web administration adapter](web-administration.md) reuses this
 read/edit/validate/save boundary. It never accepts/stores/displays AWS credentials
 as normal settings. Its separate password store is not runtime configuration.
+Provider credentials use the separate `SecretsService` encrypted store instead:
+they are not configuration values and are accessed by runtime code only. The web
+adapter has a deliberately write-only facade that can report whether a known slot
+is configured, replace it, or remove it; it cannot retrieve the value.
 Save does not apply settings. The lifecycle service can reload logging level,
 `display.iris_color` and all `vision.camera_preview` fields through runtime and
 display boundaries; other persisted changes require restart. Preview reload

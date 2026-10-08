@@ -3,7 +3,7 @@ name = "phos-robot"
 dynamic = ["version"]
 description = "Modular personal robot for Raspberry Pi"
 requires-python = ">=3.9"
-dependencies = ["PyYAML>=6.0,<7"]
+dependencies = ["PyYAML>=6.0,<7", "cryptography>=42,<45"]
 
 [project.optional-dependencies]
 ccs811 = ["smbus2>=0.4,<1"]

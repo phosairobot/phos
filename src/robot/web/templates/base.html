@@ -20,6 +20,7 @@
 <a href="{{ url_for('configuration', area='diagnostics') }}" {% if area is defined and area == 'diagnostics' %}aria-current="page"{% endif %}><i>◇</i>Diagnostics</a>
 <a href="{{ url_for('system') }}" {% if request.endpoint == 'system' or request.endpoint == 'reload_configuration' or request.endpoint == 'restart_phos' %}aria-current="page"{% endif %}><i>⚠</i>System Actions</a>
 <p class="nav-heading">Settings</p>
+<a href="{{ url_for('credentials') }}" {% if request.endpoint == 'credentials' %}aria-current="page"{% endif %}><i>◈</i>Credentials</a>
 <a href="{{ url_for('configuration_editor') }}" {% if request.endpoint == 'configuration_editor' %}aria-current="page"{% endif %}><i>⌨</i>Configuration</a>
 <a href="{{ url_for('configuration', area='appearance') }}" {% if area is defined and area == 'appearance' %}aria-current="page"{% endif %}><i>◫</i>Appearance</a>
 <a href="{{ url_for('configuration', area='eyes') }}" {% if area is defined and area == 'eyes' %}aria-current="page"{% endif %}><i>◉</i>Eyes</a>

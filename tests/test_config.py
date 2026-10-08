@@ -475,17 +475,18 @@ def test_cli_config_only_and_overrides_use_same_validation(document, tmp_path, m
     document["display"]["fps"] = 19
     path = write_config(tmp_path, document)
     seen = []
-    async def run(*, config, lifecycle=None):
-        seen.append(config)
+    async def run(*, config, lifecycle=None, web_server=None):
+        seen.append((config, lifecycle, web_server))
     monkeypatch.setattr(main, "async_main", run)
     monkeypatch.setattr(main.logging, "basicConfig", lambda **kw: None)
     monkeypatch.setattr("sys.argv", ["phos", "--config", str(path)])
     main.main()
-    assert seen[-1].display_fps == 19 and not seen[-1].vision_enabled
+    assert seen[-1][0].display_fps == 19 and not seen[-1][0].vision_enabled
+    assert seen[-1][1] is not None and seen[-1][2] is not None
     monkeypatch.setattr("sys.argv", ["phos", "--config", str(path), "--expression-provider", "aws", "--expression-debug"])
     main.main()
-    assert seen[-1].expression_enabled and seen[-1].expression_provider == "aws"
-    assert seen[-1].expression_diagnostics and seen[-1].display_fps == 19
+    assert seen[-1][0].expression_enabled and seen[-1][0].expression_provider == "aws"
+    assert seen[-1][0].expression_diagnostics and seen[-1][0].display_fps == 19
     assert "deprecated" in caplog.text
     assert json.loads(path.read_text()) == document
 
