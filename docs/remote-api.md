@@ -71,6 +71,22 @@ These commands go through the application service and do not expose microphone
 or STT-provider controls. Semantic SSE events cover listening, speech edges,
 transcription completion, cancellation and safe errors.
 
+`GET /api/v1/voice` returns `enabled`, `state`, `listening`,
+`speech_detected`, `stt_provider`, `stt_available`, `language`,
+`last_transcript`, `last_confidence`, `last_transcription_at`,
+`last_transcription_duration_ms`, and `last_error`. The lifecycle is `idle →
+listening → thinking → idle`: listening captures/detects speech, thinking runs
+STT, and idle is inactive/completed. An empty recognizer result is successful
+with `last_transcript: null` and no error; `voice_empty_utterance` instead
+denotes audio shorter than the configured minimum, while `voice_error` denotes
+a provider/capture failure. Observable event names are
+`voice_listening_started`, `voice_speech_started`, `voice_speech_ended`,
+`voice_transcription_started`, `voice_transcription_completed`,
+`voice_empty_utterance`, `voice_session_cancelled`, and `voice_error`.
+
+The voice API exposes capture/transcription status only; transcript command
+interpretation and robot actions are not implemented.
+
 Presence has `no_one`, `person_present`, and reserved `person_engaged` values.
 Attention has `idle`, `acquiring`, `tracking`, and `lost` values. Target ID is
 runtime-local only; position is normalized, and confidence may be `null` when a
