@@ -201,7 +201,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         try:
             document = config.read()
         except (ConfigurationError, OSError):
-            return render_template("error.html", error="Cannot load configuration. Repair the JSON file locally and reload."), 503
+            return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
         # Sensors are a read-only status view just like System / Status.  The
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.

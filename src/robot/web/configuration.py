@@ -7,17 +7,18 @@ import json
 from pathlib import Path
 from threading import RLock
 
-from robot.config import (ConfigurationError, LED_RING_COLOR_CHOICES,
+from robot.config import (ConfigRepository, ConfigurationError, LED_RING_COLOR_CHOICES,
                           RuntimeConfig, load_document)
 
 
 class ConfigurationService:
-    def __init__(self, path: Path):
-        self.path = Path(path).resolve()
+    def __init__(self, repository):
+        self.repository = repository if isinstance(repository, ConfigRepository) else ConfigRepository(repository)
+        self.path = self.repository.active_path
         self.lock = RLock()
 
     def read(self):
-        document = load_document(self.path)
+        document = self.repository.document()
         # Validate schema and types before reflecting data into the UI. Inactive
         # or removed model files must not prevent fixing their paths in the editor.
         config = RuntimeConfig.from_dict(document, base_dir=self.path.parent, check_paths=False)
@@ -63,7 +64,7 @@ class ConfigurationService:
                     for key in keys[:-1]:
                         target = target[key]
                     target[keys[-1]] = value
-            RuntimeConfig.from_dict(edited, base_dir=self.path.parent).save(self.path)
+            self.repository.save(RuntimeConfig.from_dict(edited, base_dir=self.path.parent))
 
 
 # Presentation hints only. Field structure and validation belong to robot.config.

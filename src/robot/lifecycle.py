@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 import time
 
-from robot.config import ConfigurationError, RuntimeConfig
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 
 RESTART_EXIT_CODE = 75
 PREVIEW_RELOADABLE = frozenset({
@@ -70,9 +70,11 @@ def apply_log_level(level):
 
 
 class LifecycleService:
-    def __init__(self, config_path, active_config, *, restart_supported=False,
+    def __init__(self, config_repository, active_config, *, restart_supported=False,
                  log_level_setter=apply_log_level, clock=time.monotonic):
-        self.path = Path(config_path).resolve()
+        self.config_repository = (config_repository if isinstance(config_repository, ConfigRepository)
+                                  else ConfigRepository(config_repository))
+        self.path = self.config_repository.active_path
         self.active = active_config.to_dict()
         self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.restart_supported = restart_supported
@@ -164,7 +166,7 @@ class LifecycleService:
             if not isinstance(operation, str) or operation not in {"status", "reload", "restart"}:
                 return {"ok": False, "error": "Unsupported lifecycle operation."}
             try:
-                config = RuntimeConfig.from_file(self.path)
+                config = self.config_repository.load()
                 saved = config.to_dict()
             except (ConfigurationError, OSError):
                 # Do not echo arbitrary config contents to adapters or logs.

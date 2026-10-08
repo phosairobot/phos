@@ -1,7 +1,7 @@
 # PHOS web administration user manual
 
 PHOS includes an optional single-administrator configuration editor. It uses the
-same JSON model and validation as startup, with no camera, AWS or display access
+same typed configuration model and validation as startup, with no camera, AWS or display access
 from the web worker. Saving never applies settings. Reload applies logging level,
 supported eye appearance and camera preview settings; other runtime changes
 require restarting PHOS.
@@ -17,17 +17,16 @@ a separate Web Admin environment.
 
 The canonical `web` section defaults to `enabled: false`, `host: "127.0.0.1"`,
 `port: 8080`, preserving eyes-only startup without extra dependencies. Existing
-deployments must add this required section to their complete JSON file; source
+deployments must add this required section to their complete configuration file; source
 sync does not overwrite deployed settings.
 
 For access from another device on a **trusted LAN**, edit the existing section:
 
-```json
-"web": {
-  "enabled": true,
-  "host": "0.0.0.0",
-  "port": 8080
-}
+```yaml
+web:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
 ```
 
 An explicit LAN interface IP is more restrictive than `0.0.0.0`, which binds all
@@ -39,16 +38,16 @@ for production and browser restart. For a foreground diagnostic run:
 
 ```bash
 cd /home/pi/phos
-.venv/bin/python src/robot/main.py --config config/phos.json
+.venv/bin/python src/robot/main.py
 ```
 
 With dependencies already available to system Python, the unchanged command is
-`python3 src/robot/main.py --config config/phos.json`.
+`python3 src/robot/main.py`.
 Open **http://<PI-LAN-IP>:8080/** from your phone, tablet or desktop. Obtain the
 Pi address locally with `hostname -I`. With the default loopback binding, only
 **http://127.0.0.1:8080/** on the Pi can connect. A custom port changes both URLs.
 `web.host` and `web.port` are startup-only listener settings: save the complete
-canonical JSON and restart PHOS (for example, `systemctl --user restart
+active configuration and restart PHOS (for example, `systemctl --user restart
 phos.service`) before using the newly configured address. They are not applied
 by Reload configuration.
 Do not configure router port forwarding or expose this interface to the Internet.
@@ -117,7 +116,7 @@ settings but do not change the saved file. The software version comes from the a
 health is not inferred from the active configuration snapshot.
 
 Every editable page has its own **Save** button. It merges only that page's
-fields into the same canonical JSON file, validates the **complete configuration**,
+fields into the same active configuration file, validates the **complete configuration**,
 and atomically saves it. Other areas are preserved. There are no per-page
 configuration files or independent validation schemas. Save before navigating
 away: unsaved input is not carried between pages. A save in another tab makes
@@ -168,11 +167,11 @@ the target file. A validation or replacement failure preserves the old target.
 No automatic previous-version backup is kept. Before editing, use for example:
 
 ```bash
-cp config/phos.json config/phos.json.backup
+cp config/phos.yaml config/phos.yaml.backup
 ```
 
 To recover, stop PHOS, restore a known-good complete file with
-`cp config/phos.json.backup config/phos.json`, and restart. An interrupted worker
+`cp config/phos.yaml.backup config/phos.yaml`, and restart. An interrupted worker
 may leave an unused hidden temporary file; it is never loaded as configuration.
 
 ## Local password recovery and storage
@@ -271,7 +270,7 @@ state changes also require CSRF protection.
 
 | Operation | Effect |
 | --- | --- |
-| Save on a domain page | Validates and atomically persists the full canonical JSON. Does not change active settings. |
+| Save on a domain page | Validates and atomically persists the full active configuration source. Does not change active settings. |
 | Reload configuration | Reads that same file, validates every setting and active path with startup's model, then applies logging level, iris theme, LED ring visual settings and all `vision.camera_preview` settings through shared runtime services. Shows applied fields and remaining restart-required fields. |
 | Restart PHOS | Requires the managed service and explicit confirmation. Validates the saved file, requests graceful application shutdown, then systemd starts PHOS again from disk. |
 

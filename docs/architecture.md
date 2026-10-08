@@ -218,7 +218,8 @@ Cached `ExpressionObservation.sampled_at` preserves provenance so reads cannot
 manufacture temporal confirmation. Local observations retain their existing
 cadence and semantics. See [Vision](vision.md#selectable-local-aws-expressions).
 
-`config/phos.json` is the canonical source of normal runtime settings. The
+`config/phos.yaml` is the canonical source of normal runtime settings; legacy
+`config/phos.json` remains supported. The
 provider-neutral `robot.config` module validates its required sections and maps
 them to `RuntimeConfig` and `CloudExpressionConfig`, with no hardware, SDK or
 argparse dependencies. The runtime passes only relevant typed values to each

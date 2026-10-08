@@ -97,8 +97,8 @@ PHOS installation complete.
   Python runtime extras: all (web, vision, AWS, environmental, CCS811, IMU, LED ring)
   Local ONNX model: $MODEL_PATH
 
-Edit config/phos.json, then start a foreground check with:
-  .venv/bin/python src/robot/main.py --config config/phos.json
+Edit config/phos.yaml, then start a foreground check with:
+  .venv/bin/python src/robot/main.py
 
 Hardware wiring, I2C/SPI enablement, camera/display checks, and systemd setup
 remain manual steps documented in docs/installation.md.

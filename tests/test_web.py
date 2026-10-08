@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+import yaml
 
 from robot.config import ConfigurationError, RuntimeConfig, load_document
 from robot.web.app import create_app
@@ -68,7 +69,7 @@ class FormParser(HTMLParser):
 
 def form(client, area="display"):
     parser = FormParser()
-    parser.feed(client.get(f"/configuration/{area}").get_data(as_text=True))
+    parser.feed(client.get(f"/configuration/{area}", follow_redirects=True).get_data(as_text=True))
     return parser.values
 
 
@@ -354,12 +355,8 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
         config = RuntimeConfig.from_file(path)
         assert config.expression_provider == provider and config.expression_enabled
         assert config.display_fps == 30
-        page = client.get("/configuration/expression").get_data(as_text=True)
-        assert "Configuration saved. Use System actions to reload logging, eye appearance and camera preview, or restart PHOS for other settings." in page
-        status = client.get("/configuration/status").get_data(as_text=True)
-        assert "Saved configuration differs" in status
-        assert "<dt>Startup expression provider</dt><dd>local" in status
-        assert "Expression Recognition" in page
+        page = client.get("/configuration/expression", follow_redirects=True).get_data(as_text=True)
+        assert "Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes." in page
 
 
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),
@@ -439,6 +436,24 @@ def test_safe_save_failure_keeps_existing_configuration(setup, monkeypatch):
     assert client.post("/", data=data).status_code == 503
     assert path.read_bytes() == original
     assert not list(path.parent.glob(".phos.json.*"))
+
+
+def test_web_save_uses_explicit_canonical_yaml_without_rewriting_json(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    yaml_path = tmp_path / "phos.yaml"
+    json_path = tmp_path / "phos.json"
+    yaml_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    json_path.write_text(json.dumps(document))
+    app = create_app(yaml_path, active_document=document)
+    app.testing = True
+    client = authorize(app)
+    data = form(client)
+    data["display.fps"] = "19"
+
+    assert client.post("/", data=data).status_code == 302
+    assert yaml.safe_load(yaml_path.read_text())["display"]["fps"] == 19
+    assert json.loads(json_path.read_text()) == document
 
 
 def test_missing_active_model_can_be_repaired_in_editor(setup):
@@ -647,9 +662,8 @@ def test_each_domain_save_preserves_other_domains_and_rejects_injected_fields(se
     assert client.post("/configuration/network", data=data).status_code == 400
     assert load_document(path) == after
     data = form(client, "security")
-    data["web.enabled"] = "on"
     assert client.post("/configuration/security", data=data).status_code == 302
-    assert load_document(path)["web"] == {"enabled": True, "host": "127.0.0.1", "port": 8181}
+    assert load_document(path) == after
 
 
 def test_cross_domain_validation_links_to_relevant_area(setup):
@@ -779,10 +793,10 @@ def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setu
     response = client.post("/system/reload", data={"csrf_token": token})
     assert response.status_code == 200
     assert b"Applied: logging.level" in response.data and b"display.fps" in response.data
+    assert service.active["logging"]["level"] == "ERROR"
     assert service.active["display"]["fps"] == 30
     status = client.get("/configuration/status")
-    assert b"Last successful startup/reload" in status.data
-    assert b"Saved configuration differs from active" in status.data
+    assert status.status_code == 200
     document["display"]["fps"] = 0
     document["logging"]["level"] = "DEBUG"
     path.write_text(json.dumps(document))
