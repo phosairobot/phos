@@ -6,11 +6,21 @@ The robot uses a provider-independent `TTSProvider` interface.
 
 The application must not depend directly on Piper, an OpenAI TTS SDK, Home Assistant TTS or another vendor implementation outside the corresponding provider adapter.
 
-## Initial provider: Piper
+## Implemented local provider: Piper
 
 Piper is the preferred first local TTS engine because the project targets a Raspberry Pi 3 and should retain useful offline speech capability.
 
-Start with a lightweight Italian Piper voice/model and evaluate latency on the actual Pi before selecting a larger model. Exact voice files are configuration and hardware-validation choices, not architectural assumptions.
+`PiperTTSProvider` invokes an installed `piper` CLI without a shell, supplies text
+on standard input, and writes a secure temporary WAV file. `AplayAudioOutputProvider`
+plays that artifact through ALSA and the runtime removes it afterwards. Piper never
+selects a speaker device directly.
+
+Models are local deployment assets, normally under `models/tts/piper/`, and are
+not committed. Configure `tts.local.model_path` (plus an optional Piper
+`speaker_id`) and install `piper` on the Pi. The canonical `tts` section is
+disabled by default, uses `provider: local`, `engine: piper`, and `aplay` output.
+When enabled, a failed model/executable is reported when speech is requested;
+disabled TTS does not affect startup.
 
 ## Architecture
 
@@ -58,3 +68,14 @@ Playback is a separate responsibility. `TTSProvider` generates audio; it does no
 
 A new provider must implement `TTSProvider` without changing callers.
 Examples may include cloud TTS, Home Assistant TTS or a LAN-hosted synthesis service.
+Cloud providers are not implemented.
+
+## Raspberry Pi validation
+
+1. Install the Piper CLI and place a small voice model and metadata beside each
+   other under `models/tts/piper/`.
+2. Set `tts.enabled: true` and `tts.local.model_path` in the active config.
+3. Start PHOS and invoke the application `speak()` path with a short phrase.
+4. Confirm audible ALSA output, `IDLE → SPEAKING → IDLE`, and temporary WAV
+   cleanup.
+5. Exercise microphone/Vosk listening afterwards to confirm no STT regression.

@@ -474,6 +474,16 @@ class PhosApplicationService:
     def stop_listening(self): return self._voice_command(self._runtime.stop_listening, operation="stop")
     def cancel_voice_session(self): return self._voice_command(self._runtime.stop_listening, cancelled=True, operation="cancel")
 
+    def speak(self, text: str):
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return asyncio.run_coroutine_threadsafe(self._runtime.speak(text), loop).result(timeout=95)
+        except Exception as error:
+            logger.exception("TTS: failed exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "PHOS could not speak.", {"reason": type(error).__name__}, 503) from error
+
     def config(self) -> dict:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)

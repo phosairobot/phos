@@ -221,5 +221,9 @@ __marimo__/
 # Local PHOS administrator hashes
 .phos-admin*/
 
+# Locally deployed Piper voice models
+models/tts/piper/*.onnx
+models/tts/piper/*.onnx.json
+
 # Local PHOS encrypted secrets and encryption keys
 .phos-secrets*/

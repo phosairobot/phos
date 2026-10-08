@@ -30,7 +30,9 @@ from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.runtime import EyeRenderLoop
-from robot.voice import PyAudioCaptureProvider, ResamplingAudioCaptureProvider, VoiceCaptureSession, VoskSTTProvider
+from robot.voice import (AplayAudioOutputProvider, PiperTTSProvider, PyAudioCaptureProvider,
+                         ResamplingAudioCaptureProvider, TTSBusyError, TTSConfigurationError,
+                         VoiceCaptureSession, VoskSTTProvider)
 from robot.vision import (
     ExpressionSmoother,
     OpenCVExpressionProvider,
@@ -64,6 +66,7 @@ class PhosRuntime:
         attention_manager: Optional[AttentionManager] = None,
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
+        tts_provider=None, audio_output=None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
@@ -80,6 +83,8 @@ class PhosRuntime:
         self._startup = startup or StartupReadiness()
         self._ready_sound_played = False
         self._voice_session = voice_session
+        self._tts_provider, self._audio_output = tts_provider, audio_output
+        self._tts_lock = asyncio.Lock()
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
         self._loop = None
@@ -201,6 +206,31 @@ class PhosRuntime:
 
     async def stop_listening(self, *, cancelled=False):
         return self.voice_status() if self._voice_session is None else await self._voice_session.stop(cancelled=cancelled)
+
+    async def speak(self, text: str) -> None:
+        """Serialize local synthesis/playback through the semantic state boundary."""
+        if self._tts_provider is None or self._audio_output is None:
+            raise TTSConfigurationError("Text-to-speech is disabled.")
+        if self._tts_lock.locked():
+            raise TTSBusyError("PHOS is already speaking.")
+        async with self._tts_lock:
+            audio = None
+            try:
+                await self.core.transition_to(RobotState.SPEAKING, reason="tts")
+                logger.info("TTS synthesis started provider=local")
+                audio = await asyncio.to_thread(self._tts_provider.synthesize, text)
+                logger.info("TTS synthesis completed provider=local")
+                logger.info("TTS playback started")
+                await asyncio.to_thread(self._audio_output.play, audio)
+                logger.info("TTS playback completed")
+            except Exception:
+                logger.exception("TTS provider/runtime error")
+                raise
+            finally:
+                if audio is not None:
+                    audio.path.unlink(missing_ok=True)
+                if self.core.state is RobotState.SPEAKING:
+                    await self.core.transition_to(RobotState.IDLE, reason="tts_completed")
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
         """Apply validated interpretation settings without reopening the IMU."""
@@ -551,6 +581,13 @@ def build_runtime(
         pre_roll_ms=config.voice_pre_roll_ms, threshold=config.voice_vad_threshold,
         debug_dump_utterance_wav=config.voice_debug_dump_utterance_wav,
         debug_utterance_wav_path=config.resolve_path(config.voice_debug_utterance_wav_path))
+    tts_provider = None
+    audio_output = None
+    if config.tts_enabled:
+        tts_provider = PiperTTSProvider(config.tts_local_executable,
+                                        config.resolve_path(config.tts_local_model_path),
+                                        config.tts_local_speaker_id)
+        audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device)
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:
@@ -644,7 +681,8 @@ def build_runtime(
     runtime = PhosRuntime(core, behavior_engine, eye_render_loop, vision_pipeline=resolved_vision,
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
-                       presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice)
+                       presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
+                       tts_provider=tts_provider, audio_output=audio_output)
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

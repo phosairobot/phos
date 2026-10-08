@@ -64,6 +64,17 @@ voice:
     provider: local
     model_path: null
     language: null
+tts:
+  enabled: false
+  provider: local
+  local:
+    engine: piper
+    executable: piper
+    model_path: null
+    speaker_id: null
+  audio_output:
+    player: aplay
+    device: null
 touch:
   enabled: true
   tap:
