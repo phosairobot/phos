@@ -173,7 +173,8 @@ local/AWS providers and logging. The default file enables only eyes. The old
 expression-specific partial JSON files are removed; migrate existing deployments
 using `docs/development.md`. No secrets are part of the model. `run_pi.sh` seeds
 configuration without overwriting existing Pi settings. The optional web interface
-reuses this model; see below. Startup flags remain deprecated
+reuses this model for structured settings and an advanced YAML editor that saves
+back to the active source format; see below. Startup flags remain deprecated
 overrides pending a separately announced removal after consumers migrate.
 
 ## Web administration
@@ -187,6 +188,9 @@ worker cleanup and exposes parent-owned active configuration metadata on a
 separate read-only Status page. General provides navigation; Network, Display & Appearance, Vision,
 Expression Recognition, Logging and Web Administration / Security expose only
 implemented fields. Password management stays separate.
+Settings → Configuration presents the complete validated configuration as YAML,
+uses revision protection against stale saves, and requires an explicit restart
+after any advanced-editor save; it never applies or converts settings live.
 Logging level, iris appearance and camera-preview settings are live-reloadable after full canonical validation. Confirmed
 PHOS restart uses the supplied user systemd service; manual launches reject
 browser restart. No OS reboot, AWS credential probe, automatic backup or Internet

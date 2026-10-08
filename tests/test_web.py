@@ -1,5 +1,6 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
 import json
+import html
 from html.parser import HTMLParser
 import re
 import socket
@@ -71,6 +72,15 @@ def form(client, area="display"):
     parser = FormParser()
     parser.feed(client.get(f"/configuration/{area}", follow_redirects=True).get_data(as_text=True))
     return parser.values
+
+
+def editor_form(client):
+    response = client.get("/configuration/editor")
+    source = html.unescape(re.search(r'<textarea[^>]*name="configuration"[^>]*>(.*?)</textarea>',
+                                     response.get_data(as_text=True), re.DOTALL).group(1))
+    return response, {"csrf_token": csrf(response), "revision": re.search(
+        r'name="revision" value="([^"]+)"', response.get_data(as_text=True)).group(1),
+        "configuration": source}
 
 
 def test_bootstrap_login_forces_change_and_never_exposes_config(setup):
@@ -454,6 +464,86 @@ def test_web_save_uses_explicit_canonical_yaml_without_rewriting_json(tmp_path):
     assert client.post("/", data=data).status_code == 302
     assert yaml.safe_load(yaml_path.read_text())["display"]["fps"] == 19
     assert json.loads(json_path.read_text()) == document
+
+
+def test_configuration_editor_renders_and_validates_yaml_without_writing(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    app = create_app(path, active_document=document)
+    app.testing = True
+    client = authorize(app)
+    response, data = editor_form(client)
+    original = path.read_bytes()
+
+    assert response.status_code == 200
+    assert b"Storage format</dt><dd>YAML" in response.data
+    assert b"Advanced configuration editor" in response.data
+    data["action"] = "validate"
+    response = client.post("/configuration/editor", data=data)
+
+    assert response.status_code == 200
+    assert b"Configuration is valid." in response.data
+    assert path.read_bytes() == original
+
+
+def test_configuration_editor_requires_authentication_and_csrf(setup):
+    app, _, _ = setup
+    assert app.test_client().get("/configuration/editor").location == "/login"
+    client = authorize(app)
+    assert client.post("/configuration/editor", data={"action": "validate"}).status_code == 400
+
+
+def test_configuration_editor_rejects_invalid_yaml_and_stale_edits(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    _, data = editor_form(client)
+    original = path.read_bytes()
+    data.update(action="validate", configuration="display: [")
+    response = client.post("/configuration/editor", data=data)
+    assert response.status_code == 400 and b"Invalid YAML at line" in response.data
+    assert path.read_bytes() == original
+
+    _, invalid = editor_form(client)
+    invalid.update(action="validate", configuration="display: {}\n")
+    response = client.post("/configuration/editor", data=invalid)
+    assert response.status_code == 400 and b"missing fields" in response.data
+    assert path.read_bytes() == original
+
+    _, stale = editor_form(client)
+    changed = load_document(path)
+    changed["display"]["fps"] = 19
+    path.write_text(json.dumps(changed))
+    stale["action"] = "save"
+    response = client.post("/configuration/editor", data=stale)
+    assert response.status_code == 400
+    assert b"Configuration changed since this page was loaded" in response.data
+
+
+def test_configuration_editor_saves_yaml_or_legacy_json_in_active_format(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    for index, (suffix, loader) in enumerate(((".yaml", yaml.safe_load), (".json", json.loads))):
+        directory = tmp_path / str(index)
+        directory.mkdir()
+        path = directory / f"phos{suffix}"
+        path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False)
+                        if suffix == ".yaml" else json.dumps(document))
+        app = create_app(path, active_document=document)
+        app.testing = True
+        client = authorize(app)
+        _, data = editor_form(client)
+        edited = yaml.safe_load(data["configuration"])
+        edited["display"]["fps"] = 19
+        data.update(action="save", configuration=yaml.safe_dump(edited, default_flow_style=False, sort_keys=False))
+
+        response = client.post("/configuration/editor", data=data, follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b"Configuration saved successfully. Restart PHOS to apply changes." in response.data
+        assert loader(path.read_text())["display"]["fps"] == 19
+        assert path.read_text().lstrip().startswith("{") is (suffix == ".json")
 
 
 def test_missing_active_model_can_be_repaired_in_editor(setup):

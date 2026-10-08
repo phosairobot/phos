@@ -170,6 +170,42 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             session.clear()
         return redirect(url_for("login"))
 
+    @app.route("/configuration/editor", methods=["GET", "POST"])
+    def configuration_editor():
+        error, valid, dirty = None, None, False
+        try:
+            source = config.editable_yaml()
+            revision = config.revision(config.read())
+        except (ConfigurationError, OSError):
+            return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
+        if request.method == "POST":
+            action = request.form.get("action")
+            source = request.form.get("configuration", "")
+            revision = request.form.get("revision", "")
+            dirty = action == "validate"
+            if set(request.form) - {"csrf_token", "action", "configuration", "revision"} or action not in {"validate", "save"}:
+                abort(400)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change:
+                    return redirect(url_for("login"))
+                try:
+                    if action == "validate":
+                        config.validate_yaml(source)
+                        valid = "Configuration is valid."
+                    else:
+                        config.save_yaml(source, revision)
+                except ConfigurationError as exc:
+                    error = str(exc)
+                except OSError:
+                    error = "Configuration could not be saved. Check local filesystem permissions."
+                else:
+                    if action == "save":
+                        flash("Configuration saved successfully. Restart PHOS to apply changes.")
+                        return redirect(url_for("configuration_editor"))
+        return render_template("configuration_editor.html", source=source, revision=revision,
+                               config_path=config.path, storage_format=config.repository.format.upper(),
+                               error=error, valid=valid, dirty=dirty), 400 if error else 200
+
     @app.route("/", methods=["GET", "POST"])
     @app.route("/configuration/<area>", methods=["GET", "POST"])
     def configuration(area="general"):

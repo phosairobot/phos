@@ -14,6 +14,22 @@ if (provider) {
   if (!document.querySelector(".error")) update();
 }
 
+(() => {
+  const form = document.querySelector("[data-configuration-editor]");
+  if (!form) return;
+  const editor = form.querySelector("textarea");
+  let dirty = form.dataset.editorDirty === "true", submitting = false;
+  editor.addEventListener("input", () => { dirty = true; });
+  form.addEventListener("submit", (event) => {
+    submitting = true;
+    if (event.submitter && event.submitter.value === "save") dirty = false;
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (!dirty || submitting) return;
+    event.preventDefault(); event.returnValue = "";
+  });
+})();
+
 // The administration UI consumes only the authenticated Remote API's semantic
 // models.  Waitress exposes /events as SSE; EventSource carries session cookies
 // and keeps this browser tab to one low-rate connection.

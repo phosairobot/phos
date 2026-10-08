@@ -235,8 +235,9 @@ settings are deprecated explicit overrides during migration. Logging level, disp
 
 ## Administration adapter
 
-`robot.web` wraps the canonical configuration service with a server-rendered
-Flask editor. Waitress runs in a separate process owned by the main startup
+`robot.web` wraps the canonical configuration service with structured settings
+forms and an advanced YAML editor, both backed by the same ConfigRepository.
+Waitress runs in a separate process owned by the main startup
 lifecycle, independent of rendering/Vision. The worker receives the startup
 settings for a saved-versus-startup comparison, not live status monitoring.
 Its password-storage service is separate from runtime JSON; Flask sessions and

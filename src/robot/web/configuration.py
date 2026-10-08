@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 from threading import RLock
+import yaml
 
 from robot.config import (ConfigRepository, ConfigurationError, LED_RING_COLOR_CHOICES,
                           RuntimeConfig, load_document)
@@ -65,6 +66,32 @@ class ConfigurationService:
                         target = target[key]
                     target[keys[-1]] = value
             self.repository.save(RuntimeConfig.from_dict(edited, base_dir=self.path.parent))
+
+    def editable_yaml(self):
+        """Return the validated active configuration as human-editable YAML."""
+        with self.lock:
+            config = RuntimeConfig.from_dict(self.repository.document(), base_dir=self.path.parent,
+                                             check_paths=False)
+            document = config.persistence_document(self.path)
+            return yaml.safe_dump(document, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    def validate_yaml(self, source):
+        try:
+            document = yaml.safe_load(source)
+        except yaml.YAMLError as error:
+            mark = getattr(error, "problem_mark", None)
+            location = (f" at line {mark.line + 1}, column {mark.column + 1}" if mark else "")
+            raise ConfigurationError(f"Invalid YAML{location}: {error.problem or 'syntax error'}") from error
+        if not isinstance(document, dict):
+            raise ConfigurationError("YAML root must be an object.")
+        return RuntimeConfig.from_dict(document, base_dir=self.path.parent)
+
+    def save_yaml(self, source, revision):
+        with self.lock:
+            document = self.read()
+            if revision != self.revision(document):
+                raise ConfigurationError("Configuration changed since this page was loaded. Reload before saving.")
+            self.repository.save(self.validate_yaml(source))
 
 
 # Presentation hints only. Field structure and validation belong to robot.config.
