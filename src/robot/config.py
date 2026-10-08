@@ -163,7 +163,7 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
         # Explicit schema evolution only: no general missing-key permissiveness.
         if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
-            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice")
+            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice", "tts")
             missing_sections = tuple(section for section in evolving_sections if section not in document)
             voice_document = document.get("voice")
             needs_voice_defaults = (isinstance(voice_document, dict)
@@ -287,6 +287,7 @@ _SCHEMA = {
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language"}},
+    "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device"}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
@@ -349,7 +350,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path"}
+_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size"}
 
@@ -412,6 +413,14 @@ class RuntimeConfig:
     voice_stt_provider: str
     voice_stt_model_path: Optional[Path]
     voice_stt_language: Optional[str]
+    tts_enabled: bool
+    tts_provider: str
+    tts_local_engine: str
+    tts_local_executable: str
+    tts_local_model_path: Optional[Path]
+    tts_local_speaker_id: Optional[int]
+    tts_audio_output_player: str
+    tts_audio_output_device: Optional[str]
     touch_enabled: bool
     touch_tap_max_duration_ms: int
     touch_tap_max_movement_px: int
@@ -773,6 +782,16 @@ class RuntimeConfig:
             raise ConfigurationError("voice input or STT provider is invalid")
         if self.voice_stt_language is not None and (not isinstance(self.voice_stt_language, str) or not self.voice_stt_language.strip()):
             raise ConfigurationError("voice.stt.language must be a nonempty string or null")
+        if self.tts_provider != "local" or self.tts_local_engine != "piper":
+            raise ConfigurationError("tts provider must be local Piper")
+        if not isinstance(self.tts_local_executable, str) or not self.tts_local_executable.strip():
+            raise ConfigurationError("tts.local.executable must be a nonempty command")
+        if self.tts_local_speaker_id is not None and (type(self.tts_local_speaker_id) is not int or self.tts_local_speaker_id < 0):
+            raise ConfigurationError("tts.local.speaker_id must be a nonnegative integer or null")
+        if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player != "aplay":
+            raise ConfigurationError("tts.audio_output.player must be aplay")
+        if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):
+            raise ConfigurationError("tts.audio_output.device must be a nonempty ALSA device or null")
         for name in ("presence_led_entered_duration_ms", "presence_led_left_duration_ms"):
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:
@@ -780,7 +799,7 @@ class RuntimeConfig:
         for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
-                     "startup_splash_enabled", "startup_ready_sound_enabled"):
+                     "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ConfigurationError(f"{name} must be a boolean")
         for name in ("camera_resolution", "expression_input_size", "detector_min_size"):
