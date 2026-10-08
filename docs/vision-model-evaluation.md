@@ -231,7 +231,7 @@ does not measure display FPS or end-to-end reaction latency.
    to neutral. Negative-looking expressions should yield UNKNOWN and allow baseline decay.
 4. Leave/re-enter the frame and vary distance. Check no-face reset, suppression
    of unstable/low-confidence predictions, eye animation and clean Ctrl+C.
-5. Set `logging.expression_diagnostics=true` in `config/phos.json` for single-model latency. Record Pi model/OS,
+5. Set `logging.expression_diagnostics=true` in `config/phos.yaml` for single-model latency. Record Pi model/OS,
    OpenCV version, p50/p95, CPU use and temperature/throttling under sustained
    operation (`top`, `vcgencmd measure_temp`, `vcgencmd get_throttled`). At the
    3 Hz inference target, classification plus other Vision work must fit the
@@ -262,7 +262,7 @@ that is the intended outcome when the evidence is insufficient.
 
 Physical verification of the new policy:
 
-1. Use `python3 src/robot/main.py --config config/phos.json` with `logging.expression_diagnostics=true`.
+1. Use `python3 src/robot/main.py` with `logging.expression_diagnostics=true`.
    Check correct framing and reliable face detection first. The previously
    documented channel-order mismatch and crop quality remain limitations.
 2. Hold a resting face, then a smile, then surprise for several seconds each.

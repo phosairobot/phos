@@ -65,13 +65,14 @@ For production use the [user systemd service](docs/installation.md#managed-start
 For a foreground diagnostic run from a graphical Raspberry Pi OS desktop session:
 
 ```bash
-.venv/bin/python src/robot/main.py --config config/phos.json
+.venv/bin/python src/robot/main.py
 ```
 
-[config/phos.json](config/phos.json) is the single, editable configuration and
+[config/phos.yaml](config/phos.yaml) is the preferred, editable configuration and
 complete default example. It starts the fullscreen animated eyes with camera
-and expression processing disabled. Omitting `--config` loads this same file
-from the checkout. Press Ctrl+C to stop and Escape to leave fullscreen.
+and expression processing disabled. Omitting `--config` discovers `phos.yaml`,
+then `phos.yml`, then legacy `phos.json`. JSON remains supported for existing
+installations and explicit `--config` paths. Press Ctrl+C to stop and Escape to leave fullscreen.
 
 Edit the file, then restart using the same command:
 
@@ -96,10 +97,10 @@ and rendering, with cache, rate limits and failure backoff. See
 confirmation timing. Both modes observe facial cues, not true internal emotions.
 
 Malformed settings or missing active local model files fail before camera or
-display startup. Paths inside JSON are relative to that JSON file's directory.
-AWS credentials never belong in JSON. The old individual setting flags remain
+display startup. Paths inside the active configuration are relative to that file's directory.
+AWS credentials never belong in configuration. The old individual setting flags remain
 only as deprecated overrides; migrate scripts to the command above.
-The former expression-specific JSON files are replaced by `config/phos.json`.
+The former expression-specific JSON files are replaced by `config/phos.yaml`.
 
 The [configuration reference](docs/development.md#configuration) documents every
 field, precedence and migration. The same typed validation and atomic persistence

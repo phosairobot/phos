@@ -9,7 +9,7 @@ StartLimitBurst=3
 [Service]
 Type=simple
 WorkingDirectory=%h/phos
-ExecStart=%h/phos/.venv/bin/python %h/phos/src/robot/main.py --config %h/phos/config/phos.json
+ExecStart=%h/phos/.venv/bin/python %h/phos/src/robot/main.py
 Environment=PHOS_SERVICE_MANAGED=1
 Restart=on-failure
 RestartForceExitStatus=75

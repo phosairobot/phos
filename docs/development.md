@@ -8,17 +8,18 @@ Use interfaces and fakes/mocks for hardware.
 
 ## Configuration
 
-`config/phos.json` is the **single canonical configuration and complete example**.
-The complete JSON structure and authoritative default values are in
-[the canonical file](https://github.com/phosairobot/phos/blob/main/config/phos.json); edit it directly and restart PHOS:
+`config/phos.yaml` is the **canonical configuration and complete example**.
+The complete YAML structure and authoritative default values are in
+[the canonical file](https://github.com/phosairobot/phos/blob/main/config/phos.yaml); edit it directly and restart PHOS:
 
 ```bash
-python3 src/robot/main.py --config config/phos.json
+python3 src/robot/main.py
 ```
 
-No separate example/provider files or hidden JSON overlays are loaded. With no
-argument, startup resolves that same file relative to the source checkout, not
-its working directory. A custom `--config` selects one complete file instead.
+No separate example/provider files or hidden overlays are loaded. With no
+argument, startup discovers `phos.yaml`, then `phos.yml`, then legacy `phos.json`
+relative to the source checkout, not its working directory. A custom `--config`
+selects one complete file instead.
 To keep a separate deployment copy, copy the full canonical file, edit it and
 pass its path explicitly. Keep deployment changes out of commits if inappropriate.
 No file may contain credentials.
@@ -31,8 +32,8 @@ a missing value is an error, not a second default hidden in code.
 
 ### Field reference
 
-Values/defaults are maintained only in `config/phos.json`. All numeric values
-must be finite; booleans must be JSON booleans, not strings or numbers.
+Values/defaults are maintained in `config/phos.yaml`. All numeric values must be
+finite; booleans must be YAML booleans, not quoted strings or numbers.
 
 | Section                  | Fields and purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,7 +58,7 @@ must be finite; booleans must be JSON booleans, not strings or numbers.
 | `expression.aws`         | `retry_initial_seconds`, `retry_max_seconds`: positive backoff limits, maximum at least initial; `connect_timeout_seconds`, `read_timeout_seconds`: positive SDK timeouts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `logging`                | `level`: DEBUG/INFO/WARNING/ERROR/CRITICAL; `file`: output path or null for console only; `expression_diagnostics`: detailed Vision/cloud diagnostics. SDK debug output is suppressed to avoid exposing request/credential metadata.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
-All JSON paths resolve relative to the selected JSON file's directory. The
+All configuration paths resolve relative to the selected configuration file's directory. The
 canonical local path therefore starts with `../models/`, and its log path points
 back to the checkout root. Active local models and explicit active cascades must
 be readable files. Inactive models need not exist; AWS mode needs no ONNX file.
@@ -119,7 +120,7 @@ were removed in this migration. Migrate launch scripts now; remove compatibility
 flags only in a separately announced breaking change after consumers migrate.
 
 The old partial flat JSON format and `config/expression-local.json` /
-`config/expression-aws.json` are retired. To migrate, start from `config/phos.json`:
+`config/expression-aws.json` are retired. To migrate, start from `config/phos.yaml`:
 
 | Former field(s)                                                                                                                                            | Canonical destination                                      |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
@@ -190,15 +191,15 @@ plus existence and readability. The Tk loader then logs the image format and
 dimensions, or its loader exception. The ready-sound log includes the resolved
 `aplay` binary, full command, return code, and stderr. For Pi troubleshooting,
 run that logged command manually (for example `aplay -q -D default path/to/ready.wav`).
-The `phos.service` unit runs `src/robot/main.py` with
-`--config %h/phos/config/phos.json` and `WorkingDirectory=%h/phos`; it sets no
+The `phos.service` unit runs `src/robot/main.py` with configuration discovery and
+`WorkingDirectory=%h/phos`; it sets no
 audio-session environment variables. Package defaults therefore do not depend
 on either the working directory or a developer home directory; ALSA selection is
 limited to the optional `startup.ready_sound.device` value.
 The repository configuration selects the packaged
 `robot.assets/images/phos-startup-800x600.png` and `robot.assets/audio/phos-startup.wav`.
 `run_pi.sh` transfers them as part of `src/`, and a wheel includes them as package
-data. The helper deliberately preserves an existing Pi `config/phos.json`; merge
+data. The helper deliberately preserves an existing Pi configuration; merge
 the `startup` block from the repository configuration into an already deployed
 configuration before expecting these defaults to take effect.
 
@@ -276,8 +277,8 @@ configuration persistence and an isolated local WSGI worker without hardware.
 
 `robot.__version__` in `src/robot/__init__.py` is authoritative. Setuptools derives
 metadata from that literal; do not add another independently maintained version.
-Source checkouts use `config/phos.json`; wheels install that same source document
-under the environment's `share/phos/config/` data directory. Explicit `--config`
+Source checkouts use `config/phos.yaml`; wheels install it with the legacy JSON
+asset under the environment's `share/phos/config/` data directory. Explicit `--config`
 remains the supported deployment boundary; no alternate schema is introduced.
 The pinned Python 3.11+ web snapshot is `requirements-web.txt`; platform camera
 dependencies remain managed by Raspberry Pi OS. See the release record.
@@ -298,7 +299,7 @@ Do not retain both blocks. To use BMP280 choose `"type": "bmp280"`; humidity is
 unsupported. The Python RuntimeConfig fields now use the `environmental_` prefix.
 
 When updating a deployment without sensor settings, merge the complete `sensors` object from
-`config/phos.json` into its existing JSON, preserving other settings. The new
+`config/phos.yaml` into its existing configuration, preserving other settings. The new
 section and all five fields are required even when disabled. As with previous
 schema additions, missing fields fail validation; no silent overlay/migration or
 second set of defaults is introduced. `run_pi.sh` preserves deployed JSON and
@@ -314,9 +315,9 @@ staleness, polling and bounded shutdown independently of physical hardware.
 
 ### CCS811 configuration migration
 
-Merge the complete `sensors.ccs811` block from the canonical JSON into an existing
+Merge the complete `sensors.ccs811` block from the canonical YAML into an existing
 deployment; preserve `sensors.environmental`. All four fields are required,
-including when disabled. Default values live only in `config/phos.json`.
+including when disabled. Default values live in `config/phos.yaml`.
 The typed surface uses the `ccs811_` prefix; no CLI overrides were added. Save
 and Reload do not reinitialize the device or change poll timing. Use Restart PHOS.
 

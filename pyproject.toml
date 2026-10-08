@@ -3,6 +3,7 @@ name = "phos-robot"
 dynamic = ["version"]
 description = "Modular personal robot for Raspberry Pi"
 requires-python = ">=3.9"
+dependencies = ["PyYAML>=6.0,<7"]
 
 [project.optional-dependencies]
 ccs811 = ["smbus2>=0.4,<1"]
@@ -39,4 +40,4 @@ pythonpath = ["src"]
 version = {attr = "robot.__version__"}
 
 [tool.setuptools.data-files]
-"share/phos/config" = ["config/phos.json"]
+"share/phos/config" = ["config/phos.yaml", "config/phos.json"]

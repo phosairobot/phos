@@ -480,7 +480,7 @@ class PhosApplicationService:
         result = self._lifecycle.execute("status")
         if not result.get("ok"):
             raise ApplicationError("service_unavailable", result.get("error", "Configuration service is unavailable."), status=503)
-        saved = RuntimeConfig.from_file(self._lifecycle.path).to_dict()
+        saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
 
     def update_config(self, patch: dict) -> dict:
@@ -489,10 +489,10 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
         if not isinstance(patch, dict):
             raise ApplicationError("invalid_configuration", "Configuration update must be a JSON object.")
-        document = RuntimeConfig.from_file(self._lifecycle.path).to_dict()
+        document = self._lifecycle.config_repository.load().to_dict()
         _merge(document, patch)
         try:
-            RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent).save(self._lifecycle.path)
+            self._lifecycle.config_repository.save(RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent))
         except (ConfigurationError, OSError) as error:
             raise ApplicationError("invalid_configuration", "Configuration update was rejected.", {"reason": str(error)}) from error
         result = self._lifecycle.execute("reload")

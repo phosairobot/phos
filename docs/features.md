@@ -100,7 +100,7 @@ low-rate controller, including semantic colors and directional motion fills.
 <article class="phos-card" markdown>
 <span class="phos-status">IMPLEMENTED</span>
 ### Web Admin and canonical configuration
-An authenticated trusted-LAN editor saves one validated `config/phos.json`.
+An authenticated trusted-LAN editor saves the active validated configuration source, normally `config/phos.yaml`.
 Logging, iris appearance and camera-preview settings can reload; other changes
 are explicitly restart-required.
 </article>

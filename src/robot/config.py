@@ -3,17 +3,21 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import logging
 import math
 import os
 import tempfile
 import sys
 import copy
+import yaml
 from importlib import resources
 from dataclasses import asdict, dataclass, fields, field
 from pathlib import Path
 from typing import Optional, Tuple
 
 from robot.semantics import VisualSource
+
+logger = logging.getLogger(__name__)
 
 # Source checkouts use the one canonical document. Wheels install that same
 # source file as data; no independent defaults are maintained in the package.
@@ -42,6 +46,98 @@ LED_RING_COLOR_CHOICES = tuple(LED_RING_COLOR_RGB)
 
 class ConfigurationError(ValueError):
     """Invalid settings, reported before any subsystem is constructed."""
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    """Durably replace *path* with already-serialized UTF-8 text.
+
+    The temporary file is created beside the target so ``os.replace`` remains
+    atomic on the target filesystem.  Serialization and validation deliberately
+    remain outside this helper.
+    """
+    path = Path(path).resolve()
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", delete=False) as output:
+            temporary = Path(output.name)
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+class ConfigRepository:
+    """One active configuration source and its validation/persistence boundary."""
+    _legacy_json_warning_emitted = False
+
+    def __init__(self, path: Optional[Path] = None) -> None:
+        self._active_path = (self.discover_active_path() if path is None else Path(path).resolve())
+        self._format = self._format_for_path(self._active_path)
+        if self._format == "json" and not self._legacy_json_warning_emitted:
+            logger.warning("PHOS CONFIG: legacy JSON configuration loaded from %s; YAML is preferred",
+                           self._active_path)
+            type(self)._legacy_json_warning_emitted = True
+
+    @staticmethod
+    def discover_active_path() -> Path:
+        """Choose one default source, without merging or later rediscovery."""
+        candidates = (
+            DEFAULT_CONFIG_PATH.with_suffix(".yaml"),
+            DEFAULT_CONFIG_PATH.with_suffix(".yml"),
+            DEFAULT_CONFIG_PATH,
+        )
+        return next((path.resolve() for path in candidates if path.is_file()),
+                    DEFAULT_CONFIG_PATH.resolve())
+
+    @staticmethod
+    def _format_for_path(path: Path) -> str:
+        formats = {".json": "json", ".yaml": "yaml", ".yml": "yaml"}
+        try:
+            return formats[path.suffix.lower()]
+        except KeyError as error:
+            raise ConfigurationError(
+                f"Unsupported configuration file extension: {path.suffix or '<none>'}; "
+                "expected .json, .yaml, or .yml"
+            ) from error
+
+    @property
+    def active_path(self) -> Path: return self._active_path
+
+    @property
+    def format(self) -> str: return self._format
+
+    def document(self) -> dict:
+        if self.format == "json":
+            return load_document(self._active_path)
+        try:
+            document = yaml.safe_load(self._active_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as error:
+            raise ConfigurationError(f"{self._active_path}: invalid YAML") from error
+        except (OSError, UnicodeError) as error:
+            raise ConfigurationError(
+                f"Cannot read configuration file: {self._active_path} ({type(error).__name__})"
+            ) from error
+        if not isinstance(document, dict):
+            raise ConfigurationError(f"{self._active_path}: YAML root must be an object")
+        return document
+
+    def load(self, document=None, *, overrides=None) -> "RuntimeConfig":
+        return RuntimeConfig.from_dict(self.document() if document is None else document,
+                                       base_dir=self._active_path.parent, overrides=overrides)
+
+    def save(self, config: "RuntimeConfig") -> None:
+        if self.format == "json":
+            content = config.serialized_json(self._active_path)
+        else:
+            content = yaml.safe_dump(config.persistence_document(self._active_path),
+                                     default_flow_style=False, allow_unicode=True, sort_keys=False)
+            if not content.endswith("\n"):
+                content += "\n"
+        atomic_write_text(self._active_path, content)
 
 
 def _keys(value, expected, location):
@@ -509,8 +605,8 @@ class RuntimeConfig:
             return result
         return encode(_SCHEMA)
 
-    def save(self, path: Path) -> None:
-        """Atomically persist validated settings, rebasing paths if relocated."""
+    def persistence_document(self, path: Path) -> dict:
+        """Return a validated persistence document, with paths rebased for *path*."""
         path = Path(path).resolve()
         document = self.to_dict()
         for section, key, name in ((document["expression"]["local"], "model_path", "expression_model_path"),
@@ -520,19 +616,15 @@ class RuntimeConfig:
             if value is not None:
                 section[key] = os.path.relpath(value, path.parent)
         validated = self.from_dict(document, base_dir=path.parent)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                             prefix=f".{path.name}.", delete=False) as output:
-                temporary = Path(output.name)
-                json.dump(validated.to_dict(), output, indent=2, allow_nan=False)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
+        return validated.to_dict()
+
+    def serialized_json(self, path: Path) -> str:
+        """Return validated JSON persistence content, rebased for *path*."""
+        return json.dumps(self.persistence_document(path), indent=2, allow_nan=False) + "\n"
+
+    def save(self, path: Path) -> None:
+        """Atomically persist validated settings, rebasing paths if relocated."""
+        atomic_write_text(path, self.serialized_json(path))
 
     def resolve_path(self, path: Optional[Path]) -> Optional[Path]:
         return None if path is None else (self._base_dir / path).resolve()

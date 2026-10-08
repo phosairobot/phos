@@ -19,7 +19,7 @@ if str(SOURCE_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SOURCE_DIRECTORY))
 
 from robot import __version__
-from robot.config import DEFAULT_CONFIG_PATH, ConfigurationError, RuntimeConfig, load_document
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 from robot.runtime import PhosRuntime, build_runtime
 from robot.lifecycle import RESTART_EXIT_CODE
 
@@ -102,8 +102,8 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
 def main() -> None:
     parser = argparse.ArgumentParser(description="Start the PHOS robot runtime.",
                                      argument_default=argparse.SUPPRESS,
-                                     epilog="All individual setting flags are deprecated overrides; edit the JSON file instead.")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH, help="canonical PHOS JSON configuration (default: config/phos.json)")
+                                     epilog="All individual setting flags are deprecated overrides; edit the active configuration file instead.")
+    parser.add_argument("--config", type=Path, help="explicit PHOS configuration file; otherwise discover phos.yaml, phos.yml, then phos.json")
     parser.add_argument("--expression-provider", choices=("local", "aws"), help="deprecated: override expression.provider and enable expressions")
     parser.add_argument("--aws-region", help="deprecated: override expression.aws.region")
     parser.add_argument(
@@ -153,7 +153,7 @@ def main() -> None:
         help="square face crop margin per side, as a face-size fraction (0 to 0.5)",
     )
     arguments = vars(parser.parse_args())
-    config_path = arguments.pop("config")
+    config_path = arguments.pop("config", None)
     try:
         # Compatibility flags become typed overrides of the one JSON model.
         # No flag supplies a separate default or persists its override.
@@ -174,12 +174,13 @@ def main() -> None:
         if "expression_provider" in overrides:
             overrides["expression_enabled"] = True
         # Region is an ordinary nested setting, resolved before model construction.
-        document = load_document(config_path)
+        repository = ConfigRepository(config_path)
+        document = repository.document()
         if "aws_region" in overrides:
             if not isinstance(document, dict) or not isinstance(document.get("expression"), dict) or not isinstance(document["expression"].get("aws"), dict):
                 raise ConfigurationError("expression.aws section is required")
             document["expression"]["aws"]["region"] = overrides.pop("aws_region")
-        config = RuntimeConfig.from_dict(document, base_dir=config_path.resolve().parent, overrides=overrides)
+        config = repository.load(document, overrides=overrides)
     except (ValueError, TypeError, OSError) as error:
         parser.error(str(error))
     handlers = [logging.StreamHandler(sys.stdout)]
@@ -194,13 +195,13 @@ def main() -> None:
     logging.getLogger("boto3").setLevel(logging.WARNING)
     logging.getLogger("botocore").setLevel(logging.WARNING)
     if arguments:
-        logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", config_path)
+        logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", repository.active_path)
     logger.info("PHOS %s", __version__)
-    logger.info("PHOS configuration loaded: %s", config_path.resolve())
+    logger.info("PHOS configuration loaded: %s", repository.active_path)
     # The optional web worker is isolated from camera/rendering and is stopped
     # even when runtime startup or execution fails.
     from robot.web.server import WebServer
-    with WebServer(config_path, config) as web:
+    with WebServer(repository, config) as web:
         asyncio.run(async_main(config=config, lifecycle=web.lifecycle, web_server=web))
     if web.lifecycle.restart_at is not None:
         raise SystemExit(RESTART_EXIT_CODE)

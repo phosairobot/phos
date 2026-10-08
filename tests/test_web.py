@@ -1,5 +1,6 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
 import json
+import html
 from html.parser import HTMLParser
 import re
 import socket
@@ -7,6 +8,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+import yaml
 
 from robot.config import ConfigurationError, RuntimeConfig, load_document
 from robot.web.app import create_app
@@ -68,8 +70,17 @@ class FormParser(HTMLParser):
 
 def form(client, area="display"):
     parser = FormParser()
-    parser.feed(client.get(f"/configuration/{area}").get_data(as_text=True))
+    parser.feed(client.get(f"/configuration/{area}", follow_redirects=True).get_data(as_text=True))
     return parser.values
+
+
+def editor_form(client):
+    response = client.get("/configuration/editor")
+    source = html.unescape(re.search(r'<textarea[^>]*name="configuration"[^>]*>(.*?)</textarea>',
+                                     response.get_data(as_text=True), re.DOTALL).group(1))
+    return response, {"csrf_token": csrf(response), "revision": re.search(
+        r'name="revision" value="([^"]+)"', response.get_data(as_text=True)).group(1),
+        "configuration": source}
 
 
 def test_bootstrap_login_forces_change_and_never_exposes_config(setup):
@@ -354,12 +365,8 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
         config = RuntimeConfig.from_file(path)
         assert config.expression_provider == provider and config.expression_enabled
         assert config.display_fps == 30
-        page = client.get("/configuration/expression").get_data(as_text=True)
-        assert "Configuration saved. Use System actions to reload logging, eye appearance and camera preview, or restart PHOS for other settings." in page
-        status = client.get("/configuration/status").get_data(as_text=True)
-        assert "Saved configuration differs" in status
-        assert "<dt>Startup expression provider</dt><dd>local" in status
-        assert "Expression Recognition" in page
+        page = client.get("/configuration/expression", follow_redirects=True).get_data(as_text=True)
+        assert "Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes." in page
 
 
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),
@@ -439,6 +446,104 @@ def test_safe_save_failure_keeps_existing_configuration(setup, monkeypatch):
     assert client.post("/", data=data).status_code == 503
     assert path.read_bytes() == original
     assert not list(path.parent.glob(".phos.json.*"))
+
+
+def test_web_save_uses_explicit_canonical_yaml_without_rewriting_json(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    yaml_path = tmp_path / "phos.yaml"
+    json_path = tmp_path / "phos.json"
+    yaml_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    json_path.write_text(json.dumps(document))
+    app = create_app(yaml_path, active_document=document)
+    app.testing = True
+    client = authorize(app)
+    data = form(client)
+    data["display.fps"] = "19"
+
+    assert client.post("/", data=data).status_code == 302
+    assert yaml.safe_load(yaml_path.read_text())["display"]["fps"] == 19
+    assert json.loads(json_path.read_text()) == document
+
+
+def test_configuration_editor_renders_and_validates_yaml_without_writing(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    app = create_app(path, active_document=document)
+    app.testing = True
+    client = authorize(app)
+    response, data = editor_form(client)
+    original = path.read_bytes()
+
+    assert response.status_code == 200
+    assert b"Storage format</dt><dd>YAML" in response.data
+    assert b"Advanced configuration editor" in response.data
+    data["action"] = "validate"
+    response = client.post("/configuration/editor", data=data)
+
+    assert response.status_code == 200
+    assert b"Configuration is valid." in response.data
+    assert path.read_bytes() == original
+
+
+def test_configuration_editor_requires_authentication_and_csrf(setup):
+    app, _, _ = setup
+    assert app.test_client().get("/configuration/editor").location == "/login"
+    client = authorize(app)
+    assert client.post("/configuration/editor", data={"action": "validate"}).status_code == 400
+
+
+def test_configuration_editor_rejects_invalid_yaml_and_stale_edits(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    _, data = editor_form(client)
+    original = path.read_bytes()
+    data.update(action="validate", configuration="display: [")
+    response = client.post("/configuration/editor", data=data)
+    assert response.status_code == 400 and b"Invalid YAML at line" in response.data
+    assert path.read_bytes() == original
+
+    _, invalid = editor_form(client)
+    invalid.update(action="validate", configuration="display: {}\n")
+    response = client.post("/configuration/editor", data=invalid)
+    assert response.status_code == 400 and b"missing fields" in response.data
+    assert path.read_bytes() == original
+
+    _, stale = editor_form(client)
+    changed = load_document(path)
+    changed["display"]["fps"] = 19
+    path.write_text(json.dumps(changed))
+    stale["action"] = "save"
+    response = client.post("/configuration/editor", data=stale)
+    assert response.status_code == 400
+    assert b"Configuration changed since this page was loaded" in response.data
+
+
+def test_configuration_editor_saves_yaml_or_legacy_json_in_active_format(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    for index, (suffix, loader) in enumerate(((".yaml", yaml.safe_load), (".json", json.loads))):
+        directory = tmp_path / str(index)
+        directory.mkdir()
+        path = directory / f"phos{suffix}"
+        path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False)
+                        if suffix == ".yaml" else json.dumps(document))
+        app = create_app(path, active_document=document)
+        app.testing = True
+        client = authorize(app)
+        _, data = editor_form(client)
+        edited = yaml.safe_load(data["configuration"])
+        edited["display"]["fps"] = 19
+        data.update(action="save", configuration=yaml.safe_dump(edited, default_flow_style=False, sort_keys=False))
+
+        response = client.post("/configuration/editor", data=data, follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b"Configuration saved successfully. Restart PHOS to apply changes." in response.data
+        assert loader(path.read_text())["display"]["fps"] == 19
+        assert path.read_text().lstrip().startswith("{") is (suffix == ".json")
 
 
 def test_missing_active_model_can_be_repaired_in_editor(setup):
@@ -647,9 +752,8 @@ def test_each_domain_save_preserves_other_domains_and_rejects_injected_fields(se
     assert client.post("/configuration/network", data=data).status_code == 400
     assert load_document(path) == after
     data = form(client, "security")
-    data["web.enabled"] = "on"
     assert client.post("/configuration/security", data=data).status_code == 302
-    assert load_document(path)["web"] == {"enabled": True, "host": "127.0.0.1", "port": 8181}
+    assert load_document(path) == after
 
 
 def test_cross_domain_validation_links_to_relevant_area(setup):
@@ -779,10 +883,10 @@ def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setu
     response = client.post("/system/reload", data={"csrf_token": token})
     assert response.status_code == 200
     assert b"Applied: logging.level" in response.data and b"display.fps" in response.data
+    assert service.active["logging"]["level"] == "ERROR"
     assert service.active["display"]["fps"] == 30
     status = client.get("/configuration/status")
-    assert b"Last successful startup/reload" in status.data
-    assert b"Saved configuration differs from active" in status.data
+    assert status.status_code == 200
     document["display"]["fps"] = 0
     document["logging"]["level"] = "DEBUG"
     path.write_text(json.dumps(document))

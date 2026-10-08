@@ -100,7 +100,7 @@ with the last selected box. It does not recognize identity or store images.
   added gaze/crop motion lag. The square always contains the current detected
   face, even when smoothing would otherwise make it too small.
 - Default margin is 10% per side: a stationary 100-pixel face yields a 120-pixel
-  square. Set `expression.crop_margin` in `config/phos.json` (valid range 0–0.5). Near image edges the
+  square. Set `expression.crop_margin` in `config/phos.yaml` (valid range 0–0.5). Near image edges the
   square shifts inside the frame; margin is reduced if necessary. If no square
   can contain the detected face within the image, expression inference is
   skipped. There is no padding, non-square stretching, or saved image.
@@ -318,7 +318,7 @@ Pi Camera and OpenCV dependencies using the Raspberry Pi OS instructions in
 For rollback/comparison, the ONNX Model Zoo FER+ baseline expects a
 `1x1x64x64` grayscale input and emits eight scores. The provider converts the
 RGB face crop to grayscale before creating its OpenCV DNN blob. Configure `expression.enabled=true`, `expression.provider="local"`, and replace
-the `expression.local` object in `config/phos.json` with:
+the `expression.local` object in `config/phos.yaml` with:
 
 ```json
 {
@@ -332,7 +332,7 @@ the `expression.local` object in `config/phos.json` with:
 }
 ```
 
-Then run `python3 src/robot/main.py --config config/phos.json`.
+Then run `python3 src/robot/main.py`.
 
 FER+ preprocessing uses unscaled grayscale pixel values (`scale=1`), zero mean
 and no channel swap. `happiness` and `surprise` are candidates for happy and surprised semantics;
@@ -416,7 +416,7 @@ preserve attention gaze and environmental overlays.
 
 ## Selectable local / AWS expressions
 
-`expression.provider` in `config/phos.json` selects `local` (existing ONNX
+`expression.provider` in `config/phos.yaml` selects `local` (existing ONNX
 settings) or `aws` (`AWSExpressionProvider`). With `expression.enabled=true`,
 either selection enables the camera; AWS needs no ONNX file. The canonical file
 disables expressions and standalone face tracking until explicitly enabled. Capture, Haar detection, geometric selection and square

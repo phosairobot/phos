@@ -362,7 +362,7 @@ def test_deployment_contract_and_restart_capability(runtime, monkeypatch):
     assert unit["Unit"]["After"] == "graphical-session-pre.target"
     assert unit["Unit"]["PartOf"] == "graphical-session.target"
     assert unit["Service"]["RestartForceExitStatus"] == str(RESTART_EXIT_CODE)
-    assert unit["Service"]["ExecStart"].endswith("--config %h/phos/config/phos.json")
+    assert unit["Service"]["ExecStart"].endswith("%h/phos/src/robot/main.py")
     config = RuntimeConfig.from_file(path)
     monkeypatch.delenv("INVOCATION_ID", raising=False)
     monkeypatch.setenv("PHOS_SERVICE_MANAGED", "1")

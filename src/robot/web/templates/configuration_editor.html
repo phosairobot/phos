@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Configuration</h2><p>Advanced configuration editor.</p>
+<section class="status configuration-editor">
+<p class="notice">Invalid settings can prevent PHOS from starting. Changes are validated before saving and require a restart.</p>
+<dl class="editor-metadata"><dt>Active configuration</dt><dd><code>{{ config_path }}</code></dd><dt>Storage format</dt><dd>{{ storage_format }}</dd><dt>Editor format</dt><dd>YAML</dd><dt>Application</dt><dd>Restart required after save.</dd></dl>
+{% if valid %}<p class="notice" role="status">{{ valid }}</p>{% endif %}
+<form method="post" data-configuration-editor data-editor-dirty="{{ 'true' if dirty else 'false' }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="revision" value="{{ revision }}">
+<label for="configuration">Configuration YAML</label>
+<textarea id="configuration" name="configuration" class="yaml-editor" spellcheck="false" required>{{ source }}</textarea>
+<div class="button-group"><button name="action" value="validate" type="submit">Validate</button><button name="action" value="save" type="submit">Save configuration</button><a class="button-link secondary-action" href="{{ url_for('system') }}">Restart PHOS</a></div>
+</form>
+</section>
+{% endblock %}

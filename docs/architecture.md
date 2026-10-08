@@ -218,7 +218,8 @@ Cached `ExpressionObservation.sampled_at` preserves provenance so reads cannot
 manufacture temporal confirmation. Local observations retain their existing
 cadence and semantics. See [Vision](vision.md#selectable-local-aws-expressions).
 
-`config/phos.json` is the canonical source of normal runtime settings. The
+`config/phos.yaml` is the canonical source of normal runtime settings; legacy
+`config/phos.json` remains supported. The
 provider-neutral `robot.config` module validates its required sections and maps
 them to `RuntimeConfig` and `CloudExpressionConfig`, with no hardware, SDK or
 argparse dependencies. The runtime passes only relevant typed values to each
@@ -234,8 +235,9 @@ settings are deprecated explicit overrides during migration. Logging level, disp
 
 ## Administration adapter
 
-`robot.web` wraps the canonical configuration service with a server-rendered
-Flask editor. Waitress runs in a separate process owned by the main startup
+`robot.web` wraps the canonical configuration service with structured settings
+forms and an advanced YAML editor, both backed by the same ConfigRepository.
+Waitress runs in a separate process owned by the main startup
 lifecycle, independent of rendering/Vision. The worker receives the startup
 settings for a saved-versus-startup comparison, not live status monitoring.
 Its password-storage service is separate from runtime JSON; Flask sessions and

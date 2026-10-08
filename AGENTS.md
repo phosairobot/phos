@@ -40,7 +40,7 @@ If documentation, tests and implementation materially disagree, report the incon
 ## Runtime configuration
 
 New non-secret PHOS runtime configuration must be added to the canonical
-`RuntimeConfig` model in `src/robot/config.py` and `config/phos.json`.
+`RuntimeConfig` model in `src/robot/config.py` and `config/phos.yaml`.
 Do not introduce new standalone CLI configuration unless explicitly required.
 Use the reusable loading/validation/persistence boundary for future configuration
 interfaces; keep secrets external. The web administration adapter must reuse

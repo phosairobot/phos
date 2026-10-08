@@ -1,7 +1,7 @@
 # PHOS web administration user manual
 
 PHOS includes an optional single-administrator configuration editor. It uses the
-same JSON model and validation as startup, with no camera, AWS or display access
+same typed configuration model and validation as startup, with no camera, AWS or display access
 from the web worker. Saving never applies settings. Reload applies logging level,
 supported eye appearance and camera preview settings; other runtime changes
 require restarting PHOS.
@@ -17,17 +17,16 @@ a separate Web Admin environment.
 
 The canonical `web` section defaults to `enabled: false`, `host: "127.0.0.1"`,
 `port: 8080`, preserving eyes-only startup without extra dependencies. Existing
-deployments must add this required section to their complete JSON file; source
+deployments must add this required section to their complete configuration file; source
 sync does not overwrite deployed settings.
 
 For access from another device on a **trusted LAN**, edit the existing section:
 
-```json
-"web": {
-  "enabled": true,
-  "host": "0.0.0.0",
-  "port": 8080
-}
+```yaml
+web:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
 ```
 
 An explicit LAN interface IP is more restrictive than `0.0.0.0`, which binds all
@@ -39,16 +38,16 @@ for production and browser restart. For a foreground diagnostic run:
 
 ```bash
 cd /home/pi/phos
-.venv/bin/python src/robot/main.py --config config/phos.json
+.venv/bin/python src/robot/main.py
 ```
 
 With dependencies already available to system Python, the unchanged command is
-`python3 src/robot/main.py --config config/phos.json`.
+`python3 src/robot/main.py`.
 Open **http://<PI-LAN-IP>:8080/** from your phone, tablet or desktop. Obtain the
 Pi address locally with `hostname -I`. With the default loopback binding, only
 **http://127.0.0.1:8080/** on the Pi can connect. A custom port changes both URLs.
 `web.host` and `web.port` are startup-only listener settings: save the complete
-canonical JSON and restart PHOS (for example, `systemctl --user restart
+active configuration and restart PHOS (for example, `systemctl --user restart
 phos.service`) before using the newly configured address. They are not applied
 by Reload configuration.
 Do not configure router port forwarding or expose this interface to the Internet.
@@ -107,6 +106,7 @@ page is highlighted. No frontend framework is needed.
 | Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
 | Sensors | Environmental type (BME280/BMP280), CCS811 air quality, environmental behavior and GY-521/MPU-6050 motion: enable, I2C address, polling and stale timeout; read-only current readings, interpreter state/reason, age and sensor health from the parent runtime. Hardware settings require Restart PHOS; IMU and environmental interpretation settings use Reload configuration. |
 | Logging | Supported log level, output file and expression diagnostics. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
+| Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
 | Diagnostics | Read-only runtime health and saved-versus-active configuration diagnostics. |
 | System Actions | Reload configuration and, when managed by the documented systemd service, review/confirm Restart PHOS. Restart is visually marked as disruptive; reboot and shutdown are not supported. |
@@ -117,7 +117,7 @@ settings but do not change the saved file. The software version comes from the a
 health is not inferred from the active configuration snapshot.
 
 Every editable page has its own **Save** button. It merges only that page's
-fields into the same canonical JSON file, validates the **complete configuration**,
+fields into the same active configuration file, validates the **complete configuration**,
 and atomically saves it. Other areas are preserved. There are no per-page
 configuration files or independent validation schemas. Save before navigating
 away: unsaved input is not carried between pages. A save in another tab makes
@@ -128,6 +128,25 @@ provider/log-level dropdowns. Optional paths/region may be blank. Numeric pairs
 are entered as `640, 480` or `3.5, 6.5`; labels are entered in model-output order.
 The canonical model remains authoritative for all ranges, types and relationships;
 see [the field reference](development.md#field-reference).
+
+### Advanced Configuration YAML editor
+
+Open **Settings → Configuration** for the complete advanced editor. It always
+displays YAML, including when the active file is legacy JSON. The page identifies
+the active path and storage format; saving YAML input back to a JSON source keeps
+that source JSON and never creates or switches to a YAML file.
+
+Use **Validate** to parse YAML and run full `RuntimeConfig` validation without
+writing. Syntax errors include a line/column when available; invalid roots and
+semantic validation errors are shown without a stack trace. **Save configuration**
+performs the same validation and atomic active-source save, then requires an
+explicit **System Actions → Restart PHOS** choice before settings become active.
+It never reloads or restarts PHOS automatically. A stale revision is rejected
+with a request to reload rather than overwriting another editor's save.
+
+Invalid configuration is rejected before persistence, but advanced settings
+should still be edited carefully. Structured settings pages remain available for
+common changes. The editor warns before navigation with unsaved changes.
 
 Navigation is defined by a small domain registry, separate from the canonical
 schema. Future implemented subsystems can add areas there. LED Ring,
@@ -153,7 +172,7 @@ the current changes remain unsaved. All fields, including
 inactive provider fields, must remain valid. After a validation error all provider
 groups are shown so inactive settings can also be corrected. Config-relative model/log
 paths keep their existing interpretation. Missing active model paths can be
-repaired in the editor while PHOS is already running; malformed JSON or invalid
+repaired in the editor while PHOS is already running; malformed configuration or invalid
 schema edited outside the UI requires local repair.
 
 Successful saves report that configuration is saved and direct you to **System
@@ -161,23 +180,23 @@ Successful saves report that configuration is saved and direct you to **System
 eye appearance and camera preview settings, or Restart PHOS for all other changes.
 Turning web off takes effect at
 restart. A page loaded before another save is rejected as stale: reload it
-before editing again. Do not edit the JSON simultaneously from the terminal.
+before editing again. Do not edit the active configuration simultaneously from the terminal.
 
 Saving flushes a temporary file in the same directory, then atomically replaces
 the target file. A validation or replacement failure preserves the old target.
 No automatic previous-version backup is kept. Before editing, use for example:
 
 ```bash
-cp config/phos.json config/phos.json.backup
+cp config/phos.yaml config/phos.yaml.backup
 ```
 
 To recover, stop PHOS, restore a known-good complete file with
-`cp config/phos.json.backup config/phos.json`, and restart. An interrupted worker
+`cp config/phos.yaml.backup config/phos.yaml`, and restart. An interrupted worker
 may leave an unused hidden temporary file; it is never loaded as configuration.
 
 ## Local password recovery and storage
 
-Credential data is in **`.phos-admin/password.json` beside the selected JSON
+Credential data is in **`.phos-admin/password.json` beside the selected
 file**: normally `/home/pi/phos/config/.phos-admin/password.json`. This stores
 only a salted Werkzeug PBKDF2-SHA256 hash (1,000,000 iterations) and the mandatory
 change flag. No plaintext password, session key or AWS credential is stored.
@@ -271,7 +290,7 @@ state changes also require CSRF protection.
 
 | Operation | Effect |
 | --- | --- |
-| Save on a domain page | Validates and atomically persists the full canonical JSON. Does not change active settings. |
+| Save on a domain page | Validates and atomically persists the full active configuration source. Does not change active settings. |
 | Reload configuration | Reads that same file, validates every setting and active path with startup's model, then applies logging level, iris theme, LED ring visual settings and all `vision.camera_preview` settings through shared runtime services. Shows applied fields and remaining restart-required fields. |
 | Restart PHOS | Requires the managed service and explicit confirmation. Validates the saved file, requests graceful application shutdown, then systemd starts PHOS again from disk. |
 
