@@ -75,6 +75,10 @@ tts:
   audio_output:
     player: aplay
     device: null
+    sample_rate: 48000
+    channels: 2
+    sample_width: 2
+    preroll_ms: 1000
 touch:
   enabled: true
   tap:
