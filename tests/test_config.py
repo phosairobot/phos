@@ -38,6 +38,31 @@ def test_canonical_config_is_complete_safe_and_round_trips(document):
     assert "_base_dir" not in repr(config)
 
 
+@pytest.mark.parametrize("suffix", [".yaml", ".yml", ".json"])
+def test_runtime_config_from_file_uses_format_aware_repository(document, tmp_path, suffix):
+    path = (write_yaml_config(tmp_path, document, suffix) if suffix != ".json"
+            else write_config(tmp_path, document))
+    assert RuntimeConfig.from_file(path).to_dict() == document
+
+
+def test_runtime_config_default_uses_repository_discovery(document, tmp_path, monkeypatch):
+    import robot.config as module
+    canonical = tmp_path / "phos.json"
+    canonical.write_text(json.dumps(document))
+    write_yaml_config(tmp_path, document, ".yml")
+    yaml_document = json.loads(json.dumps(document)); yaml_document["display"]["fps"] = 17
+    write_yaml_config(tmp_path, yaml_document, ".yaml")
+    monkeypatch.setattr(module, "DEFAULT_CONFIG_PATH", canonical)
+    assert RuntimeConfig().display_fps == 17
+    assert RuntimeConfig.from_file().display_fps == 17
+
+
+def test_runtime_config_yaml_errors_remain_yaml_errors(tmp_path):
+    path = tmp_path / "bad.yaml"; path.write_text("display: [")
+    with pytest.raises(ConfigurationError, match="invalid YAML"):
+        RuntimeConfig.from_file(path)
+
+
 def test_loaded_values_reach_subsystems(document, tmp_path):
     document["display"].update(width=640, height=480, fps=17, fullscreen=False,
                                transition_seconds=.3, iris_color="violet")

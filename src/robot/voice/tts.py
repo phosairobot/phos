@@ -1,6 +1,7 @@
 """Provider-neutral local synthesis and playback contracts."""
 from __future__ import annotations
 
+import audioop
 from dataclasses import dataclass
 import logging
 import math
@@ -83,8 +84,10 @@ class AudioOutputProvider:
 
 class AplayAudioOutputProvider(AudioOutputProvider):
     """ALSA aplay adapter for already-synthesized WAV files."""
-    def __init__(self, player="aplay", device: str | None = None, *, preroll_ms=0, timeout=90) -> None:
-        self.player, self.device, self.preroll_ms, self.timeout = player, device, preroll_ms, timeout
+    def __init__(self, player="aplay", device: str | None = None, *, sample_rate=48000,
+                 channels=2, sample_width=2, preroll_ms=0, timeout=90) -> None:
+        self.player, self.device, self.sample_rate, self.channels = player, device, sample_rate, channels
+        self.sample_width, self.preroll_ms, self.timeout = sample_width, preroll_ms, timeout
 
     @staticmethod
     def _preroll_frames(params, duration_ms):
@@ -106,27 +109,42 @@ class AplayAudioOutputProvider(AudioOutputProvider):
             frames.extend(encoded * params.nchannels)
         return bytes(frames)
 
-    def _warmed_wav(self, source: Path) -> Path:
+    def _normalized_wav(self, source: Path) -> Path:
         try:
             with wave.open(str(source), "rb") as input_file:
                 params, speech = input_file.getparams(), input_file.readframes(input_file.getnframes())
-            preroll = self._preroll_frames(params, self.preroll_ms)
-            output = tempfile.NamedTemporaryFile(prefix="phos-tts-preroll-", suffix=".wav", delete=False)
+            if params.comptype != "NONE" or params.nchannels not in {1, 2}:
+                raise AudioOutputError("Unsupported WAV format for audio playback.")
+            if (not self.preroll_ms and params.sampwidth == self.sample_width
+                    and params.framerate == self.sample_rate and params.nchannels == self.channels):
+                return None
+            if params.sampwidth != self.sample_width:
+                speech = audioop.lin2lin(speech, params.sampwidth, self.sample_width)
+            if params.framerate != self.sample_rate:
+                speech, _state = audioop.ratecv(speech, self.sample_width, params.nchannels,
+                                                 params.framerate, self.sample_rate, None)
+            if params.nchannels == 1 and self.channels == 2:
+                speech = audioop.tostereo(speech, self.sample_width, 1, 1)
+            elif params.nchannels != self.channels:
+                raise AudioOutputError("Unsupported WAV channel conversion for audio playback.")
+            target = wave._wave_params(self.channels, self.sample_width, self.sample_rate, 0, "NONE", "not compressed")
+            preroll = self._preroll_frames(target, self.preroll_ms)
+            output = tempfile.NamedTemporaryFile(prefix="phos-tts-playback-", suffix=".wav", delete=False)
             output.close()
-            warmed = Path(output.name)
-            with wave.open(str(warmed), "wb") as output_file:
-                output_file.setparams(params)
+            normalized = Path(output.name)
+            with wave.open(str(normalized), "wb") as output_file:
+                output_file.setparams(target)
                 output_file.writeframes(preroll + speech)
-            return warmed
-        except (OSError, wave.Error) as error:
-            raise AudioOutputError("Audio preroll could not be prepared.") from error
+            return normalized
+        except (OSError, EOFError, wave.Error) as error:
+            raise AudioOutputError("Audio playback could not be prepared.") from error
 
     def play(self, audio: SynthesizedAudio) -> None:
         executable = shutil.which(self.player)
         if executable is None:
             raise AudioOutputError("Audio player is unavailable.")
-        warmed = self._warmed_wav(audio.path) if self.preroll_ms else None
-        playback_path = warmed or audio.path
+        normalized = self._normalized_wav(audio.path)
+        playback_path = normalized or audio.path
         if self.preroll_ms:
             logger.debug("TTS audio playback preroll_ms=%s", self.preroll_ms)
         command = [executable, "-q"]
@@ -142,5 +160,5 @@ class AplayAudioOutputProvider(AudioOutputProvider):
         except OSError as error:
             raise AudioOutputError("Audio playback could not start.") from error
         finally:
-            if warmed is not None:
-                warmed.unlink(missing_ok=True)
+            if normalized is not None:
+                normalized.unlink(missing_ok=True)

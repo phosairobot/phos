@@ -151,7 +151,7 @@ def _keys(value, expected, location):
 
 
 def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    """Read JSON for editing; use RuntimeConfig.from_dict to validate before use."""
+    """Read a legacy JSON document; ConfigRepository owns format dispatch."""
     def unique_object(pairs):
         result = {}
         for key, value in pairs:
@@ -229,7 +229,7 @@ class CloudExpressionConfig:
     read_timeout_seconds: float
 
     def __init__(self, **overrides) -> None:
-        values = load_document(DEFAULT_CONFIG_PATH)["expression"]["aws"]
+        values = ConfigRepository().document()["expression"]["aws"]
         values.update(overrides)
         self._assign(values)
 
@@ -287,7 +287,7 @@ _SCHEMA = {
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language"}},
-    "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "preroll_ms": "tts_audio_output_preroll_ms"}},
+    "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms"}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
@@ -421,6 +421,9 @@ class RuntimeConfig:
     tts_local_speaker_id: Optional[int]
     tts_audio_output_player: str
     tts_audio_output_device: Optional[str]
+    tts_audio_output_sample_rate: int
+    tts_audio_output_channels: int
+    tts_audio_output_sample_width: int
     tts_audio_output_preroll_ms: int
     touch_enabled: bool
     touch_tap_max_duration_ms: int
@@ -563,8 +566,8 @@ class RuntimeConfig:
         for name in _PATH_FIELDS & overrides.keys():
             if overrides[name] is not None:
                 overrides[name] = Path(overrides[name]).resolve()
-        values = _decode(load_document(DEFAULT_CONFIG_PATH))
-        self._assign(values, DEFAULT_CONFIG_PATH.parent, overrides)
+        repository = ConfigRepository()
+        self._assign(_decode(repository.document()), repository.active_path.parent, overrides)
 
     def _assign(self, values, base_dir, overrides=None):
         names = {f.name for f in fields(self) if f.init}
@@ -579,9 +582,9 @@ class RuntimeConfig:
         self.validate()
 
     @classmethod
-    def from_file(cls, path: Path = DEFAULT_CONFIG_PATH, *, overrides=None) -> RuntimeConfig:
-        path = Path(path).resolve()
-        return cls.from_dict(load_document(path), base_dir=path.parent, overrides=overrides)
+    def from_file(cls, path: Optional[Path] = None, *, overrides=None) -> RuntimeConfig:
+        """Load through the one format-aware ConfigRepository boundary."""
+        return ConfigRepository(path).load(overrides=overrides)
 
     @classmethod
     def from_dict(cls, document: dict, *, base_dir: Path, overrides=None, check_paths=True) -> RuntimeConfig:
@@ -794,6 +797,11 @@ class RuntimeConfig:
         if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):
             raise ConfigurationError("tts.audio_output.device must be a nonempty ALSA device or null")
         number("tts_audio_output_preroll_ms", minimum=0, inclusive=True, maximum=10000, integer=True)
+        number("tts_audio_output_sample_rate", minimum=1, inclusive=True, maximum=192000, integer=True)
+        if self.tts_audio_output_channels not in {1, 2}:
+            raise ConfigurationError("tts.audio_output.channels must be 1 or 2")
+        if self.tts_audio_output_sample_width != 2:
+            raise ConfigurationError("tts.audio_output.sample_width must be 2")
         for name in ("presence_led_entered_duration_ms", "presence_led_left_duration_ms"):
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:

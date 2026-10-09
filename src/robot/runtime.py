@@ -588,6 +588,9 @@ def build_runtime(
                                         config.resolve_path(config.tts_local_model_path),
                                         config.tts_local_speaker_id)
         audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device,
+                                                 sample_rate=config.tts_audio_output_sample_rate,
+                                                 channels=config.tts_audio_output_channels,
+                                                 sample_width=config.tts_audio_output_sample_width,
                                                  preroll_ms=config.tts_audio_output_preroll_ms)
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
