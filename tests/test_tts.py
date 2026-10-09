@@ -1,11 +1,13 @@
 """Hardware-free local Piper synthesis and ALSA playback tests."""
 import subprocess
 from pathlib import Path
+import wave
 
 import pytest
 
 from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
                          SynthesizedAudio, TTSConfigurationError, TTSSynthesisError)
+from robot.config import RuntimeConfig, load_document
 
 
 def test_piper_rejects_empty_or_oversized_text(tmp_path):
@@ -58,3 +60,33 @@ def test_aplay_uses_optional_device_and_reports_failures(tmp_path, monkeypatch):
     with pytest.raises(AudioOutputError): AplayAudioOutputProvider().play(SynthesizedAudio(path))
     monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: None)
     with pytest.raises(AudioOutputError): AplayAudioOutputProvider().play(SynthesizedAudio(path))
+
+
+def test_aplay_preroll_preserves_speech_in_one_wav_and_cleans_up(tmp_path, monkeypatch):
+    source = tmp_path / "speech.wav"
+    speech = b"\x01\x00\x02\x00" * 40
+    with wave.open(str(source), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(speech)
+    seen = {}
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/aplay")
+    def run(command, **kwargs):
+        warmed = Path(command[-1])
+        seen["path"] = warmed
+        with wave.open(str(warmed), "rb") as wav:
+            seen["params"] = wav.getparams(); seen["frames"] = wav.readframes(wav.getnframes())
+        return subprocess.CompletedProcess(command, 0, "", "")
+    monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
+    AplayAudioOutputProvider(preroll_ms=1000).play(SynthesizedAudio(source))
+    assert seen["params"].framerate == 16000 and seen["params"].sampwidth == 2
+    preroll_bytes = 16000 * 2
+    assert any(seen["frames"][:preroll_bytes])
+    assert seen["frames"][preroll_bytes:] == speech
+    assert not seen["path"].exists()
+
+
+def test_tts_preroll_configuration_rejects_negative_value(tmp_path):
+    document = load_document()
+    document["tts"]["audio_output"]["preroll_ms"] = -1
+    with pytest.raises(Exception, match="preroll"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path)

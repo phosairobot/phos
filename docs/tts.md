@@ -22,6 +22,13 @@ disabled by default, uses `provider: local`, `engine: piper`, and `aplay` output
 When enabled, a failed model/executable is reported when speech is requested;
 disabled TTS does not affect startup.
 
+On the reference Raspberry Pi HDMI deployment, short playback can lose its
+opening while the sink wakes. `tts.audio_output.preroll_ms` defaults to `1000`:
+PHOS creates one temporary WAV containing a very low-amplitude non-zero 440 Hz
+warm-up signal followed unchanged by the synthesized speech, then calls `aplay`
+once. Set `preroll_ms: 0` to restore direct playback. This is an HDMI output
+workaround, not a Piper synthesis change.
+
 ## Architecture
 
 ```text

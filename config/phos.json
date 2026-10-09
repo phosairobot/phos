@@ -42,7 +42,7 @@
   },
   "attention": {"lost_hold_ms": 800},
   "voice": {"enabled": false, "input": {"device": null, "device_index": null, "sample_rate": null, "channels": 1, "chunk_ms": 30}, "processing": {"sample_rate": 16000}, "vad": {"speech_start_ms": 120, "silence_end_ms": 700, "min_utterance_ms": 300, "max_utterance_ms": 12000, "pre_roll_ms": 300, "threshold": 50}, "debug": {"dump_utterance_wav": false, "utterance_wav_path": "/tmp/phos-last-utterance.wav"}, "stt": {"provider": "local", "model_path": null, "language": null}},
-  "tts": {"enabled": false, "provider": "local", "local": {"engine": "piper", "executable": "piper", "model_path": null, "speaker_id": null}, "audio_output": {"player": "aplay", "device": null}},
+  "tts": {"enabled": false, "provider": "local", "local": {"engine": "piper", "executable": "piper", "model_path": null, "speaker_id": null}, "audio_output": {"player": "aplay", "device": null, "preroll_ms": 1000}},
   "touch": {"enabled": true, "tap": {"max_duration_ms": 350, "max_movement_px": 20}, "long_press": {"min_duration_ms": 800, "max_movement_px": 20}, "swipe": {"min_distance_px": 100, "max_vertical_drift_px": 80, "max_duration_ms": 1000}, "reaction": {"enabled": true, "duration_ms": 700, "cooldown_ms": 400}},
   "startup": {
     "splash": {"enabled": true, "image": null, "title": "PHOS", "subtitle": "Starting..."},

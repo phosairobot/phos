@@ -587,7 +587,8 @@ def build_runtime(
         tts_provider = PiperTTSProvider(config.tts_local_executable,
                                         config.resolve_path(config.tts_local_model_path),
                                         config.tts_local_speaker_id)
-        audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device)
+        audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device,
+                                                 preroll_ms=config.tts_audio_output_preroll_ms)
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:
