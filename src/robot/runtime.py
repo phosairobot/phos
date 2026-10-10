@@ -33,6 +33,7 @@ from robot.ui.runtime import EyeRenderLoop
 from robot.voice import (AplayAudioOutputProvider, PiperTTSProvider, PyAudioCaptureProvider,
                          ResamplingAudioCaptureProvider, TTSBusyError, TTSConfigurationError,
                          VoiceCaptureSession, VoskSTTProvider)
+from robot.voice.tts import speech_log, speech_request_id
 from robot.vision import (
     ExpressionSmoother,
     OpenCVExpressionProvider,
@@ -85,6 +86,8 @@ class PhosRuntime:
         self._voice_session = voice_session
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._tts_lock = asyncio.Lock()
+        self._speech_task: asyncio.Task | None = None
+        self._next_speech_request_id = 0
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
         self._loop = None
@@ -207,7 +210,7 @@ class PhosRuntime:
     async def stop_listening(self, *, cancelled=False):
         return self.voice_status() if self._voice_session is None else await self._voice_session.stop(cancelled=cancelled)
 
-    async def speak(self, text: str) -> None:
+    async def speak(self, text: str, *, request_id: int | None = None) -> None:
         """Serialize local synthesis/playback through the semantic state boundary."""
         if self._tts_provider is None or self._audio_output is None:
             raise TTSConfigurationError("Text-to-speech is disabled.")
@@ -215,22 +218,57 @@ class PhosRuntime:
             raise TTSBusyError("PHOS is already speaking.")
         async with self._tts_lock:
             audio = None
+            total_started = time.monotonic()
+            token = speech_request_id.set(request_id)
             try:
-                await self.core.transition_to(RobotState.SPEAKING, reason="tts")
-                logger.info("TTS synthesis started provider=local")
-                audio = await asyncio.to_thread(self._tts_provider.synthesize, text)
-                logger.info("TTS synthesis completed provider=local")
-                logger.info("TTS playback started")
-                await asyncio.to_thread(self._audio_output.play, audio)
-                logger.info("TTS playback completed")
-            except Exception:
-                logger.exception("TTS provider/runtime error")
-                raise
+                try:
+                    await self.core.transition_to(RobotState.SPEAKING, reason="tts")
+                    synthesis_started = time.monotonic()
+                    speech_log("synthesis_start")
+                    audio = await asyncio.to_thread(self._tts_provider.synthesize, text)
+                    speech_log("synthesis_complete", duration_ms=round((time.monotonic() - synthesis_started) * 1000))
+                    await asyncio.to_thread(self._audio_output.play, audio)
+                    speech_log("total_complete", duration_ms=round((time.monotonic() - total_started) * 1000))
+                except Exception:
+                    logger.exception("TTS provider/runtime error")
+                    raise
+                finally:
+                    if audio is not None:
+                        audio.path.unlink(missing_ok=True)
+                    if self.core.state is RobotState.SPEAKING:
+                        await self.core.transition_to(RobotState.IDLE, reason="tts_completed")
             finally:
-                if audio is not None:
-                    audio.path.unlink(missing_ok=True)
-                if self.core.state is RobotState.SPEAKING:
-                    await self.core.transition_to(RobotState.IDLE, reason="tts_completed")
+                speech_request_id.reset(token)
+
+    async def accept_speech(self, text: str) -> None:
+        """Atomically accept one utterance without waiting for playback.
+
+        This runs on the runtime event loop, so checking and assigning the task
+        cannot race with another application-service request.
+        """
+        if self._tts_provider is None or self._audio_output is None:
+            raise TTSConfigurationError("Text-to-speech is disabled.")
+        if self._speech_task is not None and not self._speech_task.done():
+            raise TTSBusyError("PHOS is already speaking.")
+        self._next_speech_request_id += 1
+        request_id = self._next_speech_request_id
+        task = asyncio.create_task(self.speak(text, request_id=request_id), name=f"phos-speech-{request_id}")
+        self._speech_task = task
+        task.add_done_callback(lambda completed: self._speech_finished(completed, request_id))
+        logger.info("PHOS SPEECH[%s]: accepted", request_id)
+
+    def _speech_finished(self, task: asyncio.Task, request_id: int) -> None:
+        if self._speech_task is task:
+            self._speech_task = None
+        if task.cancelled():
+            logger.info("PHOS SPEECH[%s]: task_cleanup cancelled", request_id)
+            return
+        try:
+            task.result()
+        except Exception as error:
+            logger.error("PHOS SPEECH[%s]: task_cleanup failed exception_type=%s", request_id, type(error).__name__)
+        else:
+            logger.info("PHOS SPEECH[%s]: task_cleanup complete", request_id)
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
         """Apply validated interpretation settings without reopening the IMU."""
@@ -483,6 +521,11 @@ class PhosRuntime:
 
     async def stop(self) -> None:
         self._stopping = True
+        speech_task = self._speech_task
+        if speech_task is not None and not speech_task.done():
+            speech_task.cancel()
+            await asyncio.gather(speech_task, return_exceptions=True)
+        self._speech_task = None
         tasks = tuple(self._preview_tasks)
         for task in tasks:
             task.cancel()
@@ -591,7 +634,10 @@ def build_runtime(
                                                  sample_rate=config.tts_audio_output_sample_rate,
                                                  channels=config.tts_audio_output_channels,
                                                  sample_width=config.tts_audio_output_sample_width,
-                                                 preroll_ms=config.tts_audio_output_preroll_ms)
+                                                 preroll_ms=config.tts_audio_output_preroll_ms,
+                                                 debug_retain_final_wav=config.tts_audio_output_debug_retain_final_wav,
+                                                 retry_max_attempts=config.tts_audio_output_retry_max_attempts,
+                                                 retry_delay_ms=config.tts_audio_output_retry_delay_ms)
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:

@@ -32,6 +32,7 @@ from robot.core.touch import TOUCH_EVENT_NAMES
 from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SESSION_CANCELLED, VOICE_SPEECH_ENDED,
                                  VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
 from robot.voice.capture import UnsupportedCaptureRate
+from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSError
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -122,6 +123,7 @@ class RemoteApplicationService:
     def start_listening(self): return self._call("start_listening")
     def stop_listening(self): return self._call("stop_listening")
     def cancel_voice_session(self): return self._call("cancel_voice_session")
+    def speak(self, text): return self._call("speak", {"text": text})
     def observed_expression(self): return self._call("observed_expression")
     def health(self): return self._call("health")
     def capabilities(self): return self._call("capabilities")
@@ -475,14 +477,24 @@ class PhosApplicationService:
     def cancel_voice_session(self): return self._voice_command(self._runtime.stop_listening, cancelled=True, operation="cancel")
 
     def speak(self, text: str):
+        if not isinstance(text, str) or not (text := text.strip()):
+            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
+        if len(text) > 500:
+            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
         loop = self._runtime._loop
         if loop is None:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
         try:
-            return asyncio.run_coroutine_threadsafe(self._runtime.speak(text), loop).result(timeout=95)
+            asyncio.run_coroutine_threadsafe(self._runtime.accept_speech(text), loop).result(timeout=2)
+            return {"status": "accepted"}
+        except TTSBusyError as error:
+            raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except (TTSConfigurationError, TTSError) as error:
+            logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "Text-to-speech is unavailable.", status=503) from error
         except Exception as error:
             logger.exception("TTS: failed exception_type=%s", type(error).__name__)
-            raise ApplicationError("tts_unavailable", "PHOS could not speak.", {"reason": type(error).__name__}, 503) from error
+            raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
 
     def config(self) -> dict:
         if self._lifecycle is None:

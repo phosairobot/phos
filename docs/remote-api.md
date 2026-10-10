@@ -87,6 +87,25 @@ a provider/capture failure. Observable event names are
 The voice API exposes capture/transcription status only; transcript command
 interpretation and robot actions are not implemented.
 
+## Speak
+
+`POST /api/v1/speak` asks the main PHOS runtime to synthesize and play one short
+phrase through its configured provider-neutral TTS/playback path. The separate
+Web worker never opens an audio device or invokes Piper directly. Text is trimmed,
+must be non-empty, and is limited to 500 characters; accepted speech returns
+HTTP `202` after the main runtime has atomically accepted and scheduled the
+utterance; it does not wait for synthesis or playback to finish. PHOS does not
+queue overlapping requests: an active utterance returns
+HTTP `409` with `tts_busy`; disabled or unavailable TTS returns `503` with
+`tts_unavailable`.
+
+```sh
+curl -X POST http://127.0.0.1:8080/api/v1/speak \
+  --cookie "$PHOS_ADMIN_COOKIE" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Hello from PHOS."}'
+```
+
 Presence has `no_one`, `person_present`, and reserved `person_engaged` values.
 Attention has `idle`, `acquiring`, `tracking`, and `lost` values. Target ID is
 runtime-local only; position is normalized, and confidence may be `null` when a

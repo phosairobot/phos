@@ -3,6 +3,7 @@ import logging
 from types import SimpleNamespace
 
 from flask import Flask
+import pytest
 
 from robot.core import Event
 from robot.core.attention import ATTENTION_CHANGED, AttentionKind, AttentionState
@@ -12,6 +13,7 @@ from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
 from robot.core.runtime import RobotCore
 from robot.core.behavior_engine import BehaviorEngine
 from robot.services import PhosApplicationService, RemoteApplicationService
+from robot.services import ApplicationError
 from robot.web.api import create_api
 
 
@@ -88,6 +90,83 @@ def test_voice_start_success_still_returns_session_status(monkeypatch):
 
     assert response.status_code == 200
     assert response.json == {"state": "listening", "listening": True}
+
+
+def test_speak_api_validates_and_forwards_trimmed_text():
+    class Service:
+        def __init__(self): self.calls = []
+        def speak(self, text): self.calls.append(text)
+
+    service = Service()
+    app = Flask(__name__)
+    app.register_blueprint(create_api(service))
+    client = app.test_client()
+
+    response = client.post("/api/v1/speak", json={"text": "  Hello from PHOS.  "})
+
+    assert response.status_code == 202
+    assert response.json == {"status": "accepted"}
+    assert service.calls == ["Hello from PHOS."]
+    for payload in ({}, {"text": "  "}, {"text": 2}, {"text": "x" * 501}):
+        rejected = client.post("/api/v1/speak", json=payload)
+        assert rejected.status_code == 400
+        assert rejected.json["error"]["code"] == "invalid_speech"
+    assert client.post("/api/v1/speak", data="not-json", content_type="application/json").status_code == 400
+
+
+def test_speak_api_preserves_stable_busy_unavailable_and_internal_errors():
+    class Service:
+        def __init__(self, error): self.error = error
+        def speak(self, _text): raise self.error
+
+    for error, status, code in (
+        (ApplicationError("tts_busy", "PHOS is already speaking.", status=409), 409, "tts_busy"),
+        (ApplicationError("tts_unavailable", "Text-to-speech is unavailable.", status=503), 503, "tts_unavailable"),
+        (RuntimeError("/private/model-path"), 500, "internal_error"),
+    ):
+        app = Flask(__name__)
+        app.register_blueprint(create_api(Service(error)))
+        response = app.test_client().post("/api/v1/speak", json={"text": "hello"})
+        assert response.status_code == status
+        assert response.json["error"]["code"] == code
+        assert "/private/model-path" not in response.get_data(as_text=True)
+
+
+def test_application_speak_maps_runtime_busy_and_unavailable_errors(monkeypatch):
+    from robot.voice import TTSBusyError, TTSConfigurationError
+    runtime = Runtime()
+    runtime._loop = object()
+
+    async def accept_speech(_text):
+        return None
+    runtime.accept_speech = accept_speech
+
+    for error, status, code in ((TTSBusyError(), 409, "tts_busy"), (TTSConfigurationError(), 503, "tts_unavailable")):
+        def submit(coroutine, _loop, error=error):
+            coroutine.close()
+            return _VoiceFuture(error=error)
+        monkeypatch.setattr("robot.services.application.asyncio.run_coroutine_threadsafe", submit)
+        with pytest.raises(ApplicationError) as raised:
+            PhosApplicationService(runtime).speak(" hello ")
+        assert raised.value.status == status and raised.value.code == code
+
+
+def test_remote_speak_uses_lifecycle_ipc_and_main_dispatch_reaches_application_service():
+    class Lifecycle:
+        def __init__(self): self.calls = []
+        def execute(self, operation, payload=None):
+            self.calls.append((operation, payload))
+            return {"ok": True, "result": None}
+    lifecycle = Lifecycle()
+    RemoteApplicationService(lifecycle).speak("Hello")
+    assert lifecycle.calls == [("application.speak", {"text": "Hello"})]
+
+    from robot.lifecycle import LifecycleService
+    received = []
+    service = object.__new__(LifecycleService)
+    service._application_service = SimpleNamespace(speak=lambda text: received.append(text))
+    assert service._execute_application({"operation": "application.speak", "payload": {"text": "Hello"}}) == {"ok": True, "result": None}
+    assert received == ["Hello"]
 
 
 def test_versioned_status_and_stable_error_document():

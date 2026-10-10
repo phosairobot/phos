@@ -19,7 +19,7 @@ vision = [
     # remains compatible with Picamera2 in the system-site-packages venv.
     "picamera2>=0.3",
 ]
-voice = ["audioop-lts>=0.2.2,<0.3", "vosk>=0.3.45,<0.4"]
+voice = ["audioop-lts>=0.2.2,<0.3", "piper-tts>=1.3,<2", "vosk>=0.3.45,<0.4"]
 all = [
     "phos-robot[ccs811,imu,led-ring,environmental,web,aws,vision,voice]",
 ]

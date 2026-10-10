@@ -79,6 +79,11 @@ tts:
     channels: 2
     sample_width: 2
     preroll_ms: 1000
+    retry:
+      max_attempts: 2
+      delay_ms: 200
+    debug:
+      retain_final_wav: false
 touch:
   enabled: true
   tap:
