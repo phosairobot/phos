@@ -154,6 +154,9 @@ Your edits on this page have not been saved.</p>
 <a href="{{ url_for('password') }}">Change administrator password</a></section>
 <p>HTTP administration is for a trusted LAN only. Manage the bind address and port in <a href="{{ url_for('configuration', area='network') }}">Network</a>.</p>
 {% endif %}
+{% if area == 'voice' %}
+<section class="status"><h3>Provider availability</h3><p>Local / Piper is implemented. ElevenLabs, Google Cloud TTS, and Cartesia are shown for planned configuration only and cannot be selected from Web Admin yet. Credentials remain write-only in <a href="{{ url_for('credentials') }}">Credentials</a>. Saving voice settings requires a PHOS restart.</p></section>
+{% endif %}
 <form method="post" action="{{ url_for('configuration', area=area) }}">
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -166,7 +169,7 @@ Your edits on this page have not been saved.</p>
 {% set value = submitted.get(field.name, '') if submitted is not none else field.value %}
 <div class="field"><label for="{{ field.name }}">{{ field.label }}</label>
 {% if field.choices %}
-<select id="{{ field.name }}" name="{{ field.name }}">{% for choice in field.choices %}<option value="{{ choice }}" {{ 'selected' if value == choice else '' }}>{{ choice | upper if field.name == 'sensors.environmental.type' else choice }}</option>{% endfor %}</select>
+<select id="{{ field.name }}" name="{{ field.name }}">{% for choice in field.choices %}{% set tts_label = {'local': 'Local / Piper', 'elevenlabs': 'ElevenLabs (Coming soon)', 'google': 'Google Cloud TTS (Coming soon)', 'cartesia': 'Cartesia (Coming soon)'}.get(choice, choice) %}<option value="{{ choice }}" {{ 'selected' if value == choice else '' }} {% if field.name == 'tts.provider' and choice != 'local' %}disabled{% endif %}>{{ choice | upper if field.name == 'sensors.environmental.type' else (tts_label if field.name == 'tts.provider' else choice) }}</option>{% endfor %}</select>
 {% elif field.kind == 'checkbox' %}
 <input id="{{ field.name }}" name="{{ field.name }}" type="checkbox" {{ 'checked' if (value == 'on' if submitted is not none else value) else '' }}>
 {% else %}

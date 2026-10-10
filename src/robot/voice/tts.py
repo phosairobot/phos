@@ -48,6 +48,7 @@ class TTSConfigurationError(TTSError): pass
 class TTSSynthesisError(TTSError): pass
 class AudioOutputError(TTSError): pass
 class TTSBusyError(TTSError): pass
+class TTSProviderUnavailableError(TTSConfigurationError): pass
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,23 @@ class TTSProvider:
     name: str
     def ready(self) -> bool: raise NotImplementedError
     def synthesize(self, text: str) -> SynthesizedAudio: raise NotImplementedError
+
+
+class TTSProviderFactory:
+    """Select a runtime-owned provider; Web code never constructs providers."""
+    implemented = frozenset({"local"})
+    supported = frozenset({"local", "elevenlabs", "google", "cartesia"})
+
+    @classmethod
+    def create(cls, config, secrets_service=None) -> TTSProvider:
+        provider = config.tts_provider
+        if provider == "local":
+            return PiperTTSProvider(config.tts_local_executable,
+                                    config.resolve_path(config.tts_local_model_path),
+                                    config.tts_local_speaker_id)
+        if provider in cls.supported:
+            raise TTSProviderUnavailableError(f"TTS provider '{provider}' is not implemented.")
+        raise TTSConfigurationError("Unknown TTS provider.")
 
 
 class PiperTTSProvider(TTSProvider):

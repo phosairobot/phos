@@ -20,6 +20,7 @@ DOMAINS = {
     "runtime": {"title": "Runtime", "description": "Vision, expression and safe logging configuration."},
     "behavior": {"title": "Behavior", "description": "Supported eye and environmental behavior settings."},
     "integrations": {"title": "Integrations", "description": "Optional Web Administration integration settings."},
+    "voice": {"title": "Voice & speech", "description": "Text-to-speech provider selection and local Piper settings."},
 }
 
 # Paths select fields that already exist in the canonical document. A trailing
@@ -55,6 +56,9 @@ GROUPS["eyes"] = [("eyes", "Eye appearance", ("display.iris_color", "display.bas
 GROUPS["runtime"] = [*GROUPS["vision"], *GROUPS["expression"], *GROUPS["logging"]]
 GROUPS["behavior"] = [("behavior", "Eye behavior", ("behavior.",), None)]
 GROUPS["integrations"] = GROUPS["security"]
+GROUPS["voice"] = [("tts", "Text-to-speech", ("tts.enabled", "tts.provider"), None),
+                    ("local", "Local Piper", ("tts.local.",), "local"),
+                    ("audio", "Audio output", ("tts.audio_output.",), None)]
 
 
 def domain_sections(document, area):

@@ -30,9 +30,9 @@ from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.runtime import EyeRenderLoop
-from robot.voice import (AplayAudioOutputProvider, PiperTTSProvider, PyAudioCaptureProvider,
+from robot.voice import (AplayAudioOutputProvider, PyAudioCaptureProvider,
                          ResamplingAudioCaptureProvider, TTSBusyError, TTSConfigurationError,
-                         VoiceCaptureSession, VoskSTTProvider)
+                         TTSProviderFactory, VoiceCaptureSession, VoskSTTProvider)
 from robot.voice.tts import speech_log, speech_request_id
 from robot.vision import (
     ExpressionSmoother,
@@ -627,9 +627,7 @@ def build_runtime(
     tts_provider = None
     audio_output = None
     if config.tts_enabled:
-        tts_provider = PiperTTSProvider(config.tts_local_executable,
-                                        config.resolve_path(config.tts_local_model_path),
-                                        config.tts_local_speaker_id)
+        tts_provider = TTSProviderFactory.create(config)
         audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device,
                                                  sample_rate=config.tts_audio_output_sample_rate,
                                                  channels=config.tts_audio_output_channels,
