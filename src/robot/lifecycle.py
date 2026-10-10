@@ -283,6 +283,7 @@ class LifecycleService:
             "application.start_listening": lambda: self._application_service.start_listening(),
             "application.stop_listening": lambda: self._application_service.stop_listening(),
             "application.cancel_voice_session": lambda: self._application_service.cancel_voice_session(),
+            "application.speak": lambda: self._application_service.speak(payload.get("text")),
             "application.observed_expression": lambda: self._application_service.observed_expression(),
             "application.health": lambda: self._application_service.health(),
             "application.capabilities": lambda: self._application_service.capabilities(),

@@ -46,6 +46,18 @@ def create_api(service):
     def stop_listening(): return jsonify(service.stop_listening())
     @api.post("/voice/cancel")
     def cancel_voice(): return jsonify(service.cancel_voice_session())
+    @api.post("/speak")
+    def speak():
+        text = body().get("text")
+        if not isinstance(text, str):
+            raise ApplicationError("invalid_speech", "Speech text must be a string.")
+        text = text.strip()
+        if not text:
+            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
+        if len(text) > 500:
+            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
+        service.speak(text)
+        return jsonify({"status": "accepted"}), 202
     @api.get("/observed-expression")
     def observed_expression(): return jsonify(service.observed_expression())
     @api.get("/health")

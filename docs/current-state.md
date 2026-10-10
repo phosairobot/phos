@@ -184,7 +184,7 @@ ever rendering stored values. No cloud/TTS provider consumes these credentials
 yet.
 
 Local Piper TTS is now available as a disabled-by-default, provider-neutral
-foundation. It synthesizes through the installed Piper CLI and plays temporary
+foundation. It lazily loads the installed Piper Python voice once and plays temporary
 WAV output through ALSA; cloud TTS providers remain unimplemented.
 
 ## Web administration

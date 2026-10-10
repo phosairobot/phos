@@ -314,6 +314,34 @@ def test_lifecycle_channel_forwards_presence_and_attention_read_models(runtime):
         assert not thread.is_alive()
 
 
+def test_lifecycle_channel_acknowledges_sequential_speak_commands(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def speak(self, text):
+            received.append(text)
+            return {"status": "accepted"}
+        def status(self): return {"running": True}
+
+    service.register_application_service(Application())
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.speak", {"text": "One"}) == {"ok": True, "result": {"status": "accepted"}}
+        assert client.execute("application.speak", {"text": "Two"}) == {"ok": True, "result": {"status": "accepted"}}
+        assert received == ["One", "Two"]
+        assert client.execute("application.status")["ok"]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_restart_request_stops_runtime_through_existing_stop_event(runtime, monkeypatch):
     from robot import main
     _, service, _, now = runtime
