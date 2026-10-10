@@ -286,6 +286,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                submitted=request.form if request.method == "POST" else None,
                                error=error, config_path=config.path, document=document,
                                active=current, runtime_state=runtime_state,
+                               elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
+                                                                    for slot in web_secrets.slots()),
                                pending=current is not None and document != current), status
 
     @app.route("/system", methods=["GET"])

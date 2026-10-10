@@ -16,6 +16,7 @@ import tempfile
 import time
 from threading import Lock
 import wave
+import re
 
 logger = logging.getLogger(__name__)
 speech_request_id: ContextVar[int | None] = ContextVar("speech_request_id", default=None)
@@ -46,8 +47,14 @@ def _sha256_prefix(path: Path) -> str:
 class TTSError(RuntimeError): pass
 class TTSConfigurationError(TTSError): pass
 class TTSSynthesisError(TTSError): pass
+class TTSProviderError(TTSSynthesisError):
+    """Sanitized expected remote-provider failure."""
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
 class AudioOutputError(TTSError): pass
 class TTSBusyError(TTSError): pass
+class TTSUnavailableError(TTSError): pass
 class TTSProviderUnavailableError(TTSConfigurationError): pass
 
 
@@ -68,7 +75,7 @@ class TTSProvider:
 
 class TTSProviderFactory:
     """Select a runtime-owned provider; Web code never constructs providers."""
-    implemented = frozenset({"local"})
+    implemented = frozenset({"local", "elevenlabs"})
     supported = frozenset({"local", "elevenlabs", "google", "cartesia"})
 
     @classmethod
@@ -78,6 +85,13 @@ class TTSProviderFactory:
             return PiperTTSProvider(config.tts_local_executable,
                                     config.resolve_path(config.tts_local_model_path),
                                     config.tts_local_speaker_id)
+        if provider == "elevenlabs":
+            secret = secrets_service.get_secret("tts.elevenlabs.api_key") if secrets_service else None
+            if not secret:
+                raise TTSConfigurationError("ElevenLabs credential is not configured.")
+            return ElevenLabsTTSProvider(secret, config.tts_elevenlabs_voice_id,
+                                         config.tts_elevenlabs_model_id,
+                                         config.tts_elevenlabs_output_format)
         if provider in cls.supported:
             raise TTSProviderUnavailableError(f"TTS provider '{provider}' is not implemented.")
         raise TTSConfigurationError("Unknown TTS provider.")
@@ -172,6 +186,83 @@ class PiperTTSProvider(TTSProvider):
             path.unlink(missing_ok=True)
             raise
         return SynthesizedAudio(path)
+
+
+class ElevenLabsTTSProvider(TTSProvider):
+    """Synchronous ElevenLabs PCM adapter; playback stays provider-neutral."""
+    name = "elevenlabs"
+    max_text_length = 1000
+    _pcm_format = re.compile(r"pcm_(16000|22050|24000|44100|48000)$")
+
+    def __init__(self, api_key: str, voice_id: str | None, model_id: str, output_format: str,
+                 *, client_factory=None) -> None:
+        if not isinstance(api_key, str) or not api_key.strip():
+            raise TTSConfigurationError("ElevenLabs credential is not configured.")
+        if not isinstance(voice_id, str) or not voice_id.strip():
+            raise TTSConfigurationError("ElevenLabs voice ID is required.")
+        if not isinstance(model_id, str) or not model_id.strip() or not self._pcm_format.fullmatch(output_format or ""):
+            raise TTSConfigurationError("ElevenLabs configuration is invalid.")
+        try:
+            if client_factory is None:
+                from elevenlabs import ElevenLabs
+                client_factory = ElevenLabs
+            self._client = client_factory(api_key=api_key)
+        except Exception as error:
+            raise TTSConfigurationError("ElevenLabs client could not be initialized.") from error
+        self.voice_id, self.model_id, self.output_format = voice_id, model_id, output_format
+
+    def ready(self) -> bool:
+        return True
+
+    @staticmethod
+    def _error_code(error: Exception) -> str:
+        status = getattr(error, "status_code", getattr(error, "status", None))
+        body = getattr(error, "body", None)
+        api_code = body.get("code") if isinstance(body, dict) else getattr(error, "code", None)
+        if status in {401, 403} or api_code in {"unauthorized", "invalid_api_key", "authentication_error"}:
+            return "authentication_error"
+        if status == 402 or api_code == "paid_plan_required":
+            return "provider_plan_required"
+        if status == 404 or api_code == "voice_not_found":
+            return "voice_not_found"
+        if status == 429:
+            return "rate_limited"
+        if isinstance(status, int) and status >= 500:
+            return "provider_unavailable"
+        if isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            return "provider_unavailable"
+        return "synthesis_failed"
+
+    def synthesize(self, text: str) -> SynthesizedAudio:
+        if not isinstance(text, str) or not text.strip() or len(text) > self.max_text_length:
+            raise TTSConfigurationError("Speech text is invalid.")
+        started = time.monotonic()
+        speech_log("provider_synthesis_start", provider=self.name)
+        temporary = tempfile.NamedTemporaryFile(prefix="phos-tts-elevenlabs-", suffix=".wav", delete=False)
+        temporary.close()
+        path = Path(temporary.name)
+        try:
+            chunks = self._client.text_to_speech.convert(voice_id=self.voice_id, text=text,
+                                                          model_id=self.model_id, output_format=self.output_format)
+            pcm = b"".join(chunks)
+            if not pcm or len(pcm) % 2:
+                raise TTSSynthesisError("ElevenLabs returned invalid PCM audio.")
+            rate = int(self._pcm_format.fullmatch(self.output_format).group(1))
+            with wave.open(str(path), "wb") as output:
+                output.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+                output.writeframes(pcm)
+            _fsync_path(path)
+        except TTSSynthesisError:
+            path.unlink(missing_ok=True)
+            raise
+        except Exception as error:
+            path.unlink(missing_ok=True)
+            code = self._error_code(error)
+            logger.warning("PHOS TTS: provider=elevenlabs error=%s", code)
+            raise TTSProviderError(code) from error
+        speech_log("provider_synthesis_complete", provider=self.name,
+                   duration_ms=round((time.monotonic() - started) * 1000))
+        return SynthesizedAudio(path, sample_rate=rate, channels=1)
 
 
 class AudioOutputProvider:

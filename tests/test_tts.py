@@ -3,6 +3,8 @@ import asyncio
 import hashlib
 import os
 import subprocess
+import sys
+import types
 from pathlib import Path
 import wave
 
@@ -10,8 +12,9 @@ import pytest
 
 from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
                          SynthesizedAudio, TTSConfigurationError, TTSSynthesisError,
-                         TTSProviderFactory, TTSProviderUnavailableError)
+                         ElevenLabsTTSProvider, TTSProviderError, TTSProviderFactory, TTSUnavailableError)
 from robot.config import RuntimeConfig, load_document
+from robot.core import RobotCore, RobotState
 from robot.runtime import PhosRuntime
 from robot.voice import TTSBusyError
 from robot.voice.tts import speech_request_id
@@ -71,6 +74,20 @@ def test_runtime_clears_speech_task_after_each_of_five_sequential_requests():
     assert requests == [(f"Request {number}", number + 1) for number in range(5)]
 
 
+def test_runtime_unavailable_tts_is_typed_without_provider_reconstruction():
+    runtime = object.__new__(PhosRuntime)
+    runtime._tts_provider = None
+    runtime._audio_output = None
+
+    async def exercise():
+        with pytest.raises(TTSUnavailableError, match="currently unavailable"):
+            await runtime.speak("Hello")
+        with pytest.raises(TTSUnavailableError, match="currently unavailable"):
+            await runtime.accept_speech("Hello")
+
+    asyncio.run(exercise())
+
+
 def test_piper_rejects_empty_or_oversized_text(tmp_path):
     provider = PiperTTSProvider("piper", tmp_path / "voice.onnx")
     with pytest.raises(TTSConfigurationError): provider.synthesize("  ")
@@ -86,8 +103,9 @@ def test_tts_provider_factory_selects_local_and_never_falls_back_for_cloud(tmp_p
     assert isinstance(TTSProviderFactory.create(config), PiperTTSProvider)
 
     document["tts"]["provider"] = "elevenlabs"
+    document["tts"]["elevenlabs"]["voice_id"] = "voice-id"
     cloud = RuntimeConfig.from_dict(document, base_dir=tmp_path)
-    with pytest.raises(TTSProviderUnavailableError, match="not implemented"):
+    with pytest.raises(TTSConfigurationError, match="credential"):
         TTSProviderFactory.create(cloud)
 
 
@@ -95,6 +113,92 @@ def test_unknown_tts_provider_is_rejected_by_configuration(tmp_path):
     document = load_document(); document["tts"]["provider"] = "unknown"
     with pytest.raises(Exception, match="tts.provider"):
         RuntimeConfig.from_dict(document, base_dir=tmp_path)
+
+
+def test_elevenlabs_factory_uses_runtime_secret_and_provider_reuses_client(tmp_path, monkeypatch):
+    document = load_document()
+    document["tts"].update(enabled=True, provider="elevenlabs")
+    document["tts"]["elevenlabs"]["voice_id"] = "voice-id"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    created = []
+
+    class Client:
+        def __init__(self, *, api_key): created.append(api_key)
+        class text_to_speech:
+            @staticmethod
+            def convert(**kwargs): return iter((b"\x01\0", b"\x02\0"))
+
+    monkeypatch.setitem(sys.modules, "elevenlabs", types.SimpleNamespace(ElevenLabs=Client))
+    provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
+    assert isinstance(provider, ElevenLabsTTSProvider) and created == ["secret-value"]
+    first, second = provider.synthesize("Hello"), provider.synthesize("Again")
+    assert created == ["secret-value"]
+    assert first.path.is_file() and second.path.is_file()
+    first.path.unlink(); second.path.unlink()
+
+
+def test_elevenlabs_failure_is_typed_and_cleans_output():
+    class Client:
+        class text_to_speech:
+            @staticmethod
+            def convert(**kwargs): raise RuntimeError("authentication header")
+    provider = ElevenLabsTTSProvider("secret", "voice", "model", "pcm_24000", client_factory=lambda **kwargs: Client())
+    with pytest.raises(TTSProviderError, match="synthesis_failed"):
+        provider.synthesize("Hello")
+
+
+@pytest.mark.parametrize(("status", "code", "expected"), [
+    (402, "paid_plan_required", "provider_plan_required"), (404, "voice_not_found", "voice_not_found"),
+    (401, "unauthorized", "authentication_error"), (403, "forbidden", "authentication_error"),
+    (429, "rate_limited", "rate_limited"),
+    (503, "service_error", "provider_unavailable"), (400, "bad_request", "synthesis_failed"),
+])
+def test_elevenlabs_api_errors_are_sanitized(status, code, expected, caplog):
+    class ApiError(Exception):
+        def __init__(self): self.status_code, self.body = status, {"code": code, "authorization": "secret"}
+    class Client:
+        class text_to_speech:
+            @staticmethod
+            def convert(**kwargs): raise ApiError()
+    provider = ElevenLabsTTSProvider("secret", "voice", "model", "pcm_24000", client_factory=lambda **kwargs: Client())
+    with caplog.at_level("WARNING"), pytest.raises(TTSProviderError) as error:
+        provider.synthesize("Hello")
+    assert error.value.code == expected
+    assert f"PHOS TTS: provider=elevenlabs error={expected}" in caplog.text
+    assert "secret" not in caplog.text and "authorization" not in caplog.text
+
+
+def test_elevenlabs_network_error_is_provider_unavailable():
+    class Client:
+        class text_to_speech:
+            @staticmethod
+            def convert(**kwargs):
+                raise ConnectionError("endpoint with secret")
+
+    provider = ElevenLabsTTSProvider("secret", "voice", "model", "pcm_24000",
+                                     client_factory=lambda **kwargs: Client())
+    with pytest.raises(TTSProviderError, match="provider_unavailable"):
+        provider.synthesize("Hello")
+
+
+def test_runtime_returns_to_idle_after_expected_elevenlabs_failure(caplog):
+    runtime = object.__new__(PhosRuntime)
+    runtime.core = RobotCore()
+    runtime._tts_lock = asyncio.Lock()
+    runtime._tts_provider = types.SimpleNamespace(
+        name="elevenlabs",
+        synthesize=lambda text: (_ for _ in ()).throw(TTSProviderError("provider_plan_required")),
+    )
+    runtime._audio_output = object()
+
+    async def exercise():
+        with pytest.raises(TTSProviderError, match="provider_plan_required"):
+            await runtime.speak("Hello")
+        assert runtime.core.state is RobotState.IDLE
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(exercise())
+    assert "TTS provider/runtime error" not in caplog.text
 
 
 def test_piper_requires_model(tmp_path):

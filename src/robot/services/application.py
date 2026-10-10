@@ -32,7 +32,7 @@ from robot.core.touch import TOUCH_EVENT_NAMES
 from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SESSION_CANCELLED, VOICE_SPEECH_ENDED,
                                  VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
 from robot.voice.capture import UnsupportedCaptureRate
-from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSError
+from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -489,9 +489,12 @@ class PhosApplicationService:
             return {"status": "accepted"}
         except TTSBusyError as error:
             raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except TTSProviderError as error:
+            # The provider already logged its sanitized stable code.
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
         except (TTSConfigurationError, TTSError) as error:
             logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
-            raise ApplicationError("tts_unavailable", "Text-to-speech is unavailable.", status=503) from error
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
         except Exception as error:
             logger.exception("TTS: failed exception_type=%s", type(error).__name__)
             raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error

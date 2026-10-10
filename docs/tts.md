@@ -105,11 +105,31 @@ Robot / behavior
 
 `TTSProviderFactory` selects the configured provider only in the main PHOS
 runtime process. The Web Admin edits canonical configuration and never creates
-a provider. `local` (Piper) is the sole implemented selection. `elevenlabs`,
-`google`, and `cartesia` are stable reserved identifiers for future providers;
-the factory rejects them explicitly rather than falling back to Piper. Their API
-credentials remain write-only secrets managed through Web Admin's Credentials
-page, never YAML. Provider changes are saved but require a PHOS restart.
+a provider. `local` (Piper) and `elevenlabs` are implemented selections;
+`google` and `cartesia` remain reserved and unavailable. The factory never falls
+back to Piper. ElevenLabs uses the official SDK's non-streaming `convert` call
+with a configured lossless PCM output, wraps the result as a WAV, and uses the
+same normalization/preroll/playback path as Piper. Configure a Voice ID in Voice
+& speech; the ElevenLabs API key stays write-only in Web Admin's Credentials
+page and never YAML. Model ID and PCM output format remain configurable. Provider
+changes are saved but require a PHOS restart. Streaming is not implemented.
+
+Known ElevenLabs API failures are classified without logging SDK responses:
+authentication failures, plan-required responses, missing voices, rate limits,
+and provider/network unavailability become stable PHOS TTS error codes. These
+are expected warnings rather than tracebacks; the speech state still returns to
+idle and the API reports TTS as unavailable until a later request succeeds.
+
+TTS is optional. If an enabled configured provider cannot initialize—for example
+the ElevenLabs SDK is not installed, its credential is absent, or a local model
+is unavailable—PHOS logs a sanitized `PHOS TTS` warning and continues startup.
+Runtime status distinguishes `disabled` from an enabled-but-unavailable provider
+and reports only a safe reason such as `missing_dependency` or
+`missing_credential`. Speech requests then return the normal `tts_unavailable`
+response; PHOS never silently substitutes Piper.
+
+After deployment, install the updated optional dependencies with the documented
+environment command: `.venv/bin/pip install -e '.[all]'`.
 
 ## Contract
 
