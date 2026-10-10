@@ -101,6 +101,7 @@ CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),
            "sensors.imu.i2c_address": ("0x68", "0x69"),
            "sensors.environmental.type": ("bme280", "bmp280"),
            "expression.provider": ("local", "aws"),
+           "tts.provider": ("local", "elevenlabs", "google", "cartesia"),
            "sensors.environmental.i2c_address": ("0x76", "0x77"),
            "logging.level": ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
            "display.iris_color": ("cyan", "blue", "green", "turquoise", "amber", "violet", "white"),
@@ -143,7 +144,7 @@ def editor_sections(document, prefix=""):
                     else "array" if isinstance(value, list) else "text")
             direct.append({"name": field_name, "label": key.replace("_", " ").capitalize(),
                            "kind": kind, "value": ", ".join(map(str, value)) if isinstance(value, list) else value,
-                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region"},
+                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path"},
                            "choices": CHOICES.get(field_name)})
         sections.append({"name": route, "title": route.replace(".", " / ").replace("_", " ").title(),
                          "help": HELP.get(route, ""), "fields": direct})

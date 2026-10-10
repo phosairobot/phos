@@ -98,9 +98,18 @@ Robot / behavior
  TTSProvider
       |
       +--> PiperTTSProvider      local/offline
-      +--> future cloud provider
-      +--> future HA provider
+      +--> future ElevenLabs provider
+      +--> future Google Cloud TTS provider
+      +--> future Cartesia provider
 ```
+
+`TTSProviderFactory` selects the configured provider only in the main PHOS
+runtime process. The Web Admin edits canonical configuration and never creates
+a provider. `local` (Piper) is the sole implemented selection. `elevenlabs`,
+`google`, and `cartesia` are stable reserved identifiers for future providers;
+the factory rejects them explicitly rather than falling back to Piper. Their API
+credentials remain write-only secrets managed through Web Admin's Credentials
+page, never YAML. Provider changes are saved but require a PHOS restart.
 
 ## Contract
 

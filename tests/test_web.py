@@ -414,6 +414,25 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
         assert "Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes." in page
 
 
+def test_voice_settings_show_provider_availability_and_persist_local_settings(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    page = client.get("/configuration/voice").get_data(as_text=True)
+    assert "Local / Piper" in page
+    assert "ElevenLabs (Coming soon)" in page
+    assert "Google Cloud TTS (Coming soon)" in page
+    assert "Cartesia (Coming soon)" in page
+    model = path.parent / "voice.onnx"; model.write_bytes(b"model")
+    data = form(client, "voice")
+    data.update({"tts.enabled": "on", "tts.provider": "local", "tts.local.model_path": "voice.onnx"})
+    response = client.post("/", data=data, follow_redirects=True)
+    assert response.status_code == 200
+    saved = RuntimeConfig.from_file(path)
+    assert saved.tts_enabled and saved.tts_provider == "local"
+    assert saved.tts_local_model_path == Path("voice.onnx")
+    assert "restart PHOS" in response.get_data(as_text=True)
+
+
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),
     ("expression.aws.refresh_seconds", "999999"), ("expression.provider", "bad"),
     ("display.fps", "not-a-number"), ("web.port", "65536")])

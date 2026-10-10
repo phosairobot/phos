@@ -9,7 +9,8 @@ import wave
 import pytest
 
 from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
-                         SynthesizedAudio, TTSConfigurationError, TTSSynthesisError)
+                         SynthesizedAudio, TTSConfigurationError, TTSSynthesisError,
+                         TTSProviderFactory, TTSProviderUnavailableError)
 from robot.config import RuntimeConfig, load_document
 from robot.runtime import PhosRuntime
 from robot.voice import TTSBusyError
@@ -74,6 +75,26 @@ def test_piper_rejects_empty_or_oversized_text(tmp_path):
     provider = PiperTTSProvider("piper", tmp_path / "voice.onnx")
     with pytest.raises(TTSConfigurationError): provider.synthesize("  ")
     with pytest.raises(TTSConfigurationError): provider.synthesize("x" * 1001)
+
+
+def test_tts_provider_factory_selects_local_and_never_falls_back_for_cloud(tmp_path):
+    model = tmp_path / "voice.onnx"; model.write_bytes(b"model")
+    document = load_document()
+    document["tts"].update(enabled=True, provider="local")
+    document["tts"]["local"]["model_path"] = str(model)
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    assert isinstance(TTSProviderFactory.create(config), PiperTTSProvider)
+
+    document["tts"]["provider"] = "elevenlabs"
+    cloud = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    with pytest.raises(TTSProviderUnavailableError, match="not implemented"):
+        TTSProviderFactory.create(cloud)
+
+
+def test_unknown_tts_provider_is_rejected_by_configuration(tmp_path):
+    document = load_document(); document["tts"]["provider"] = "unknown"
+    with pytest.raises(Exception, match="tts.provider"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path)
 
 
 def test_piper_requires_model(tmp_path):

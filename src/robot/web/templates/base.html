@@ -26,6 +26,7 @@
 <a href="{{ url_for('configuration', area='eyes') }}" {% if area is defined and area == 'eyes' %}aria-current="page"{% endif %}><i>◉</i>Eyes</a>
 <a href="{{ url_for('configuration', area='network') }}" {% if area is defined and area == 'network' %}aria-current="page"{% endif %}><i>⌁</i>Network</a>
 <a href="{{ url_for('configuration', area='runtime') }}" {% if area is defined and area == 'runtime' %}aria-current="page"{% endif %}><i>⏱</i>Runtime</a>
+<a href="{{ url_for('configuration', area='voice') }}" {% if area is defined and area == 'voice' %}aria-current="page"{% endif %}><i>♬</i>Voice &amp; speech</a>
 <a href="{{ url_for('configuration', area='behavior') }}" {% if area is defined and area == 'behavior' %}aria-current="page"{% endif %}><i>◇</i>Behavior</a>
 <a href="{{ url_for('configuration', area='integrations') }}" {% if area is defined and area == 'integrations' %}aria-current="page"{% endif %}><i>⌘</i>Integrations</a>
 </nav><div class="sidebar-account"><a href="{{ url_for('password') }}">Change password</a><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button>Log out</button></form></div></aside>

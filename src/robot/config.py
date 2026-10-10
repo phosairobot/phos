@@ -805,12 +805,16 @@ class RuntimeConfig:
             raise ConfigurationError("voice input or STT provider is invalid")
         if self.voice_stt_language is not None and (not isinstance(self.voice_stt_language, str) or not self.voice_stt_language.strip()):
             raise ConfigurationError("voice.stt.language must be a nonempty string or null")
-        if self.tts_provider != "local" or self.tts_local_engine != "piper":
-            raise ConfigurationError("tts provider must be local Piper")
+        if self.tts_provider not in {"local", "elevenlabs", "google", "cartesia"}:
+            raise ConfigurationError("tts.provider must be local, elevenlabs, google, or cartesia")
+        if self.tts_provider == "local" and self.tts_local_engine != "piper":
+            raise ConfigurationError("tts.local.engine must be piper")
         if not isinstance(self.tts_local_executable, str) or not self.tts_local_executable.strip():
             raise ConfigurationError("tts.local.executable must be a nonempty command")
         if self.tts_local_speaker_id is not None and (type(self.tts_local_speaker_id) is not int or self.tts_local_speaker_id < 0):
             raise ConfigurationError("tts.local.speaker_id must be a nonnegative integer or null")
+        if self.tts_enabled and self.tts_provider == "local" and self.tts_local_model_path is None:
+            raise ConfigurationError("tts.local.model_path is required when local TTS is enabled")
         if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player != "aplay":
             raise ConfigurationError("tts.audio_output.player must be aplay")
         if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):
