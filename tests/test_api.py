@@ -133,7 +133,7 @@ def test_speak_api_preserves_stable_busy_unavailable_and_internal_errors():
 
 
 def test_application_speak_maps_runtime_busy_and_unavailable_errors(monkeypatch):
-    from robot.voice import TTSBusyError, TTSConfigurationError
+    from robot.voice import TTSBusyError, TTSConfigurationError, TTSProviderError
     runtime = Runtime()
     runtime._loop = object()
 
@@ -141,7 +141,9 @@ def test_application_speak_maps_runtime_busy_and_unavailable_errors(monkeypatch)
         return None
     runtime.accept_speech = accept_speech
 
-    for error, status, code in ((TTSBusyError(), 409, "tts_busy"), (TTSConfigurationError(), 503, "tts_unavailable")):
+    for error, status, code in ((TTSBusyError(), 409, "tts_busy"),
+                                (TTSConfigurationError(), 503, "tts_unavailable"),
+                                (TTSProviderError("provider_plan_required"), 503, "tts_unavailable")):
         def submit(coroutine, _loop, error=error):
             coroutine.close()
             return _VoiceFuture(error=error)

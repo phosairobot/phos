@@ -72,6 +72,10 @@ tts:
     executable: piper
     model_path: null
     speaker_id: null
+  elevenlabs:
+    voice_id: null
+    model_id: eleven_multilingual_v2
+    output_format: pcm_24000
   audio_output:
     player: aplay
     device: null

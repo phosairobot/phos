@@ -58,6 +58,7 @@ GROUPS["behavior"] = [("behavior", "Eye behavior", ("behavior.",), None)]
 GROUPS["integrations"] = GROUPS["security"]
 GROUPS["voice"] = [("tts", "Text-to-speech", ("tts.enabled", "tts.provider"), None),
                     ("local", "Local Piper", ("tts.local.",), "local"),
+                    ("elevenlabs", "ElevenLabs", ("tts.elevenlabs.",), "elevenlabs"),
                     ("audio", "Audio output", ("tts.audio_output.",), None)]
 
 

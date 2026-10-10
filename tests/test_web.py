@@ -419,9 +419,10 @@ def test_voice_settings_show_provider_availability_and_persist_local_settings(se
     client = authorize(app)
     page = client.get("/configuration/voice").get_data(as_text=True)
     assert "Local / Piper" in page
-    assert "ElevenLabs (Coming soon)" in page
+    assert "ElevenLabs" in page and "ElevenLabs (Coming soon)" not in page
     assert "Google Cloud TTS (Coming soon)" in page
     assert "Cartesia (Coming soon)" in page
+    assert "ElevenLabs credential status" in page and "Not configured" in page
     model = path.parent / "voice.onnx"; model.write_bytes(b"model")
     data = form(client, "voice")
     data.update({"tts.enabled": "on", "tts.provider": "local", "tts.local.model_path": "voice.onnx"})
