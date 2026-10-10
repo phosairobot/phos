@@ -10,7 +10,7 @@ from urllib.request import urlopen
 import pytest
 import yaml
 
-from robot.config import ConfigurationError, RuntimeConfig, load_document
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
 from robot.secrets import SecretsService
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
@@ -687,9 +687,20 @@ def test_main_owns_enabled_worker_and_cleans_up_on_runtime_failure(setup, monkey
     document["web"]["enabled"] = True
     path.write_text(json.dumps(document))
     seen = []
+    repositories = []
+    repository_factory = main.ConfigRepository
+
+    def make_repository(config_path):
+        repository = repository_factory(config_path)
+        repositories.append(repository)
+        return repository
+
     class Worker:
-        def __init__(self, config_path, config):
-            assert config_path == path and config.web_enabled
+        def __init__(self, repository, config):
+            assert isinstance(repository, ConfigRepository)
+            assert repository is repositories[0]
+            assert repository.active_path == path.resolve()
+            assert config.web_enabled
             self.lifecycle = None
         def __enter__(self):
             seen.append("start")
@@ -700,6 +711,7 @@ def test_main_owns_enabled_worker_and_cleans_up_on_runtime_failure(setup, monkey
         assert seen == ["start"]
         raise RuntimeError("runtime failed")
     monkeypatch.setattr("robot.web.server.WebServer", Worker)
+    monkeypatch.setattr(main, "ConfigRepository", make_repository)
     monkeypatch.setattr(main, "async_main", fail)
     monkeypatch.setattr(main.logging, "basicConfig", lambda **kw: None)
     monkeypatch.setattr("sys.argv", ["phos", "--config", str(path)])
@@ -969,7 +981,7 @@ def test_real_worker_reload_reaches_parent_application(setup):
         with worker:
             send("/login", {"csrf_token": token(get("/login")), "password": PASSWORD})
             page = get("/system")
-            assert "System actions" in page
+            assert '<form action="/system/reload" method="post">' in page
             document["logging"]["level"] = "ERROR"
             path.write_text(json.dumps(document))
             response = send("/system/reload", {"csrf_token": token(page)})

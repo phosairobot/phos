@@ -3,14 +3,20 @@ Description=PHOS robot runtime and administration
 # Order after session preparation, not after the target that wants this unit.
 After=graphical-session-pre.target
 PartOf=graphical-session.target
+# The desktop-session bridge sets this only after validating a local seat0
+# graphical session.  A forwarded SSH DISPLAY therefore cannot launch PHOS.
+ConditionEnvironment=PHOS_LOCAL_GRAPHICAL_SESSION=1
 StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
 Type=simple
 WorkingDirectory=%h/phos
-ExecStart=%h/phos/.venv/bin/python %h/phos/src/robot/main.py
-Environment=PHOS_SERVICE_MANAGED=1
+# Import paths from the checkout, rather than executing a package module as a
+# script.  The latter puts src/robot first on sys.path and can shadow stdlib
+# modules (for example robot/secrets.py).
+Environment=PYTHONPATH=%h/phos/src PHOS_SERVICE_MANAGED=1
+ExecStart=%h/phos/.venv/bin/python -m robot.main --config %h/phos/config/phos.yaml
 Restart=on-failure
 RestartForceExitStatus=75
 RestartSec=3

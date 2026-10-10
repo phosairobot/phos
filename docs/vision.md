@@ -332,7 +332,7 @@ the `expression.local` object in `config/phos.yaml` with:
 }
 ```
 
-Then run `python3 src/robot/main.py`.
+Then run `PYTHONPATH=src python3 -m robot.main --config config/phos.yaml`.
 
 FER+ preprocessing uses unscaled grayscale pixel values (`scale=1`), zero mean
 and no channel swap. `happiness` and `surprise` are candidates for happy and surprised semantics;

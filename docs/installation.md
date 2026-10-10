@@ -162,7 +162,7 @@ For a first foreground check from the desktop:
 
 ```bash
 cd ~/phos
-.venv/bin/python src/robot/main.py
+PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
 Check the startup version is **1.3.0** and the logged configuration path is the
@@ -185,24 +185,36 @@ service, sudo endpoint or adapter-owned shell command is involved. From a termin
 cd ~/phos
 mkdir -p ~/.config/systemd/user
 cp deploy/phos.service ~/.config/systemd/user/phos.service
-systemctl --user import-environment DISPLAY
-if [ -n "${XAUTHORITY:-}" ]; then
-  systemctl --user import-environment XAUTHORITY
-fi
+mkdir -p ~/.config/autostart
+cp deploy/phos-session-env.desktop ~/.config/autostart/phos-session-env.desktop
 systemctl --user daemon-reload
-systemctl --user enable --now phos.service
+systemctl --user enable phos.service
+journalctl --user -u phos.service -n 100 --no-pager
+```
+
+The unit uses `%h/phos`, `.venv/bin/python`, module execution, and the explicit
+`%h/phos/config/phos.yaml` configuration path. Do not install it under
+`/etc/systemd/system` or run it as root. The installed desktop autostart bridge
+validates its own logind session (`Active=yes`, `Remote=no`, `Seat=seat0`, and
+X11/Wayland) before importing that session's GUI variables and starting PHOS.
+This binds the face to the physical local display, not an arbitrary user-manager
+environment. The desktop file assumes the documented `/home/pi/phos` deployment;
+for another desktop user, change its `Exec` path while retaining the same bridge.
+
+Do not run the bridge from SSH. In particular, SSH X11 forwarding can supply
+`DISPLAY=localhost:10.0` (or similar); it is rejected and cannot overwrite the
+service target. After a local graphical login, confirm the bridge and service:
+
+```bash
 systemctl --user status phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
 
-The unit uses `%h/phos`, `.venv/bin/python` and configuration discovery. Adjust
-WorkingDirectory/ExecStart locally if installing elsewhere. Tk must have a usable
-DISPLAY and authorization; do not enable lingering/headless boot for this app.
-Login startup depends on the desktop activating `graphical-session.target` and
-importing its display environment. Check `systemctl --user is-active
-graphical-session.target`. If the desktop does not manage that target/environment,
-run the import commands and `systemctl --user start phos.service` at each desktop
-login. Automatic login startup on that desktop remains an acceptance prerequisite.
+Successful startup logs `PHOS DISPLAY: session_type=x11 display=:0
+source=local-seat0` (the numeric display is discovered, not hardcoded). A missing
+local graphical session leaves the service unstarted rather than opening Tk on an
+SSH display. Direct execution of `src/robot/main.py` is unsupported because it
+can shadow standard-library modules.
 
 Operations:
 
@@ -368,7 +380,7 @@ systemctl --user restart phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
 
-Manual launch: `.venv/bin/python src/robot/main.py`.
+Manual launch: `PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml`.
 Open **Web Admin → Sensors** and refresh the page to see current °C, % relative
 humidity (BME280 only) and hPa, UTC last-update time, age and health. BMP280
 humidity is null and shown as **Not supported**. The active type remains visible
@@ -706,7 +718,7 @@ systemctl --user restart phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
 
-Manual launch uses `.venv/bin/python src/robot/main.py`.
+Manual launch uses `PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml`.
 The runtime starts the firmware application and selects device mode 1 (one-second
 measurements). Host polling does not change that drive mode. Readings are withheld
 for 20 minutes after every initialization, including reconnect/restart; the UI

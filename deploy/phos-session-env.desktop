@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=PHOS local graphical-session bridge
+Comment=Bind PHOS to the local seat0 graphical session
+Exec=sh /home/pi/phos/deploy/phos-session-env.sh
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -65,7 +65,7 @@ For production use the [user systemd service](docs/installation.md#managed-start
 For a foreground diagnostic run from a graphical Raspberry Pi OS desktop session:
 
 ```bash
-.venv/bin/python src/robot/main.py
+PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
 [config/phos.yaml](config/phos.yaml) is the preferred, editable configuration and
