@@ -31,6 +31,10 @@ Set `preroll_ms: 0` to disable only the warm-up; other outputs may configure a
 different target format. This is an HDMI output workaround, not a Piper
 synthesis change.
 
+HDMI audio can also be affected when the display enters standby. The reference
+deployment keeps its X11 face display active while PHOS runs; see [face display
+session guidance](hardware.md#face-display-session).
+
 ## Architecture
 
 ```text

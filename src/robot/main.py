@@ -8,22 +8,74 @@ from __future__ import annotations
 import asyncio
 import argparse
 import logging
+import os
 import signal
+import shutil
+import subprocess
 import sys
 from pathlib import Path
-
-# Allow direct execution from a source checkout with
-# ``python3 src/robot/main.py`` without a package installation.
-SOURCE_DIRECTORY = Path(__file__).resolve().parent.parent
-if str(SOURCE_DIRECTORY) not in sys.path:
-    sys.path.insert(0, str(SOURCE_DIRECTORY))
-
 from robot import __version__
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 from robot.runtime import PhosRuntime, build_runtime
 from robot.lifecycle import RESTART_EXIT_CODE
 
 logger = logging.getLogger(__name__)
+
+
+def _log_graphical_session() -> None:
+    """Log only safe, deployment-bound graphical-session identifiers."""
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    display = os.environ.get("DISPLAY", "")
+    source = os.environ.get("PHOS_DISPLAY_SOURCE", "manager")
+    safe_type = session_type if session_type in {"x11", "wayland"} else "unknown"
+    safe_source = source if source == "local-seat0" else "manager"
+    if safe_type == "x11" and display.startswith(":") and display[1:].replace(".", "").isdigit():
+        safe_display = display
+    elif safe_type == "wayland" and display == "":
+        safe_display = os.environ.get("WAYLAND_DISPLAY", "") if os.environ.get("WAYLAND_DISPLAY", "").startswith("wayland-") else "unavailable"
+    else:
+        safe_display = "unavailable"
+    logger.info("PHOS DISPLAY: session_type=%s display=%s source=%s", safe_type, safe_display, safe_source)
+
+
+def _configure_x11_display_power() -> None:
+    """Keep the reference X11 face display awake for this PHOS process.
+
+    The user service inherits DISPLAY and, where needed, XAUTHORITY from the
+    graphical session.  Do not guess either value here: xset must address the
+    same X11 server that Tk uses for the face display.
+    """
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type != "x11":
+        logger.info(
+            "PHOS DISPLAY: session_type=%s; skipping X11 keep-awake setup",
+            session_type or "unknown",
+        )
+        return
+    if not os.environ.get("DISPLAY"):
+        logger.debug("PHOS DISPLAY: DISPLAY is unavailable; skipping X11 keep-awake setup")
+        return
+
+    xset = shutil.which("xset")
+    if xset is None:
+        logger.warning("PHOS DISPLAY: xset is unavailable; could not disable screen blanking and DPMS")
+        return
+
+    logger.info("PHOS DISPLAY: disabling screen blanking and DPMS")
+    failures: list[str] = []
+    for arguments in (("s", "off"), ("-dpms",), ("s", "noblank")):
+        try:
+            result = subprocess.run((xset, *arguments), check=False, timeout=5)
+        except (OSError, subprocess.SubprocessError) as error:
+            failures.append(f"{' '.join(arguments)} ({error})")
+            continue
+        if result.returncode != 0:
+            failures.append(f"{' '.join(arguments)} (status {result.returncode})")
+    if failures:
+        logger.warning(
+            "PHOS DISPLAY: xset could not fully apply display keep-awake (%s); PHOS will continue",
+            "; ".join(failures),
+        )
 
 
 def build_application(*, config: RuntimeConfig | None = None) -> PhosRuntime:
@@ -198,6 +250,8 @@ def main() -> None:
         logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", repository.active_path)
     logger.info("PHOS %s", __version__)
     logger.info("PHOS configuration loaded: %s", repository.active_path)
+    _log_graphical_session()
+    _configure_x11_display_power()
     # The optional web worker is isolated from camera/rendering and is stopped
     # even when runtime startup or execution fails.
     from robot.web.server import WebServer

@@ -4,6 +4,10 @@ from copy import deepcopy
 import json
 import logging
 import multiprocessing
+import os
+from pathlib import Path
+import subprocess
+import sys
 from threading import Event, Thread
 
 import pytest
@@ -361,8 +365,17 @@ def test_deployment_contract_and_restart_capability(runtime, monkeypatch):
     unit.read(Path(__file__).resolve().parents[1] / "deploy/phos.service")
     assert unit["Unit"]["After"] == "graphical-session-pre.target"
     assert unit["Unit"]["PartOf"] == "graphical-session.target"
+    assert unit["Unit"]["ConditionEnvironment"] == "PHOS_LOCAL_GRAPHICAL_SESSION=1"
     assert unit["Service"]["RestartForceExitStatus"] == str(RESTART_EXIT_CODE)
-    assert unit["Service"]["ExecStart"].endswith("%h/phos/src/robot/main.py")
+    assert unit["Service"]["ExecStart"] == (
+        "%h/phos/.venv/bin/python -m robot.main --config %h/phos/config/phos.yaml"
+    )
+    environment = unit["Service"]["Environment"]
+    assert "PYTHONPATH=%h/phos/src" in environment
+    assert "PHOS_SERVICE_MANAGED=1" in environment
+    assert "/root" not in environment
+    assert "phos.json" not in unit["Service"]["ExecStart"]
+    assert "src/robot/main.py" not in unit["Service"]["ExecStart"]
     config = RuntimeConfig.from_file(path)
     monkeypatch.delenv("INVOCATION_ID", raising=False)
     monkeypatch.setenv("PHOS_SERVICE_MANAGED", "1")
@@ -371,3 +384,27 @@ def test_deployment_contract_and_restart_capability(runtime, monkeypatch):
     assert WebServer(path, config).lifecycle.restart_supported
     monkeypatch.delenv("PHOS_SERVICE_MANAGED")
     assert not WebServer(path, config).lifecycle.restart_supported
+
+
+def test_module_startup_resolves_stdlib_secrets_with_deployed_pythonpath():
+    root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(root / "src")
+    result = subprocess.run(
+        [sys.executable, "-m", "robot.main", "--help"],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    probe = subprocess.run(
+        [sys.executable, "-c", "import secrets; assert hasattr(secrets, 'token_bytes')"],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert probe.returncode == 0, probe.stderr

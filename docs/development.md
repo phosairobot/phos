@@ -13,7 +13,7 @@ The complete YAML structure and authoritative default values are in
 [the canonical file](https://github.com/phosairobot/phos/blob/main/config/phos.yaml); edit it directly and restart PHOS:
 
 ```bash
-python3 src/robot/main.py
+PYTHONPATH=src python3 -m robot.main --config config/phos.yaml
 ```
 
 No separate example/provider files or hidden overlays are loaded. With no
@@ -191,8 +191,8 @@ plus existence and readability. The Tk loader then logs the image format and
 dimensions, or its loader exception. The ready-sound log includes the resolved
 `aplay` binary, full command, return code, and stderr. For Pi troubleshooting,
 run that logged command manually (for example `aplay -q -D default path/to/ready.wav`).
-The `phos.service` unit runs `src/robot/main.py` with configuration discovery and
-`WorkingDirectory=%h/phos`; it sets no
+The `phos.service` unit runs `python -m robot.main` with the explicit canonical
+`%h/phos/config/phos.yaml` path and `PYTHONPATH=%h/phos/src`; it sets no
 audio-session environment variables. Package defaults therefore do not depend
 on either the working directory or a developer home directory; ALSA selection is
 limited to the optional `startup.ready_sound.device` value.

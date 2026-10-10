@@ -38,11 +38,11 @@ for production and browser restart. For a foreground diagnostic run:
 
 ```bash
 cd /home/pi/phos
-.venv/bin/python src/robot/main.py
+PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
 With dependencies already available to system Python, the unchanged command is
-`python3 src/robot/main.py`.
+`PYTHONPATH=src python3 -m robot.main --config config/phos.yaml`.
 Open **http://<PI-LAN-IP>:8080/** from your phone, tablet or desktop. Obtain the
 Pi address locally with `hostname -I`. With the default loopback binding, only
 **http://127.0.0.1:8080/** on the Pi can connect. A custom port changes both URLs.

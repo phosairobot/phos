@@ -262,7 +262,7 @@ that is the intended outcome when the evidence is insufficient.
 
 Physical verification of the new policy:
 
-1. Use `python3 src/robot/main.py` with `logging.expression_diagnostics=true`.
+1. Use `PYTHONPATH=src python3 -m robot.main --config config/phos.yaml` with `logging.expression_diagnostics=true`.
    Check correct framing and reliable face detection first. The previously
    documented channel-order mismatch and crop quality remain limitations.
 2. Hold a resting face, then a smile, then surprise for several seconds each.
