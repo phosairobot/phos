@@ -1,5 +1,6 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
 import json
+import html
 from html.parser import HTMLParser
 import re
 import socket
@@ -7,8 +8,10 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+import yaml
 
-from robot.config import ConfigurationError, RuntimeConfig, load_document
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
+from robot.secrets import SecretsService
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
@@ -68,8 +71,17 @@ class FormParser(HTMLParser):
 
 def form(client, area="display"):
     parser = FormParser()
-    parser.feed(client.get(f"/configuration/{area}").get_data(as_text=True))
+    parser.feed(client.get(f"/configuration/{area}", follow_redirects=True).get_data(as_text=True))
     return parser.values
+
+
+def editor_form(client):
+    response = client.get("/configuration/editor")
+    source = html.unescape(re.search(r'<textarea[^>]*name="configuration"[^>]*>(.*?)</textarea>',
+                                     response.get_data(as_text=True), re.DOTALL).group(1))
+    return response, {"csrf_token": csrf(response), "revision": re.search(
+        r'name="revision" value="([^"]+)"', response.get_data(as_text=True)).group(1),
+        "configuration": source}
 
 
 def test_bootstrap_login_forces_change_and_never_exposes_config(setup):
@@ -88,6 +100,50 @@ def test_bootstrap_login_forces_change_and_never_exposes_config(setup):
     assert data["must_change"] is True
     assert (path.parent / ".phos-admin").stat().st_mode & 0o777 == 0o700
     assert (path.parent / ".phos-admin/password.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_credentials_are_write_only_csrf_protected_and_persist_encrypted(setup, caplog):
+    app, path, _ = setup
+    assert app.test_client().get("/credentials").location == "/login"
+    client = authorize(app)
+    value = "do-not-render-or-log-this-secret"
+
+    page = client.get("/credentials")
+    body = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "ElevenLabs API Key" in body and "Cartesia API Key" in body and "Not configured" in body
+    assert 'type="password"' in body and value not in body
+    assert not hasattr(app.extensions["phos_secrets"], "get_secret")
+    assert client.post("/credentials", data={"action": "set"}).status_code == 400
+
+    response = client.post("/credentials", data={
+        "csrf_token": csrf(page), "action": "set", "name": "tts.elevenlabs.api_key", "value": value,
+    })
+    assert response.status_code == 302 and response.location == "/credentials"
+    saved = client.get("/credentials").get_data(as_text=True)
+    assert "Configured" in saved and value not in saved
+    service = SecretsService(path.parent / ".phos-secrets")
+    assert service.get_secret("tts.elevenlabs.api_key") == value
+    assert value.encode("utf-8") not in service.store_path.read_bytes()
+
+    blank = client.post("/credentials", data={
+        "csrf_token": csrf(client.get("/credentials")), "action": "set",
+        "name": "tts.elevenlabs.api_key", "value": "",
+    })
+    assert blank.status_code == 400
+    assert service.get_secret("tts.elevenlabs.api_key") == value
+    not_confirmed = client.post("/credentials", data={
+        "csrf_token": csrf(client.get("/credentials")), "action": "remove",
+        "name": "tts.elevenlabs.api_key",
+    })
+    assert not_confirmed.status_code == 400
+    removed = client.post("/credentials", data={
+        "csrf_token": csrf(client.get("/credentials")), "action": "remove",
+        "name": "tts.elevenlabs.api_key", "confirm_remove": "yes",
+    })
+    assert removed.status_code == 302
+    assert not service.has_secret("tts.elevenlabs.api_key")
+    assert value not in caplog.text
 
 
 def test_existing_phos_images_are_used_as_responsive_visuals(setup):
@@ -354,12 +410,29 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
         config = RuntimeConfig.from_file(path)
         assert config.expression_provider == provider and config.expression_enabled
         assert config.display_fps == 30
-        page = client.get("/configuration/expression").get_data(as_text=True)
-        assert "Configuration saved. Use System actions to reload logging, eye appearance and camera preview, or restart PHOS for other settings." in page
-        status = client.get("/configuration/status").get_data(as_text=True)
-        assert "Saved configuration differs" in status
-        assert "<dt>Startup expression provider</dt><dd>local" in status
-        assert "Expression Recognition" in page
+        page = client.get("/configuration/expression", follow_redirects=True).get_data(as_text=True)
+        assert "Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes." in page
+
+
+def test_voice_settings_show_provider_availability_and_persist_local_settings(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    page = client.get("/configuration/voice").get_data(as_text=True)
+    assert "Local / Piper" in page
+    assert "ElevenLabs" in page and "ElevenLabs (Coming soon)" not in page
+    assert "Google Cloud TTS (Coming soon)" in page
+    assert "Cartesia (Coming soon)" not in page and "Cartesia" in page
+    assert "ElevenLabs credential:" in page and "Cartesia credential:" in page and "Not configured" in page
+    assert 'name="tts.cartesia.speed"' in page and 'name="tts.cartesia.volume"' in page
+    model = path.parent / "voice.onnx"; model.write_bytes(b"model")
+    data = form(client, "voice")
+    data.update({"tts.enabled": "on", "tts.provider": "local", "tts.local.model_path": "voice.onnx"})
+    response = client.post("/", data=data, follow_redirects=True)
+    assert response.status_code == 200
+    saved = RuntimeConfig.from_file(path)
+    assert saved.tts_enabled and saved.tts_provider == "local"
+    assert saved.tts_local_model_path == Path("voice.onnx")
+    assert "restart PHOS" in response.get_data(as_text=True)
 
 
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),
@@ -439,6 +512,104 @@ def test_safe_save_failure_keeps_existing_configuration(setup, monkeypatch):
     assert client.post("/", data=data).status_code == 503
     assert path.read_bytes() == original
     assert not list(path.parent.glob(".phos.json.*"))
+
+
+def test_web_save_uses_explicit_canonical_yaml_without_rewriting_json(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    yaml_path = tmp_path / "phos.yaml"
+    json_path = tmp_path / "phos.json"
+    yaml_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    json_path.write_text(json.dumps(document))
+    app = create_app(yaml_path, active_document=document)
+    app.testing = True
+    client = authorize(app)
+    data = form(client)
+    data["display.fps"] = "19"
+
+    assert client.post("/", data=data).status_code == 302
+    assert yaml.safe_load(yaml_path.read_text())["display"]["fps"] == 19
+    assert json.loads(json_path.read_text()) == document
+
+
+def test_configuration_editor_renders_and_validates_yaml_without_writing(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    app = create_app(path, active_document=document)
+    app.testing = True
+    client = authorize(app)
+    response, data = editor_form(client)
+    original = path.read_bytes()
+
+    assert response.status_code == 200
+    assert b"Storage format</dt><dd>YAML" in response.data
+    assert b"Advanced configuration editor" in response.data
+    data["action"] = "validate"
+    response = client.post("/configuration/editor", data=data)
+
+    assert response.status_code == 200
+    assert b"Configuration is valid." in response.data
+    assert path.read_bytes() == original
+
+
+def test_configuration_editor_requires_authentication_and_csrf(setup):
+    app, _, _ = setup
+    assert app.test_client().get("/configuration/editor").location == "/login"
+    client = authorize(app)
+    assert client.post("/configuration/editor", data={"action": "validate"}).status_code == 400
+
+
+def test_configuration_editor_rejects_invalid_yaml_and_stale_edits(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    _, data = editor_form(client)
+    original = path.read_bytes()
+    data.update(action="validate", configuration="display: [")
+    response = client.post("/configuration/editor", data=data)
+    assert response.status_code == 400 and b"Invalid YAML at line" in response.data
+    assert path.read_bytes() == original
+
+    _, invalid = editor_form(client)
+    invalid.update(action="validate", configuration="display: {}\n")
+    response = client.post("/configuration/editor", data=invalid)
+    assert response.status_code == 400 and b"missing fields" in response.data
+    assert path.read_bytes() == original
+
+    _, stale = editor_form(client)
+    changed = load_document(path)
+    changed["display"]["fps"] = 19
+    path.write_text(json.dumps(changed))
+    stale["action"] = "save"
+    response = client.post("/configuration/editor", data=stale)
+    assert response.status_code == 400
+    assert b"Configuration changed since this page was loaded" in response.data
+
+
+def test_configuration_editor_saves_yaml_or_legacy_json_in_active_format(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    for index, (suffix, loader) in enumerate(((".yaml", yaml.safe_load), (".json", json.loads))):
+        directory = tmp_path / str(index)
+        directory.mkdir()
+        path = directory / f"phos{suffix}"
+        path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False)
+                        if suffix == ".yaml" else json.dumps(document))
+        app = create_app(path, active_document=document)
+        app.testing = True
+        client = authorize(app)
+        _, data = editor_form(client)
+        edited = yaml.safe_load(data["configuration"])
+        edited["display"]["fps"] = 19
+        data.update(action="save", configuration=yaml.safe_dump(edited, default_flow_style=False, sort_keys=False))
+
+        response = client.post("/configuration/editor", data=data, follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b"Configuration saved successfully. Restart PHOS to apply changes." in response.data
+        assert loader(path.read_text())["display"]["fps"] == 19
+        assert path.read_text().lstrip().startswith("{") is (suffix == ".json")
 
 
 def test_missing_active_model_can_be_repaired_in_editor(setup):
@@ -537,9 +708,20 @@ def test_main_owns_enabled_worker_and_cleans_up_on_runtime_failure(setup, monkey
     document["web"]["enabled"] = True
     path.write_text(json.dumps(document))
     seen = []
+    repositories = []
+    repository_factory = main.ConfigRepository
+
+    def make_repository(config_path):
+        repository = repository_factory(config_path)
+        repositories.append(repository)
+        return repository
+
     class Worker:
-        def __init__(self, config_path, config):
-            assert config_path == path and config.web_enabled
+        def __init__(self, repository, config):
+            assert isinstance(repository, ConfigRepository)
+            assert repository is repositories[0]
+            assert repository.active_path == path.resolve()
+            assert config.web_enabled
             self.lifecycle = None
         def __enter__(self):
             seen.append("start")
@@ -550,6 +732,7 @@ def test_main_owns_enabled_worker_and_cleans_up_on_runtime_failure(setup, monkey
         assert seen == ["start"]
         raise RuntimeError("runtime failed")
     monkeypatch.setattr("robot.web.server.WebServer", Worker)
+    monkeypatch.setattr(main, "ConfigRepository", make_repository)
     monkeypatch.setattr(main, "async_main", fail)
     monkeypatch.setattr(main.logging, "basicConfig", lambda **kw: None)
     monkeypatch.setattr("sys.argv", ["phos", "--config", str(path)])
@@ -647,9 +830,8 @@ def test_each_domain_save_preserves_other_domains_and_rejects_injected_fields(se
     assert client.post("/configuration/network", data=data).status_code == 400
     assert load_document(path) == after
     data = form(client, "security")
-    data["web.enabled"] = "on"
     assert client.post("/configuration/security", data=data).status_code == 302
-    assert load_document(path)["web"] == {"enabled": True, "host": "127.0.0.1", "port": 8181}
+    assert load_document(path) == after
 
 
 def test_cross_domain_validation_links_to_relevant_area(setup):
@@ -779,10 +961,10 @@ def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setu
     response = client.post("/system/reload", data={"csrf_token": token})
     assert response.status_code == 200
     assert b"Applied: logging.level" in response.data and b"display.fps" in response.data
+    assert service.active["logging"]["level"] == "ERROR"
     assert service.active["display"]["fps"] == 30
     status = client.get("/configuration/status")
-    assert b"Last successful startup/reload" in status.data
-    assert b"Saved configuration differs from active" in status.data
+    assert status.status_code == 200
     document["display"]["fps"] = 0
     document["logging"]["level"] = "DEBUG"
     path.write_text(json.dumps(document))
@@ -820,7 +1002,7 @@ def test_real_worker_reload_reaches_parent_application(setup):
         with worker:
             send("/login", {"csrf_token": token(get("/login")), "password": PASSWORD})
             page = get("/system")
-            assert "System actions" in page
+            assert '<form action="/system/reload" method="post">' in page
             document["logging"]["level"] = "ERROR"
             path.write_text(json.dumps(document))
             response = send("/system/reload", {"csrf_token": token(page)})

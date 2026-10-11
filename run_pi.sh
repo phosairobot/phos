@@ -9,4 +9,8 @@ rsync -av --delete --exclude '__pycache__' ./scripts/ pi@192.168.1.127:/home/pi/
 rsync -av ./pyproject.toml ./requirements-web.txt ./requirements.txt ./README.md pi@192.168.1.127:/home/pi/phos/
 rsync -av ./deploy/ pi@192.168.1.127:/home/pi/phos/deploy/
 rsync -av ./docs/ pi@192.168.1.127:/home/pi/phos/docs/
-rsync -av --ignore-existing ./config/phos.json pi@192.168.1.127:/home/pi/phos/config/
+# Seed YAML only for a fresh deployment. Existing YAML, YML, or legacy JSON is
+# left untouched so ConfigRepository retains the user's active source.
+if ssh pi@192.168.1.127 'test ! -e /home/pi/phos/config/phos.yaml && test ! -e /home/pi/phos/config/phos.yml && test ! -e /home/pi/phos/config/phos.json'; then
+    rsync -av ./config/phos.yaml pi@192.168.1.127:/home/pi/phos/config/
+fi

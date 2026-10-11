@@ -32,6 +32,8 @@ from robot.core.touch import TOUCH_EVENT_NAMES
 from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SESSION_CANCELLED, VOICE_SPEECH_ENDED,
                                  VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
 from robot.voice.capture import UnsupportedCaptureRate
+from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
+from robot.voice import AplayAudioOutputProvider, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -90,6 +92,15 @@ class ApplicationError(Exception):
         return {"error": {"code": self.code, "message": self.message, "details": self.details}}
 
 
+@dataclass(frozen=True)
+class SpeechConfigurationResult:
+    configured_provider: str | None
+    active_provider: str | None
+    enabled: bool
+    available: bool
+    def document(self): return asdict(self)
+
+
 class RemoteApplicationService:
     """Web-worker proxy for the parent-owned application service."""
     def __init__(self, lifecycle):
@@ -122,11 +133,15 @@ class RemoteApplicationService:
     def start_listening(self): return self._call("start_listening")
     def stop_listening(self): return self._call("stop_listening")
     def cancel_voice_session(self): return self._call("cancel_voice_session")
+    def speak(self, text): return self._call("speak", {"text": text})
     def observed_expression(self): return self._call("observed_expression")
     def health(self): return self._call("health")
     def capabilities(self): return self._call("capabilities")
     def config(self): return self._call("config")
     def update_config(self, value): return self._call("update_config", value)
+    def configure_stt(self, value): return self._call("configure_stt", value)
+    def configure_tts(self, value): return self._call("configure_tts", value)
+    def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def set_expression(self, value): return self._call("expression", {"expression": value})
     def set_state(self, value): return self._call("set_state", {"state": value})
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
@@ -474,14 +489,87 @@ class PhosApplicationService:
     def stop_listening(self): return self._voice_command(self._runtime.stop_listening, operation="stop")
     def cancel_voice_session(self): return self._voice_command(self._runtime.stop_listening, cancelled=True, operation="cancel")
 
+    def speak(self, text: str):
+        if not isinstance(text, str) or not (text := text.strip()):
+            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
+        if len(text) > 500:
+            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            asyncio.run_coroutine_threadsafe(self._runtime.accept_speech(text), loop).result(timeout=2)
+            return {"status": "accepted"}
+        except TTSBusyError as error:
+            raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except TTSProviderError as error:
+            # The provider already logged its sanitized stable code.
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except (TTSConfigurationError, TTSError) as error:
+            logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except Exception as error:
+            logger.exception("TTS: failed exception_type=%s", type(error).__name__)
+            raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
+
     def config(self) -> dict:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
         result = self._lifecycle.execute("status")
         if not result.get("ok"):
             raise ApplicationError("service_unavailable", result.get("error", "Configuration service is unavailable."), status=503)
-        saved = RuntimeConfig.from_file(self._lifecycle.path).to_dict()
+        saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
+
+    def _speech_transaction(self, patch, *, subsystem):
+        """Build first, persist atomically, then publish; publication failure rolls back.
+
+        This is intentionally main-process only.  IPC/Web wiring is a later step.
+        """
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503)
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict(); _merge(document, patch)
+        try:
+            requested = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            if subsystem == "stt":
+                candidate = STTProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if requested.voice_enabled else None
+                enabled, provider = requested.voice_enabled, requested.voice_stt_provider
+            elif subsystem == "tts":
+                candidate = TTSProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if requested.tts_enabled else None
+                enabled, provider = requested.tts_enabled, requested.tts_provider
+            else:
+                candidate = AplayAudioOutputProvider(requested.tts_audio_output_player, requested.tts_audio_output_device,
+                    sample_rate=requested.tts_audio_output_sample_rate, channels=requested.tts_audio_output_channels,
+                    sample_width=requested.tts_audio_output_sample_width, preroll_ms=requested.tts_audio_output_preroll_ms,
+                    debug_retain_final_wav=requested.tts_audio_output_debug_retain_final_wav,
+                    retry_max_attempts=requested.tts_audio_output_retry_max_attempts,
+                    retry_delay_ms=requested.tts_audio_output_retry_delay_ms)
+                enabled, provider = True, None
+        except (ConfigurationError, TTSError, ValueError, ImportError) as error:
+            raise ApplicationError("invalid_configuration", "Could not activate requested speech configuration.", status=400) from error
+        try:
+            self._lifecycle.config_repository.save(requested)
+        except OSError as error:
+            raise ApplicationError("persistence_failed", "Speech configuration could not be saved.", status=503) from error
+        try:
+            if subsystem == "stt":
+                if candidate is not None: self._runtime.replace_stt_provider(candidate)
+                self._runtime.set_stt_enabled(enabled)
+            elif subsystem == "tts":
+                if candidate is not None: self._runtime.replace_tts_provider(candidate)
+                self._runtime.set_tts_enabled(enabled)
+            else: self._runtime.replace_audio_output(candidate)
+        except Exception as error:
+            # ConfigRepository uses atomic writes; restore the previous complete snapshot.
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("Speech configuration rollback failed")
+            raise ApplicationError("activation_failed", "Speech configuration could not be activated.", status=503) from error
+        return SpeechConfigurationResult(provider, provider, enabled, candidate is not None).document()
+
+    def configure_stt(self, patch): return self._speech_transaction({"voice": patch}, subsystem="stt")
+    def configure_tts(self, patch): return self._speech_transaction({"tts": patch}, subsystem="tts")
+    def configure_audio_output(self, patch): return self._speech_transaction({"tts": {"audio_output": patch}}, subsystem="audio")
 
     def update_config(self, patch: dict) -> dict:
         """Validate and persist a partial canonical-config edit, then reload safely."""
@@ -489,10 +577,10 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
         if not isinstance(patch, dict):
             raise ApplicationError("invalid_configuration", "Configuration update must be a JSON object.")
-        document = RuntimeConfig.from_file(self._lifecycle.path).to_dict()
+        document = self._lifecycle.config_repository.load().to_dict()
         _merge(document, patch)
         try:
-            RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent).save(self._lifecycle.path)
+            self._lifecycle.config_repository.save(RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent))
         except (ConfigurationError, OSError) as error:
             raise ApplicationError("invalid_configuration", "Configuration update was rejected.", {"reason": str(error)}) from error
         result = self._lifecycle.execute("reload")

@@ -20,10 +20,13 @@
 <a href="{{ url_for('configuration', area='diagnostics') }}" {% if area is defined and area == 'diagnostics' %}aria-current="page"{% endif %}><i>◇</i>Diagnostics</a>
 <a href="{{ url_for('system') }}" {% if request.endpoint == 'system' or request.endpoint == 'reload_configuration' or request.endpoint == 'restart_phos' %}aria-current="page"{% endif %}><i>⚠</i>System Actions</a>
 <p class="nav-heading">Settings</p>
+<a href="{{ url_for('credentials') }}" {% if request.endpoint == 'credentials' %}aria-current="page"{% endif %}><i>◈</i>Credentials</a>
+<a href="{{ url_for('configuration_editor') }}" {% if request.endpoint == 'configuration_editor' %}aria-current="page"{% endif %}><i>⌨</i>Configuration</a>
 <a href="{{ url_for('configuration', area='appearance') }}" {% if area is defined and area == 'appearance' %}aria-current="page"{% endif %}><i>◫</i>Appearance</a>
 <a href="{{ url_for('configuration', area='eyes') }}" {% if area is defined and area == 'eyes' %}aria-current="page"{% endif %}><i>◉</i>Eyes</a>
 <a href="{{ url_for('configuration', area='network') }}" {% if area is defined and area == 'network' %}aria-current="page"{% endif %}><i>⌁</i>Network</a>
 <a href="{{ url_for('configuration', area='runtime') }}" {% if area is defined and area == 'runtime' %}aria-current="page"{% endif %}><i>⏱</i>Runtime</a>
+<a href="{{ url_for('configuration', area='voice') }}" {% if area is defined and area == 'voice' %}aria-current="page"{% endif %}><i>♬</i>Voice &amp; speech</a>
 <a href="{{ url_for('configuration', area='behavior') }}" {% if area is defined and area == 'behavior' %}aria-current="page"{% endif %}><i>◇</i>Behavior</a>
 <a href="{{ url_for('configuration', area='integrations') }}" {% if area is defined and area == 'integrations' %}aria-current="page"{% endif %}><i>⌘</i>Integrations</a>
 </nav><div class="sidebar-account"><a href="{{ url_for('password') }}">Change password</a><form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button>Log out</button></form></div></aside>

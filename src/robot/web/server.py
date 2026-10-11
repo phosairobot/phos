@@ -5,6 +5,7 @@ import multiprocessing
 import os
 from threading import Event, Thread
 
+from robot.config import ConfigRepository
 from robot.lifecycle import LifecycleService
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
 from pathlib import Path
@@ -52,12 +53,14 @@ class WebServer:
     Termination can interrupt a request; both configuration and credential writes
     use atomic replacement. Sessions and rate limits intentionally reset on restart.
     """
-    def __init__(self, config_path, config):
-        self.path = str(Path(config_path).resolve())
+    def __init__(self, config_repository, config):
+        self.config_repository = (config_repository if isinstance(config_repository, ConfigRepository)
+                                  else ConfigRepository(config_repository))
+        self.path = str(self.config_repository.active_path)
         self.config = config
         self.process = None
         self.lifecycle = LifecycleService(
-            self.path, config, restart_supported=(
+            self.config_repository, config, restart_supported=(
                 os.environ.get("PHOS_SERVICE_MANAGED") == "1" and bool(os.environ.get("INVOCATION_ID"))))
         self._stop = Event()
         self._thread = None

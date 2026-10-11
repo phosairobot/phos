@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 import time
 
-from robot.config import ConfigurationError, RuntimeConfig
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 
 RESTART_EXIT_CODE = 75
 PREVIEW_RELOADABLE = frozenset({
@@ -70,9 +70,11 @@ def apply_log_level(level):
 
 
 class LifecycleService:
-    def __init__(self, config_path, active_config, *, restart_supported=False,
+    def __init__(self, config_repository, active_config, *, restart_supported=False,
                  log_level_setter=apply_log_level, clock=time.monotonic):
-        self.path = Path(config_path).resolve()
+        self.config_repository = (config_repository if isinstance(config_repository, ConfigRepository)
+                                  else ConfigRepository(config_repository))
+        self.path = self.config_repository.active_path
         self.active = active_config.to_dict()
         self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.restart_supported = restart_supported
@@ -164,7 +166,7 @@ class LifecycleService:
             if not isinstance(operation, str) or operation not in {"status", "reload", "restart"}:
                 return {"ok": False, "error": "Unsupported lifecycle operation."}
             try:
-                config = RuntimeConfig.from_file(self.path)
+                config = self.config_repository.load()
                 saved = config.to_dict()
             except (ConfigurationError, OSError):
                 # Do not echo arbitrary config contents to adapters or logs.
@@ -281,6 +283,7 @@ class LifecycleService:
             "application.start_listening": lambda: self._application_service.start_listening(),
             "application.stop_listening": lambda: self._application_service.stop_listening(),
             "application.cancel_voice_session": lambda: self._application_service.cancel_voice_session(),
+            "application.speak": lambda: self._application_service.speak(payload.get("text")),
             "application.observed_expression": lambda: self._application_service.observed_expression(),
             "application.health": lambda: self._application_service.health(),
             "application.capabilities": lambda: self._application_service.capabilities(),
@@ -289,6 +292,9 @@ class LifecycleService:
             "application.clear_overlay": lambda: self._application_service.clear_overlay(),
             "application.config": lambda: self._application_service.config(),
             "application.update_config": lambda: self._application_service.update_config(payload),
+            "application.configure_stt": lambda: self._application_service.configure_stt(payload),
+            "application.configure_tts": lambda: self._application_service.configure_tts(payload),
+            "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
             "application.expression": lambda: self._application_service.set_expression(payload.get("expression")),
             "application.set_state": lambda: self._application_service.set_state(payload.get("state")),
             "application.visual_source": lambda: self._application_service.set_visual_source(payload.get("source")),

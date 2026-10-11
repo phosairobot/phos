@@ -14,7 +14,7 @@ classes:
 
 Web Admin is PHOS’s optional, single-administrator configuration editor for a
 trusted LAN. It does not access the camera, hardware drivers or renderer
-directly: it uses the same canonical `config/phos.json` model, validation and
+directly: it uses the same canonical `config/phos.yaml` model, validation and
 atomic persistence as startup.
 
 </div>
@@ -62,7 +62,7 @@ duration and timestamp. Raw pointer input is neither retained nor streamed.
 
 <div class="phos-callout" markdown>
 
-**Save** validates and atomically persists the complete JSON file; it does not
+**Save** validates and atomically persists the complete active configuration file; it does not
 change the running process. **Reload configuration** can apply logging level,
 iris appearance, LED-ring visual settings and camera-preview settings. Other
 valid changes remain explicitly restart-required. **Restart PHOS** is available

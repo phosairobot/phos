@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import timedelta
+import logging
 from pathlib import Path
 import secrets
 from threading import RLock
@@ -13,9 +14,13 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
 from robot.config import ConfigurationError
+from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
 from robot.web.domains import DOMAINS, GROUPS, domain_sections, error_domain
+from robot.web.secrets import WebSecretsService
+
+logger = logging.getLogger(__name__)
 
 
 class AuthenticationState:
@@ -52,7 +57,7 @@ class AuthenticationState:
 
 
 def create_app(config_path: Path, *, active_document=None, password_store=None, clock=time.monotonic,
-               lifecycle=None, application_service=None):
+               lifecycle=None, application_service=None, secrets_service=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=secrets.token_bytes(32), MAX_CONTENT_LENGTH=64 * 1024,
                       MAX_FORM_MEMORY_SIZE=64 * 1024, MAX_FORM_PARTS=256,
@@ -62,8 +67,9 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                       PERMANENT_SESSION_LIFETIME=timedelta(minutes=30))
     config = ConfigurationService(config_path)
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
+    web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
     auth = AuthenticationState(clock)
-    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config)
+    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets)
     csrf = CSRFProtect(app)
     if application_service is not None:
         from robot.web.api import create_api
@@ -170,6 +176,71 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             session.clear()
         return redirect(url_for("login"))
 
+    @app.route("/credentials", methods=["GET", "POST"])
+    def credentials():
+        error = None
+        if request.method == "POST":
+            action, name = request.form.get("action"), request.form.get("name")
+            allowed = {"csrf_token", "action", "name", "value", "confirm_remove"}
+            if set(request.form) - allowed or action not in {"set", "remove"}:
+                abort(400)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change:
+                    return redirect(url_for("login"))
+                try:
+                    if action == "set":
+                        web_secrets.set_secret(name, request.form.get("value", ""))
+                        flash("Credential configured.")
+                    else:
+                        if request.form.get("confirm_remove") != "yes":
+                            raise SecretsError("Confirm credential removal before continuing.")
+                        web_secrets.remove_secret(name)
+                        flash("Credential removed.")
+                except (SecretsError, ValueError) as exc:
+                    error = str(exc)
+                except OSError:
+                    logger.exception("Credential persistence failed for slot %s", name)
+                    error = "Credential could not be saved. Check local filesystem permissions."
+                else:
+                    return redirect(url_for("credentials"))
+        return render_template("credentials.html", slots=web_secrets.slots(), error=error), 400 if error else 200
+
+    @app.route("/configuration/editor", methods=["GET", "POST"])
+    def configuration_editor():
+        error, valid, dirty = None, None, False
+        try:
+            source = config.editable_yaml()
+            revision = config.revision(config.read())
+        except (ConfigurationError, OSError):
+            return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
+        if request.method == "POST":
+            action = request.form.get("action")
+            source = request.form.get("configuration", "")
+            revision = request.form.get("revision", "")
+            dirty = action == "validate"
+            if set(request.form) - {"csrf_token", "action", "configuration", "revision"} or action not in {"validate", "save"}:
+                abort(400)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change:
+                    return redirect(url_for("login"))
+                try:
+                    if action == "validate":
+                        config.validate_yaml(source)
+                        valid = "Configuration is valid."
+                    else:
+                        config.save_yaml(source, revision)
+                except ConfigurationError as exc:
+                    error = str(exc)
+                except OSError:
+                    error = "Configuration could not be saved. Check local filesystem permissions."
+                else:
+                    if action == "save":
+                        flash("Configuration saved successfully. Restart PHOS to apply changes.")
+                        return redirect(url_for("configuration_editor"))
+        return render_template("configuration_editor.html", source=source, revision=revision,
+                               config_path=config.path, storage_format=config.repository.format.upper(),
+                               error=error, valid=valid, dirty=dirty), 400 if error else 200
+
     @app.route("/", methods=["GET", "POST"])
     @app.route("/configuration/<area>", methods=["GET", "POST"])
     def configuration(area="general"):
@@ -190,6 +261,25 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 if not auth.valid(session.get("sid")) or passwords.must_change:
                     return redirect(url_for("login"))
                 try:
+                    if area == "voice" and application_service is not None:
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        # Each subsystem is independently transactional in the
+                        # main process; successful earlier sections remain live
+                        # if a later section cannot be activated.
+                        results = []
+                        for label, method, payload in (
+                            ("Speech to text", application_service.configure_stt, prepared.document["voice"]),
+                            ("Text to speech", application_service.configure_tts, prepared.document["tts"]),
+                            ("Audio output", application_service.configure_audio_output,
+                             prepared.document["tts"]["audio_output"]),
+                        ):
+                            try:
+                                result = method(payload)
+                                results.append(f"{label}: applied ({result.get('active_provider') or 'active'})")
+                            except Exception:
+                                results.append(f"{label}: activation failed")
+                        flash("; ".join(results))
+                        return redirect(url_for("configuration", area=area))
                     config.save_form(request.form, area=area)
                 except ConfigurationError as exc:
                     error, status = str(exc), 400
@@ -201,11 +291,11 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         try:
             document = config.read()
         except (ConfigurationError, OSError):
-            return render_template("error.html", error="Cannot load configuration. Repair the JSON file locally and reload."), 503
+            return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
         # Sensors are a read-only status view just like System / Status.  The
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
-        runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics"} and lifecycle is not None else None
+        runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
         return render_template("configuration.html", sections=domain_sections(document, area),
@@ -215,6 +305,10 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                submitted=request.form if request.method == "POST" else None,
                                error=error, config_path=config.path, document=document,
                                active=current, runtime_state=runtime_state,
+                               elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
+                                                                    for slot in web_secrets.slots()),
+                               cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
+                                                                  for slot in web_secrets.slots()),
                                pending=current is not None and document != current), status
 
     @app.route("/system", methods=["GET"])

@@ -8,6 +8,7 @@ import subprocess
 import shutil
 from dataclasses import asdict, is_dataclass, replace
 import logging
+from pathlib import Path
 import time
 from typing import Callable, Optional
 
@@ -30,7 +31,12 @@ from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.runtime import EyeRenderLoop
-from robot.voice import PyAudioCaptureProvider, ResamplingAudioCaptureProvider, VoiceCaptureSession, VoskSTTProvider
+from robot.secrets import SecretsError, SecretsService
+from robot.voice import (AplayAudioOutputProvider, PyAudioCaptureProvider,
+                         ResamplingAudioCaptureProvider, TTSBusyError, TTSConfigurationError,
+                         TTSProviderError, TTSProviderFactory, TTSUnavailableError, TTSError, VoiceCaptureSession,
+                         STTProviderFactory, STTError, UnavailableSTTProvider)
+from robot.voice.tts import speech_log, speech_request_id
 from robot.vision import (
     ExpressionSmoother,
     OpenCVExpressionProvider,
@@ -64,6 +70,7 @@ class PhosRuntime:
         attention_manager: Optional[AttentionManager] = None,
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
+        tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
@@ -80,6 +87,14 @@ class PhosRuntime:
         self._startup = startup or StartupReadiness()
         self._ready_sound_played = False
         self._voice_session = voice_session
+        self._tts_provider, self._audio_output = tts_provider, audio_output
+        self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
+        self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
+        self._tts_status = tts_status or {"enabled": False, "configured_provider": None,
+                                          "available": False, "reason": "disabled"}
+        self._tts_lock = asyncio.Lock()
+        self._speech_task: asyncio.Task | None = None
+        self._next_speech_request_id = 0
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
         self._loop = None
@@ -186,6 +201,20 @@ class PhosRuntime:
             "startup": self._startup.document(),
             "touch": self.touch_status(),
             "voice": self.voice_status(),
+            "tts": dict(self._tts_status),
+            "speech": {
+                "stt": {"enabled": self._stt_enabled, "configured_provider": self._config.voice_stt_provider if self._config else None,
+                        "active_provider": getattr(getattr(self._voice_session, "_stt", None), "name", None),
+                        "available": bool(self._voice_session and self._voice_session.status().get("stt_available")),
+                        "last_activation_error": None},
+                "tts": {"enabled": self._tts_enabled, "configured_provider": self._config.tts_provider if self._config else None,
+                        "active_provider": getattr(self._tts_provider, "name", None),
+                        "available": bool(self._tts_enabled and self._tts_provider and self._audio_output),
+                        "last_activation_error": None},
+                "audio_output": {"configured_device": self._config.tts_audio_output_device if self._config else None,
+                                 "active_device": getattr(self._audio_output, "device", None),
+                                 "available": self._audio_output is not None, "last_activation_error": None},
+            },
         }
 
     def touch_status(self) -> dict:
@@ -197,10 +226,99 @@ class PhosRuntime:
 
     async def start_listening(self):
         if self._voice_session is None: raise RuntimeError("Voice is unavailable")
+        if not self._stt_enabled: raise RuntimeError("Voice is disabled")
         return await self._voice_session.start()
 
     async def stop_listening(self, *, cancelled=False):
         return self.voice_status() if self._voice_session is None else await self._voice_session.stop(cancelled=cancelled)
+
+    async def speak(self, text: str, *, request_id: int | None = None) -> None:
+        """Serialize local synthesis/playback through the semantic state boundary."""
+        if not getattr(self, "_tts_enabled", True) or self._tts_provider is None or self._audio_output is None:
+            raise TTSUnavailableError("Text-to-speech is currently unavailable.")
+        if self._tts_lock.locked():
+            raise TTSBusyError("PHOS is already speaking.")
+        async with self._tts_lock:
+            provider, audio_output = self._tts_provider, self._audio_output
+            audio = None
+            total_started = time.monotonic()
+            token = speech_request_id.set(request_id)
+            try:
+                try:
+                    await self.core.transition_to(RobotState.SPEAKING, reason="tts")
+                    synthesis_started = time.monotonic()
+                    speech_log("synthesis_start")
+                    audio = await asyncio.to_thread(provider.synthesize, text)
+                    speech_log("synthesis_complete", duration_ms=round((time.monotonic() - synthesis_started) * 1000))
+                    await asyncio.to_thread(audio_output.play, audio)
+                    speech_log("total_complete", duration_ms=round((time.monotonic() - total_started) * 1000))
+                except TTSProviderError:
+                    # The provider has already emitted its one sanitized warning.
+                    # This is an expected remote-service outcome, not a runtime fault.
+                    raise
+                except Exception:
+                    logger.exception("TTS provider/runtime error")
+                    raise
+                finally:
+                    if audio is not None:
+                        audio.path.unlink(missing_ok=True)
+                    if self.core.state is RobotState.SPEAKING:
+                        await self.core.transition_to(RobotState.IDLE, reason="tts_completed")
+            finally:
+                speech_request_id.reset(token)
+
+    async def accept_speech(self, text: str) -> None:
+        """Atomically accept one utterance without waiting for playback.
+
+        This runs on the runtime event loop, so checking and assigning the task
+        cannot race with another application-service request.
+        """
+        if not getattr(self, "_tts_enabled", True) or self._tts_provider is None or self._audio_output is None:
+            raise TTSUnavailableError("Text-to-speech is currently unavailable.")
+        if self._speech_task is not None and not self._speech_task.done():
+            raise TTSBusyError("PHOS is already speaking.")
+        self._next_speech_request_id += 1
+        request_id = self._next_speech_request_id
+        task = asyncio.create_task(self.speak(text, request_id=request_id), name=f"phos-speech-{request_id}")
+        self._speech_task = task
+        task.add_done_callback(lambda completed: self._speech_finished(completed, request_id))
+        logger.info("PHOS SPEECH[%s]: accepted", request_id)
+
+    def replace_stt_provider(self, provider) -> None:
+        if provider is None or not callable(getattr(provider, "available", None)):
+            raise ValueError("Invalid STT provider candidate.")
+        if self._voice_session is None: raise RuntimeError("Voice is unavailable")
+        self._voice_session.replace_stt_provider(provider)
+
+    def replace_tts_provider(self, provider) -> None:
+        if provider is None or not callable(getattr(provider, "synthesize", None)):
+            raise TTSConfigurationError("Invalid TTS provider candidate.")
+        self._tts_provider = provider
+
+    def replace_audio_output(self, output) -> None:
+        if output is None or not callable(getattr(output, "play", None)):
+            raise TTSConfigurationError("Invalid audio output candidate.")
+        self._audio_output = output
+
+    def set_stt_enabled(self, enabled: bool) -> None:
+        self._stt_enabled = bool(enabled)
+        if self._voice_session is not None: self._voice_session.set_enabled(enabled)
+
+    def set_tts_enabled(self, enabled: bool) -> None:
+        self._tts_enabled = bool(enabled)
+
+    def _speech_finished(self, task: asyncio.Task, request_id: int) -> None:
+        if self._speech_task is task:
+            self._speech_task = None
+        if task.cancelled():
+            logger.info("PHOS SPEECH[%s]: task_cleanup cancelled", request_id)
+            return
+        try:
+            task.result()
+        except Exception as error:
+            logger.error("PHOS SPEECH[%s]: task_cleanup failed exception_type=%s", request_id, type(error).__name__)
+        else:
+            logger.info("PHOS SPEECH[%s]: task_cleanup complete", request_id)
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
         """Apply validated interpretation settings without reopening the IMU."""
@@ -453,6 +571,11 @@ class PhosRuntime:
 
     async def stop(self) -> None:
         self._stopping = True
+        speech_task = self._speech_task
+        if speech_task is not None and not speech_task.done():
+            speech_task.cancel()
+            await asyncio.gather(speech_task, return_exceptions=True)
+        self._speech_task = None
         tasks = tuple(self._preview_tasks)
         for task in tasks:
             task.cancel()
@@ -507,6 +630,7 @@ def build_runtime(
     air_quality_provider_factory: Optional[Callable[[], AirQualitySensorProvider]] = None,
     imu_provider_factory: Optional[Callable[[], IMUSensorProvider]] = None,
     led_ring_provider_factory: Optional[Callable[[LEDRingSettings], LEDRingProvider]] = None,
+    secrets_service: Optional[SecretsService] = None,
 ) -> PhosRuntime:
     """Compose a runtime; tests may inject Vision, display and sensor providers."""
     if vision_pipeline is not None and vision_factory is not None:
@@ -541,16 +665,51 @@ def build_runtime(
     async def voice_transition(target, reason):
         if core.state is not target:
             await core.transition_to(target, reason=reason)
+    stt_secrets = secrets_service
+    try:
+        if config.voice_stt_provider == "cartesia" and stt_secrets is None:
+            stt_secrets = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+        stt_provider = STTProviderFactory.create(config, stt_secrets)
+    except (STTError, SecretsError) as error:
+        logger.warning("PHOS STT: provider=%s unavailable reason=%s", config.voice_stt_provider,
+                       "missing_credential" if "credential" in str(error).lower() else "initialization_failed")
+        stt_provider = UnavailableSTTProvider(config.voice_stt_provider)
     voice = VoiceCaptureSession(
         ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
             config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms), config.voice_processing_sample_rate),
-        VoskSTTProvider(config.resolve_path(config.voice_stt_model_path), config.voice_stt_language), core.events, voice_transition,
+        stt_provider, core.events, voice_transition,
         enabled=config.voice_enabled, sample_rate=config.voice_processing_sample_rate, channels=config.voice_channels, chunk_ms=config.voice_chunk_ms,
         speech_start_ms=config.voice_speech_start_ms, silence_end_ms=config.voice_silence_end_ms,
         min_utterance_ms=config.voice_min_utterance_ms, max_utterance_ms=config.voice_max_utterance_ms,
         pre_roll_ms=config.voice_pre_roll_ms, threshold=config.voice_vad_threshold,
         debug_dump_utterance_wav=config.voice_debug_dump_utterance_wav,
         debug_utterance_wav_path=config.resolve_path(config.voice_debug_utterance_wav_path))
+    tts_provider = None
+    audio_output = None
+    tts_status = {"enabled": bool(config.tts_enabled), "configured_provider": config.tts_provider,
+                  "available": False, "reason": "disabled" if not config.tts_enabled else "initializing"}
+    if config.tts_enabled:
+        logger.info("PHOS TTS: provider=%s initialization_start", config.tts_provider)
+        try:
+            secrets_service = (secrets_service or SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+                               if config.tts_provider in {"elevenlabs", "cartesia"} else secrets_service)
+            tts_provider = TTSProviderFactory.create(config, secrets_service)
+            audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device,
+                                                     sample_rate=config.tts_audio_output_sample_rate,
+                                                     channels=config.tts_audio_output_channels,
+                                                     sample_width=config.tts_audio_output_sample_width,
+                                                     preroll_ms=config.tts_audio_output_preroll_ms,
+                                                     debug_retain_final_wav=config.tts_audio_output_debug_retain_final_wav,
+                                                     retry_max_attempts=config.tts_audio_output_retry_max_attempts,
+                                                     retry_delay_ms=config.tts_audio_output_retry_delay_ms)
+            tts_status.update(available=True, reason=None)
+        except (TTSError, SecretsError) as error:
+            cause = error.__cause__
+            reason = "missing_dependency" if isinstance(cause, (ImportError, ModuleNotFoundError)) else "initialization_failed"
+            if "credential" in str(error).lower():
+                reason = "missing_credential"
+            tts_status["reason"] = reason
+            logger.warning("PHOS TTS: provider=%s unavailable reason=%s", config.tts_provider, reason)
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:
@@ -644,7 +803,9 @@ def build_runtime(
     runtime = PhosRuntime(core, behavior_engine, eye_render_loop, vision_pipeline=resolved_vision,
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
-                       presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice)
+                       presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
+                       tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
+    runtime._secrets_service = secrets_service
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

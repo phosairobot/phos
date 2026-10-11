@@ -1,18 +1,104 @@
-# PHOS 1.3.0 — Presence, Attention & Expression Awareness
+# PHOS
 
 ![PHOS robot](img/phos.png)
 
-Modular robot targeting Raspberry Pi 3. Version 1.3.0 adds semantic Presence
-and Attention, transient presence LED reactions, observed facial-expression
-telemetry, and a cautious expression-reaction policy to the existing Remote API
-and Web Admin baseline. See the [release scope and limitations](docs/release-1.3.0.md),
-[installation guide](docs/installation.md) and [administration manual](docs/web-administration.md).
+**An open-source expressive robot platform for Raspberry Pi.**
 
-The public documentation portal is published through GitHub Pages at
-<https://fazzola.github.io/phos/>. It presents the 1.3.0 source release candidate
-and links back to these canonical repository documents; it is not a release tag.
+PHOS combines an animated face, camera-based perception, environmental and motion sensing, touch, voice, and LAN administration into a modular physical robot platform. It targets Raspberry Pi 3 today and is developed as a real hardware project: capabilities are designed behind explicit provider boundaries, covered by hardware-free tests where possible, and distinguished from physical Pi validation.
 
-## Install on Raspberry Pi OS
+**Current source version:** 1.4.0 · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
+
+## What is PHOS?
+
+PHOS is built around expressive, observable robot behavior rather than a single cloud service or a browser-only demo. Sensors and providers produce observations; the central `BehaviorEngine` turns those into semantic robot state and visual intent. The renderer, LEDs, audio, Web Admin, and API consume those boundaries without reaching into hardware internals.
+
+The project is local-first where practical. Its core display, local vision, local Vosk speech recognition, and local Piper speech synthesis can run on the Pi. Cloud providers are optional, selected explicitly, and kept behind the same provider-neutral interfaces.
+
+## What PHOS can do today
+
+### Eyes & display
+
+- Render animated expressive eyes with blink, idle gaze, semantic accents, and runtime face states.
+- Present a startup/readiness experience with a splash, optional ready sound, and display-session safeguards for the physical face display.
+
+### Vision & presence
+
+- Use the Raspberry Pi Camera for face detection, selected-face tracking, and bounded pupil gaze.
+- Derive confirmed presence and attention states, including optional LED arrival and departure reactions.
+- Run local OpenCV/ONNX expression observations with cautious reaction policy; PHOS does not perform identity recognition by default.
+
+### Voice input & speech
+
+- Capture bounded utterances from a USB microphone with resampling, VAD, and pre-roll.
+- Transcribe through provider-neutral `STTProvider`: Local/Vosk is the default, with opt-in Cartesia Ink batch STT.
+- Synthesize through `TTSProvider`: Local/Piper, Cartesia, and ElevenLabs integration feed a separate `AudioOutputProvider` playback boundary.
+- Accept speech through `/api/v1/speak`, reflecting playback through the `SPEAKING` state.
+- Apply supported STT, TTS, and audio-output changes live: active operations retain their original provider, while subsequent work uses the replacement.
+
+### Sensors & physical interaction
+
+- Recognize local touchscreen taps, long presses, and horizontal swipes as semantic gestures.
+- Integrate optional BME280/BMP280 environmental sensing, CCS811 air-quality estimates, MPU-6050/GY-521 motion sensing, and WS2812B LED-ring feedback.
+- Translate confirmed environmental and motion observations into behavioral visual intent rather than letting drivers control the display directly.
+
+### Behavior, Web Admin & API
+
+- Use a central `BehaviorEngine` and explicit robot states for presence, attention, environmental context, motion, listening, thinking, and speaking.
+- Provide authenticated Web Admin for configuration, runtime status, encrypted credentials, and Voice & Speech settings.
+- Expose a provider-neutral Remote API and runtime status without giving web clients direct access to GPIO, camera frames, or renderer internals.
+- Persist validated configuration atomically. YAML is the canonical editable format; existing legacy JSON configuration remains supported as a fallback.
+
+## Local first, cloud optional
+
+| Capability | Local default | Optional cloud |
+| --- | --- | --- |
+| Speech to Text | Vosk | Cartesia Ink batch STT |
+| Text to Speech | Piper | Cartesia, ElevenLabs |
+| Expression observation | OpenCV / ONNX | AWS Rekognition |
+
+Cloud selection is opt-in: PHOS does not silently substitute a local provider when an explicitly selected cloud provider is unavailable. Credentials live in encrypted external storage through `SecretsService`, not in runtime YAML or Web responses. ElevenLabs integration is implemented, while its end-to-end physical availability depends on the provider account and selected voice/plan.
+
+## Architecture at a glance
+
+```text
+Camera / microphone / sensors / touch
+                 |
+                 v
+         Providers and adapters
+                 |
+                 v
+           BehaviorEngine
+                 |
+                 v
+      Semantic robot state / FaceState
+                 |
+                 v
+       Face / LEDs / audio / Web & API
+```
+
+Providers observe or perform focused capabilities; `BehaviorEngine` owns behavioral decisions; the renderer consumes semantic `FaceState`; and Web/API adapters use application services rather than manipulating hardware directly. This keeps local and cloud provider choices independently replaceable. Read the [architecture reference](https://phosairobot.github.io/phos/architecture/) for the complete design.
+
+## Reference hardware
+
+The reference platform is a Raspberry Pi 3 with a 5-inch 800×600 display, Raspberry Pi Camera, and USB microphone. Optional integrations include BME280/BMP280, CCS811, MPU-6050/GY-521, and a WS2812B RGB LED ring. Software support and physical acceptance are tracked separately; consult the [hardware guide](https://phosairobot.github.io/phos/hardware/) before wiring or assuming a module is validated on a particular build.
+
+## Web Admin & Remote API
+
+PHOS can be administered from a trusted LAN through authenticated Web Admin. It provides runtime/system status, validated configuration, a write-only credentials page, and a Voice & Speech area split into Speech to Text, Text to Speech, and Audio Output. The page intentionally shows configured and active provider/device state separately, with Unknown status when a runtime snapshot is unavailable. Supported live changes are activated before they are persisted.
+
+The Remote API exposes semantic status and control through the shared application-service boundary. See the [Web Admin manual](https://phosairobot.github.io/phos/web-administration/) and [Remote API reference](https://phosairobot.github.io/phos/remote-api/) for deployment, authentication, and endpoint details.
+
+## Project status & roadmap
+
+PHOS 1.4.0 contains implemented, automated-test-covered foundations for visual behavior, perception, voice providers, audio output, and live Voice & Speech configuration. Project records also distinguish physical validation from source implementation: local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching have recorded Pi validation. Optional sensor, provider, and deployment acceptance remains component-specific.
+
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are transcript-to-intent/command handling, conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP/tool execution. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+
+See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
+
+## Quick start
+
+On a Raspberry Pi OS system with a graphical desktop:
 
 ```bash
 git clone https://github.com/phosairobot/phos.git
@@ -20,113 +106,18 @@ cd phos
 ./scripts/install-phos.sh
 ```
 
-The installer is the recommended Raspberry Pi OS/Debian ARM setup path. It
-installs supported runtime software, prepares the Local ONNX model, and performs
-software-only checks; see the [canonical installation guide](docs/installation.md)
-for required display/camera/hardware steps and the manual contributor path.
+The installer is the supported Raspberry Pi OS/Debian ARM path. It does not replace the setup guide: review the [installation documentation](https://phosairobot.github.io/phos/installation/) for display, camera, optional hardware, configuration, and managed user-service startup requirements.
 
-For a local website preview, install `requirements-docs.txt` and run
-`.venv/bin/python -m mkdocs serve`; use `.venv/bin/python -m mkdocs build --strict`
-for a production build in `build-site/`.
+## Documentation
 
-## Contact
-@phosairobot
+Detailed documentation lives at **[phosairobot.github.io/phos](https://phosairobot.github.io/phos/)**. It covers [installation](https://phosairobot.github.io/phos/installation/), [hardware](https://phosairobot.github.io/phos/hardware/), [architecture](https://phosairobot.github.io/phos/architecture/), [configuration and development](https://phosairobot.github.io/phos/development/), [vision](https://phosairobot.github.io/phos/vision/), [voice](https://phosairobot.github.io/phos/voice/), [Web Admin](https://phosairobot.github.io/phos/web-administration/), and the [Remote API](https://phosairobot.github.io/phos/remote-api/).
 
-## Current hardware
-- Raspberry Pi 3
-- 5-inch 800x600 display
-- Microphone
+## Contributing
 
-## Project principles
-- Python first
-- Modular architecture
-- Hardware abstraction
-- Test without hardware
-- Incremental development
-- Keep Raspberry Pi 3 constraints in mind
+Contributions are welcome from Python developers, Raspberry Pi and hardware makers, provider/integration developers, and documentation contributors. Start with [the architecture](docs/architecture.md), [accepted decisions](docs/decisions.md), and the repository's [contributor guidance](AGENTS.md). Keep hardware-specific work behind adapters, preserve provider-neutral boundaries, and retain hardware-free test coverage where possible.
 
-## Start here
-1. Read `AGENTS.md`
-2. Read `docs/architecture.md`
-3. Read `docs/hardware.md`
-4. Read `docs/roadmap.md`
-5. Read `docs/decisions.md`
+Project links: [GitHub](https://github.com/phosairobot/phos) · [X](https://x.com/phosairobot) · [Instagram](https://www.instagram.com/phosairobot/)
 
-The optional BME280/BMP280 and CCS811 sensors drive confirmed environmental
-behavior; CCS811 eCO2 is estimated/equivalent CO2, not direct NDIR CO2. The
-optional GY-521/MPU-6050 drives interpreted motion behavior, and the optional
-WS2812B ring renders semantic environmental color plus temporary IMU effects.
-All new hardware remains subject to the physical acceptance checklist. Voice,
-conversational AI, Home Assistant, remote control API and MCP remain deferred.
+## License
 
-## Run PHOS
-
-For production use the [user systemd service](docs/installation.md#managed-startup-and-browser-restart).
-For a foreground diagnostic run from a graphical Raspberry Pi OS desktop session:
-
-```bash
-.venv/bin/python src/robot/main.py --config config/phos.json
-```
-
-[config/phos.json](config/phos.json) is the single, editable configuration and
-complete default example. It starts the fullscreen animated eyes with camera
-and expression processing disabled. Omitting `--config` loads this same file
-from the checkout. Press Ctrl+C to stop and Escape to leave fullscreen.
-
-Edit the file, then restart using the same command:
-
-- **Face tracking only:** set `vision.face_tracking_enabled` to `true`, keeping
-  `expression.enabled` false. Install the camera/OpenCV dependencies first.
-- **Camera preview:** set `vision.camera_preview.enabled` to `true`, then reload.
-  The image appears on the robot display only, not in the browser.
-- **Local expressions:** set `expression.enabled` to `true` and
-  `expression.provider` to `"local"`. The included `expression.local` settings
-  describe MobileFaceNet; download the model following
-  [installation](docs/installation.md). Images remain on the Pi.
-- **AWS expressions:** set `expression.enabled` to `true` and
-  `expression.provider` to `"aws"`. Install boto3 and configure external
-  credentials/region using [AWS setup](docs/installation.md#optional-aws-expression-mode).
-  **Selected face crops leave the Pi and are sent to AWS.**
-
-Expressions automatically enable local tracking. For diagnosis set
-`logging.expression_diagnostics` to `true`; check `PHOS configuration loaded`
-and `Expression provider` in the logs. Cloud requests run independently of gaze
-and rendering, with cache, rate limits and failure backoff. See
-[Vision policy](docs/vision.md#cloud-request-and-evidence-policy) for cost and
-confirmation timing. Both modes observe facial cues, not true internal emotions.
-
-Malformed settings or missing active local model files fail before camera or
-display startup. Paths inside JSON are relative to that JSON file's directory.
-AWS credentials never belong in JSON. The old individual setting flags remain
-only as deprecated overrides; migrate scripts to the command above.
-The former expression-specific JSON files are replaced by `config/phos.json`.
-
-The [configuration reference](docs/development.md#configuration) documents every
-field, precedence and migration. The same typed validation and atomic persistence
-are reused by the optional [web administration interface](docs/web-administration.md).
-It provides authenticated section-based editing, local/AWS selection and password
-management. Web access is disabled by default; enable it only on a trusted LAN.
-Save writes configuration; System actions can reload logging level, iris color
-and camera-preview settings or request a confirmed restart through the [user systemd service](docs/installation.md#managed-startup-and-browser-restart).
-Preview can start/stop the existing camera owner when needed. Other settings,
-including expression provider and camera resolution, require restart. OS reboot is not implemented.
-
-## Eye demo
-
-Preview eyes independently from Vision:
-
-```bash
-python3 src/robot/ui/demo.py
-```
-
-Use keys `1`–`5` for neutral, happy, curious, surprised, and sleepy. Use arrow
-keys to move the pupils; press `q` to close the demo.
-
-
-## AI abstraction
-
-The robot uses `LLMProvider` so the conversational brain can be OpenAI, Anthropic, a LAN model or another backend without changing robot behavior code. See `docs/ai.md`.
-
-## Agent guidance
-
-PHOS uses hierarchical repository instructions: start with `AGENTS.md`, then read any more-specific `AGENTS.md` under the subsystem being changed. Detailed architecture and accepted decisions live under `docs/`. No external skill copy is required to work on this repository.
+No license file is currently included in this repository. Contact the project maintainers before redistributing or reusing the code.

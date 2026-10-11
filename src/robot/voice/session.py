@@ -37,6 +37,7 @@ class VoiceCaptureSession:
                  pre_roll_ms=300, debug_dump_utterance_wav=False,
                  debug_utterance_wav_path=Path("/tmp/phos-last-utterance.wav")) -> None:
         self._capture, self._stt, self._events, self._transition = capture, stt, events, transition
+        self._active_stt = None
         self._sample_rate, self._channels, self._chunk_ms = sample_rate, channels, chunk_ms
         self._min_ms, self._max_ms = min_utterance_ms, max_utterance_ms
         self._vad = VoiceActivityDetector(threshold=threshold, speech_start_ms=speech_start_ms, silence_end_ms=silence_end_ms, chunk_ms=chunk_ms)
@@ -48,6 +49,14 @@ class VoiceCaptureSession:
         self._debug_dump_utterance_wav = debug_dump_utterance_wav
         self._debug_utterance_wav_path = Path(debug_utterance_wav_path)
     def status(self): return self._status.document()
+    def replace_stt_provider(self, provider) -> None:
+        """Set the default for the next session; an active session stays pinned."""
+        self._stt = provider
+        if not self._status.listening and self._status.state == "idle":
+            self._status = replace(self._status, stt_provider=getattr(provider, "name", None),
+                                   stt_available=provider.available())
+    def set_enabled(self, enabled: bool) -> None:
+        self._status = replace(self._status, enabled=bool(enabled))
     async def start(self):
         logger.info("VOICE SESSION: start requested")
         stage = "config"
@@ -62,6 +71,7 @@ class VoiceCaptureSession:
             logger.info("VOICE STT: provider=%s", self._status.stt_provider)
             logger.info("VOICE STT: available=%s", self._status.stt_available)
             if not self._status.stt_available: raise RuntimeError("Selected STT provider is unavailable")
+            self._active_stt = self._stt
             self._cancel = False
             stage = "audio_open"
             await self._capture.start()
@@ -137,7 +147,7 @@ class VoiceCaptureSession:
                 logger.exception("VOICE DEBUG WAV ERROR: exception_type=%s exception_message=%s",
                                  type(error).__name__, error)
         started_at = time.monotonic()
-        try: result = await self._stt.transcribe(pcm, sample_rate=self._sample_rate, channels=self._channels)
+        try: result = await (self._active_stt or self._stt).transcribe(pcm, sample_rate=self._sample_rate, channels=self._channels)
         except Exception as error: await self._failure(error); return
         elapsed = round((time.monotonic() - started_at) * 1000)
         logger.info("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)

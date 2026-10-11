@@ -3,17 +3,21 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import logging
 import math
 import os
 import tempfile
 import sys
 import copy
+import yaml
 from importlib import resources
 from dataclasses import asdict, dataclass, fields, field
 from pathlib import Path
 from typing import Optional, Tuple
 
 from robot.semantics import VisualSource
+
+logger = logging.getLogger(__name__)
 
 # Source checkouts use the one canonical document. Wheels install that same
 # source file as data; no independent defaults are maintained in the package.
@@ -44,6 +48,98 @@ class ConfigurationError(ValueError):
     """Invalid settings, reported before any subsystem is constructed."""
 
 
+def atomic_write_text(path: Path, content: str) -> None:
+    """Durably replace *path* with already-serialized UTF-8 text.
+
+    The temporary file is created beside the target so ``os.replace`` remains
+    atomic on the target filesystem.  Serialization and validation deliberately
+    remain outside this helper.
+    """
+    path = Path(path).resolve()
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", delete=False) as output:
+            temporary = Path(output.name)
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+class ConfigRepository:
+    """One active configuration source and its validation/persistence boundary."""
+    _legacy_json_warning_emitted = False
+
+    def __init__(self, path: Optional[Path] = None) -> None:
+        self._active_path = (self.discover_active_path() if path is None else Path(path).resolve())
+        self._format = self._format_for_path(self._active_path)
+        if self._format == "json" and not self._legacy_json_warning_emitted:
+            logger.warning("PHOS CONFIG: legacy JSON configuration loaded from %s; YAML is preferred",
+                           self._active_path)
+            type(self)._legacy_json_warning_emitted = True
+
+    @staticmethod
+    def discover_active_path() -> Path:
+        """Choose one default source, without merging or later rediscovery."""
+        candidates = (
+            DEFAULT_CONFIG_PATH.with_suffix(".yaml"),
+            DEFAULT_CONFIG_PATH.with_suffix(".yml"),
+            DEFAULT_CONFIG_PATH,
+        )
+        return next((path.resolve() for path in candidates if path.is_file()),
+                    DEFAULT_CONFIG_PATH.resolve())
+
+    @staticmethod
+    def _format_for_path(path: Path) -> str:
+        formats = {".json": "json", ".yaml": "yaml", ".yml": "yaml"}
+        try:
+            return formats[path.suffix.lower()]
+        except KeyError as error:
+            raise ConfigurationError(
+                f"Unsupported configuration file extension: {path.suffix or '<none>'}; "
+                "expected .json, .yaml, or .yml"
+            ) from error
+
+    @property
+    def active_path(self) -> Path: return self._active_path
+
+    @property
+    def format(self) -> str: return self._format
+
+    def document(self) -> dict:
+        if self.format == "json":
+            return load_document(self._active_path)
+        try:
+            document = yaml.safe_load(self._active_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as error:
+            raise ConfigurationError(f"{self._active_path}: invalid YAML") from error
+        except (OSError, UnicodeError) as error:
+            raise ConfigurationError(
+                f"Cannot read configuration file: {self._active_path} ({type(error).__name__})"
+            ) from error
+        if not isinstance(document, dict):
+            raise ConfigurationError(f"{self._active_path}: YAML root must be an object")
+        return document
+
+    def load(self, document=None, *, overrides=None) -> "RuntimeConfig":
+        return RuntimeConfig.from_dict(self.document() if document is None else document,
+                                       base_dir=self._active_path.parent, overrides=overrides)
+
+    def save(self, config: "RuntimeConfig") -> None:
+        if self.format == "json":
+            content = config.serialized_json(self._active_path)
+        else:
+            content = yaml.safe_dump(config.persistence_document(self._active_path),
+                                     default_flow_style=False, allow_unicode=True, sort_keys=False)
+            if not content.endswith("\n"):
+                content += "\n"
+        atomic_write_text(self._active_path, content)
+
+
 def _keys(value, expected, location):
     if not isinstance(value, dict):
         raise ConfigurationError(f"{location} must be an object")
@@ -55,7 +151,7 @@ def _keys(value, expected, location):
 
 
 def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    """Read JSON for editing; use RuntimeConfig.from_dict to validate before use."""
+    """Read a legacy JSON document; ConfigRepository owns format dispatch."""
     def unique_object(pairs):
         result = {}
         for key, value in pairs:
@@ -67,7 +163,7 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
         # Explicit schema evolution only: no general missing-key permissiveness.
         if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
-            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice")
+            evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice", "tts")
             missing_sections = tuple(section for section in evolving_sections if section not in document)
             voice_document = document.get("voice")
             needs_voice_defaults = (isinstance(voice_document, dict)
@@ -78,11 +174,32 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                                          or "pre_roll_ms" not in voice_document.get("vad", {})
                                          or not isinstance(voice_document.get("debug"), dict)
                                          or "dump_utterance_wav" not in voice_document.get("debug", {})
-                                         or "utterance_wav_path" not in voice_document.get("debug", {})))
+                                         or "utterance_wav_path" not in voice_document.get("debug", {})
+                                         or not isinstance(voice_document.get("stt"), dict)
+                                         or "provider" not in voice_document.get("stt", {})
+                                         or not isinstance(voice_document.get("stt", {}).get("cartesia"), dict)))
+            tts_document = document.get("tts")
+            needs_tts_audio_defaults = (isinstance(tts_document, dict)
+                                        and (not isinstance(tts_document.get("audio_output"), dict)
+                                             or not isinstance(tts_document.get("audio_output", {}).get("debug"), dict)
+                                             or "retain_final_wav" not in tts_document.get("audio_output", {}).get("debug", {})
+                                             or not isinstance(tts_document.get("audio_output", {}).get("retry"), dict)
+                                             or "max_attempts" not in tts_document.get("audio_output", {}).get("retry", {})
+                                             or "delay_ms" not in tts_document.get("audio_output", {}).get("retry", {})
+                                             or not isinstance(tts_document.get("elevenlabs"), dict)
+                                             or "voice_id" not in tts_document.get("elevenlabs", {})
+                                             or "model_id" not in tts_document.get("elevenlabs", {})
+                                             or "output_format" not in tts_document.get("elevenlabs", {})
+                                             or not isinstance(tts_document.get("cartesia"), dict)
+                                             or "voice_id" not in tts_document.get("cartesia", {})
+                                             or "model_id" not in tts_document.get("cartesia", {})
+                                             or "sample_rate" not in tts_document.get("cartesia", {})
+                                             or "speed" not in tts_document.get("cartesia", {})
+                                             or "volume" not in tts_document.get("cartesia", {})))
             # A complete explicit config is self-contained; do not consult a
             # separate default document merely to validate it.
             default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-                       if missing_sections or needs_voice_defaults else None)
+                       if missing_sections or needs_voice_defaults or needs_tts_audio_defaults else None)
             for section in missing_sections:
                 if section not in document:
                     document[section] = copy.deepcopy(default[section])
@@ -101,6 +218,25 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                 voice.setdefault("debug", copy.deepcopy(default["voice"]["debug"]))
                 voice["debug"].setdefault("dump_utterance_wav", default["voice"]["debug"]["dump_utterance_wav"])
                 voice["debug"].setdefault("utterance_wav_path", default["voice"]["debug"]["utterance_wav_path"])
+                voice.setdefault("stt", copy.deepcopy(default["voice"]["stt"]))
+                voice["stt"].setdefault("provider", "local")
+                voice["stt"].setdefault("cartesia", copy.deepcopy(default["voice"]["stt"]["cartesia"]))
+                for key, value in default["voice"]["stt"]["cartesia"].items():
+                    voice["stt"]["cartesia"].setdefault(key, copy.deepcopy(value))
+            if isinstance(document.get("tts"), dict) and default is not None:
+                document["tts"].setdefault("elevenlabs", copy.deepcopy(default["tts"]["elevenlabs"]))
+                for key, value in default["tts"]["elevenlabs"].items():
+                    document["tts"]["elevenlabs"].setdefault(key, copy.deepcopy(value))
+                document["tts"].setdefault("cartesia", copy.deepcopy(default["tts"]["cartesia"]))
+                for key, value in default["tts"]["cartesia"].items():
+                    document["tts"]["cartesia"].setdefault(key, copy.deepcopy(value))
+                audio_output = document["tts"].get("audio_output")
+                if isinstance(audio_output, dict):
+                    audio_output.setdefault("debug", copy.deepcopy(default["tts"]["audio_output"]["debug"]))
+                    audio_output["debug"].setdefault("retain_final_wav", default["tts"]["audio_output"]["debug"]["retain_final_wav"])
+                    audio_output.setdefault("retry", copy.deepcopy(default["tts"]["audio_output"]["retry"]))
+                    audio_output["retry"].setdefault("max_attempts", default["tts"]["audio_output"]["retry"]["max_attempts"])
+                    audio_output["retry"].setdefault("delay_ms", default["tts"]["audio_output"]["retry"]["delay_ms"])
             startup = document.get("startup")
             default_startup = default["startup"] if default is not None else None
             if isinstance(startup, dict) and default_startup is not None:
@@ -133,7 +269,7 @@ class CloudExpressionConfig:
     read_timeout_seconds: float
 
     def __init__(self, **overrides) -> None:
-        values = load_document(DEFAULT_CONFIG_PATH)["expression"]["aws"]
+        values = ConfigRepository().document()["expression"]["aws"]
         values.update(overrides)
         self._assign(values)
 
@@ -190,7 +326,8 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
-    "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language"}},
+    "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
+    "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
@@ -253,7 +390,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path"}
+_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size"}
 
@@ -316,6 +453,32 @@ class RuntimeConfig:
     voice_stt_provider: str
     voice_stt_model_path: Optional[Path]
     voice_stt_language: Optional[str]
+    voice_stt_cartesia_model_id: str
+    voice_stt_cartesia_language: str
+    voice_stt_cartesia_sample_rate: int
+    tts_enabled: bool
+    tts_provider: str
+    tts_local_engine: str
+    tts_local_executable: str
+    tts_local_model_path: Optional[Path]
+    tts_local_speaker_id: Optional[int]
+    tts_elevenlabs_voice_id: Optional[str]
+    tts_elevenlabs_model_id: str
+    tts_elevenlabs_output_format: str
+    tts_cartesia_voice_id: Optional[str]
+    tts_cartesia_model_id: str
+    tts_cartesia_sample_rate: int
+    tts_cartesia_speed: float
+    tts_cartesia_volume: float
+    tts_audio_output_player: str
+    tts_audio_output_device: Optional[str]
+    tts_audio_output_sample_rate: int
+    tts_audio_output_channels: int
+    tts_audio_output_sample_width: int
+    tts_audio_output_preroll_ms: int
+    tts_audio_output_retry_max_attempts: int
+    tts_audio_output_retry_delay_ms: int
+    tts_audio_output_debug_retain_final_wav: bool
     touch_enabled: bool
     touch_tap_max_duration_ms: int
     touch_tap_max_movement_px: int
@@ -457,8 +620,8 @@ class RuntimeConfig:
         for name in _PATH_FIELDS & overrides.keys():
             if overrides[name] is not None:
                 overrides[name] = Path(overrides[name]).resolve()
-        values = _decode(load_document(DEFAULT_CONFIG_PATH))
-        self._assign(values, DEFAULT_CONFIG_PATH.parent, overrides)
+        repository = ConfigRepository()
+        self._assign(_decode(repository.document()), repository.active_path.parent, overrides)
 
     def _assign(self, values, base_dir, overrides=None):
         names = {f.name for f in fields(self) if f.init}
@@ -473,9 +636,9 @@ class RuntimeConfig:
         self.validate()
 
     @classmethod
-    def from_file(cls, path: Path = DEFAULT_CONFIG_PATH, *, overrides=None) -> RuntimeConfig:
-        path = Path(path).resolve()
-        return cls.from_dict(load_document(path), base_dir=path.parent, overrides=overrides)
+    def from_file(cls, path: Optional[Path] = None, *, overrides=None) -> RuntimeConfig:
+        """Load through the one format-aware ConfigRepository boundary."""
+        return ConfigRepository(path).load(overrides=overrides)
 
     @classmethod
     def from_dict(cls, document: dict, *, base_dir: Path, overrides=None, check_paths=True) -> RuntimeConfig:
@@ -509,8 +672,8 @@ class RuntimeConfig:
             return result
         return encode(_SCHEMA)
 
-    def save(self, path: Path) -> None:
-        """Atomically persist validated settings, rebasing paths if relocated."""
+    def persistence_document(self, path: Path) -> dict:
+        """Return a validated persistence document, with paths rebased for *path*."""
         path = Path(path).resolve()
         document = self.to_dict()
         for section, key, name in ((document["expression"]["local"], "model_path", "expression_model_path"),
@@ -520,19 +683,15 @@ class RuntimeConfig:
             if value is not None:
                 section[key] = os.path.relpath(value, path.parent)
         validated = self.from_dict(document, base_dir=path.parent)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                             prefix=f".{path.name}.", delete=False) as output:
-                temporary = Path(output.name)
-                json.dump(validated.to_dict(), output, indent=2, allow_nan=False)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
+        return validated.to_dict()
+
+    def serialized_json(self, path: Path) -> str:
+        """Return validated JSON persistence content, rebased for *path*."""
+        return json.dumps(self.persistence_document(path), indent=2, allow_nan=False) + "\n"
+
+    def save(self, path: Path) -> None:
+        """Atomically persist validated settings, rebasing paths if relocated."""
+        atomic_write_text(path, self.serialized_json(path))
 
     def resolve_path(self, path: Optional[Path]) -> Optional[Path]:
         return None if path is None else (self._base_dir / path).resolve()
@@ -677,10 +836,51 @@ class RuntimeConfig:
             raise ConfigurationError("voice.input.device_index must be a nonnegative integer or null")
         if self.voice_debug_utterance_wav_path is None:
             raise ConfigurationError("voice.debug.utterance_wav_path must be a nonempty path")
-        if self.voice_stt_provider != "local":
-            raise ConfigurationError("voice input or STT provider is invalid")
+        if self.voice_stt_provider not in {"local", "cartesia"}:
+            raise ConfigurationError("voice.stt.provider must be local or cartesia")
         if self.voice_stt_language is not None and (not isinstance(self.voice_stt_language, str) or not self.voice_stt_language.strip()):
             raise ConfigurationError("voice.stt.language must be a nonempty string or null")
+        if (not isinstance(self.voice_stt_cartesia_model_id, str) or not self.voice_stt_cartesia_model_id.strip()
+                or not isinstance(self.voice_stt_cartesia_language, str) or not self.voice_stt_cartesia_language.strip()
+                or type(self.voice_stt_cartesia_sample_rate) is not int or self.voice_stt_cartesia_sample_rate != 16000):
+            raise ConfigurationError("voice.stt.cartesia configuration is invalid")
+        if self.tts_provider not in {"local", "elevenlabs", "google", "cartesia"}:
+            raise ConfigurationError("tts.provider must be local, elevenlabs, google, or cartesia")
+        if self.tts_provider == "local" and self.tts_local_engine != "piper":
+            raise ConfigurationError("tts.local.engine must be piper")
+        if not isinstance(self.tts_local_executable, str) or not self.tts_local_executable.strip():
+            raise ConfigurationError("tts.local.executable must be a nonempty command")
+        if self.tts_local_speaker_id is not None and (type(self.tts_local_speaker_id) is not int or self.tts_local_speaker_id < 0):
+            raise ConfigurationError("tts.local.speaker_id must be a nonnegative integer or null")
+        if self.tts_enabled and self.tts_provider == "local" and self.tts_local_model_path is None:
+            raise ConfigurationError("tts.local.model_path is required when local TTS is enabled")
+        if self.tts_enabled and self.tts_provider == "elevenlabs":
+            if not isinstance(self.tts_elevenlabs_voice_id, str) or not self.tts_elevenlabs_voice_id.strip():
+                raise ConfigurationError("tts.elevenlabs.voice_id is required when ElevenLabs TTS is enabled")
+            if not isinstance(self.tts_elevenlabs_model_id, str) or not self.tts_elevenlabs_model_id.strip():
+                raise ConfigurationError("tts.elevenlabs.model_id must be a nonempty string")
+            if self.tts_elevenlabs_output_format not in {"pcm_16000", "pcm_22050", "pcm_24000", "pcm_44100", "pcm_48000"}:
+                raise ConfigurationError("tts.elevenlabs.output_format must be a supported PCM format")
+        if self.tts_enabled and self.tts_provider == "cartesia":
+            if not isinstance(self.tts_cartesia_voice_id, str) or not self.tts_cartesia_voice_id.strip():
+                raise ConfigurationError("tts.cartesia.voice_id is required when Cartesia TTS is enabled")
+            if not isinstance(self.tts_cartesia_model_id, str) or not self.tts_cartesia_model_id.strip():
+                raise ConfigurationError("tts.cartesia.model_id must be a nonempty string")
+            number("tts_cartesia_sample_rate", minimum=8000, inclusive=True, maximum=48000, integer=True)
+            number("tts_cartesia_speed", minimum=.6, inclusive=True, maximum=1.5)
+            number("tts_cartesia_volume", minimum=.5, inclusive=True, maximum=2)
+        if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player != "aplay":
+            raise ConfigurationError("tts.audio_output.player must be aplay")
+        if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):
+            raise ConfigurationError("tts.audio_output.device must be a nonempty ALSA device or null")
+        number("tts_audio_output_preroll_ms", minimum=0, inclusive=True, maximum=10000, integer=True)
+        number("tts_audio_output_retry_max_attempts", minimum=1, inclusive=True, maximum=2, integer=True)
+        number("tts_audio_output_retry_delay_ms", minimum=0, inclusive=True, maximum=5000, integer=True)
+        number("tts_audio_output_sample_rate", minimum=1, inclusive=True, maximum=192000, integer=True)
+        if self.tts_audio_output_channels not in {1, 2}:
+            raise ConfigurationError("tts.audio_output.channels must be 1 or 2")
+        if self.tts_audio_output_sample_width != 2:
+            raise ConfigurationError("tts.audio_output.sample_width must be 2")
         for name in ("presence_led_entered_duration_ms", "presence_led_left_duration_ms"):
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:
@@ -688,7 +888,7 @@ class RuntimeConfig:
         for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
-                     "startup_splash_enabled", "startup_ready_sound_enabled"):
+                     "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav"):
             if type(getattr(self, name)) is not bool:
                 raise ConfigurationError(f"{name} must be a boolean")
         for name in ("camera_resolution", "expression_input_size", "detector_min_size"):
@@ -765,7 +965,7 @@ class RuntimeConfig:
             sound = self.resolve_startup_ready_sound()
             if not sound.is_file() or not os.access(sound, os.R_OK):
                 raise ConfigurationError(f"startup.ready_sound.file: readable file required: {sound}")
-        if self.voice_enabled and self.voice_stt_model_path is not None:
+        if self.voice_enabled and self.voice_stt_provider == "local" and self.voice_stt_model_path is not None:
             model = self.resolve_path(self.voice_stt_model_path)
             if model is None or not model.is_dir() or not os.access(model, os.R_OK):
                 raise ConfigurationError(f"voice.stt.model_path: readable model directory required: {model}")

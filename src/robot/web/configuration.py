@@ -2,22 +2,25 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
 from threading import RLock
+import yaml
 
-from robot.config import (ConfigurationError, LED_RING_COLOR_CHOICES,
+from robot.config import (ConfigRepository, ConfigurationError, LED_RING_COLOR_CHOICES,
                           RuntimeConfig, load_document)
 
 
 class ConfigurationService:
-    def __init__(self, path: Path):
-        self.path = Path(path).resolve()
+    def __init__(self, repository):
+        self.repository = repository if isinstance(repository, ConfigRepository) else ConfigRepository(repository)
+        self.path = self.repository.active_path
         self.lock = RLock()
 
     def read(self):
-        document = load_document(self.path)
+        document = self.repository.document()
         # Validate schema and types before reflecting data into the UI. Inactive
         # or removed model files must not prevent fixing their paths in the editor.
         config = RuntimeConfig.from_dict(document, base_dir=self.path.parent, check_paths=False)
@@ -27,7 +30,8 @@ class ConfigurationService:
     def revision(document):
         return hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest()
 
-    def save_form(self, form, *, area=None):
+    def prepare_form_update(self, form, *, area=None):
+        """Validate and reconstruct a canonical form edit without persistence."""
         with self.lock:
             document = self.read()
             if form.get("revision") != self.revision(document):
@@ -63,7 +67,47 @@ class ConfigurationService:
                     for key in keys[:-1]:
                         target = target[key]
                     target[keys[-1]] = value
-            RuntimeConfig.from_dict(edited, base_dir=self.path.parent).save(self.path)
+            candidate = RuntimeConfig.from_dict(edited, base_dir=self.path.parent)
+            return PreparedFormUpdate(candidate, candidate.to_dict(), self.revision(document))
+
+    def save_form(self, form, *, area=None):
+        with self.lock:
+            prepared = self.prepare_form_update(form, area=area)
+            self.repository.save(prepared.config)
+
+
+@dataclass(frozen=True)
+class PreparedFormUpdate:
+    """Validated canonical candidate; preparation deliberately has no writes."""
+    config: RuntimeConfig
+    document: dict
+    base_revision: str
+
+    def editable_yaml(self):
+        """Return the validated active configuration as human-editable YAML."""
+        with self.lock:
+            config = RuntimeConfig.from_dict(self.repository.document(), base_dir=self.path.parent,
+                                             check_paths=False)
+            document = config.persistence_document(self.path)
+            return yaml.safe_dump(document, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    def validate_yaml(self, source):
+        try:
+            document = yaml.safe_load(source)
+        except yaml.YAMLError as error:
+            mark = getattr(error, "problem_mark", None)
+            location = (f" at line {mark.line + 1}, column {mark.column + 1}" if mark else "")
+            raise ConfigurationError(f"Invalid YAML{location}: {error.problem or 'syntax error'}") from error
+        if not isinstance(document, dict):
+            raise ConfigurationError("YAML root must be an object.")
+        return RuntimeConfig.from_dict(document, base_dir=self.path.parent)
+
+    def save_yaml(self, source, revision):
+        with self.lock:
+            document = self.read()
+            if revision != self.revision(document):
+                raise ConfigurationError("Configuration changed since this page was loaded. Reload before saving.")
+            self.repository.save(self.validate_yaml(source))
 
 
 # Presentation hints only. Field structure and validation belong to robot.config.
@@ -73,6 +117,9 @@ CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),
            "sensors.imu.i2c_address": ("0x68", "0x69"),
            "sensors.environmental.type": ("bme280", "bmp280"),
            "expression.provider": ("local", "aws"),
+           "voice.stt.provider": ("local", "cartesia"),
+           "tts.provider": ("local", "elevenlabs", "google", "cartesia"),
+           "tts.elevenlabs.output_format": ("pcm_16000", "pcm_22050", "pcm_24000", "pcm_44100", "pcm_48000"),
            "sensors.environmental.i2c_address": ("0x76", "0x77"),
            "logging.level": ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
            "display.iris_color": ("cyan", "blue", "green", "turquoise", "amber", "violet", "white"),
@@ -97,6 +144,7 @@ HELP = {
     "expression.local": "Paths are relative to the configuration file. Labels must match model output order; input size is width, height and mean is three channel values.",
     "expression.aws": "Non-secret request policy only. Credentials stay external in the AWS SDK chain; availability is not checked here. Times are seconds; zero session limit means unlimited.",
     "expression.smoothing": "Requires repeated confident observations. Keep neutral disabled until calibrated.",
+    "voice.stt": "Local / Vosk is the offline default. Cartesia Ink is opt-in, uses the existing Cartesia credential, and requires restart after saving. PHOS VAD still determines utterance boundaries; batch transcription only is used.",
     "logging": "Blank file means console only. Paths are relative to the configuration file. Enable diagnostics temporarily.",
 }
 
@@ -115,7 +163,7 @@ def editor_sections(document, prefix=""):
                     else "array" if isinstance(value, list) else "text")
             direct.append({"name": field_name, "label": key.replace("_", " ").capitalize(),
                            "kind": kind, "value": ", ".join(map(str, value)) if isinstance(value, list) else value,
-                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region"},
+                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path", "tts.elevenlabs.voice_id", "tts.cartesia.voice_id"},
                            "choices": CHOICES.get(field_name)})
         sections.append({"name": route, "title": route.replace(".", " / ").replace("_", " ").title(),
                          "help": HELP.get(route, ""), "fields": direct})

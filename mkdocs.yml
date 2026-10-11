@@ -101,6 +101,7 @@ nav:
       - Remote API: remote-api.md
       - API contract notes: api.md
       - Development & configuration: development.md
+      - JSON to YAML migration: configuration-migration.md
       - AI strategy: ai.md
       - TTS strategy: tts.md
       - Voice capture and STT: voice.md

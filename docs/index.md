@@ -81,7 +81,7 @@ Camera, motion and environmental inputs become stable semantic observations befo
 <article class="phos-card" markdown>
 <span class="phos-card-icon">⌘</span><span class="phos-status">IMPLEMENTED</span>
 ### Configured with care
-Web Admin edits the same canonical `phos.json` used at startup, with validation, status and carefully bounded reload/restart actions.
+Web Admin edits the same active configuration source used at startup (normally canonical `phos.yaml`), with validation, status and carefully bounded reload/restart actions.
 
 [Web Admin →](web-admin-overview.md)
 

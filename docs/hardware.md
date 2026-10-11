@@ -19,6 +19,35 @@ Hardware listed here does **not** imply that its software integration is already
 | WS2812B RGB LED ring  | Software integrated; physical acceptance pending | Single-wire addressable data; typically 5 V LED supply | Semantic color and temporary directional motion animation | LED count, GPIO assignment, power budget, level shifting and placement remain to verify |
 | Servos/motors         | Planned              | TBD                                                    | Future physical movement                                               | Not yet specified                                                                    |
 
+## Face display session
+
+The reference Raspberry Pi face display is part of PHOS while the runtime is
+running, so its X11 session is configured not to blank or enter DPMS standby at
+startup. This keeps the fullscreen face visible and avoids HDMI audio being
+suspended while the display wakes, which can otherwise affect the first local
+TTS phrase after a long idle period.
+
+For the reference X11 deployment, the desktop-session bridge validates the active
+local `seat0` logind session before importing its graphical environment (including
+`DISPLAY` and, where required, `XAUTHORITY`) into the PHOS user service. SSH/X11
+forwarding is not a robot-face display source. PHOS then applies the following
+idempotent commands:
+
+```bash
+xset s off
+xset -dpms
+xset s noblank
+```
+
+Run those commands from the same local graphical session as PHOS when
+troubleshooting; an SSH shell, including one with `DISPLAY=:10.0` or forwarded
+X11, is not sufficient. See the deployment bridge setup and status checks in
+[installation](installation.md#managed-startup-and-browser-restart).
+If `xset` is unavailable or a command fails, PHOS logs a warning and continues.
+The automatic behavior targets the reference X11 deployment. It deliberately
+skips sessions identified as non-X11; Wayland display-power policy is outside
+this deployment implementation.
+
 ## Environmental sensors
 
 ### BME280

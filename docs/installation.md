@@ -1,6 +1,6 @@
 # PHOS installation on Raspberry Pi
 
-## PHOS 1.3.0 reproducible installation
+## PHOS 1.4.0 reproducible installation
 
 Use Raspberry Pi OS **with a graphical desktop**, Python 3.11+ and an 800×600
 HDMI display on the Pi 3. Tk needs an active X display (XWayland on a Wayland
@@ -8,10 +8,12 @@ desktop). Raspberry Pi OS Lite alone is insufficient. The recommended production
 launch is the user systemd service below; terminal launch is for diagnostics.
 These instructions use the desktop user's `~/phos` (`/home/pi/phos` for user `pi`).
 
-This is a reproducible source/dependency procedure, not a frozen OS image. Record
+This is a reproducible source/dependency procedure for the current 1.4.0 source,
+not a frozen OS image. Record
 `cat /etc/os-release`, `uname -m`, `python3 --version` and apt package versions
-with the release acceptance results. Actual fresh-Pi acceptance is still pending;
-see [release checklist](release-1.3.0.md#testing-and-release-gates).
+with the release acceptance results. Actual fresh-Pi acceptance remains
+component-specific; see [current state](current-state.md) and the
+[roadmap](roadmap.md).
 
 ## Recommended: unified installer
 
@@ -24,9 +26,9 @@ cd ~/phos
 ./scripts/install-phos.sh
 ```
 
-Use the audited commit when it becomes available; no `v1.3.0` tag is assumed to
-exist yet. The source checkout already contains `config/phos.json`; do not create
-an incomplete JSON file. The installer validates Raspberry Pi OS/Debian ARM,
+Use an audited commit when one is available. The source checkout already contains
+`config/phos.yaml`; do not create
+an incomplete configuration file. The installer validates Raspberry Pi OS/Debian ARM,
 installs required APT packages, creates/reuses `.venv`, installs canonical
 `.[all]` runtime extras, prepares the local ONNX model, and performs
 software-only smoke checks. It does not require connected hardware. OpenCV DNN
@@ -36,8 +38,9 @@ The APT packages are `build-essential`, `ca-certificates`, `git`, `i2c-tools`,
 `libcap-dev`, `opencv-data`, `python3-dev`, `python3-opencv`,
 `python3-picamera2`, `python3-pyaudio`, `python3-smbus`, `python3-tk`, `python3-venv`,
 `rpicam-apps`, and `wget`.
-`.[all]` includes the existing Web Admin/Remote API, Vision, AWS,
-environmental, CCS811, IMU, and LED-ring Python support.
+`.[all]` includes Web Admin/Remote API, Vision, voice (Vosk, Piper, Cartesia,
+and ElevenLabs integrations), AWS, environmental, CCS811, IMU, and LED-ring
+Python support.
 
 ### OpenCV provider invariant
 
@@ -113,25 +116,35 @@ permission problems before proceeding. Camera packages and setup follow
 
 ## Configure PHOS and Web Admin
 
-Edit `~/phos/config/phos.json`. Release defaults start only eyes: tracking,
+Edit `~/phos/config/phos.yaml`. Release defaults start only eyes: tracking,
 expressions, camera preview, environmental sensors, CCS811 and Web Admin are disabled. Keep this complete file;
 all required sections (`web`, `display`, `led_ring`, `presence`, `attention`,
-`behavior`, `vision`, `expression`, `expression_reactions`, `sensors`, `logging`)
+`behavior`, `vision`, `expression`, `expression_reactions`, `voice`, `tts`,
+`sensors`, `logging`)
 are required, including inactive provider fields and `vision.camera_preview`.
-Paths inside JSON resolve relative to its directory.
+Paths inside the active configuration resolve relative to its directory. YAML uses
+spaces for indentation; scalar values must retain their intended types. YAML is
+the canonical editable format; existing legacy JSON remains a supported fallback.
 
 For trusted-LAN administration set `web.enabled` to `true` and `web.host` to the
-Pi's LAN address or `0.0.0.0`; default port is 8080. No AWS/password secrets belong
-in JSON. Validate before any camera/display startup:
+Pi's LAN address or `0.0.0.0`; default port is 8080. No provider or password
+secrets belong in configuration. Validate before any camera/display startup:
 
 ```bash
 cd ~/phos
-PYTHONPATH=src .venv/bin/python -c "from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"
+PYTHONPATH=src .venv/bin/python -c "from robot.config import ConfigRepository; ConfigRepository().load(); print('Configuration valid')"
 ```
 
 Enable gaze with `vision.face_tracking_enabled: true`. Enable the local display
 picture-in-picture with `vision.camera_preview.enabled: true` (it is **not a web
 video stream**). Keep expressions off until choosing one provider below.
+
+Voice and TTS are disabled by default. The installed `.[all]` extras provide
+Local/Vosk STT, Local/Piper TTS, and optional Cartesia/ElevenLabs integrations;
+models, provider selection, and audio settings remain configuration-driven.
+Configure cloud credentials only through the write-only Web Admin Credentials
+page or `SecretsService`, never in YAML. See [voice](voice.md) and [TTS](tts.md)
+for the provider-specific setup and physical-validation limits.
 
 ## Local ONNX expression model
 
@@ -153,7 +166,8 @@ Stop if the checksum differs. Set `expression.enabled: true` and
 `expression.provider: "local"`; retain the supplied model path, labels and
 preprocessing. No AWS dependency is needed. The candidate's recognition quality
 is not established; read [model evaluation](vision-model-evaluation.md).
-Keep neutral reactions disabled until calibrated. Revalidate the JSON.
+Keep neutral reactions disabled until calibrated. Revalidate the active
+configuration source.
 
 ## Start PHOS
 
@@ -161,10 +175,10 @@ For a first foreground check from the desktop:
 
 ```bash
 cd ~/phos
-.venv/bin/python src/robot/main.py --config config/phos.json
+PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
-Check the startup version is **1.3.0** and the logged configuration path is the
+Check the startup version is **1.4.0** and the logged configuration path is the
 file you edited. Escape leaves fullscreen; Ctrl+C stops PHOS. Stop this process
 before installing/starting the production service below.
 
@@ -184,24 +198,36 @@ service, sudo endpoint or adapter-owned shell command is involved. From a termin
 cd ~/phos
 mkdir -p ~/.config/systemd/user
 cp deploy/phos.service ~/.config/systemd/user/phos.service
-systemctl --user import-environment DISPLAY
-if [ -n "${XAUTHORITY:-}" ]; then
-  systemctl --user import-environment XAUTHORITY
-fi
+mkdir -p ~/.config/autostart
+cp deploy/phos-session-env.desktop ~/.config/autostart/phos-session-env.desktop
 systemctl --user daemon-reload
-systemctl --user enable --now phos.service
+systemctl --user enable phos.service
+journalctl --user -u phos.service -n 100 --no-pager
+```
+
+The unit uses `%h/phos`, `.venv/bin/python`, module execution, and the explicit
+`%h/phos/config/phos.yaml` configuration path. Do not install it under
+`/etc/systemd/system` or run it as root. The installed desktop autostart bridge
+validates its own logind session (`Active=yes`, `Remote=no`, `Seat=seat0`, and
+X11/Wayland) before importing that session's GUI variables and starting PHOS.
+This binds the face to the physical local display, not an arbitrary user-manager
+environment. The desktop file assumes the documented `/home/pi/phos` deployment;
+for another desktop user, change its `Exec` path while retaining the same bridge.
+
+Do not run the bridge from SSH. In particular, SSH X11 forwarding can supply
+`DISPLAY=localhost:10.0` (or similar); it is rejected and cannot overwrite the
+service target. After a local graphical login, confirm the bridge and service:
+
+```bash
 systemctl --user status phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
 
-The unit uses `%h/phos`, `.venv/bin/python` and `%h/phos/config/phos.json`. Adjust
-WorkingDirectory/ExecStart locally if installing elsewhere. Tk must have a usable
-DISPLAY and authorization; do not enable lingering/headless boot for this app.
-Login startup depends on the desktop activating `graphical-session.target` and
-importing its display environment. Check `systemctl --user is-active
-graphical-session.target`. If the desktop does not manage that target/environment,
-run the import commands and `systemctl --user start phos.service` at each desktop
-login. Automatic login startup on that desktop remains an acceptance prerequisite.
+Successful startup logs `PHOS DISPLAY: session_type=x11 display=:0
+source=local-seat0` (the numeric display is discovered, not hardcoded). A missing
+local graphical session leaves the service unstarted rather than opening Tk on an
+SSH display. Direct execution of `src/robot/main.py` is unsupported because it
+can shadow standard-library modules.
 
 Operations:
 
@@ -213,8 +239,9 @@ journalctl --user -u phos.service -n 100 --no-pager
 ```
 
 In Web Admin, **System actions → Reload configuration** applies logging level,
-iris theme and every camera-preview setting. Other changed fields remain listed
-as restart-required. **Restart PHOS** requires confirmation, shuts down the runtime
+iris theme and every camera-preview setting. Supported Voice & Speech provider
+and audio-output changes instead use live candidate activation and persistence;
+other changed fields remain listed as restart-required. **Restart PHOS** requires confirmation, shuts down the runtime
 and worker, exits with code 75 and lets systemd start the same entry point after
 three seconds. Reconnect at the saved host/port and log in again. Disabling web
 intentionally removes browser access. Manual launches cannot offer browser restart.
@@ -356,18 +383,18 @@ framework or second bus owner is introduced. Only the selected driver is importe
 
 For an existing config, first merge the required `sensors` object from the new
 canonical file as described in [migration](development.md#environmental-configuration-migration).
-In Web Admin → Sensors (or directly in the complete JSON), select type **BME280** or **BMP280**, set enabled to true,
+In Web Admin → Sensors (or directly in the complete configuration), select type **BME280** or **BMP280**, set enabled to true,
 choose the detected address, and set polling/stale timing. The canonical defaults
-are maintained in `config/phos.json`. Save, validate and restart:
+are maintained in `config/phos.yaml`. Save, validate and restart:
 
 ```bash
 cd ~/phos
-PYTHONPATH=src .venv/bin/python -c "from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"
+PYTHONPATH=src .venv/bin/python -c "from robot.config import ConfigRepository; ConfigRepository().load(); print('Configuration valid')"
 systemctl --user restart phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
 
-Manual launch: `.venv/bin/python src/robot/main.py --config config/phos.json`.
+Manual launch: `PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml`.
 Open **Web Admin → Sensors** and refresh the page to see current °C, % relative
 humidity (BME280 only) and hPa, UTC last-update time, age and health. BMP280
 humidity is null and shown as **Not supported**. The active type remains visible
@@ -442,13 +469,13 @@ cd ~/phos
 
 Expect `68` or `69`; `--` means no response and `UU` means another driver owns
 the device. The optional package extra is `.[imu]`. Merge the complete
-`sensors.imu` block from `config/phos.json` into an existing configuration, then
+`sensors.imu` block from `config/phos.yaml` into an existing configuration, then
 enable it in **Web Admin → Sensors → GY-521 / MPU-6050 motion** (or set
 `"enabled": true` directly). All four fields require **Restart PHOS**:
 
 ```bash
 cd ~/phos
-PYTHONPATH=src .venv/bin/python -c "from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"
+PYTHONPATH=src .venv/bin/python -c "from robot.config import ConfigRepository; ConfigRepository().load(); print('Configuration valid')"
 systemctl --user restart phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
@@ -590,7 +617,7 @@ as logical RGB and uniformly scales them for `brightness`; it does not apply
 gamma correction. The helper explicitly configures standard WS2812B `GRB` wire
 order, so do not reorder the configured palette values.
 
-Next update the deployed canonical `~/phos/config/phos.json` so its count and
+Next update the deployed canonical `~/phos/config/phos.yaml` so its count and
 GPIO exactly match the helper. Replace its `led_ring` object with values for the
 actual ring; for a 12-pixel ring on BCM GPIO 18:
 
@@ -690,7 +717,7 @@ a disabled CCS811 needs no optional dependency. A `ModuleNotFoundError` for
 `smbus2` means install it using the exact virtual environment in the service's
 ExecStart, then retry or restart.
 
-Merge the required `sensors.ccs811` block from `config/phos.json` into existing
+Merge the required `sensors.ccs811` block from `config/phos.yaml` into existing
 deployment JSON, preserving `sensors.environmental` and all other settings.
 Missing fields fail validation even when disabled; `run_pi.sh` preserves existing
 JSON and does not migrate it. In **Web Admin → Sensors → CCS811 air quality**,
@@ -700,12 +727,12 @@ leaves them pending. For the documented deployment:
 
 ```bash
 cd ~/phos
-PYTHONPATH=src .venv/bin/python -c "from pathlib import Path; from robot.config import RuntimeConfig; RuntimeConfig.from_file(Path('config/phos.json')); print('Configuration valid')"
+PYTHONPATH=src .venv/bin/python -c "from robot.config import ConfigRepository; ConfigRepository().load(); print('Configuration valid')"
 systemctl --user restart phos.service
 journalctl --user -u phos.service -n 100 --no-pager
 ```
 
-Manual launch uses `.venv/bin/python src/robot/main.py --config config/phos.json`.
+Manual launch uses `PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml`.
 The runtime starts the firmware application and selects device mode 1 (one-second
 measurements). Host polling does not change that drive mode. Readings are withheld
 for 20 minutes after every initialization, including reconnect/restart; the UI

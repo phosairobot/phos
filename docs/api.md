@@ -19,6 +19,11 @@ channel (`temperature`: `none`/`cold`/`warm`; `air_quality`:
 `none`/`warning`/`bad`) for an optional positive `duration_ms`; `DELETE` clears
 only that override and immediately returns to current environmental intent.
 
+`POST /api/v1/speak` accepts `{"text":"Hello from PHOS."}` and returns
+`202 {"status":"accepted"}` after the main runtime accepts a bounded (500
+character) TTS request. It shares the existing authenticated Web Admin session
+and application-service/IPC boundary; see [Remote API](remote-api.md#speak).
+
 ```sh
 curl -X GET http://localhost:8080/api/v1/overlay
 curl -X POST http://localhost:8080/api/v1/overlay -H 'Content-Type: application/json' \

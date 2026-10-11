@@ -7,10 +7,12 @@
 - [x] Native-rate negotiation, one 16 kHz PCM16 resampling boundary, VAD, 300 ms
   pre-roll, local Vosk STT, semantic lifecycle/voice status observability, and
   Raspberry Pi 3 physical validation.
-- [ ] Future voice work: TTS/AudioOutputProvider/SPEAKING, command and intent
-  interpretation, LLM integration, wake word, continuous listening, and Home Assistant.
-- [ ] Configuration evolution: retain JSON in 1.4.0; centralize ownership and
-  persistence behind ConfigRepository before any YAML migration.
+- [x] Provider-neutral TTS/audio output with local Piper, Cartesia and ElevenLabs adapters; live Voice & Speech provider/output activation through the application boundary.
+- [ ] Future voice work: command and intent interpretation, LLM integration, wake word, continuous listening, and Home Assistant.
+- [x] Configuration evolution: YAML is the canonical editable configuration;
+  ConfigRepository owns validation and atomic persistence, with legacy JSON
+  retained as a supported fallback. Supported Voice & Speech changes use the
+  runtime-aware live configuration path.
 
 ## PHOS 1.3.0 — Presence, Attention & Expression Awareness
 
@@ -121,7 +123,7 @@ remains separate from implementation.
 | Advanced OS administration | Raspberry Pi reboot, if a future safe permission boundary is approved. |
 | MCP server | Service-mediated tools; no direct hardware or subsystem-internal access. |
 | STT | Completed Slice 3: physically validated explicit microphone capture, native-rate resampling, VAD, 300 ms pre-roll and provider-neutral local Vosk transcription. Small-model accuracy is a baseline, not a final quality target. |
-| TTS | Provider-neutral synthesis, playback and speaker verification. |
+| TTS | Implemented provider-neutral synthesis/playback: local Piper, Cartesia and ElevenLabs. Physical acceptance remains provider/device-specific. |
 | Conversational LLM | End-to-end conversation through LLMProvider; existing skeletons are not a delivered conversation feature. |
 | Home Assistant | Integration/tool layer and explicit permissions; not the reasoning core. |
 

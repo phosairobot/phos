@@ -13,20 +13,20 @@ This file is an implementation handoff for coding agents. It records what is pre
 ## PHOS 1.4.0 — Voice & Interaction Foundation
 
 PHOS 1.4.0 implements startup/readiness (splash, ready sound and hidden cursor),
-touch/gesture input, provider-neutral native-rate microphone capture, canonical
-16 kHz PCM16 processing, VAD, bounded pre-roll, local Vosk STT, and observable
-`LISTENING → THINKING → IDLE` sessions validated on Raspberry Pi 3.
+touch/gesture input, USB microphone capture, canonical 16 kHz PCM16 processing,
+VAD and bounded pre-roll. Default local Vosk and optional Cartesia Ink batch STT
+implement the provider-neutral transcription boundary. Local Piper, Cartesia and
+ElevenLabs TTS adapters feed `AudioOutputProvider` and the
+`SPEAKING` state through `/api/v1/speak`. YAML is the canonical editable
+configuration; legacy JSON remains a supported fallback.
 
-PHOS can capture and transcribe speech, but does not yet perform transcript →
-intent/command interpretation → application command → behavior/action. TTS,
-AudioOutputProvider, SPEAKING, wake words, continuous listening, conversational
-LLM, and Home Assistant remain deferred. The small local Vosk model has limited
-accuracy for longer phrases and non-native English accents. JSON remains the
-canonical 1.4.0 configuration format.
+Transcript-to-intent/command interpretation, wake words, continuous listening,
+conversational LLM, Home Assistant and MCP/tool execution remain deferred.
 
 ## PHOS 1.3.0 release candidate
 
-The source version is **1.3.0**. It adds stable Presence and Attention state,
+This is a historical 1.3.0 release-candidate record. The current source version
+is **1.4.0**. Version 1.3.0 added stable Presence and Attention state,
 transient presence LED reactions, observed facial-expression telemetry, and a
 bounded expression-reaction policy to the existing Remote API and Web Admin.
 Automated regression has passed. It is **not ready to tag** until the target-Pi
@@ -57,7 +57,8 @@ components initialize. Confirm one ready sound when configured, normal eyes only
 after ready/degraded state, and a persistent startup error for a critical failure.
 Verify an unavailable optional sensor permits degraded startup. Move a mouse over
 the face display to confirm its cursor is hidden, then open Web Admin and confirm
-the browser cursor remains normal. Touch behavior is not implemented in this slice.
+the browser cursor remains normal. Touch/gesture behavior is documented separately
+from this startup acceptance slice.
 
 ## Present in the repository
 
@@ -120,9 +121,10 @@ the browser cursor remains normal. Touch behavior is not implemented in this sli
 - This code predates the newer vertical-milestone discipline. Preserve it, but do not use its existence as a reason to expand unfinished subsystems automatically.
 
 ### Voice / TTS
-- Slice 3 provides explicit microphone capture, energy VAD and provider-neutral local STT through an optional Vosk model. It ends at an observable transcript; audio is not served. Temporary physical STT debugging is opt-in through `voice.debug.dump_utterance_wav` and overwrites one configured WAV file.
-- LLM, TTS and playback remain outside this slice.
-- TTS architecture remains provider-neutral with Piper as the preferred first local engine to benchmark when that milestone begins.
+- Voice input follows `Microphone → capture/VAD → VoiceCaptureSession → STTProvider → transcript` for bounded utterances. Local/Vosk is the default provider and Cartesia Ink is opt-in batch STT; explicit cloud selection never silently falls back. Optional provider failures do not prevent general PHOS startup.
+- Speech output follows `text → TTSProvider → AudioOutputProvider → SPEAKING`. `TTSProvider` supports Local/Piper, Cartesia and ElevenLabs integration; the output provider owns normalized playback and `/api/v1/speak` reaches this same runtime path.
+- Voice & Speech applies supported STT/TTS/audio changes live. Candidate activation precedes persistence; failure retains the previous provider/configuration. In-progress sessions/speech retain their original references; subsequent work uses the replacement.
+- Project physical-validation records cover local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching without a service restart. ElevenLabs is implemented, but end-to-end physical availability remains subject to external account and voice-plan constraints.
 
 ## Current development priority
 
@@ -155,8 +157,8 @@ confidence value.
 
 Local ONNX remains the default; optional AWS Rekognition is implemented behind
 ExpressionProvider, with local tracking/cropping, bounded background requests,
-cache expiry, change gating, stability gating and failure backoff. JSON settings
-now come from the complete canonical `config/phos.json` and can be overridden
+cache expiry, change gating, stability gating and failure backoff. Settings
+now come from the complete canonical `config/phos.yaml` and can be overridden
 by deprecated CLI settings. Cloud cached samples retain
 capture timestamps and do not advance semantic confirmation. See Vision and
 installation for policy, privacy, exact commands and external credentials.
@@ -166,15 +168,28 @@ outstanding. No automatic provider fallback is implemented.
 
 ## Canonical configuration
 
-`robot.config` owns RuntimeConfig/CloudExpressionConfig, strict full-file schema
-validation, config-relative paths and reusable atomic save. Runtime composition
-passes JSON values for display, behavior, detector, Vision, expression smoothing,
-local/AWS providers and logging. The default file enables only eyes. The old
-expression-specific partial JSON files are removed; migrate existing deployments
-using `docs/development.md`. No secrets are part of the model. `run_pi.sh` seeds
-configuration without overwriting existing Pi settings. The optional web interface
-reuses this model; see below. Startup flags remain deprecated
-overrides pending a separately announced removal after consumers migrate.
+`ConfigRepository` and `robot.config` own `RuntimeConfig`, strict full-file schema validation,
+configuration-relative paths and reusable atomic save. YAML is the canonical
+editable configuration format; existing legacy JSON configuration remains a
+supported source fallback. Runtime composition passes typed values for display,
+behavior, Vision, voice/audio providers, sensors and logging. The default file
+enables only eyes. No secrets are part of the model. `run_pi.sh` seeds configuration
+without overwriting existing Pi settings. The web interface reuses the model for
+structured settings and an advanced YAML editor that saves back to the active
+source format; see below. Startup flags remain deprecated overrides pending a
+separately announced removal after consumers migrate.
+
+`SecretsService` is the separate encrypted, runtime-only local secret boundary.
+It keeps logical provider credentials out of configuration and source control;
+the Web Admin Credentials page is write-only and reports slot status without
+ever rendering stored values. Cartesia and ElevenLabs resolve their credentials
+only through this boundary; no secret is returned in configuration, status,
+logs, or Web responses.
+
+Local Piper loads its installed Python voice lazily and reuses it within the
+provider instance. Cartesia and ElevenLabs TTS adapters are implemented through
+the same provider-neutral synthesis/output boundary. Provider availability and
+physical validation are separate from configuration support.
 
 ## Web administration
 
@@ -187,6 +202,17 @@ worker cleanup and exposes parent-owned active configuration metadata on a
 separate read-only Status page. General provides navigation; Network, Display & Appearance, Vision,
 Expression Recognition, Logging and Web Administration / Security expose only
 implemented fields. Password management stays separate.
+Settings → Configuration presents the complete validated configuration as YAML,
+uses revision protection against stale saves, and requires an explicit restart
+after any advanced-editor save; it never applies or converts settings live.
+Voice & Speech is the exception for supported STT, TTS and audio-output settings:
+its three sections submit validated candidate configuration through the
+application/lifecycle boundary to the main runtime. A candidate is activated
+before persistence; a failure keeps the prior runtime provider and configuration.
+The page shows configured and active provider/device state separately, with
+availability or active state shown as Unknown when the runtime snapshot is not
+available; enabled state is shown where applicable. An operation already in
+progress retains its provider/output reference; new work uses the replacement.
 Logging level, iris appearance and camera-preview settings are live-reloadable after full canonical validation. Confirmed
 PHOS restart uses the supplied user systemd service; manual launches reject
 browser restart. No OS reboot, AWS credential probe, automatic backup or Internet
@@ -236,12 +262,13 @@ fixed status/reload/restart policy. The web worker uses a local process channel;
 it cannot submit commands or paths. Reload validates the entire saved file and
 applies logging level, iris appearance and camera preview through their application-service
 boundaries, preserving AWS SDK log suppression. Other changed fields are listed
-as restart-required. Authenticated restart requires CSRF and
+as restart-required, except supported Voice & Speech provider/output changes
+which use the live activation and persistence path described above. Authenticated restart requires CSRF and
 one-use explicit confirmation, then graceful runtime shutdown and exit 75.
 `deploy/phos.service` performs process replacement under the desktop user with
 no sudo/polkit or shell endpoint. Source sync includes the unit but never enables
-it. System actions remain separate from ordinary config forms. OS reboot and all
-previously deferred roadmap capabilities remain deferred.
+it. System actions remain separate from ordinary config forms. OS reboot and
+the still-deferred roadmap capabilities remain outside this path.
 
 ## Eye appearance refinement
 

@@ -28,7 +28,7 @@ class InvalidStateTransition(ValueError):
 
 
 _ALLOWED_TRANSITIONS = {
-    RobotState.IDLE: {RobotState.LISTENING, RobotState.SLEEPING, RobotState.ERROR},
+    RobotState.IDLE: {RobotState.LISTENING, RobotState.SPEAKING, RobotState.SLEEPING, RobotState.ERROR},
     RobotState.LISTENING: {RobotState.IDLE, RobotState.THINKING, RobotState.SLEEPING, RobotState.ERROR},
     RobotState.THINKING: {RobotState.IDLE, RobotState.SPEAKING, RobotState.ERROR},
     RobotState.SPEAKING: {RobotState.IDLE, RobotState.LISTENING, RobotState.ERROR},

@@ -2,12 +2,28 @@
 
 from concurrent.futures import Future
 import logging
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
+
+import pytest
 
 from robot.ui.display import (
     CameraPreviewSettings, CameraPreviewView, TkEyeDisplay, _encode_preview_ppm,
 )
+
+
+def test_missing_graphical_environment_fails_clearly_at_display_boundary(monkeypatch):
+    class TclError(Exception):
+        pass
+
+    monkeypatch.setitem(sys.modules, "tkinter", SimpleNamespace(
+        TclError=TclError,
+        Tk=Mock(side_effect=TclError("no display name and no $DISPLAY environment variable")),
+    ))
+
+    with pytest.raises(RuntimeError, match="Could not open the PHOS HDMI display from this session"):
+        TkEyeDisplay().open(800, 600, fullscreen=True)
 
 
 def test_preview_passes_binary_ppm_to_tk_and_draws_image(monkeypatch):
