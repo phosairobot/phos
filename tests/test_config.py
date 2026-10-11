@@ -33,6 +33,14 @@ def test_canonical_config_is_complete_safe_and_round_trips(document):
     assert config.to_dict() == document
     assert not config.vision_enabled
     assert config.display_width == 800 and config.display_height == 600
+
+
+def test_legacy_voice_stt_without_provider_defaults_to_local_vosk(tmp_path, document):
+    document["voice"]["stt"].pop("provider")
+    document["voice"]["stt"].pop("cartesia")
+    config = RuntimeConfig.from_file(write_config(tmp_path, document))
+    assert config.voice_stt_provider == "local"
+    assert config.voice_stt_cartesia_model_id == "ink-whisper-2025-06-04"
     assert config.expression_provider == "local"
     assert config == RuntimeConfig()
     assert "_base_dir" not in repr(config)

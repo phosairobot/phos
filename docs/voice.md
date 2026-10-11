@@ -15,6 +15,15 @@ and configure a local Vosk model directory under `voice.stt.model_path`. Vosk
 is optional (`pip install vosk`); PHOS never downloads a model at startup.
 Without the dependency or model, status reports the provider unavailable.
 
+`voice.stt.provider` defaults to `local`, which means offline Vosk and remains
+the behavior for existing installations. `cartesia` is an opt-in batch Ink STT
+adapter using the existing Cartesia credential; its non-secret model, language,
+and 16 kHz sample rate live under `voice.stt.cartesia`. Select it in Voice &
+speech, save, and restart PHOS. There is no streaming Cartesia STT: PHOS's
+existing VAD, utterance limits, and pre-roll remain authoritative. An explicitly
+selected unavailable Cartesia provider is reported unavailable; PHOS never
+silently falls back to Vosk.
+
 `voice.input.sample_rate` is the optional requested hardware rate; if it is
 unsupported, PHOS tries the selected device's default rate, then 44.1/48 kHz,
 before reporting `unsupported_capture_rate`. `voice.processing.sample_rate` is

@@ -20,7 +20,7 @@ DOMAINS = {
     "runtime": {"title": "Runtime", "description": "Vision, expression and safe logging configuration."},
     "behavior": {"title": "Behavior", "description": "Supported eye and environmental behavior settings."},
     "integrations": {"title": "Integrations", "description": "Optional Web Administration integration settings."},
-    "voice": {"title": "Voice & speech", "description": "Text-to-speech provider selection and local Piper settings."},
+    "voice": {"title": "Voice & speech", "description": "Offline Vosk/optional Cartesia STT and text-to-speech settings."},
 }
 
 # Paths select fields that already exist in the canonical document. A trailing
@@ -56,7 +56,10 @@ GROUPS["eyes"] = [("eyes", "Eye appearance", ("display.iris_color", "display.bas
 GROUPS["runtime"] = [*GROUPS["vision"], *GROUPS["expression"], *GROUPS["logging"]]
 GROUPS["behavior"] = [("behavior", "Eye behavior", ("behavior.",), None)]
 GROUPS["integrations"] = GROUPS["security"]
-GROUPS["voice"] = [("tts", "Text-to-speech", ("tts.enabled", "tts.provider"), None),
+GROUPS["voice"] = [("stt", "Speech-to-text", ("voice.enabled", "voice.stt.provider"), None),
+                    ("vosk", "Local / Vosk", ("voice.stt.model_path", "voice.stt.language"), "local"),
+                    ("cartesia-stt", "Cartesia Ink", ("voice.stt.cartesia.",), "cartesia"),
+                    ("tts", "Text-to-speech", ("tts.enabled", "tts.provider"), None),
                     ("local", "Local Piper", ("tts.local.",), "local"),
                     ("elevenlabs", "ElevenLabs", ("tts.elevenlabs.",), "elevenlabs"),
                     ("cartesia", "Cartesia", ("tts.cartesia.",), "cartesia"),

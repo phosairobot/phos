@@ -64,6 +64,10 @@ voice:
     provider: local
     model_path: null
     language: null
+    cartesia:
+      model_id: ink-whisper-2025-06-04
+      language: en
+      sample_rate: 16000
 tts:
   enabled: false
   provider: local

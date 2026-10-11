@@ -174,7 +174,10 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                                          or "pre_roll_ms" not in voice_document.get("vad", {})
                                          or not isinstance(voice_document.get("debug"), dict)
                                          or "dump_utterance_wav" not in voice_document.get("debug", {})
-                                         or "utterance_wav_path" not in voice_document.get("debug", {})))
+                                         or "utterance_wav_path" not in voice_document.get("debug", {})
+                                         or not isinstance(voice_document.get("stt"), dict)
+                                         or "provider" not in voice_document.get("stt", {})
+                                         or not isinstance(voice_document.get("stt", {}).get("cartesia"), dict)))
             tts_document = document.get("tts")
             needs_tts_audio_defaults = (isinstance(tts_document, dict)
                                         and (not isinstance(tts_document.get("audio_output"), dict)
@@ -215,6 +218,11 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                 voice.setdefault("debug", copy.deepcopy(default["voice"]["debug"]))
                 voice["debug"].setdefault("dump_utterance_wav", default["voice"]["debug"]["dump_utterance_wav"])
                 voice["debug"].setdefault("utterance_wav_path", default["voice"]["debug"]["utterance_wav_path"])
+                voice.setdefault("stt", copy.deepcopy(default["voice"]["stt"]))
+                voice["stt"].setdefault("provider", "local")
+                voice["stt"].setdefault("cartesia", copy.deepcopy(default["voice"]["stt"]["cartesia"]))
+                for key, value in default["voice"]["stt"]["cartesia"].items():
+                    voice["stt"]["cartesia"].setdefault(key, copy.deepcopy(value))
             if isinstance(document.get("tts"), dict) and default is not None:
                 document["tts"].setdefault("elevenlabs", copy.deepcopy(default["tts"]["elevenlabs"]))
                 for key, value in default["tts"]["elevenlabs"].items():
@@ -318,7 +326,7 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
-    "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language"}},
+    "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
     "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
@@ -445,6 +453,9 @@ class RuntimeConfig:
     voice_stt_provider: str
     voice_stt_model_path: Optional[Path]
     voice_stt_language: Optional[str]
+    voice_stt_cartesia_model_id: str
+    voice_stt_cartesia_language: str
+    voice_stt_cartesia_sample_rate: int
     tts_enabled: bool
     tts_provider: str
     tts_local_engine: str
@@ -825,10 +836,14 @@ class RuntimeConfig:
             raise ConfigurationError("voice.input.device_index must be a nonnegative integer or null")
         if self.voice_debug_utterance_wav_path is None:
             raise ConfigurationError("voice.debug.utterance_wav_path must be a nonempty path")
-        if self.voice_stt_provider != "local":
-            raise ConfigurationError("voice input or STT provider is invalid")
+        if self.voice_stt_provider not in {"local", "cartesia"}:
+            raise ConfigurationError("voice.stt.provider must be local or cartesia")
         if self.voice_stt_language is not None and (not isinstance(self.voice_stt_language, str) or not self.voice_stt_language.strip()):
             raise ConfigurationError("voice.stt.language must be a nonempty string or null")
+        if (not isinstance(self.voice_stt_cartesia_model_id, str) or not self.voice_stt_cartesia_model_id.strip()
+                or not isinstance(self.voice_stt_cartesia_language, str) or not self.voice_stt_cartesia_language.strip()
+                or type(self.voice_stt_cartesia_sample_rate) is not int or self.voice_stt_cartesia_sample_rate != 16000):
+            raise ConfigurationError("voice.stt.cartesia configuration is invalid")
         if self.tts_provider not in {"local", "elevenlabs", "google", "cartesia"}:
             raise ConfigurationError("tts.provider must be local, elevenlabs, google, or cartesia")
         if self.tts_provider == "local" and self.tts_local_engine != "piper":
@@ -950,7 +965,7 @@ class RuntimeConfig:
             sound = self.resolve_startup_ready_sound()
             if not sound.is_file() or not os.access(sound, os.R_OK):
                 raise ConfigurationError(f"startup.ready_sound.file: readable file required: {sound}")
-        if self.voice_enabled and self.voice_stt_model_path is not None:
+        if self.voice_enabled and self.voice_stt_provider == "local" and self.voice_stt_model_path is not None:
             model = self.resolve_path(self.voice_stt_model_path)
             if model is None or not model.is_dir() or not os.access(model, os.R_OK):
                 raise ConfigurationError(f"voice.stt.model_path: readable model directory required: {model}")

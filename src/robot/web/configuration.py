@@ -101,6 +101,7 @@ CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),
            "sensors.imu.i2c_address": ("0x68", "0x69"),
            "sensors.environmental.type": ("bme280", "bmp280"),
            "expression.provider": ("local", "aws"),
+           "voice.stt.provider": ("local", "cartesia"),
            "tts.provider": ("local", "elevenlabs", "google", "cartesia"),
            "tts.elevenlabs.output_format": ("pcm_16000", "pcm_22050", "pcm_24000", "pcm_44100", "pcm_48000"),
            "sensors.environmental.i2c_address": ("0x76", "0x77"),
@@ -127,6 +128,7 @@ HELP = {
     "expression.local": "Paths are relative to the configuration file. Labels must match model output order; input size is width, height and mean is three channel values.",
     "expression.aws": "Non-secret request policy only. Credentials stay external in the AWS SDK chain; availability is not checked here. Times are seconds; zero session limit means unlimited.",
     "expression.smoothing": "Requires repeated confident observations. Keep neutral disabled until calibrated.",
+    "voice.stt": "Local / Vosk is the offline default. Cartesia Ink is opt-in, uses the existing Cartesia credential, and requires restart after saving. PHOS VAD still determines utterance boundaries; batch transcription only is used.",
     "logging": "Blank file means console only. Paths are relative to the configuration file. Enable diagnostics temporarily.",
 }
 

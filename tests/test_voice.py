@@ -4,14 +4,68 @@ import sys
 import threading
 import wave
 from types import SimpleNamespace
+import pytest
 
 from robot.core import EventBus, RobotState
-from robot.voice import PCM16Resampler, PyAudioCaptureProvider, ResamplingAudioCaptureProvider, SpeechRecognitionResult, UnsupportedCaptureRate, VoiceCaptureSession, VoiceActivityDetector
+from robot.voice import (CartesiaSTTProvider, PCM16Resampler, PyAudioCaptureProvider,
+                         ResamplingAudioCaptureProvider, SpeechRecognitionResult, STTConfigurationError,
+                         STTProviderError, STTProviderFactory, UnsupportedCaptureRate,
+                         VoiceCaptureSession, VoiceActivityDetector, VoskSTTProvider)
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 
 
 def _pcm(amplitude, samples=480):
     return int(amplitude).to_bytes(2, "little", signed=True) * samples
+
+
+def test_stt_factory_defaults_to_local_vosk_and_cartesia_is_explicit(monkeypatch):
+    local = SimpleNamespace(voice_stt_provider="local", voice_stt_model_path=None,
+                            voice_stt_language=None, resolve_path=lambda path: path)
+    assert isinstance(STTProviderFactory.create(local), VoskSTTProvider)
+    cartesia = SimpleNamespace(voice_stt_provider="cartesia", voice_stt_cartesia_model_id="ink-whisper-2025-06-04",
+                               voice_stt_cartesia_language="en", voice_stt_cartesia_sample_rate=16000)
+    with pytest.raises(STTConfigurationError, match="credential"):
+        STTProviderFactory.create(cartesia, SimpleNamespace(get_secret=lambda name: None))
+    class Client:
+        def __init__(self, *, api_key): self.api_key = api_key
+    monkeypatch.setitem(sys.modules, "cartesia", SimpleNamespace(Cartesia=Client))
+    assert isinstance(STTProviderFactory.create(cartesia, SimpleNamespace(get_secret=lambda name: "secret")),
+                      CartesiaSTTProvider)
+
+
+def test_cartesia_stt_wraps_canonical_pcm_as_wav_and_returns_provider_neutral_result():
+    received = {}
+
+    class Client:
+        class stt:
+            @staticmethod
+            def transcribe(**kwargs):
+                received.update(kwargs)
+                return SimpleNamespace(text="hello PHOS")
+
+    provider = CartesiaSTTProvider("secret", "ink-whisper-2025-06-04", "en", 16000,
+                                   client_factory=lambda **kwargs: Client())
+    result = asyncio.run(provider.transcribe(_pcm(300), sample_rate=16000, channels=1))
+    filename, audio, content_type = received["file"]
+    with wave.open(audio, "rb") as wav_file:
+        assert (wav_file.getframerate(), wav_file.getnchannels(), wav_file.getsampwidth()) == (16000, 1, 2)
+    assert (filename, content_type, received["model"], received["language"], result.text, result.provider) == (
+        "phos-utterance.wav", "audio/wav", "ink-whisper-2025-06-04", "en", "hello PHOS", "cartesia")
+    assert "secret" not in repr(received)
+
+
+def test_cartesia_stt_failures_are_typed_and_do_not_select_vosk(caplog):
+    class Client:
+        class stt:
+            @staticmethod
+            def transcribe(**kwargs):
+                error = RuntimeError("network failed"); raise error
+    provider = CartesiaSTTProvider("secret", "ink-whisper-2025-06-04", "en", 16000,
+                                   client_factory=lambda **kwargs: Client())
+    with caplog.at_level(logging.WARNING), pytest.raises(STTProviderError, match="transcription_failed"):
+        asyncio.run(provider.transcribe(_pcm(300), sample_rate=16000, channels=1))
+    assert "PHOS STT: provider=cartesia error=transcription_failed" in caplog.text
+    assert "secret" not in caplog.text
 
 
 def test_energy_vad_emits_only_speech_edges():
