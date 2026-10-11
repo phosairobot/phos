@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
@@ -29,7 +30,8 @@ class ConfigurationService:
     def revision(document):
         return hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest()
 
-    def save_form(self, form, *, area=None):
+    def prepare_form_update(self, form, *, area=None):
+        """Validate and reconstruct a canonical form edit without persistence."""
         with self.lock:
             document = self.read()
             if form.get("revision") != self.revision(document):
@@ -65,7 +67,21 @@ class ConfigurationService:
                     for key in keys[:-1]:
                         target = target[key]
                     target[keys[-1]] = value
-            self.repository.save(RuntimeConfig.from_dict(edited, base_dir=self.path.parent))
+            candidate = RuntimeConfig.from_dict(edited, base_dir=self.path.parent)
+            return PreparedFormUpdate(candidate, candidate.to_dict(), self.revision(document))
+
+    def save_form(self, form, *, area=None):
+        with self.lock:
+            prepared = self.prepare_form_update(form, area=area)
+            self.repository.save(prepared.config)
+
+
+@dataclass(frozen=True)
+class PreparedFormUpdate:
+    """Validated canonical candidate; preparation deliberately has no writes."""
+    config: RuntimeConfig
+    document: dict
+    base_revision: str
 
     def editable_yaml(self):
         """Return the validated active configuration as human-editable YAML."""

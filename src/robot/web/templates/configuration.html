@@ -58,7 +58,9 @@ Your edits on this page have not been saved.</p>
 {% elif area == 'status' %}
 <p class="notice">This operational overview contains semantic state and sensor health summaries. Detailed runtime diagnostics are available in Diagnostics; lifecycle actions have their own System Actions page.</p>
 {% else %}
+{% if area == 'voice' %}<p class="notice voice-live-notice">Voice &amp; Speech changes are applied live when activation succeeds. No PHOS restart is required.</p>{% else %}
 <p class="notice">Editing saved settings. Save does not apply changes. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes.</p>
+{% endif %}
 {% if area == 'sensors' %}
 {% set sensor = runtime_state.get('sensors', {}).get('environmental') if runtime_state and runtime_state.ok else none %}
 {% set air = runtime_state.get('sensors', {}).get('ccs811') if runtime_state and runtime_state.ok else none %}
@@ -155,13 +157,17 @@ Your edits on this page have not been saved.</p>
 <p>HTTP administration is for a trusted LAN only. Manage the bind address and port in <a href="{{ url_for('configuration', area='network') }}">Network</a>.</p>
 {% endif %}
 {% if area == 'voice' %}
-<section class="status"><h3>Provider availability</h3><p>Local / Piper, ElevenLabs, and Cartesia are implemented. Google Cloud TTS is coming soon. ElevenLabs credential: <strong>{{ 'Configured' if elevenlabs_credential_configured else 'Not configured' }}</strong>. Cartesia credential: <strong>{{ 'Configured' if cartesia_credential_configured else 'Not configured' }}</strong>. Credentials remain write-only in <a href="{{ url_for('credentials') }}">Credentials</a>. Saving voice settings requires a PHOS restart.</p></section>
+<section class="status"><h3>Provider availability</h3><p>Local / Piper, ElevenLabs, and Cartesia are implemented. Google Cloud TTS is coming soon. ElevenLabs credential: <strong>{{ 'Configured' if elevenlabs_credential_configured else 'Not configured' }}</strong>. Cartesia credential: <strong>{{ 'Configured' if cartesia_credential_configured else 'Not configured' }}</strong>. Credentials remain write-only in <a href="{{ url_for('credentials') }}">Credentials</a>.</p></section>
 {% endif %}
 <form method="post" action="{{ url_for('configuration', area=area) }}">
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="revision" value="{{ revision }}">
+{% set speech = runtime_state.get('runtime', {}).get('speech', {}) if runtime_state and runtime_state.ok else {} %}
 {% for section in sections %}
+{% if area == 'voice' and section.name == 'stt' %}{% set stt = speech.get('stt', {}) %}<section class="voice-section voice-section--stt"><header><h3>Speech to Text</h3><p>Convert microphone input into text. Local / Vosk remains the default offline provider.</p></header><dl class="voice-section__status"><dt>Configured</dt><dd>{{ {'local':'Local / Vosk','cartesia':'Cartesia'}.get(stt.get('configured_provider'), stt.get('configured_provider') or 'Unknown') }}</dd><dt>Active</dt><dd>{{ {'local':'Local / Vosk','cartesia':'Cartesia'}.get(stt.get('active_provider'), stt.get('active_provider') or 'Unknown') }}</dd><dt>Available</dt><dd>{{ 'Yes' if stt.get('available') else 'Unknown' if stt.get('available') is none else 'No' }}</dd><dt>Enabled</dt><dd>{{ 'Yes' if stt.get('enabled') else 'Unknown' if stt.get('enabled') is none else 'No' }}</dd></dl>{% endif %}
+{% if area == 'voice' and section.name == 'tts' %}{% set tts = speech.get('tts', {}) %}</section><section class="voice-section voice-section--tts"><header><h3>Text to Speech</h3><p>Generate spoken output using the selected local or cloud provider.</p></header><dl class="voice-section__status"><dt>Configured</dt><dd>{{ {'local':'Local / Piper','cartesia':'Cartesia','elevenlabs':'ElevenLabs'}.get(tts.get('configured_provider'), tts.get('configured_provider') or 'Unknown') }}</dd><dt>Active</dt><dd>{{ {'local':'Local / Piper','cartesia':'Cartesia','elevenlabs':'ElevenLabs'}.get(tts.get('active_provider'), tts.get('active_provider') or 'Unknown') }}</dd><dt>Available</dt><dd>{{ 'Yes' if tts.get('available') else 'Unknown' if tts.get('available') is none else 'No' }}</dd><dt>Enabled</dt><dd>{{ 'Yes' if tts.get('enabled') else 'Unknown' if tts.get('enabled') is none else 'No' }}</dd></dl>{% endif %}
+{% if area == 'voice' and section.name == 'audio' %}{% set audio = speech.get('audio_output', {}) %}</section><section class="voice-section voice-section--audio"><header><h3>Audio Output</h3><p>Provider-independent playback, normalization, and warm-up settings.</p></header><dl class="voice-section__status"><dt>Configured device</dt><dd>{{ audio.get('configured_device') or 'Unknown' }}</dd><dt>Active device</dt><dd>{{ audio.get('active_device') or 'Unknown' }}</dd><dt>Available</dt><dd>{{ 'Yes' if audio.get('available') else 'Unknown' if audio.get('available') is none else 'No' }}</dd></dl>{% endif %}
 <fieldset id="{{ section.name }}" data-section="{{ section.name }}" {% if section.provider %}data-provider="{{ section.provider }}"{% endif %}><legend>{{ section.title }}</legend>
 <p>{{ section.help }}</p>
 {% if error and related_area == area and error_group == section.name %}<p class="error" role="alert">{{ error }}</p>{% endif %}<div class="fields">
@@ -178,6 +184,7 @@ Your edits on this page have not been saved.</p>
 {% endif %}</div>
 {% endfor %}</div></fieldset>
 {% endfor %}
+{% if area == 'voice' %}</section>{% endif %}
 <button class="save">Save {{ page.title }}</button><p>Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.</p>
 </form>
 {% endif %}

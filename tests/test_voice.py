@@ -249,6 +249,21 @@ def test_capture_session_transcribes_bounded_utterance_and_returns_idle(caplog):
     assert "rms=300 peak=300 threshold=100 speech_candidate_ms=30 speech_active=False" in levels[0]
 
 
+def test_active_voice_session_keeps_pinned_stt_when_default_is_replaced():
+    old, new = _STT(), _STT()
+    old.name, new.name = "old", "new"
+    async def transition(state, reason): pass
+    session = VoiceCaptureSession(_Capture(), old, EventBus(), transition, enabled=True, sample_rate=16000, channels=1,
+        chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30, max_utterance_ms=1000, threshold=100)
+    async def run():
+        await session.start()
+        session.replace_stt_provider(new)
+        await session._task
+    asyncio.run(run())
+    assert old.pcm is not None and new.pcm is None
+    assert session.status()["stt_provider"] == "old"
+
+
 def test_session_prepends_bounded_pre_roll_and_writes_exact_vosk_wav(tmp_path, caplog):
     dump = tmp_path / "utterance.wav"
     before_start = [_pcm(10 + index) for index in range(10)] + [_pcm(300)]

@@ -261,6 +261,25 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 if not auth.valid(session.get("sid")) or passwords.must_change:
                     return redirect(url_for("login"))
                 try:
+                    if area == "voice" and application_service is not None:
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        # Each subsystem is independently transactional in the
+                        # main process; successful earlier sections remain live
+                        # if a later section cannot be activated.
+                        results = []
+                        for label, method, payload in (
+                            ("Speech to text", application_service.configure_stt, prepared.document["voice"]),
+                            ("Text to speech", application_service.configure_tts, prepared.document["tts"]),
+                            ("Audio output", application_service.configure_audio_output,
+                             prepared.document["tts"]["audio_output"]),
+                        ):
+                            try:
+                                result = method(payload)
+                                results.append(f"{label}: applied ({result.get('active_provider') or 'active'})")
+                            except Exception:
+                                results.append(f"{label}: activation failed")
+                        flash("; ".join(results))
+                        return redirect(url_for("configuration", area=area))
                     config.save_form(request.form, area=area)
                 except ConfigurationError as exc:
                     error, status = str(exc), 400
@@ -276,7 +295,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # Sensors are a read-only status view just like System / Status.  The
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
-        runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics"} and lifecycle is not None else None
+        runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
         return render_template("configuration.html", sections=domain_sections(document, area),
