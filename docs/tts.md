@@ -98,9 +98,9 @@ Robot / behavior
  TTSProvider
       |
       +--> PiperTTSProvider      local/offline
-      +--> future ElevenLabs provider
+      +--> ElevenLabsTTSProvider
+      +--> CartesiaTTSProvider
       +--> future Google Cloud TTS provider
-      +--> future Cartesia provider
 ```
 
 `TTSProviderFactory` selects the configured provider only in the main PHOS
@@ -112,14 +112,20 @@ with a configured lossless PCM output, wraps the result as a WAV, and uses the
 same normalization/preroll/playback path as Piper. Configure a Voice ID in Voice
 & speech; the ElevenLabs API key stays write-only in Web Admin's Credentials
 page and never YAML. Model ID and PCM output format remain configurable. Provider
-changes are saved but require a PHOS restart. Streaming is not implemented.
+changes use live candidate activation: successful changes persist, failed
+activation keeps the prior provider/configuration, and an in-progress speech
+operation retains its original provider/output reference. Runtime status shows
+configured and active provider separately, with Unknown where a runtime snapshot
+is unavailable. Streaming is not implemented. ElevenLabs integration is
+implemented, but account and voice-plan restrictions can prevent end-to-end
+physical availability.
 
 Cartesia uses the official synchronous SDK with a configured `sonic-3.6` model,
 explicit Voice ID, and the pinned Cartesia API revision `2026-08-14`. It requests
 a WAV containing 44.1 kHz mono PCM16, then hands that artifact unchanged to the
 same PHOS normalization, preroll, and one-aplay playback path used by every
 provider. Its API key is write-only in Credentials; Voice ID, model ID, and
-sample rate, speed, and volume are canonical Voice & speech settings.
+sample rate, speed, and volume are canonical Voice & Speech settings.
 
 Known ElevenLabs API failures are classified without logging SDK responses:
 authentication failures, plan-required responses, missing voices, rate limits,
@@ -193,8 +199,9 @@ Playback is a separate responsibility. `TTSProvider` generates audio; it does no
 ## Future providers
 
 A new provider must implement `TTSProvider` without changing callers.
-Examples may include cloud TTS, Home Assistant TTS or a LAN-hosted synthesis service.
-Cloud providers are not implemented.
+Local/Piper, Cartesia, and ElevenLabs are implemented selections; Google remains
+reserved and unavailable. Future examples may include Home Assistant TTS or a
+LAN-hosted synthesis service.
 
 ## Raspberry Pi validation
 

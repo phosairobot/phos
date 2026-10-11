@@ -18,11 +18,13 @@ Without the dependency or model, status reports the provider unavailable.
 `voice.stt.provider` defaults to `local`, which means offline Vosk and remains
 the behavior for existing installations. `cartesia` is an opt-in batch Ink STT
 adapter using the existing Cartesia credential; its non-secret model, language,
-and 16 kHz sample rate live under `voice.stt.cartesia`. Select it in Voice &
-speech, save, and restart PHOS. There is no streaming Cartesia STT: PHOS's
+and 16 kHz sample rate live under `voice.stt.cartesia`. Voice & Speech applies
+supported provider changes live after candidate activation succeeds; there is no streaming Cartesia STT: PHOS's
 existing VAD, utterance limits, and pre-roll remain authoritative. An explicitly
 selected unavailable Cartesia provider is reported unavailable; PHOS never
-silently falls back to Vosk.
+silently falls back to Vosk. An active capture keeps its original provider;
+subsequent sessions use the replacement. Failed activation retains the prior
+provider/configuration, and Web Admin distinguishes configured from active state.
 
 `voice.input.sample_rate` is the optional requested hardware rate; if it is
 unsupported, PHOS tries the selected device's default rate, then 44.1/48 kHz,
@@ -33,8 +35,12 @@ not a stable hardware identity.
 
 The explicit API session transitions `IDLE → LISTENING → THINKING → IDLE`.
 SSE emits only lifecycle edges such as `voice_speech_started` and
-`voice_transcription_completed`. TTS, LLMs, wake words, continuous listening,
-speaker identification and playback remain out of scope.
+`voice_transcription_completed`. TTS and playback are implemented separately:
+`/api/v1/speak` uses `TTSProvider` (Local/Piper, Cartesia, or ElevenLabs) and
+`AudioOutputProvider`, entering `SPEAKING` for playback. Supported TTS provider
+changes use the documented live activation path. Wake words, continuous
+listening, transcript-to-intent/command handling, LLM conversation, Home
+Assistant, MCP/tool execution, and speaker identification remain deferred.
 
 During an active capture session, PHOS writes a rate-limited `VOICE VAD LEVEL`
 diagnostic at most once per 500 ms. It reports only calculated RMS/peak levels

@@ -159,7 +159,7 @@ USB microphone
   -> ResamplingAudioCaptureProvider
   -> canonical PCM16 mono, 16 kHz
   -> VAD -> bounded pre-roll -> VoiceCaptureSession
-  -> STTProvider -> VoskSTTProvider
+  -> STTProvider -> local Vosk or optional Cartesia Ink
   -> VoiceStatus / semantic events -> RobotState
 ```
 
@@ -183,8 +183,9 @@ accuracy for longer phrases and non-native English accents.
 Voice input publishes status/events and uses centralized runtime state
 transitions. It does not control GPIO, renderers, LEDs, or `BehaviorEngine`.
 The unimplemented next boundary is: transcript → intent/command interpretation
-→ application command → behavior/action. TTS, playback, `SPEAKING`, wake words,
-continuous listening, LLM conversation, and Home Assistant remain future work.
+→ application command → behavior/action. Text output follows `TTSProvider ->
+AudioOutputProvider`; local Piper, Cartesia and ElevenLabs adapters are implemented.
+Wake words, continuous listening, LLM conversation, and Home Assistant remain future work.
 
 Physical validation on Raspberry Pi 3 with a USB microphone confirmed native
 capture, 44.1 kHz → 16 kHz resampling, VAD, preserved speech onset through
@@ -233,7 +234,11 @@ application settings. `SecretsService` keeps runtime-only provider credentials i
 an authenticated encrypted local store; its web facade reports slot status and
 permits replacement/removal but deliberately cannot read values. New ordinary settings
 must extend this central model/file, not standalone CLI arguments. Existing CLI
-settings are deprecated explicit overrides during migration. Logging level, display iris appearance and camera-preview settings can be reloaded through the lifecycle service; other subsystem changes require restart. See [configuration reference](development.md#configuration).
+settings are deprecated explicit overrides during migration. Logging level, display
+iris appearance and camera-preview settings can be reloaded through the lifecycle
+service; supported Voice & Speech STT/TTS/audio changes use runtime-aware live
+activation and persistence, while other subsystem changes require restart. See
+[configuration reference](development.md#configuration).
 
 ## Administration adapter
 
@@ -243,9 +248,11 @@ The separate Credentials page uses the write-only `WebSecretsService` facade,
 never `SecretsService.get_secret`, so secrets cannot enter page rendering or an
 administrative response. Provider integration remains separate from this storage
 foundation.
-Waitress runs in a separate process owned by the main startup
-lifecycle, independent of rendering/Vision. The worker receives the startup
-settings for a saved-versus-startup comparison, not live status monitoring.
+Waitress runs in a separate process owned by the main startup lifecycle,
+independent of rendering/Vision. It receives startup settings for a
+saved-versus-startup comparison; runtime-backed pages request semantic status
+through the bounded application/lifecycle channel rather than reading subsystem
+internals directly.
 Its password-storage service is separate from runtime JSON; Flask sessions and
 Flask-WTF protect administration actions. Core, providers and the renderer have
 no web-framework dependency. See the [web manual](web-administration.md).
@@ -262,8 +269,8 @@ services. They reuse the same validation, authorization, configuration and
 behavior-command services; they must not reach into GPIO, hardware adapters,
 provider objects, renderer state or other subsystem internals. Add an application
 service when an approved capability needs one, rather than duplicating behavior
-in each surface. The current configuration service is the implemented example;
-remote-control/API/MCP/Voice services remain deferred after 1.0.0.
+in each surface. The configuration, Remote API, and supported Voice & Speech
+application services are implemented examples; MCP remains deferred.
 
 
 ## Application lifecycle boundary
@@ -271,7 +278,8 @@ remote-control/API/MCP/Voice services remain deferred after 1.0.0.
 `robot.lifecycle.LifecycleService` owns the active-configuration snapshot and
 allowed status/reload/restart operations. Reload validates the full canonical
 file before applying logging level, iris appearance and camera preview through their
-application-service boundaries. Other changes remain pending. The parent process serves a bounded local process channel to the web
+application-service boundaries. Supported Voice & Speech changes use a separate
+candidate-activation/persistence transaction; other changes remain pending. The parent process serves a bounded local process channel to the web
 worker; adapters cannot submit shell commands, paths or arbitrary configuration
 payloads. Future API/MCP surfaces must use the same policy service.
 
@@ -283,7 +291,8 @@ systemd recovery. Preview reload is acknowledged after camera start/stop accepta
 failed starts release partially acquired camera resources, and shutdown drains
 preview tasks and supervisor waiters. Manual launches reject browser restart. OS reboot and general remote control
 remain out of scope. See installation for display-session environment and service
-permissions. Status reflects configured values, not a new health-monitoring layer.
+permissions. Status distinguishes configured values from runtime active/availability
+state where that snapshot is available; it does not invent a health-monitoring layer.
 
 
 ## Eye appearance
