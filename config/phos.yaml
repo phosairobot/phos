@@ -40,6 +40,13 @@ presence:
       direction: counter_clockwise
 attention:
   lost_hold_ms: 800
+interaction:
+  enabled: false
+  resolver: deterministic
+  default_language: en
+  supported_languages:
+    - en
+    - it
 voice:
   enabled: false
   input:
