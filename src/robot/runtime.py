@@ -34,7 +34,8 @@ from robot.ui.runtime import EyeRenderLoop
 from robot.secrets import SecretsError, SecretsService
 from robot.voice import (AplayAudioOutputProvider, PyAudioCaptureProvider,
                          ResamplingAudioCaptureProvider, TTSBusyError, TTSConfigurationError,
-                         TTSProviderError, TTSProviderFactory, TTSUnavailableError, TTSError, VoiceCaptureSession, VoskSTTProvider)
+                         TTSProviderError, TTSProviderFactory, TTSUnavailableError, TTSError, VoiceCaptureSession,
+                         STTProviderFactory, STTError, UnavailableSTTProvider)
 from robot.voice.tts import speech_log, speech_request_id
 from robot.vision import (
     ExpressionSmoother,
@@ -624,10 +625,19 @@ def build_runtime(
     async def voice_transition(target, reason):
         if core.state is not target:
             await core.transition_to(target, reason=reason)
+    stt_secrets = secrets_service
+    try:
+        if config.voice_stt_provider == "cartesia" and stt_secrets is None:
+            stt_secrets = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+        stt_provider = STTProviderFactory.create(config, stt_secrets)
+    except (STTError, SecretsError) as error:
+        logger.warning("PHOS STT: provider=%s unavailable reason=%s", config.voice_stt_provider,
+                       "missing_credential" if "credential" in str(error).lower() else "initialization_failed")
+        stt_provider = UnavailableSTTProvider(config.voice_stt_provider)
     voice = VoiceCaptureSession(
         ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
             config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms), config.voice_processing_sample_rate),
-        VoskSTTProvider(config.resolve_path(config.voice_stt_model_path), config.voice_stt_language), core.events, voice_transition,
+        stt_provider, core.events, voice_transition,
         enabled=config.voice_enabled, sample_rate=config.voice_processing_sample_rate, channels=config.voice_channels, chunk_ms=config.voice_chunk_ms,
         speech_start_ms=config.voice_speech_start_ms, silence_end_ms=config.voice_silence_end_ms,
         min_utterance_ms=config.voice_min_utterance_ms, max_utterance_ms=config.voice_max_utterance_ms,
