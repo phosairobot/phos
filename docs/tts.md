@@ -105,14 +105,21 @@ Robot / behavior
 
 `TTSProviderFactory` selects the configured provider only in the main PHOS
 runtime process. The Web Admin edits canonical configuration and never creates
-a provider. `local` (Piper) and `elevenlabs` are implemented selections;
-`google` and `cartesia` remain reserved and unavailable. The factory never falls
+a provider. `local` (Piper), `elevenlabs`, and `cartesia` are implemented
+selections; `google` remains reserved and unavailable. The factory never falls
 back to Piper. ElevenLabs uses the official SDK's non-streaming `convert` call
 with a configured lossless PCM output, wraps the result as a WAV, and uses the
 same normalization/preroll/playback path as Piper. Configure a Voice ID in Voice
 & speech; the ElevenLabs API key stays write-only in Web Admin's Credentials
 page and never YAML. Model ID and PCM output format remain configurable. Provider
 changes are saved but require a PHOS restart. Streaming is not implemented.
+
+Cartesia uses the official synchronous SDK with a configured `sonic-3.6` model,
+explicit Voice ID, and the pinned Cartesia API revision `2026-08-14`. It requests
+a WAV containing 44.1 kHz mono PCM16, then hands that artifact unchanged to the
+same PHOS normalization, preroll, and one-aplay playback path used by every
+provider. Its API key is write-only in Credentials; Voice ID, model ID, and
+sample rate, speed, and volume are canonical Voice & speech settings.
 
 Known ElevenLabs API failures are classified without logging SDK responses:
 authentication failures, plan-required responses, missing voices, rate limits,
@@ -130,6 +137,29 @@ response; PHOS never silently substitutes Piper.
 
 After deployment, install the updated optional dependencies with the documented
 environment command: `.venv/bin/pip install -e '.[all]'`.
+
+### Cartesia diagnostic request
+
+For direct Cartesia request diagnostics without starting PHOS, export the API
+key only into the current shell and run:
+
+```sh
+export CARTESIA_API_KEY='...'
+.venv/bin/python scripts/test_cartesia_tts.py --voice-id <VOICE_ID>
+```
+
+The diagnostic script uses the official SDK with Cartesia API revision
+`2026-08-14`, writes a WAV without playing it, and prints only safe response and
+WAV metadata. Model, version, text, and destination can be overridden:
+
+```sh
+.venv/bin/python scripts/test_cartesia_tts.py --voice-id <VOICE_ID> \
+  --model-id sonic-3.6 --api-version 2026-08-14 --text "Hello from PHOS" \
+  --output /tmp/cartesia-test.wav
+```
+
+For truncation checks, use a multi-sentence `--text` value. The script prints
+the complete output path, total bytes, and WAV duration, but never plays audio.
 
 ## Contract
 

@@ -186,7 +186,13 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                                              or not isinstance(tts_document.get("elevenlabs"), dict)
                                              or "voice_id" not in tts_document.get("elevenlabs", {})
                                              or "model_id" not in tts_document.get("elevenlabs", {})
-                                             or "output_format" not in tts_document.get("elevenlabs", {})))
+                                             or "output_format" not in tts_document.get("elevenlabs", {})
+                                             or not isinstance(tts_document.get("cartesia"), dict)
+                                             or "voice_id" not in tts_document.get("cartesia", {})
+                                             or "model_id" not in tts_document.get("cartesia", {})
+                                             or "sample_rate" not in tts_document.get("cartesia", {})
+                                             or "speed" not in tts_document.get("cartesia", {})
+                                             or "volume" not in tts_document.get("cartesia", {})))
             # A complete explicit config is self-contained; do not consult a
             # separate default document merely to validate it.
             default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
@@ -213,6 +219,9 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                 document["tts"].setdefault("elevenlabs", copy.deepcopy(default["tts"]["elevenlabs"]))
                 for key, value in default["tts"]["elevenlabs"].items():
                     document["tts"]["elevenlabs"].setdefault(key, copy.deepcopy(value))
+                document["tts"].setdefault("cartesia", copy.deepcopy(default["tts"]["cartesia"]))
+                for key, value in default["tts"]["cartesia"].items():
+                    document["tts"]["cartesia"].setdefault(key, copy.deepcopy(value))
                 audio_output = document["tts"].get("audio_output")
                 if isinstance(audio_output, dict):
                     audio_output.setdefault("debug", copy.deepcopy(default["tts"]["audio_output"]["debug"]))
@@ -310,7 +319,7 @@ _SCHEMA = {
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language"}},
-    "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
+    "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
@@ -445,6 +454,11 @@ class RuntimeConfig:
     tts_elevenlabs_voice_id: Optional[str]
     tts_elevenlabs_model_id: str
     tts_elevenlabs_output_format: str
+    tts_cartesia_voice_id: Optional[str]
+    tts_cartesia_model_id: str
+    tts_cartesia_sample_rate: int
+    tts_cartesia_speed: float
+    tts_cartesia_volume: float
     tts_audio_output_player: str
     tts_audio_output_device: Optional[str]
     tts_audio_output_sample_rate: int
@@ -832,6 +846,14 @@ class RuntimeConfig:
                 raise ConfigurationError("tts.elevenlabs.model_id must be a nonempty string")
             if self.tts_elevenlabs_output_format not in {"pcm_16000", "pcm_22050", "pcm_24000", "pcm_44100", "pcm_48000"}:
                 raise ConfigurationError("tts.elevenlabs.output_format must be a supported PCM format")
+        if self.tts_enabled and self.tts_provider == "cartesia":
+            if not isinstance(self.tts_cartesia_voice_id, str) or not self.tts_cartesia_voice_id.strip():
+                raise ConfigurationError("tts.cartesia.voice_id is required when Cartesia TTS is enabled")
+            if not isinstance(self.tts_cartesia_model_id, str) or not self.tts_cartesia_model_id.strip():
+                raise ConfigurationError("tts.cartesia.model_id must be a nonempty string")
+            number("tts_cartesia_sample_rate", minimum=8000, inclusive=True, maximum=48000, integer=True)
+            number("tts_cartesia_speed", minimum=.6, inclusive=True, maximum=1.5)
+            number("tts_cartesia_volume", minimum=.5, inclusive=True, maximum=2)
         if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player != "aplay":
             raise ConfigurationError("tts.audio_output.player must be aplay")
         if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):

@@ -1,6 +1,7 @@
 """Hardware-free local Piper synthesis and ALSA playback tests."""
 import asyncio
 import hashlib
+import io
 import os
 import subprocess
 import sys
@@ -12,10 +13,11 @@ import pytest
 
 from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
                          SynthesizedAudio, TTSConfigurationError, TTSSynthesisError,
-                         ElevenLabsTTSProvider, TTSProviderError, TTSProviderFactory, TTSUnavailableError)
+                         CartesiaTTSProvider, ElevenLabsTTSProvider, TTSProviderError, TTSProviderFactory, TTSUnavailableError)
 from robot.config import RuntimeConfig, load_document
 from robot.core import RobotCore, RobotState
-from robot.runtime import PhosRuntime
+from robot.runtime import PhosRuntime, build_runtime
+from robot.ui import MemoryEyeDisplay
 from robot.voice import TTSBusyError
 from robot.voice.tts import speech_request_id
 
@@ -179,6 +181,134 @@ def test_elevenlabs_network_error_is_provider_unavailable():
                                      client_factory=lambda **kwargs: Client())
     with pytest.raises(TTSProviderError, match="provider_unavailable"):
         provider.synthesize("Hello")
+
+
+def _cartesia_wav(*, rate=44100):
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav_file:
+        wav_file.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+        wav_file.writeframes(b"\x01\0\x02\0")
+    return output.getvalue()
+
+
+def test_cartesia_factory_uses_runtime_secret_and_reuses_client(tmp_path, monkeypatch, caplog):
+    document = load_document()
+    document["tts"].update(enabled=True, provider="cartesia")
+    document["tts"]["cartesia"].update(voice_id="voice-id", model_id="configured-model",
+                                          sample_rate=24000, speed=1.2, volume=.8)
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    created, requests = [], []
+
+    class Client:
+        def __init__(self, *, api_key, default_headers): created.append((api_key, default_headers))
+        class tts:
+            @staticmethod
+            def generate(**kwargs):
+                requests.append(kwargs)
+                payload = _cartesia_wav(rate=kwargs["output_format"]["sample_rate"])
+                class Response:
+                    def write_to_file(self, path):
+                        with Path(path).open("wb") as output:
+                            for chunk in (payload[:9], payload[9:29], payload[29:]):
+                                output.write(chunk)
+                return Response()
+
+    monkeypatch.setitem(sys.modules, "cartesia", types.SimpleNamespace(Cartesia=Client))
+    provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
+    assert isinstance(provider, CartesiaTTSProvider) and created == [("secret-value", {"cartesia-version": "2026-08-14"})]
+    with caplog.at_level("INFO"):
+        first, second = provider.synthesize("Hello"), provider.synthesize("Again")
+    assert len(created) == 1 and len(requests) == 2
+    assert requests[0]["model_id"] == "configured-model"
+    assert requests[0]["voice"] == {"mode": "id", "id": "voice-id"}
+    assert requests[0]["output_format"] == {"container": "wav", "encoding": "pcm_s16le", "sample_rate": 24000}
+    assert requests[0]["generation_config"] == {"speed": 1.2, "volume": .8}
+    assert ("PHOS SPEECH: input_wav provider=cartesia" in caplog.text
+            and "file_size_bytes=" in caplog.text and "declared_frames=" in caplog.text)
+    assert "secret-value" not in caplog.text
+    with wave.open(str(first.path), "rb") as wav_file:
+        assert (wav_file.getframerate(), wav_file.getnchannels(), wav_file.getsampwidth()) == (24000, 1, 2)
+    first.path.unlink(); second.path.unlink()
+
+
+def test_cartesia_missing_credential_and_voice_are_typed(tmp_path):
+    document = load_document()
+    document["tts"].update(enabled=True, provider="cartesia")
+    document["tts"]["cartesia"]["voice_id"] = "voice-id"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    with pytest.raises(TTSConfigurationError, match="credential"):
+        TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: None))
+    document["tts"]["cartesia"]["voice_id"] = None
+    with pytest.raises(Exception, match="voice_id"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path)
+
+
+def test_cartesia_missing_sdk_leaves_runtime_healthy(tmp_path, monkeypatch):
+    document = load_document()
+    document["tts"].update(enabled=True, provider="cartesia")
+    document["tts"]["cartesia"]["voice_id"] = "voice-id"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    monkeypatch.setitem(sys.modules, "cartesia", None)
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay(),
+                            secrets_service=types.SimpleNamespace(get_secret=lambda name: "secret-value"))
+    assert runtime._tts_provider is None
+    assert runtime.application_status()["tts"] == {"enabled": True, "configured_provider": "cartesia",
+                                                    "available": False, "reason": "missing_dependency"}
+
+
+@pytest.mark.parametrize(("status", "code", "expected"), [
+    (401, "unauthorized", "authentication_error"), (429, "rate_limit_exceeded", "rate_limited"),
+    (402, "quota_exceeded", "provider_plan_required"), (404, "voice_not_found", "voice_not_found"),
+    (400, "missing_version", "provider_configuration_error"), (400, "invalid_model", "invalid_model"),
+    (503, "service_error", "provider_unavailable"),
+])
+def test_cartesia_api_errors_are_sanitized(status, code, expected, caplog):
+    class ApiError(Exception):
+        def __init__(self): self.status_code, self.body = status, {"code": code, "authorization": "secret"}
+    class Client:
+        class tts:
+            @staticmethod
+            def generate(**kwargs): raise ApiError()
+    provider = CartesiaTTSProvider("secret", "voice", "sonic-3.6", 44100, 1, 1,
+                                   client_factory=lambda **kwargs: Client())
+    with caplog.at_level("WARNING"), pytest.raises(TTSProviderError) as error:
+        provider.synthesize("Hello")
+    assert error.value.code == expected
+    assert f"PHOS TTS: provider=cartesia error={expected}" in caplog.text
+    assert f"provider_code={code}" in caplog.text
+    assert "secret" not in caplog.text and "authorization" not in caplog.text
+
+
+def test_cartesia_400_logs_safe_message_and_effective_parameters(caplog):
+    transcript = "Never log this transcript"
+
+    class ApiError(Exception):
+        status_code = 400
+        body = {"code": "missing_version", "message": "Cartesia-Version is required.",
+                "authorization": "secret-value"}
+    class Client:
+        class tts:
+            @staticmethod
+            def generate(**kwargs): raise ApiError()
+
+    provider = CartesiaTTSProvider("secret-value", "voice-id", "sonic-3.6", 44100, 1.0, 1.0,
+                                   client_factory=lambda **kwargs: Client())
+    with caplog.at_level("INFO"), pytest.raises(TTSProviderError, match="provider_configuration_error"):
+        provider.synthesize(transcript)
+    assert ("provider=cartesia request model_id=sonic-3.6 voice_id=voice-id sample_rate=44100 "
+            "speed=1.0 volume=1.0 api_version=2026-08-14 container=wav encoding=pcm_s16le" in caplog.text)
+    assert ("error=provider_configuration_error status=400 provider_code=missing_version "
+            "provider_message='Cartesia-Version is required.'" in caplog.text)
+    assert "secret-value" not in caplog.text and transcript not in caplog.text and "authorization" not in caplog.text
+
+
+@pytest.mark.parametrize(("field", "value"), [("speed", .5), ("speed", 1.6), ("volume", .4), ("volume", 2.1)])
+def test_cartesia_invalid_generation_config_fails_before_remote_call(tmp_path, field, value):
+    document = load_document()
+    document["tts"].update(enabled=True, provider="cartesia")
+    document["tts"]["cartesia"].update(voice_id="voice-id", **{field: value})
+    with pytest.raises(Exception, match=field):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path)
 
 
 def test_runtime_returns_to_idle_after_expected_elevenlabs_failure(caplog):
@@ -427,6 +557,64 @@ def test_aplay_normalizes_piper_pcm_to_hdmi_format_without_preroll(tmp_path, mon
     assert (seen["params"].framerate, seen["params"].nchannels, seen["params"].sampwidth) == (48000, 2, 2)
     assert len(seen["frames"]) / (48000 * 2 * 2) == pytest.approx(.2, abs=.002)
     assert seen["frames"][:2] == seen["frames"][2:4]
+
+
+def test_aplay_canonicalizes_streaming_wav_with_absurd_declared_frames(tmp_path, monkeypatch, caplog):
+    """A streaming RIFF data size must never turn into an unbounded allocation."""
+    source = tmp_path / "cartesia-streaming.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
+        wav.writeframes(b"\x10\0" * 4000)
+    # The data chunk length is at byte 40 in this ordinary PCM WAV.  Simulate a
+    # streaming response which left it at an implausibly large value.
+    payload = bytearray(source.read_bytes())
+    payload[40:44] = (0xFFFFFFF0).to_bytes(4, "little")
+    source.write_bytes(payload)
+    seen = {}
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/aplay")
+
+    def run(command, **kwargs):
+        playback_path = Path(command[-1])
+        with wave.open(str(playback_path), "rb") as wav:
+            seen["params"] = wav.getparams()
+            seen["frames"] = wav.readframes(wav.getnframes())
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
+    with caplog.at_level("WARNING"):
+        AplayAudioOutputProvider().play(SynthesizedAudio(source))
+
+    assert (seen["params"].framerate, seen["params"].nchannels, seen["params"].sampwidth) == (48000, 2, 2)
+    assert seen["frames"]
+    assert "PHOS AUDIO: inconsistent WAV frame metadata; using bounded canonicalization" in caplog.text
+
+
+def test_aplay_reads_large_wavs_in_bounded_chunks(tmp_path, monkeypatch):
+    source = tmp_path / "large.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setparams((1, 2, 22050, 0, "NONE", "not compressed"))
+        wav.writeframes(b"\x11\0" * 50_000)
+    calls = []
+    original_readframes = wave.Wave_read.readframes
+
+    def bounded_readframes(wav, frame_count):
+        calls.append(frame_count)
+        assert frame_count <= 4096
+        return original_readframes(wav, frame_count)
+
+    monkeypatch.setattr(wave.Wave_read, "readframes", bounded_readframes)
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/aplay")
+    monkeypatch.setattr("robot.voice.tts.subprocess.run",
+                        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "", ""))
+    AplayAudioOutputProvider().play(SynthesizedAudio(source))
+    assert calls
+
+
+def test_aplay_rejects_truncated_wav_as_typed_audio_error(tmp_path):
+    source = tmp_path / "truncated.wav"
+    source.write_bytes(b"RIFF\x24\0\0\0WAVEfmt ")
+    with pytest.raises(AudioOutputError, match="could not be prepared"):
+        AplayAudioOutputProvider()._normalized_wav(source)
 
 
 def test_debug_retention_passes_a_closed_final_wav_to_aplay_and_preserves_it(tmp_path, monkeypatch, caplog):

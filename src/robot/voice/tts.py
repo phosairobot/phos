@@ -20,6 +20,8 @@ import re
 
 logger = logging.getLogger(__name__)
 speech_request_id: ContextVar[int | None] = ContextVar("speech_request_id", default=None)
+CARTESIA_API_VERSION = "2026-08-14"
+WAV_CHUNK_FRAMES = 4096
 
 
 def speech_log(stage: str, level=logging.INFO, **fields) -> None:
@@ -92,6 +94,13 @@ class TTSProviderFactory:
             return ElevenLabsTTSProvider(secret, config.tts_elevenlabs_voice_id,
                                          config.tts_elevenlabs_model_id,
                                          config.tts_elevenlabs_output_format)
+        if provider == "cartesia":
+            secret = secrets_service.get_secret("tts.cartesia.api_key") if secrets_service else None
+            if not secret:
+                raise TTSConfigurationError("Cartesia credential is not configured.")
+            return CartesiaTTSProvider(secret, config.tts_cartesia_voice_id,
+                                       config.tts_cartesia_model_id, config.tts_cartesia_sample_rate,
+                                       config.tts_cartesia_speed, config.tts_cartesia_volume)
         if provider in cls.supported:
             raise TTSProviderUnavailableError(f"TTS provider '{provider}' is not implemented.")
         raise TTSConfigurationError("Unknown TTS provider.")
@@ -265,6 +274,150 @@ class ElevenLabsTTSProvider(TTSProvider):
         return SynthesizedAudio(path, sample_rate=rate, channels=1)
 
 
+class CartesiaTTSProvider(TTSProvider):
+    """Synchronous Cartesia WAV adapter; final audio handling remains separate."""
+    name = "cartesia"
+    max_text_length = 1000
+
+    def __init__(self, api_key: str, voice_id: str | None, model_id: str, sample_rate: int,
+                 speed: float, volume: float, *, client_factory=None) -> None:
+        if not isinstance(api_key, str) or not api_key.strip():
+            raise TTSConfigurationError("Cartesia credential is not configured.")
+        if not isinstance(voice_id, str) or not voice_id.strip():
+            raise TTSConfigurationError("Cartesia voice ID is required.")
+        if (not isinstance(model_id, str) or not model_id.strip() or type(sample_rate) is not int
+                or sample_rate < 8000 or isinstance(speed, bool) or not isinstance(speed, (int, float))
+                or not .6 <= speed <= 1.5 or isinstance(volume, bool) or not isinstance(volume, (int, float))
+                or not .5 <= volume <= 2):
+            raise TTSConfigurationError("Cartesia configuration is invalid.")
+        try:
+            if client_factory is None:
+                from cartesia import Cartesia
+                client_factory = Cartesia
+            # Cartesia SDK 3.5.1 otherwise defaults to an older API revision.
+            self._client = client_factory(api_key=api_key,
+                                          default_headers={"cartesia-version": CARTESIA_API_VERSION})
+        except Exception as error:
+            raise TTSConfigurationError("Cartesia client could not be initialized.") from error
+        self.voice_id, self.model_id, self.sample_rate = voice_id, model_id, sample_rate
+        self.speed, self.volume = speed, volume
+
+    def ready(self) -> bool:
+        return True
+
+    @staticmethod
+    def _provider_code(error: Exception) -> str | None:
+        body = getattr(error, "body", None)
+        candidate = body.get("code") if isinstance(body, dict) else getattr(error, "code", None)
+        return candidate if isinstance(candidate, str) and re.fullmatch(r"[a-z0-9_-]{1,64}", candidate) else None
+
+    @staticmethod
+    def _provider_message(error: Exception, transcript: str) -> str | None:
+        """Return a bounded provider message only when it cannot expose request data."""
+        body = getattr(error, "body", None)
+        candidate = None
+        if isinstance(body, dict):
+            candidate = body.get("message", body.get("detail"))
+        if not isinstance(candidate, str):
+            return None
+        message = " ".join(candidate.split())[:240]
+        sensitive = ("api key", "authorization", "bearer ", "x-api-key")
+        if (not message or any(marker in message.casefold() for marker in sensitive)
+                or transcript.casefold() in message.casefold()):
+            return None
+        return message
+
+    @classmethod
+    def _error_code(cls, error: Exception) -> str:
+        status = getattr(error, "status_code", getattr(error, "status", None))
+        api_code = cls._provider_code(error)
+        if status in {401, 403} or api_code in {"authentication_error", "invalid_api_key", "unauthorized"}:
+            return "authentication_error"
+        if status == 402 or api_code in {"quota_exceeded", "plan_required", "payment_required"}:
+            return "provider_plan_required"
+        if status == 404 or api_code in {"voice_not_found", "invalid_voice"}:
+            return "voice_not_found"
+        if status == 429 or api_code == "rate_limit_exceeded":
+            return "rate_limited"
+        if isinstance(status, int) and status >= 500 or isinstance(error, (OSError, TimeoutError, ConnectionError)):
+            return "provider_unavailable"
+        if api_code in {"missing_version", "invalid_version", "invalid_api_version"}:
+            return "provider_configuration_error"
+        if api_code in {"invalid_model", "model_not_found"}:
+            return "invalid_model"
+        if status == 400 or api_code in {"invalid_request", "invalid_configuration"}:
+            return "invalid_configuration"
+        return "synthesis_failed"
+
+    @staticmethod
+    def _write_complete_response(response, path: Path) -> None:
+        """Persist every response chunk before validating or handing off audio."""
+        writer = getattr(response, "write_to_file", None)
+        if callable(writer):
+            # BinaryAPIResponse.write_to_file() iterates and writes every chunk.
+            writer(path)
+            return
+        reader = getattr(response, "read", None)
+        if callable(reader):
+            payload = reader()
+            if isinstance(payload, bytes):
+                path.write_bytes(payload)
+                return
+        if isinstance(response, bytes):
+            path.write_bytes(response)
+            return
+        with path.open("wb") as output:
+            for chunk in response:
+                output.write(chunk)
+
+    def synthesize(self, text: str) -> SynthesizedAudio:
+        if not isinstance(text, str) or not text.strip() or len(text) > self.max_text_length:
+            raise TTSConfigurationError("Speech text is invalid.")
+        logger.info("PHOS TTS: provider=cartesia synthesis_start")
+        started = time.monotonic()
+        temporary = tempfile.NamedTemporaryFile(prefix="phos-tts-cartesia-", suffix=".wav", delete=False)
+        temporary.close()
+        path = Path(temporary.name)
+        try:
+            logger.info("PHOS TTS: provider=cartesia request model_id=%s voice_id=%s sample_rate=%s speed=%s "
+                        "volume=%s api_version=%s container=wav encoding=pcm_s16le",
+                        self.model_id, self.voice_id, self.sample_rate, self.speed, self.volume,
+                        CARTESIA_API_VERSION)
+            response = self._client.tts.generate(
+                model_id=self.model_id, transcript=text,
+                voice={"mode": "id", "id": self.voice_id},
+                output_format={"container": "wav", "encoding": "pcm_s16le", "sample_rate": self.sample_rate},
+                generation_config={"speed": self.speed, "volume": self.volume},
+            )
+            self._write_complete_response(response, path)
+            _fsync_path(path)
+            with wave.open(str(path), "rb") as output:
+                params = output.getparams()
+            file_size = path.stat().st_size
+            header_duration_ms = round(params.nframes * 1000 / params.framerate) if params.framerate else 0
+            speech_log("input_wav", provider=self.name, file_size_bytes=file_size,
+                       rate_hz=params.framerate, channels=params.nchannels,
+                       sample_width_bytes=params.sampwidth, declared_frames=params.nframes,
+                       header_duration_ms=header_duration_ms)
+            if (params.comptype != "NONE" or params.sampwidth != 2 or params.nframes <= 0
+                    or params.framerate != self.sample_rate):
+                raise TTSSynthesisError("Cartesia returned an invalid WAV.")
+        except Exception as error:
+            path.unlink(missing_ok=True)
+            code = self._error_code(error)
+            provider_code = self._provider_code(error)
+            provider_message = self._provider_message(error, text)
+            status = getattr(error, "status_code", getattr(error, "status", None))
+            logger.warning("PHOS TTS: provider=cartesia error=%s%s%s%s", code,
+                           f" status={status}" if isinstance(status, int) else "",
+                           f" provider_code={provider_code}" if provider_code else "",
+                           f" provider_message={provider_message!r}" if provider_message else "")
+            raise TTSProviderError(code) from error
+        logger.info("PHOS TTS: provider=cartesia synthesis_complete duration_ms=%s",
+                    round((time.monotonic() - started) * 1000))
+        return SynthesizedAudio(path, sample_rate=params.framerate, channels=params.nchannels)
+
+
 class AudioOutputProvider:
     def play(self, audio: SynthesizedAudio) -> None: raise NotImplementedError
 
@@ -322,36 +475,82 @@ class AplayAudioOutputProvider(AudioOutputProvider):
             speech_log("retained_wav_failed", logging.WARNING, exception_type=type(error).__name__)
             return None
 
+    @staticmethod
+    def _frame_metadata(path: Path, params) -> tuple[int, bool]:
+        """Return a conservative frame bound derived from the actual file size."""
+        frame_width = params.nchannels * params.sampwidth
+        if frame_width <= 0:
+            raise AudioOutputError("Invalid WAV frame size for audio playback.")
+        # This intentionally includes the RIFF header, so it is an upper bound.
+        # It is safe even for streaming WAVs with an untrustworthy data length.
+        maximum_possible_frames = path.stat().st_size // frame_width
+        return maximum_possible_frames, params.nframes > maximum_possible_frames
+
+    def _inspect_wav(self, path: Path) -> tuple[object, int, int, int]:
+        """Inspect WAV audio in fixed-size reads; never allocate from header nframes."""
+        with wave.open(str(path), "rb") as input_file:
+            params = input_file.getparams()
+            _maximum, inconsistent = self._frame_metadata(path, params)
+            frame_width = params.nchannels * params.sampwidth
+            frames = peak = rms = 0
+            while chunk := input_file.readframes(WAV_CHUNK_FRAMES):
+                usable = len(chunk) - (len(chunk) % frame_width)
+                if not usable:
+                    continue
+                chunk = chunk[:usable]
+                frames += usable // frame_width
+                peak = max(peak, audioop.max(chunk, params.sampwidth))
+                rms = max(rms, audioop.rms(chunk, params.sampwidth))
+        if inconsistent:
+            logger.warning("PHOS AUDIO: inconsistent WAV frame metadata; using bounded canonicalization")
+        return params, frames, peak, rms
+
     def _normalized_wav(self, source: Path) -> Path | None:
         normalized = None
         try:
             with wave.open(str(source), "rb") as input_file:
-                params, speech = input_file.getparams(), input_file.readframes(input_file.getnframes())
-            if params.comptype != "NONE" or params.nchannels not in {1, 2}:
-                raise AudioOutputError("Unsupported WAV format for audio playback.")
-            if (not self.preroll_ms and params.sampwidth == self.sample_width
-                    and params.framerate == self.sample_rate and params.nchannels == self.channels):
-                return None
-            if params.sampwidth != self.sample_width:
-                speech = audioop.lin2lin(speech, params.sampwidth, self.sample_width)
-            if params.framerate != self.sample_rate:
-                speech, _state = audioop.ratecv(speech, self.sample_width, params.nchannels,
-                                                 params.framerate, self.sample_rate, None)
-            if params.nchannels == 1 and self.channels == 2:
-                speech = audioop.tostereo(speech, self.sample_width, 1, 1)
-            elif params.nchannels != self.channels:
-                raise AudioOutputError("Unsupported WAV channel conversion for audio playback.")
-            target = wave._wave_params(self.channels, self.sample_width, self.sample_rate, 0, "NONE", "not compressed")
-            preroll = self._preroll_frames(target, self.preroll_ms)
-            descriptor, generated_path = tempfile.mkstemp(prefix="phos-tts-playback-", suffix=".wav")
-            normalized = Path(generated_path)
-            raw_file = os.fdopen(descriptor, "wb")
-            with raw_file:
-                with wave.open(raw_file, "wb") as output_file:
-                    output_file.setparams(target)
-                    output_file.writeframes(preroll + speech)
-                raw_file.flush()
-                os.fsync(raw_file.fileno())
+                params = input_file.getparams()
+                _maximum, inconsistent = self._frame_metadata(source, params)
+                if inconsistent:
+                    logger.warning("PHOS AUDIO: inconsistent WAV frame metadata; using bounded canonicalization")
+                if params.comptype != "NONE" or params.nchannels not in {1, 2}:
+                    raise AudioOutputError("Unsupported WAV format for audio playback.")
+                if (not inconsistent and not self.preroll_ms and params.sampwidth == self.sample_width
+                        and params.framerate == self.sample_rate and params.nchannels == self.channels):
+                    return None
+                if params.nchannels != self.channels and not (params.nchannels == 1 and self.channels == 2):
+                    raise AudioOutputError("Unsupported WAV channel conversion for audio playback.")
+                target = wave._wave_params(self.channels, self.sample_width, self.sample_rate, 0, "NONE", "not compressed")
+                descriptor, generated_path = tempfile.mkstemp(prefix="phos-tts-playback-", suffix=".wav")
+                normalized = Path(generated_path)
+                rate_state = None
+                source_frame_width = params.nchannels * params.sampwidth
+                frames_written = 0
+                with os.fdopen(descriptor, "wb") as raw_file:
+                    with wave.open(raw_file, "wb") as output_file:
+                        output_file.setparams(target)
+                        preroll = self._preroll_frames(target, self.preroll_ms)
+                        output_file.writeframes(preroll)
+                        frames_written += len(preroll) // (target.nchannels * target.sampwidth)
+                        while chunk := input_file.readframes(WAV_CHUNK_FRAMES):
+                            usable = len(chunk) - (len(chunk) % source_frame_width)
+                            if not usable:
+                                continue
+                            speech = chunk[:usable]
+                            if params.sampwidth != self.sample_width:
+                                speech = audioop.lin2lin(speech, params.sampwidth, self.sample_width)
+                            if params.framerate != self.sample_rate:
+                                speech, rate_state = audioop.ratecv(
+                                    speech, self.sample_width, params.nchannels,
+                                    params.framerate, self.sample_rate, rate_state)
+                            if params.nchannels == 1 and self.channels == 2:
+                                speech = audioop.tostereo(speech, self.sample_width, 1, 1)
+                            output_file.writeframes(speech)
+                            frames_written += len(speech) // (target.nchannels * target.sampwidth)
+                    raw_file.flush()
+                    os.fsync(raw_file.fileno())
+                if frames_written <= 0:
+                    raise AudioOutputError("Audio playback WAV is empty or silent.")
             return normalized
         except (OSError, EOFError, wave.Error, audioop.error) as error:
             if normalized is not None:
@@ -368,10 +567,8 @@ class AplayAudioOutputProvider(AudioOutputProvider):
         playback_path = normalized or audio.path
         normalization_ms = round((time.monotonic() - normalization_started) * 1000)
         try:
-            with wave.open(str(playback_path), "rb") as playback_file:
-                params = playback_file.getparams()
-                frames = playback_file.readframes(params.nframes)
-        except (OSError, EOFError, wave.Error) as error:
+            params, actual_frames, peak, rms = self._inspect_wav(playback_path)
+        except (OSError, EOFError, wave.Error, audioop.error) as error:
             if normalized is not None:
                 normalized.unlink(missing_ok=True)
             raise AudioOutputError("Audio playback WAV could not be inspected.") from error
@@ -380,17 +577,16 @@ class AplayAudioOutputProvider(AudioOutputProvider):
             if normalized is not None:
                 normalized.unlink(missing_ok=True)
             raise AudioOutputError("Audio playback WAV does not match the configured output format.")
-        if params.nframes <= 0 or not frames or audioop.max(frames, params.sampwidth) == 0:
+        if actual_frames <= 0 or peak == 0:
             if normalized is not None:
                 normalized.unlink(missing_ok=True)
             raise AudioOutputError("Audio playback WAV is empty or silent.")
-        duration_ms = round(params.nframes * 1000 / params.framerate)
+        duration_ms = round(actual_frames * 1000 / params.framerate)
         checksum = _sha256_prefix(playback_path)
         size_bytes = playback_path.stat().st_size
         speech_log("normalization_complete", duration_ms=normalization_ms, rate_hz=params.framerate,
                    channels=params.nchannels, sample_width_bytes=params.sampwidth,
-                   frames=params.nframes, audio_duration_ms=duration_ms,
-                   peak=audioop.max(frames, params.sampwidth), rms=audioop.rms(frames, params.sampwidth))
+                   frames=actual_frames, audio_duration_ms=duration_ms, peak=peak, rms=rms)
         speech_log("final_wav", sha256=checksum, size_bytes=size_bytes)
         retained_path = self._retain_final_wav(playback_path, checksum)
         if self.preroll_ms:

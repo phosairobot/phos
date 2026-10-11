@@ -288,6 +288,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                active=current, runtime_state=runtime_state,
                                elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
                                                                     for slot in web_secrets.slots()),
+                               cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
+                                                                  for slot in web_secrets.slots()),
                                pending=current is not None and document != current), status
 
     @app.route("/system", methods=["GET"])

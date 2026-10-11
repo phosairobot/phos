@@ -76,6 +76,12 @@ tts:
     voice_id: null
     model_id: eleven_multilingual_v2
     output_format: pcm_24000
+  cartesia:
+    voice_id: null
+    model_id: sonic-3.6
+    sample_rate: 44100
+    speed: 1.0
+    volume: 1.0
   audio_output:
     player: aplay
     device: null

@@ -111,7 +111,7 @@ def test_credentials_are_write_only_csrf_protected_and_persist_encrypted(setup, 
     page = client.get("/credentials")
     body = page.get_data(as_text=True)
     assert page.status_code == 200
-    assert "ElevenLabs API Key" in body and "Not configured" in body
+    assert "ElevenLabs API Key" in body and "Cartesia API Key" in body and "Not configured" in body
     assert 'type="password"' in body and value not in body
     assert not hasattr(app.extensions["phos_secrets"], "get_secret")
     assert client.post("/credentials", data={"action": "set"}).status_code == 400
@@ -421,8 +421,9 @@ def test_voice_settings_show_provider_availability_and_persist_local_settings(se
     assert "Local / Piper" in page
     assert "ElevenLabs" in page and "ElevenLabs (Coming soon)" not in page
     assert "Google Cloud TTS (Coming soon)" in page
-    assert "Cartesia (Coming soon)" in page
-    assert "ElevenLabs credential status" in page and "Not configured" in page
+    assert "Cartesia (Coming soon)" not in page and "Cartesia" in page
+    assert "ElevenLabs credential:" in page and "Cartesia credential:" in page and "Not configured" in page
+    assert 'name="tts.cartesia.speed"' in page and 'name="tts.cartesia.volume"' in page
     model = path.parent / "voice.onnx"; model.write_bytes(b"model")
     data = form(client, "voice")
     data.update({"tts.enabled": "on", "tts.provider": "local", "tts.local.model_path": "voice.onnx"})
