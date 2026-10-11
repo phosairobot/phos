@@ -301,7 +301,8 @@ def test_empty_stt_result_is_not_an_error_and_logs_empty_transcript(caplog):
     session = VoiceCaptureSession(Capture(), stt, EventBus(), transition, enabled=True, sample_rate=16000, channels=1,
         chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30, max_utterance_ms=1000, threshold=100)
     with caplog.at_level(logging.INFO): asyncio.run(session._finalize(_pcm(300)))
-    assert session.status()["last_transcript"] is None and session.status()["last_error"] is None
+    assert (session.status()["last_transcript"] is None and session.status()["language"] is None
+            and session.status()["last_error"] is None)
     assert "VOICE TRANSCRIPT: <empty>" in caplog.text
     assert session.status()["last_transcription_duration_ms"] is not None
 

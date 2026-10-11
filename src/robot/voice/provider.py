@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime, timezone
 import asyncio
 import io
@@ -13,6 +12,8 @@ import time
 from typing import Optional
 import wave
 
+from robot.interaction.models import TranscriptResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,20 +23,9 @@ class STTProviderError(STTError):
     def __init__(self, code: str): super().__init__(code); self.code = code
 
 
-@dataclass(frozen=True)
-class SpeechRecognitionResult:
-    text: str
-    provider: str
-    model: Optional[str] = None
-    confidence: Optional[float] = None
-    language: Optional[str] = None
-    duration_ms: Optional[int] = None
-    completed_at: Optional[str] = None
-
-    def document(self) -> dict:
-        return {"text": self.text, "provider": self.provider, "model": self.model,
-                "confidence": self.confidence, "language": self.language,
-                "duration_ms": self.duration_ms, "completed_at": self.completed_at}
+# Public compatibility name for the existing STT boundary.  New interaction
+# code uses TranscriptResult directly; both names identify the same plain type.
+SpeechRecognitionResult = TranscriptResult
 
 
 class STTProvider(ABC):

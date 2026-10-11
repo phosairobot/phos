@@ -435,6 +435,50 @@ def test_voice_settings_show_provider_availability_and_persist_local_settings(se
     assert "restart PHOS" in response.get_data(as_text=True)
 
 
+def test_voice_settings_use_concise_user_facing_provider_copy(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/configuration/voice").get_data(as_text=True)
+    assert "Choose between local Vosk and optional Cartesia speech recognition." in page
+    assert "Cartesia uses the credential configured in Credentials." in page
+    assert page.count("Runs locally on PHOS.") == 2
+    assert "Cloud TTS using the Cartesia credential configured in Credentials." in page
+    assert "Cloud TTS using the ElevenLabs credential configured in Credentials." in page
+    assert "Choose where PHOS plays speech." in page
+    assert "If activation fails, the previous working settings remain active." in page
+    assert "requires restart after saving" not in page
+    assert "PHOS VAD" not in page
+    assert "utterance boundaries" not in page
+    assert "batch transcription" not in page
+    assert "normalization, and warm-up" not in page
+
+
+def test_voice_provider_panels_have_unique_scoped_ids_and_preserve_backend_names(setup):
+    app, _, _ = setup
+    client = authorize(app)
+    page = client.get("/configuration/voice").get_data(as_text=True)
+    identifiers = re.findall(r'\bid="([^"]+)"', page)
+    assert len(identifiers) == len(set(identifiers))
+    assert 'id="voice.stt.provider" name="voice.stt.provider"' in page
+    assert 'id="tts.provider" name="tts.provider"' in page
+    assert 'id="voice-vosk" data-section="vosk" data-stt-provider-panel="local"' in page
+    assert 'id="voice-cartesia-stt" data-section="cartesia-stt" data-stt-provider-panel="cartesia"' in page
+    assert 'id="voice-local" data-section="local" data-tts-provider-panel="local"' in page
+    assert 'id="voice-cartesia" data-section="cartesia" data-tts-provider-panel="cartesia"' in page
+    assert 'id="voice-elevenlabs" data-section="elevenlabs" data-tts-provider-panel="elevenlabs"' in page
+    assert 'data-provider="cartesia"' not in page
+
+
+def test_voice_provider_toggle_script_scopes_stt_and_tts_panels_independently():
+    script = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    assert 'document.getElementById("voice.stt.provider")' in script
+    assert 'sttProvider.closest(".voice-section--stt")' in script
+    assert 'section.querySelectorAll("[data-stt-provider-panel]")' in script
+    assert 'ttsProvider.closest(".voice-section--tts")' in script
+    assert 'section.querySelectorAll("[data-tts-provider-panel]")' in script
+    tts_handler = script[script.index('const ttsProvider'):script.index('(() =>', script.index('const ttsProvider'))]
+    assert 'data-provider' not in tts_handler
+
+
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),
     ("expression.aws.refresh_seconds", "999999"), ("expression.provider", "bad"),
     ("display.fps", "not-a-number"), ("web.port", "65536")])

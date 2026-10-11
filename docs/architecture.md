@@ -159,8 +159,9 @@ USB microphone
   -> ResamplingAudioCaptureProvider
   -> canonical PCM16 mono, 16 kHz
   -> VAD -> bounded pre-roll -> VoiceCaptureSession
-  -> STTProvider -> local Vosk or optional Cartesia Ink
-  -> VoiceStatus / semantic events -> RobotState
+  -> STTProvider -> TranscriptResult
+  -> InteractionInput -> future IntentResolver -> ResolvedIntent or UnresolvedIntent
+  -> (future CommandRouter) -> application service / behavior
 ```
 
 Capture rate and processing rate are deliberately separate. Raspberry Pi 3
@@ -182,10 +183,18 @@ accuracy for longer phrases and non-native English accents.
 
 Voice input publishes status/events and uses centralized runtime state
 transitions. It does not control GPIO, renderers, LEDs, or `BehaviorEngine`.
-The unimplemented next boundary is: transcript → intent/command interpretation
-→ application command → behavior/action. Text output follows `TTSProvider ->
+`robot.interaction` provides plain `TranscriptResult`, `InteractionInput`, and
+canonical resolved/unresolved intent contracts. Its async `IntentResolver`
+boundary interprets language only; it has no runtime/hardware access and does
+not route or execute commands. The selectable deterministic resolver has a
+small exact English/Italian catalog for `sleep`, `wake`, temperature and
+air-quality queries, and expression intent data. When interaction is enabled,
+the main runtime observes completed voice transcripts and publishes resolution
+events/status only. It is not connected to command routing, the application
+service's command methods, or PHOS behavior. Text output follows `TTSProvider ->
 AudioOutputProvider`; local Piper, Cartesia and ElevenLabs adapters are implemented.
-Wake words, continuous listening, LLM conversation, and Home Assistant remain future work.
+Phrase resolution, command routing/execution, wake words, continuous listening,
+LLM conversation, and Home Assistant remain future work.
 
 Physical validation on Raspberry Pi 3 with a USB microphone confirmed native
 capture, 44.1 kHz → 16 kHz resampling, VAD, preserved speech onset through

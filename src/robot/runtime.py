@@ -37,6 +37,7 @@ from robot.voice import (AplayAudioOutputProvider, PyAudioCaptureProvider,
                          TTSProviderError, TTSProviderFactory, TTSUnavailableError, TTSError, VoiceCaptureSession,
                          STTProviderFactory, STTError, UnavailableSTTProvider)
 from robot.voice.tts import speech_log, speech_request_id
+from robot.interaction import InteractionCoordinator, IntentResolverError, IntentResolverFactory
 from robot.vision import (
     ExpressionSmoother,
     OpenCVExpressionProvider,
@@ -70,6 +71,7 @@ class PhosRuntime:
         attention_manager: Optional[AttentionManager] = None,
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
+        interaction_coordinator: Optional[InteractionCoordinator] = None,
         tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
@@ -87,6 +89,7 @@ class PhosRuntime:
         self._startup = startup or StartupReadiness()
         self._ready_sound_played = False
         self._voice_session = voice_session
+        self._interaction_coordinator = interaction_coordinator
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
@@ -201,6 +204,7 @@ class PhosRuntime:
             "startup": self._startup.document(),
             "touch": self.touch_status(),
             "voice": self.voice_status(),
+            "interaction": self.interaction_status(),
             "tts": dict(self._tts_status),
             "speech": {
                 "stt": {"enabled": self._stt_enabled, "configured_provider": self._config.voice_stt_provider if self._config else None,
@@ -223,6 +227,14 @@ class PhosRuntime:
 
     def voice_status(self) -> dict:
         return self._voice_session.status() if self._voice_session else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
+
+    def interaction_status(self) -> dict:
+        if self._interaction_coordinator is not None:
+            return self._interaction_coordinator.status()
+        return {"enabled": False, "configured_resolver": None, "active_resolver": None,
+                "available": False, "default_language": None, "supported_languages": [],
+                "last_resolution": {"status": None, "intent": None, "source_language": None},
+                "unavailable_reason": "unconfigured"}
 
     async def start_listening(self):
         if self._voice_session is None: raise RuntimeError("Voice is unavailable")
@@ -571,6 +583,8 @@ class PhosRuntime:
 
     async def stop(self) -> None:
         self._stopping = True
+        if self._interaction_coordinator is not None:
+            self._interaction_coordinator.close()
         speech_task = self._speech_task
         if speech_task is not None and not speech_task.done():
             speech_task.cancel()
@@ -674,6 +688,22 @@ def build_runtime(
         logger.warning("PHOS STT: provider=%s unavailable reason=%s", config.voice_stt_provider,
                        "missing_credential" if "credential" in str(error).lower() else "initialization_failed")
         stt_provider = UnavailableSTTProvider(config.voice_stt_provider)
+    interaction_resolver = None
+    interaction_reason = "disabled" if not config.interaction_enabled else None
+    if config.interaction_enabled:
+        try:
+            interaction_resolver = IntentResolverFactory.create(config)
+        except (IntentResolverError, ValueError) as error:
+            interaction_reason = "initialization_failed"
+            logger.warning("PHOS INTERACTION: resolver=%s unavailable reason=%s",
+                           config.interaction_resolver, interaction_reason)
+    interaction = InteractionCoordinator(
+        core.events, enabled=config.interaction_enabled,
+        configured_resolver=config.interaction_resolver,
+        default_language=config.interaction_default_language,
+        supported_languages=config.interaction_supported_languages,
+        resolver=interaction_resolver, unavailable_reason=interaction_reason,
+    )
     voice = VoiceCaptureSession(
         ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
             config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms), config.voice_processing_sample_rate),
@@ -804,6 +834,7 @@ def build_runtime(
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
+                       interaction_coordinator=interaction,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._secrets_service = secrets_service
     runtime_holder["runtime"] = runtime

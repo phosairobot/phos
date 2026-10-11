@@ -31,6 +31,8 @@ from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESS
 from robot.core.touch import TOUCH_EVENT_NAMES
 from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SESSION_CANCELLED, VOICE_SPEECH_ENDED,
                                  VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
+from robot.interaction import (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED,
+                               INTERACTION_RESOLUTION_FAILED)
 from robot.voice.capture import UnsupportedCaptureRate
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.voice import AplayAudioOutputProvider, STTProviderFactory, TTSProviderFactory
@@ -240,6 +242,8 @@ class PhosApplicationService:
               for name in TOUCH_EVENT_NAMES.values()],
             *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
               for name in (VOICE_LISTENING_STARTED, VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED, VOICE_ERROR)],
+            *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
+              for name in (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED, INTERACTION_RESOLUTION_FAILED)],
         ]
 
     def close(self):
@@ -449,6 +453,12 @@ class PhosApplicationService:
         result["expression_reaction"] = self.expression_reaction()
         result["touch"] = self.touch()
         result["voice"] = self.voice()
+        interaction = getattr(self._runtime, "interaction_status", None)
+        result["interaction"] = self._plain(interaction()) if interaction is not None else {
+            "enabled": False, "configured_resolver": None, "active_resolver": None,
+            "available": False, "default_language": None, "supported_languages": [],
+            "last_resolution": {"status": None, "intent": None, "source_language": None},
+            "unavailable_reason": "unconfigured"}
         result.setdefault("sensors", self.sensors())
         self._emit("visual_state_changed", result["visual"])
         return result
