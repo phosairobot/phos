@@ -642,7 +642,7 @@ def build_runtime(
         logger.info("PHOS TTS: provider=%s initialization_start", config.tts_provider)
         try:
             secrets_service = (secrets_service or SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
-                               if config.tts_provider == "elevenlabs" else secrets_service)
+                               if config.tts_provider in {"elevenlabs", "cartesia"} else secrets_service)
             tts_provider = TTSProviderFactory.create(config, secrets_service)
             audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device,
                                                      sample_rate=config.tts_audio_output_sample_rate,

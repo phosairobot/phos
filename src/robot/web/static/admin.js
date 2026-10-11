@@ -14,6 +14,19 @@ if (provider) {
   if (!document.querySelector(".error")) update();
 }
 
+const ttsProvider = document.getElementById("tts.provider");
+if (ttsProvider) {
+  const update = () => {
+    for (const name of ["local", "elevenlabs", "cartesia"]) {
+      for (const section of document.querySelectorAll(`[data-provider="${name}"]`)) {
+        section.hidden = ttsProvider.value !== name;
+      }
+    }
+  };
+  ttsProvider.addEventListener("change", update);
+  if (!document.querySelector(".error")) update();
+}
+
 (() => {
   const form = document.querySelector("[data-configuration-editor]");
   if (!form) return;

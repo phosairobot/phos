@@ -59,6 +59,7 @@ GROUPS["integrations"] = GROUPS["security"]
 GROUPS["voice"] = [("tts", "Text-to-speech", ("tts.enabled", "tts.provider"), None),
                     ("local", "Local Piper", ("tts.local.",), "local"),
                     ("elevenlabs", "ElevenLabs", ("tts.elevenlabs.",), "elevenlabs"),
+                    ("cartesia", "Cartesia", ("tts.cartesia.",), "cartesia"),
                     ("audio", "Audio output", ("tts.audio_output.",), None)]
 
 

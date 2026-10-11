@@ -145,7 +145,7 @@ def editor_sections(document, prefix=""):
                     else "array" if isinstance(value, list) else "text")
             direct.append({"name": field_name, "label": key.replace("_", " ").capitalize(),
                            "kind": kind, "value": ", ".join(map(str, value)) if isinstance(value, list) else value,
-                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path", "tts.elevenlabs.voice_id"},
+                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path", "tts.elevenlabs.voice_id", "tts.cartesia.voice_id"},
                            "choices": CHOICES.get(field_name)})
         sections.append({"name": route, "title": route.replace(".", " / ").replace("_", " ").title(),
                          "help": HELP.get(route, ""), "fields": direct})
