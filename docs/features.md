@@ -12,10 +12,10 @@ classes:
 
 <span class="phos-kicker">CAPABILITY MAP</span>
 
-PHOS 1.3.0 is a **source release candidate**. The capabilities below are
-implemented in the repository; optional hardware paths still require target-Pi
-acceptance before a release tag. See the [release record](release-1.3.0.md) for
-the exact scope and gates.
+PHOS 1.4.0 is the current source version. The capabilities below are implemented
+in the repository; optional hardware paths still require target-Pi acceptance.
+See the [current implementation handoff](current-state.md) and
+[roadmap](roadmap.md) for scope and physical-validation limits.
 
 </div>
 
@@ -75,10 +75,11 @@ resolved persistent source returns afterward.
 
 <article class="phos-card" markdown>
 <span class="phos-status">IMPLEMENTED</span>
-### Explicit speech capture
-An explicit, finite microphone session uses lightweight energy VAD and a
-provider-neutral STT boundary. Its transcript and availability are observable;
-PHOS does not persist or expose raw audio.
+### Voice & Speech
+An explicit microphone session uses energy VAD and a provider-neutral STT
+boundary: Local/Vosk is the default and Cartesia Ink is optional batch STT.
+Local/Piper, Cartesia, and ElevenLabs TTS integration use `AudioOutputProvider`;
+supported Voice & Speech provider/output changes activate live and persist.
 </article>
 
 <article class="phos-card" markdown>
@@ -100,9 +101,10 @@ low-rate controller, including semantic colors and directional motion fills.
 <article class="phos-card" markdown>
 <span class="phos-status">IMPLEMENTED</span>
 ### Web Admin and canonical configuration
-An authenticated trusted-LAN editor saves the active validated configuration source, normally `config/phos.yaml`.
-Logging, iris appearance and camera-preview settings can reload; other changes
-are explicitly restart-required.
+An authenticated trusted-LAN editor saves the active validated configuration
+source, normally `config/phos.yaml`. Voice & Speech shows configured and active
+provider state and applies supported STT/TTS/audio changes live; other subsystem
+settings retain their documented reload or restart policy.
 </article>
 
 <article class="phos-card" markdown>
@@ -120,8 +122,9 @@ PHOS exposes a versioned local REST API for robot status, health, environmental 
 
 <div class="phos-callout" markdown>
 
-TTS playback, conversational LLM operation, Home Assistant and MCP
-are explicitly deferred. Existing interfaces or scaffolding are not
-evidence of an end-to-end delivered feature. [Read the roadmap](roadmap.md).
+Transcript-to-intent/command handling, conversational LLM operation, wake-word
+and continuous listening, Home Assistant, and MCP are explicitly deferred.
+Existing interfaces or scaffolding are not evidence of an end-to-end delivered
+feature. [Read the roadmap](roadmap.md).
 
 </div>
