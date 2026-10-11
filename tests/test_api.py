@@ -171,6 +171,26 @@ def test_remote_speak_uses_lifecycle_ipc_and_main_dispatch_reaches_application_s
     assert received == ["Hello"]
 
 
+@pytest.mark.parametrize("method, operation", [("configure_stt", "application.configure_stt"),
+                                                  ("configure_tts", "application.configure_tts"),
+                                                  ("configure_audio_output", "application.configure_audio_output")])
+def test_remote_speech_configuration_uses_explicit_ipc_dispatch(method, operation):
+    payload, result = {"enabled": False}, {"configured_provider": "local", "active_provider": "local",
+                                              "enabled": False, "available": False}
+    class Lifecycle:
+        def execute(self, received_operation, received_payload=None):
+            assert (received_operation, received_payload) == (operation, payload)
+            return {"ok": True, "result": result}
+    assert getattr(RemoteApplicationService(Lifecycle()), method)(payload) == result
+
+    from robot.lifecycle import LifecycleService
+    received = []
+    service = object.__new__(LifecycleService)
+    service._application_service = SimpleNamespace(**{method: lambda value: received.append(value) or result})
+    assert service._execute_application({"operation": operation, "payload": payload}) == {"ok": True, "result": result}
+    assert received == [payload]
+
+
 def test_versioned_status_and_stable_error_document():
     app = Flask(__name__)
     app.register_blueprint(create_api(PhosApplicationService(Runtime())))

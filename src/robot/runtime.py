@@ -88,6 +88,8 @@ class PhosRuntime:
         self._ready_sound_played = False
         self._voice_session = voice_session
         self._tts_provider, self._audio_output = tts_provider, audio_output
+        self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
+        self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
         self._tts_status = tts_status or {"enabled": False, "configured_provider": None,
                                           "available": False, "reason": "disabled"}
         self._tts_lock = asyncio.Lock()
@@ -200,6 +202,19 @@ class PhosRuntime:
             "touch": self.touch_status(),
             "voice": self.voice_status(),
             "tts": dict(self._tts_status),
+            "speech": {
+                "stt": {"enabled": self._stt_enabled, "configured_provider": self._config.voice_stt_provider if self._config else None,
+                        "active_provider": getattr(getattr(self._voice_session, "_stt", None), "name", None),
+                        "available": bool(self._voice_session and self._voice_session.status().get("stt_available")),
+                        "last_activation_error": None},
+                "tts": {"enabled": self._tts_enabled, "configured_provider": self._config.tts_provider if self._config else None,
+                        "active_provider": getattr(self._tts_provider, "name", None),
+                        "available": bool(self._tts_enabled and self._tts_provider and self._audio_output),
+                        "last_activation_error": None},
+                "audio_output": {"configured_device": self._config.tts_audio_output_device if self._config else None,
+                                 "active_device": getattr(self._audio_output, "device", None),
+                                 "available": self._audio_output is not None, "last_activation_error": None},
+            },
         }
 
     def touch_status(self) -> dict:
@@ -211,6 +226,7 @@ class PhosRuntime:
 
     async def start_listening(self):
         if self._voice_session is None: raise RuntimeError("Voice is unavailable")
+        if not self._stt_enabled: raise RuntimeError("Voice is disabled")
         return await self._voice_session.start()
 
     async def stop_listening(self, *, cancelled=False):
@@ -218,11 +234,12 @@ class PhosRuntime:
 
     async def speak(self, text: str, *, request_id: int | None = None) -> None:
         """Serialize local synthesis/playback through the semantic state boundary."""
-        if self._tts_provider is None or self._audio_output is None:
+        if not getattr(self, "_tts_enabled", True) or self._tts_provider is None or self._audio_output is None:
             raise TTSUnavailableError("Text-to-speech is currently unavailable.")
         if self._tts_lock.locked():
             raise TTSBusyError("PHOS is already speaking.")
         async with self._tts_lock:
+            provider, audio_output = self._tts_provider, self._audio_output
             audio = None
             total_started = time.monotonic()
             token = speech_request_id.set(request_id)
@@ -231,9 +248,9 @@ class PhosRuntime:
                     await self.core.transition_to(RobotState.SPEAKING, reason="tts")
                     synthesis_started = time.monotonic()
                     speech_log("synthesis_start")
-                    audio = await asyncio.to_thread(self._tts_provider.synthesize, text)
+                    audio = await asyncio.to_thread(provider.synthesize, text)
                     speech_log("synthesis_complete", duration_ms=round((time.monotonic() - synthesis_started) * 1000))
-                    await asyncio.to_thread(self._audio_output.play, audio)
+                    await asyncio.to_thread(audio_output.play, audio)
                     speech_log("total_complete", duration_ms=round((time.monotonic() - total_started) * 1000))
                 except TTSProviderError:
                     # The provider has already emitted its one sanitized warning.
@@ -256,7 +273,7 @@ class PhosRuntime:
         This runs on the runtime event loop, so checking and assigning the task
         cannot race with another application-service request.
         """
-        if self._tts_provider is None or self._audio_output is None:
+        if not getattr(self, "_tts_enabled", True) or self._tts_provider is None or self._audio_output is None:
             raise TTSUnavailableError("Text-to-speech is currently unavailable.")
         if self._speech_task is not None and not self._speech_task.done():
             raise TTSBusyError("PHOS is already speaking.")
@@ -266,6 +283,29 @@ class PhosRuntime:
         self._speech_task = task
         task.add_done_callback(lambda completed: self._speech_finished(completed, request_id))
         logger.info("PHOS SPEECH[%s]: accepted", request_id)
+
+    def replace_stt_provider(self, provider) -> None:
+        if provider is None or not callable(getattr(provider, "available", None)):
+            raise ValueError("Invalid STT provider candidate.")
+        if self._voice_session is None: raise RuntimeError("Voice is unavailable")
+        self._voice_session.replace_stt_provider(provider)
+
+    def replace_tts_provider(self, provider) -> None:
+        if provider is None or not callable(getattr(provider, "synthesize", None)):
+            raise TTSConfigurationError("Invalid TTS provider candidate.")
+        self._tts_provider = provider
+
+    def replace_audio_output(self, output) -> None:
+        if output is None or not callable(getattr(output, "play", None)):
+            raise TTSConfigurationError("Invalid audio output candidate.")
+        self._audio_output = output
+
+    def set_stt_enabled(self, enabled: bool) -> None:
+        self._stt_enabled = bool(enabled)
+        if self._voice_session is not None: self._voice_session.set_enabled(enabled)
+
+    def set_tts_enabled(self, enabled: bool) -> None:
+        self._tts_enabled = bool(enabled)
 
     def _speech_finished(self, task: asyncio.Task, request_id: int) -> None:
         if self._speech_task is task:
@@ -765,6 +805,7 @@ def build_runtime(
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
+    runtime._secrets_service = secrets_service
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime
