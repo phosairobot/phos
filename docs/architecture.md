@@ -160,8 +160,9 @@ USB microphone
   -> canonical PCM16 mono, 16 kHz
   -> VAD -> bounded pre-roll -> VoiceCaptureSession
   -> STTProvider -> TranscriptResult
-  -> InteractionInput -> future IntentResolver -> ResolvedIntent or UnresolvedIntent
-  -> (future CommandRouter) -> application service / behavior
+  -> InteractionInput -> IntentResolver -> ResolvedIntent or UnresolvedIntent
+  -> CommandRouter -> semantic command route
+  -> explicit source-aware authorization -> CommandExecutor -> PhosApplicationService
 ```
 
 Capture rate and processing rate are deliberately separate. Raspberry Pi 3
@@ -190,8 +191,12 @@ not route or execute commands. The selectable deterministic resolver has a
 small exact English/Italian catalog for `sleep`, `wake`, temperature and
 air-quality queries, and expression intent data. When interaction is enabled,
 the main runtime observes completed voice transcripts and publishes resolution
-events/status only. It is not connected to command routing, the application
-service's command methods, or PHOS behavior. Text output follows `TTSProvider ->
+events/status. `CommandRouter` separately validates a resolved canonical intent
+and maps it to a semantic command. Voice execution is opt-in through
+`interaction.execution_enabled` (false by default): the coordinator creates a
+voice-scoped allowlist, then `CommandExecutor` invokes only sleep, wake, and
+expression commands through `PhosApplicationService`. Temperature and air-quality
+routes remain non-executable and do not read sensors. Text output follows `TTSProvider ->
 AudioOutputProvider`; local Piper, Cartesia and ElevenLabs adapters are implemented.
 Phrase resolution, command routing/execution, wake words, continuous listening,
 LLM conversation, and Home Assistant remain future work.

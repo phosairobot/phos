@@ -326,7 +326,8 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
-    "interaction": {"enabled": "interaction_enabled", "resolver": "interaction_resolver",
+    "interaction": {"enabled": "interaction_enabled", "execution_enabled": "interaction_execution_enabled",
+                    "resolver": "interaction_resolver",
                     "default_language": "interaction_default_language",
                     "supported_languages": "interaction_supported_languages"},
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
@@ -440,6 +441,7 @@ class RuntimeConfig:
     presence_led_left_direction: str
     attention_lost_hold_ms: int
     interaction_enabled: bool
+    interaction_execution_enabled: bool
     interaction_resolver: str
     interaction_default_language: str
     interaction_supported_languages: Tuple[str, ...]
@@ -655,6 +657,12 @@ class RuntimeConfig:
         Editors may skip filesystem checks to repair removed model paths; schema
         and value validation still run. Startup and save always check paths.
         """
+        # Step 4C adds an opt-in execution gate.  Older complete documents
+        # remain observational rather than being rejected or implicitly enabled.
+        document = copy.deepcopy(document)
+        interaction = document.get("interaction") if isinstance(document, dict) else None
+        if isinstance(interaction, dict):
+            interaction.setdefault("execution_enabled", False)
         result = object.__new__(cls)
         result._assign(_decode(document), base_dir, overrides)
         if check_paths:
@@ -904,7 +912,7 @@ class RuntimeConfig:
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
                      "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav",
-                     "interaction_enabled"):
+                     "interaction_enabled", "interaction_execution_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ConfigurationError(f"{name} must be a boolean")
         for name in ("camera_resolution", "expression_input_size", "detector_min_size"):
