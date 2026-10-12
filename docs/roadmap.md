@@ -6,7 +6,10 @@
   resolver selection, and a deterministic English/Italian intent vocabulary.
 - [x] Observational voice-transcript resolution with bounded events and runtime status;
   it does not change robot behavior.
-- [ ] Command routing/execution, sensor responses, expression changes, TTS responses,
+- [x] Pure canonical-intent routing plus explicitly authorized application-service
+  execution for sleep, wake, and expression commands; voice execution is opt-in
+  and disabled by default.
+- [ ] Sensor responses, TTS responses,
   LLM resolver, language detection, wake word, and continuous listening.
 
 ## PHOS 1.4.0 — Voice & Interaction Foundation

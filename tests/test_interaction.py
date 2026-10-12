@@ -80,10 +80,17 @@ def _resolver(*, default_language="en", supported_languages=("en", "it")):
 
 def test_interaction_config_defaults_and_factory_selection():
     config = RuntimeConfig.from_file()
-    assert (config.interaction_enabled, config.interaction_resolver,
+    assert (config.interaction_enabled, config.interaction_execution_enabled, config.interaction_resolver,
             config.interaction_default_language, config.interaction_supported_languages) == (
-                False, "deterministic", "en", ("en", "it"))
+                False, False, "deterministic", "en", ("en", "it"))
     assert type(_resolver()).__name__ == "DeterministicIntentResolver"
+
+
+def test_existing_interaction_document_defaults_execution_to_disabled():
+    document = load_document()
+    document["interaction"].pop("execution_enabled")
+    config = RuntimeConfig.from_dict(document, base_dir=Path("config").resolve(), check_paths=False)
+    assert config.interaction_execution_enabled is False
 
 
 def test_unknown_resolver_is_rejected_without_fallback():
@@ -112,6 +119,35 @@ def test_deterministic_resolver_has_small_english_and_italian_catalog(language, 
     assert isinstance(result, ResolvedIntent)
     assert (result.name, result.parameters, result.source_language, result.resolver) == (
         name, parameters, language, "deterministic")
+
+
+@pytest.mark.parametrize("text", [
+    "sii felice", "si felice", "felice", "sii allegro", "si allegro", "allegro",
+    "fammi felice", "fammi allegro", "mostrati felice", "mostrati allegro",
+])
+def test_italian_happy_expression_aliases_remain_exact_catalog_entries(text):
+    result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, "it")))
+    assert isinstance(result, ResolvedIntent)
+    assert (result.name, result.parameters, result.source_language) == (
+        "set_expression", {"expression": "happy"}, "it")
+
+
+@pytest.mark.parametrize(("language", "text", "expression"), [
+    ("en", "be happy", "happy"), ("en", "be curious", "curious"),
+    ("en", "be surprised", "surprised"), ("en", "be neutral", "neutral"),
+    ("it", "sii allegro", "happy"), ("it", "sii curioso", "curious"),
+    ("it", "sii sorpreso", "surprised"), ("it", "torna neutro", "neutral"),
+])
+def test_expression_aliases_resolve_to_the_canonical_writable_value(language, text, expression):
+    result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, language)))
+    assert isinstance(result, ResolvedIntent)
+    assert (result.name, result.parameters, result.source_language) == (
+        "set_expression", {"expression": expression}, language)
+
+
+def test_unrelated_italian_expression_phrase_remains_unresolved():
+    result = asyncio.run(_resolver().resolve(InteractionInput("fammi triste", InteractionSource.VOICE, "it")))
+    assert isinstance(result, UnresolvedIntent)
 
 
 def test_resolution_prefers_explicit_language_and_preserves_full_tag():
@@ -191,9 +227,10 @@ def test_runtime_status_exposes_configured_and_active_observational_resolver():
     config = RuntimeConfig.from_dict(document, base_dir=Path("config").resolve(), check_paths=False)
     runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
     assert runtime.application_status()["interaction"] == {
-        "enabled": True, "configured_resolver": "deterministic",
+        "enabled": True, "execution_enabled": False, "configured_resolver": "deterministic",
         "active_resolver": "deterministic", "available": True,
         "default_language": "en", "supported_languages": ["en", "it"],
         "last_resolution": {"status": None, "intent": None, "source_language": None},
+        "last_execution": {"status": None, "intent": None, "command": None, "source_language": None},
         "unavailable_reason": None,
     }

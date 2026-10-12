@@ -128,7 +128,12 @@ from this startup acceptance slice.
   foundation-only contracts. The configured deterministic resolver has a small
   exact English/Italian vocabulary. When enabled, the main runtime observes
   completed voice transcripts and publishes resolved, unresolved, or failed
-  interaction events/status; command routing and command execution remain absent.
+  interaction events/status. A separate pure `CommandRouter` validates and maps
+  resolved intents to semantic commands. Voice execution is opt-in through
+  `interaction.execution_enabled`, which defaults to false; when enabled, a
+  voice-scoped allowlist authorizes only sleep, wake, and expression through
+  `CommandExecutor` and `PhosApplicationService`. Temperature and air-quality
+  routes remain non-executable and do not read sensors.
 - Speech output follows `text → TTSProvider → AudioOutputProvider → SPEAKING`. `TTSProvider` supports Local/Piper, Cartesia and ElevenLabs integration; the output provider owns normalized playback and `/api/v1/speak` reaches this same runtime path.
 - Voice & Speech applies supported STT/TTS/audio changes live. Candidate activation precedes persistence; failure retains the previous provider/configuration. In-progress sessions/speech retain their original references; subsequent work uses the replacement.
 - Project physical-validation records cover local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching without a service restart. ElevenLabs is implemented, but end-to-end physical availability remains subject to external account and voice-plan constraints.
