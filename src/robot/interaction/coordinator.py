@@ -6,7 +6,7 @@ import logging
 from robot.core import Event
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 
-from .models import InteractionInput, InteractionSource, ResolvedIntent
+from .models import InteractionInput, InteractionOutcome, InteractionSource, ResolvedIntent
 from .resolver import IntentResolverError
 from .router import CommandRoute, CommandRouteStatus, CommandRouter
 from .executor import CommandAuthorization, CommandExecutor
@@ -22,8 +22,12 @@ INTERACTION_COMMAND_DENIED = "interaction_command_denied"
 INTERACTION_COMMAND_UNSUPPORTED = "interaction_command_unsupported"
 INTERACTION_COMMAND_FAILED = "interaction_command_failed"
 INTERACTION_COMMAND_REJECTED = "interaction_command_rejected"
+INTERACTION_OUTCOME_COMPLETED = "interaction_outcome_completed"
+INTERACTION_OUTCOME_UNAVAILABLE = "interaction_outcome_unavailable"
+INTERACTION_OUTCOME_FAILED = "interaction_outcome_failed"
 
-_VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "face.set_expression"})
+_VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "face.set_expression",
+                                        "environment.get_temperature", "environment.get_air_quality"})
 
 
 class InteractionCoordinator:
@@ -46,6 +50,7 @@ class InteractionCoordinator:
         self._voice_authorization = CommandAuthorization(InteractionSource.VOICE, _VOICE_EXECUTABLE_COMMANDS)
         self._last_resolution = {"status": None, "intent": None, "source_language": None}
         self._last_execution = {"status": None, "intent": None, "command": None, "source_language": None}
+        self._last_outcome = {"status": None, "intent": None, "source_language": None}
         self._unsubscribe = None
         if self._enabled and self._resolver is not None:
             self._unsubscribe = events.subscribe(VOICE_TRANSCRIPTION_COMPLETED, self._resolve_transcript)
@@ -63,6 +68,7 @@ class InteractionCoordinator:
                 "supported_languages": list(self._supported_languages),
                 "last_resolution": dict(self._last_resolution),
                 "last_execution": dict(self._last_execution),
+                "last_outcome": dict(self._last_outcome),
                 "unavailable_reason": self._unavailable_reason}
 
     def set_executor(self, executor: CommandExecutor) -> None:
@@ -119,7 +125,11 @@ class InteractionCoordinator:
                 await self._record_execution("failed", intent, routed.command, routed.parameters)
                 return
             result = self._executor.execute(
-                CommandRoute(intent.name, routed.command, routed.parameters), self._voice_authorization)
+                CommandRoute(intent.name, routed.command, routed.parameters), self._voice_authorization,
+                source_language=intent.source_language)
+            if isinstance(result, InteractionOutcome):
+                await self._record_outcome(result)
+                return
             await self._record_execution(result.status.value, intent, result.command, result.parameters)
         except Exception:
             logger.exception("PHOS INTERACTION: command bridge failed intent=%s", intent.name)
@@ -140,6 +150,16 @@ class InteractionCoordinator:
                    "source": InteractionSource.VOICE.value, "source_language": intent.source_language,
                    "status": status}
         await self._events.publish(Event(event_names[status], payload))
+
+    async def _record_outcome(self, outcome: InteractionOutcome) -> None:
+        self._last_outcome = {"status": outcome.status.value, "intent": outcome.intent,
+                              "source_language": outcome.source_language}
+        event_names = {
+            "completed": INTERACTION_OUTCOME_COMPLETED,
+            "unavailable": INTERACTION_OUTCOME_UNAVAILABLE,
+            "failed": INTERACTION_OUTCOME_FAILED,
+        }
+        await self._events.publish(Event(event_names[outcome.status.value], outcome.document()))
 
     async def _failed(self, error: Exception) -> None:
         resolver = getattr(self._resolver, "name", self._configured_resolver)

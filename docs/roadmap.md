@@ -9,7 +9,9 @@
 - [x] Pure canonical-intent routing plus explicitly authorized application-service
   execution for sleep, wake, and expression commands; voice execution is opt-in
   and disabled by default.
-- [ ] Sensor responses, TTS responses,
+- [x] Authorized temperature and air-quality read-model queries with structured
+  semantic outcomes; natural-language/TTS responses remain deferred.
+- [ ] TTS responses,
   LLM resolver, language detection, wake word, and continuous listening.
 
 ## PHOS 1.4.0 — Voice & Interaction Foundation

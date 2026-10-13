@@ -131,9 +131,11 @@ from this startup acceptance slice.
   interaction events/status. A separate pure `CommandRouter` validates and maps
   resolved intents to semantic commands. Voice execution is opt-in through
   `interaction.execution_enabled`, which defaults to false; when enabled, a
-  voice-scoped allowlist authorizes only sleep, wake, and expression through
-  `CommandExecutor` and `PhosApplicationService`. Temperature and air-quality
-  routes remain non-executable and do not read sensors.
+  voice-scoped allowlist authorizes sleep, wake, expression, temperature, and
+  air-quality commands through `CommandExecutor` and `PhosApplicationService`.
+  Queries return bounded `InteractionOutcome` data (`temperature_c` or atomic
+  `eco2_ppm`/`tvoc_ppb`) or an explicit unavailable outcome; they do not render
+  natural-language answers or invoke TTS.
 - Speech output follows `text → TTSProvider → AudioOutputProvider → SPEAKING`. `TTSProvider` supports Local/Piper, Cartesia and ElevenLabs integration; the output provider owns normalized playback and `/api/v1/speak` reaches this same runtime path.
 - Voice & Speech applies supported STT/TTS/audio changes live. Candidate activation precedes persistence; failure retains the previous provider/configuration. In-progress sessions/speech retain their original references; subsequent work uses the replacement.
 - Project physical-validation records cover local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching without a service restart. ElevenLabs is implemented, but end-to-end physical availability remains subject to external account and voice-plan constraints.

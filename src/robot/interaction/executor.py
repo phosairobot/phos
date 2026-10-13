@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
 
-from .models import InteractionSource
+from .models import InteractionOutcome, InteractionOutcomeStatus, InteractionSource
 from .router import CommandRoute
 
 
@@ -34,6 +34,12 @@ class CommandApplicationService(Protocol):
 
     def set_expression(self, expression: str) -> dict:
         """Apply a validated semantic expression through the application service."""
+
+    def environment(self) -> dict:
+        """Return the semantic environmental snapshot."""
+
+    def sensors(self) -> dict:
+        """Return the semantic sensor snapshot collection."""
 
 
 @dataclass(frozen=True)
@@ -91,22 +97,22 @@ class CommandExecutor:
     def __init__(self, application_service: CommandApplicationService) -> None:
         self._application_service = application_service
 
-    def execute(self, route: CommandRoute, authorization: CommandAuthorization | None = None) -> CommandExecutionResult:
+    def execute(self, route: CommandRoute, authorization: CommandAuthorization | None = None,
+                *, source_language: str | None = None) -> CommandExecutionResult | InteractionOutcome:
         """Execute only explicitly authorized, well-formed semantic routes."""
         if not self._valid_route(route):
             command = route.command if isinstance(route, CommandRoute) else None
             parameters = route.parameters if isinstance(route, CommandRoute) else {}
             return CommandExecutionResult(CommandExecutionStatus.REJECTED, command, parameters,
                                           "invalid_route")
-        if route.command in _QUERY_COMMANDS:
-            return CommandExecutionResult(CommandExecutionStatus.UNSUPPORTED, route.command,
-                                          route.parameters, "query_execution_not_implemented")
-        if route.command not in _EXECUTABLE_COMMANDS:
-            return CommandExecutionResult(CommandExecutionStatus.UNSUPPORTED, route.command,
-                                          route.parameters, "command_execution_not_implemented")
         if authorization is None or not authorization.permits(route):
             return CommandExecutionResult(CommandExecutionStatus.DENIED, route.command,
                                           route.parameters, "execution_not_authorized")
+        if route.command in _QUERY_COMMANDS:
+            return self._query(route, authorization.source, source_language)
+        if route.command not in _EXECUTABLE_COMMANDS:
+            return CommandExecutionResult(CommandExecutionStatus.UNSUPPORTED, route.command,
+                                          route.parameters, "command_execution_not_implemented")
         try:
             if route.command == "robot.sleep":
                 self._application_service.set_state("sleeping")
@@ -119,6 +125,39 @@ class CommandExecutor:
                                           route.parameters, "application_error")
         return CommandExecutionResult(CommandExecutionStatus.EXECUTED, route.command,
                                       route.parameters)
+
+    def _query(self, route: CommandRoute, source: InteractionSource,
+               source_language: str | None) -> InteractionOutcome:
+        try:
+            if route.command == "environment.get_temperature":
+                snapshot = self._application_service.environment()
+                value = self._measurement(snapshot, "temperature_c")
+                if value is None:
+                    return InteractionOutcome(InteractionOutcomeStatus.UNAVAILABLE, route.intent, source,
+                                              source_language, reason="temperature_unavailable")
+                return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent, source,
+                                          source_language, {"temperature_c": value})
+            snapshot = self._application_service.sensors().get("ccs811")
+            eco2 = self._measurement(snapshot, "eco2_ppm")
+            tvoc = self._measurement(snapshot, "tvoc_ppb")
+            # AirQualityReading is atomic, so a missing member means the current
+            # semantic snapshot is unavailable rather than partially invented.
+            if eco2 is None or tvoc is None:
+                return InteractionOutcome(InteractionOutcomeStatus.UNAVAILABLE, route.intent, source,
+                                          source_language, reason="air_quality_unavailable")
+            return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent, source,
+                                      source_language, {"eco2_ppm": eco2, "tvoc_ppb": tvoc})
+        except Exception:
+            return InteractionOutcome(InteractionOutcomeStatus.FAILED, route.intent, source,
+                                      source_language, reason="application_error")
+
+    @staticmethod
+    def _measurement(snapshot: object, name: str) -> int | float | None:
+        if not isinstance(snapshot, dict) or not snapshot.get("available"):
+            return None
+        measurements = snapshot.get("measurements")
+        value = measurements.get(name) if isinstance(measurements, dict) else None
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
     @staticmethod
     def _valid_route(route: object) -> bool:
