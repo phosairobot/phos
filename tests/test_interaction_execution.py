@@ -7,7 +7,8 @@ from robot.interaction import (CommandExecutionResult, CommandExecutionStatus, I
                                InteractionCoordinator, InteractionSource, ResolvedIntent,
                                INTERACTION_COMMAND_EXECUTED, INTERACTION_COMMAND_FAILED,
                                INTERACTION_COMMAND_UNSUPPORTED, INTERACTION_INTENT_RESOLVED,
-                               INTERACTION_OUTCOME_COMPLETED, INTERACTION_OUTCOME_FAILED)
+                               INTERACTION_OUTCOME_COMPLETED, INTERACTION_OUTCOME_FAILED,
+                               INTERACTION_RESPONSE_READY)
 from robot.interaction.deterministic import DeterministicIntentResolver
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 
@@ -103,13 +104,18 @@ def test_query_routes_emit_a_bounded_semantic_outcome():
     executor = QueryExecutor()
     bus, coordinator = _coordinator(execution_enabled=True, executor=executor)
     events = []
+    responses = []
     bus.subscribe(INTERACTION_OUTCOME_COMPLETED, lambda event: events.append(event.data))
+    bus.subscribe(INTERACTION_RESPONSE_READY, lambda event: responses.append(event.data))
     _publish(bus, "what is the temperature")
     assert executor.calls[-1][0].command == "environment.get_temperature"
     assert events[-1] == {"status": "completed", "intent": "get_temperature", "source": "voice",
                           "source_language": "en", "result": {"temperature_c": 26.8}, "reason": None}
     assert coordinator.status()["last_outcome"] == {
         "status": "completed", "intent": "get_temperature", "source_language": "en"}
+    assert responses[-1] == {"text": "The temperature is 26.8 degrees Celsius.", "language": "en",
+                             "intent": "get_temperature", "status": "ready"}
+    assert coordinator.status()["last_response"] == responses[-1]
 
 
 def test_italian_query_preserves_language_in_its_semantic_outcome():

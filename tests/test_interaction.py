@@ -233,5 +233,6 @@ def test_runtime_status_exposes_configured_and_active_observational_resolver():
         "last_resolution": {"status": None, "intent": None, "source_language": None},
         "last_execution": {"status": None, "intent": None, "command": None, "source_language": None},
         "last_outcome": {"status": None, "intent": None, "source_language": None},
+        "last_response": {"status": None, "intent": None, "language": None, "text": None},
         "unavailable_reason": None,
     }

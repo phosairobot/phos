@@ -6,10 +6,11 @@ import logging
 from robot.core import Event
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 
-from .models import InteractionInput, InteractionOutcome, InteractionSource, ResolvedIntent
+from .models import InteractionInput, InteractionOutcome, InteractionResponse, InteractionSource, ResolvedIntent
 from .resolver import IntentResolverError
 from .router import CommandRoute, CommandRouteStatus, CommandRouter
 from .executor import CommandAuthorization, CommandExecutor
+from .response import InteractionResponseRenderer
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,9 @@ INTERACTION_COMMAND_REJECTED = "interaction_command_rejected"
 INTERACTION_OUTCOME_COMPLETED = "interaction_outcome_completed"
 INTERACTION_OUTCOME_UNAVAILABLE = "interaction_outcome_unavailable"
 INTERACTION_OUTCOME_FAILED = "interaction_outcome_failed"
+INTERACTION_RESPONSE_READY = "interaction_response_ready"
+INTERACTION_RESPONSE_UNAVAILABLE = "interaction_response_unavailable"
+INTERACTION_RESPONSE_FAILED = "interaction_response_failed"
 
 _VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "face.set_expression",
                                         "environment.get_temperature", "environment.get_air_quality"})
@@ -36,7 +40,8 @@ class InteractionCoordinator:
     def __init__(self, events, *, enabled: bool, configured_resolver: str,
                  default_language: str, supported_languages: tuple[str, ...], resolver=None,
                  unavailable_reason: str | None = None, execution_enabled: bool = False,
-                 router: CommandRouter | None = None, executor: CommandExecutor | None = None) -> None:
+                 router: CommandRouter | None = None, executor: CommandExecutor | None = None,
+                 response_renderer: InteractionResponseRenderer | None = None) -> None:
         self._events = events
         self._enabled = bool(enabled)
         self._configured_resolver = configured_resolver
@@ -47,10 +52,12 @@ class InteractionCoordinator:
         self._execution_enabled = bool(execution_enabled)
         self._router = router or CommandRouter()
         self._executor = executor
+        self._response_renderer = response_renderer or InteractionResponseRenderer(default_language)
         self._voice_authorization = CommandAuthorization(InteractionSource.VOICE, _VOICE_EXECUTABLE_COMMANDS)
         self._last_resolution = {"status": None, "intent": None, "source_language": None}
         self._last_execution = {"status": None, "intent": None, "command": None, "source_language": None}
         self._last_outcome = {"status": None, "intent": None, "source_language": None}
+        self._last_response = {"status": None, "intent": None, "language": None, "text": None}
         self._unsubscribe = None
         if self._enabled and self._resolver is not None:
             self._unsubscribe = events.subscribe(VOICE_TRANSCRIPTION_COMPLETED, self._resolve_transcript)
@@ -69,6 +76,7 @@ class InteractionCoordinator:
                 "last_resolution": dict(self._last_resolution),
                 "last_execution": dict(self._last_execution),
                 "last_outcome": dict(self._last_outcome),
+                "last_response": dict(self._last_response),
                 "unavailable_reason": self._unavailable_reason}
 
     def set_executor(self, executor: CommandExecutor) -> None:
@@ -160,6 +168,19 @@ class InteractionCoordinator:
             "failed": INTERACTION_OUTCOME_FAILED,
         }
         await self._events.publish(Event(event_names[outcome.status.value], outcome.document()))
+        response = self._response_renderer.render(outcome)
+        if response is not None:
+            await self._record_response(response)
+
+    async def _record_response(self, response: InteractionResponse) -> None:
+        self._last_response = {"status": response.status.value, "intent": response.intent,
+                               "language": response.language, "text": response.text}
+        event_names = {
+            "ready": INTERACTION_RESPONSE_READY,
+            "unavailable": INTERACTION_RESPONSE_UNAVAILABLE,
+            "failed": INTERACTION_RESPONSE_FAILED,
+        }
+        await self._events.publish(Event(event_names[response.status.value], response.document()))
 
     async def _failed(self, error: Exception) -> None:
         resolver = getattr(self._resolver, "name", self._configured_resolver)
