@@ -2,10 +2,12 @@
 import asyncio
 
 from robot.core import Event, EventBus
-from robot.interaction import (CommandExecutionResult, CommandExecutionStatus,
+from robot.interaction import (CommandExecutionResult, CommandExecutionStatus, InteractionOutcome,
+                               InteractionOutcomeStatus,
                                InteractionCoordinator, InteractionSource, ResolvedIntent,
                                INTERACTION_COMMAND_EXECUTED, INTERACTION_COMMAND_FAILED,
-                               INTERACTION_COMMAND_UNSUPPORTED, INTERACTION_INTENT_RESOLVED)
+                               INTERACTION_COMMAND_UNSUPPORTED, INTERACTION_INTENT_RESOLVED,
+                               INTERACTION_OUTCOME_COMPLETED, INTERACTION_OUTCOME_FAILED)
 from robot.interaction.deterministic import DeterministicIntentResolver
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 
@@ -15,7 +17,7 @@ class RecordingExecutor:
         self.calls = []
         self.status = status
 
-    def execute(self, route, authorization):
+    def execute(self, route, authorization, *, source_language=None):
         self.calls.append((route, authorization))
         return CommandExecutionResult(self.status, route.command, route.parameters,
                                       None if self.status is CommandExecutionStatus.EXECUTED else "application_error")
@@ -58,7 +60,8 @@ def test_enabled_bridge_routes_and_authorizes_only_the_voice_allowlist():
         route, authorization = executor.calls[-1]
         assert (route.command, route.parameters) == (command, parameters)
         assert authorization.source is InteractionSource.VOICE
-        assert authorization.allowed_commands == frozenset({"robot.sleep", "robot.wake", "face.set_expression"})
+        assert authorization.allowed_commands == frozenset({"robot.sleep", "robot.wake", "face.set_expression",
+                                                            "environment.get_temperature", "environment.get_air_quality"})
         assert events[-1] == {"intent": route.intent, "command": command, "parameters": parameters,
                               "source": "voice", "source_language": "en", "status": "executed"}
     assert coordinator.status()["last_execution"] == {
@@ -90,15 +93,53 @@ def test_unresolved_and_failed_resolution_never_reach_executor():
     assert executor.calls == []
 
 
-def test_query_routes_emit_unsupported_without_sensor_or_application_access():
-    executor = RecordingExecutor(CommandExecutionStatus.UNSUPPORTED)
+def test_query_routes_emit_a_bounded_semantic_outcome():
+    class QueryExecutor(RecordingExecutor):
+        def execute(self, route, authorization, *, source_language=None):
+            self.calls.append((route, authorization))
+            return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent,
+                                      authorization.source, source_language, {"temperature_c": 26.8})
+
+    executor = QueryExecutor()
     bus, coordinator = _coordinator(execution_enabled=True, executor=executor)
     events = []
-    bus.subscribe(INTERACTION_COMMAND_UNSUPPORTED, lambda event: events.append(event.data))
+    bus.subscribe(INTERACTION_OUTCOME_COMPLETED, lambda event: events.append(event.data))
     _publish(bus, "what is the temperature")
     assert executor.calls[-1][0].command == "environment.get_temperature"
-    assert events[-1]["status"] == "unsupported"
-    assert coordinator.status()["last_execution"]["status"] == "unsupported"
+    assert events[-1] == {"status": "completed", "intent": "get_temperature", "source": "voice",
+                          "source_language": "en", "result": {"temperature_c": 26.8}, "reason": None}
+    assert coordinator.status()["last_outcome"] == {
+        "status": "completed", "intent": "get_temperature", "source_language": "en"}
+
+
+def test_italian_query_preserves_language_in_its_semantic_outcome():
+    class QueryExecutor(RecordingExecutor):
+        def execute(self, route, authorization, *, source_language=None):
+            self.calls.append((route, authorization))
+            return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent,
+                                      authorization.source, source_language, {"temperature_c": 21.5})
+
+    executor = QueryExecutor()
+    bus, _ = _coordinator(execution_enabled=True, executor=executor)
+    events = []
+    bus.subscribe(INTERACTION_OUTCOME_COMPLETED, lambda event: events.append(event.data))
+    _publish(bus, "che temperatura c'è", "it")
+    assert events[-1]["source_language"] == "it"
+    assert events[-1]["result"] == {"temperature_c": 21.5}
+
+
+def test_query_failure_is_a_bounded_outcome_and_does_not_crash_resolution():
+    class FailingQueryExecutor(RecordingExecutor):
+        def execute(self, route, authorization, *, source_language=None):
+            return InteractionOutcome(InteractionOutcomeStatus.FAILED, route.intent,
+                                      authorization.source, source_language, reason="application_error")
+
+    bus, coordinator = _coordinator(execution_enabled=True, executor=FailingQueryExecutor())
+    events = []
+    bus.subscribe(INTERACTION_OUTCOME_FAILED, lambda event: events.append(event.data))
+    _publish(bus, "what is the temperature")
+    assert events[-1]["reason"] == "application_error"
+    assert coordinator.status()["last_outcome"]["status"] == "failed"
 
 
 def test_executor_failure_is_recorded_without_crashing_the_event_loop():

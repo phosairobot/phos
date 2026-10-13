@@ -236,6 +236,7 @@ class PhosRuntime:
                 "available": False, "default_language": None, "supported_languages": [],
                 "last_resolution": {"status": None, "intent": None, "source_language": None},
                 "last_execution": {"status": None, "intent": None, "command": None, "source_language": None},
+                "last_outcome": {"status": None, "intent": None, "source_language": None},
                 "unavailable_reason": "unconfigured"}
 
     async def start_listening(self):

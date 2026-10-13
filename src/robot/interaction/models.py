@@ -41,6 +41,37 @@ class InteractionSource(str, Enum):
     WEB = "web"
 
 
+class InteractionOutcomeStatus(str, Enum):
+    COMPLETED = "completed"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class InteractionOutcome:
+    """Provider-neutral semantic result of an authorized interaction query."""
+
+    status: InteractionOutcomeStatus
+    intent: str
+    source: InteractionSource
+    source_language: str | None = None
+    result: dict[str, Any] | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, InteractionOutcomeStatus):
+            raise TypeError("InteractionOutcome.status must be an InteractionOutcomeStatus")
+        if not isinstance(self.source, InteractionSource):
+            raise TypeError("InteractionOutcome.source must be an InteractionSource")
+        object.__setattr__(self, "source_language", normalize_language_tag(self.source_language))
+        object.__setattr__(self, "result", None if self.result is None else dict(self.result))
+
+    def document(self) -> dict[str, Any]:
+        return {"status": self.status.value, "intent": self.intent, "source": self.source.value,
+                "source_language": self.source_language, "result": None if self.result is None else dict(self.result),
+                "reason": self.reason}
+
+
 class CanonicalIntent(str, Enum):
     """Small stable intent vocabulary; routing and execution remain separate."""
 
