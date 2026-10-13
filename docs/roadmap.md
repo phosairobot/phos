@@ -10,7 +10,8 @@
   execution for sleep, wake, and expression commands; voice execution is opt-in
   and disabled by default.
 - [x] Authorized temperature and air-quality read-model queries with structured
-  semantic outcomes; natural-language/TTS responses remain deferred.
+  semantic outcomes, plus deterministic English/Italian response rendering;
+  TTS responses remain deferred.
 - [ ] TTS responses,
   LLM resolver, language detection, wake word, and continuous listening.
 

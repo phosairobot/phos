@@ -47,6 +47,12 @@ class InteractionOutcomeStatus(str, Enum):
     FAILED = "failed"
 
 
+class InteractionResponseStatus(str, Enum):
+    READY = "ready"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True)
 class InteractionOutcome:
     """Provider-neutral semantic result of an authorized interaction query."""
@@ -70,6 +76,28 @@ class InteractionOutcome:
         return {"status": self.status.value, "intent": self.intent, "source": self.source.value,
                 "source_language": self.source_language, "result": None if self.result is None else dict(self.result),
                 "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class InteractionResponse:
+    """Localized user-facing text derived from a semantic interaction outcome."""
+
+    text: str
+    language: str
+    intent: str
+    status: InteractionResponseStatus
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str) or not self.text:
+            raise ValueError("InteractionResponse.text must be nonempty")
+        if not isinstance(self.language, str) or not self.language:
+            raise ValueError("InteractionResponse.language must be nonempty")
+        if not isinstance(self.status, InteractionResponseStatus):
+            raise TypeError("InteractionResponse.status must be an InteractionResponseStatus")
+
+    def document(self) -> dict[str, Any]:
+        return {"text": self.text, "language": self.language,
+                "intent": self.intent, "status": self.status.value}
 
 
 class CanonicalIntent(str, Enum):

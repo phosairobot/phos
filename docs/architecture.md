@@ -163,7 +163,7 @@ USB microphone
   -> InteractionInput -> IntentResolver -> ResolvedIntent or UnresolvedIntent
   -> CommandRouter -> semantic command route
   -> explicit source-aware authorization -> CommandExecutor -> PhosApplicationService
-  -> InteractionOutcome (semantic query result only)
+  -> InteractionOutcome -> InteractionResponseRenderer -> InteractionResponse
 ```
 
 Capture rate and processing rate are deliberately separate. Raspberry Pi 3
@@ -199,8 +199,9 @@ voice-scoped allowlist, then `CommandExecutor` invokes only sleep, wake, and
 expression commands through `PhosApplicationService`. Authorized temperature and
 air-quality queries reuse that service's read models and produce an
 `InteractionOutcome` with canonical numeric fields; unavailable snapshots are
-normal outcomes. Query outcomes do not render natural language or invoke TTS.
-Text output follows `TTSProvider ->
+normal outcomes. The pure local `InteractionResponseRenderer` produces
+deterministic English or Italian user-facing text from query outcomes. Rendering
+does not invoke TTS or transition PHOS to speaking. Text output follows `TTSProvider ->
 AudioOutputProvider`; local Piper, Cartesia and ElevenLabs adapters are implemented.
 Phrase resolution, command routing/execution, wake words, continuous listening,
 LLM conversation, and Home Assistant remain future work.
