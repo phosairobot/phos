@@ -200,9 +200,13 @@ expression commands through `PhosApplicationService`. Authorized temperature and
 air-quality queries reuse that service's read models and produce an
 `InteractionOutcome` with canonical numeric fields; unavailable snapshots are
 normal outcomes. The pure local `InteractionResponseRenderer` produces
-deterministic English or Italian user-facing text from query outcomes. Rendering
-does not invoke TTS or transition PHOS to speaking. Text output follows `TTSProvider ->
-AudioOutputProvider`; local Piper, Cartesia and ElevenLabs adapters are implemented.
+deterministic English or Italian user-facing text from query outcomes. With
+`interaction.response_tts_enabled` (false by default), query responses pass through
+the application speech boundary and the existing `TTSProvider -> AudioOutputProvider`
+path, including `SPEAKING`; actions and unresolved input remain silent. The current
+provider-neutral TTS contract accepts text only, so response language is retained as
+interaction metadata rather than passed as a provider-specific argument. Local Piper,
+Cartesia and ElevenLabs adapters are implemented.
 Phrase resolution, command routing/execution, wake words, continuous listening,
 LLM conversation, and Home Assistant remain future work.
 

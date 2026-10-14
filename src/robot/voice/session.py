@@ -126,28 +126,39 @@ class VoiceCaptureSession:
                     if len(self._pre_roll) > self._pre_roll_limit_bytes:
                         del self._pre_roll[:-self._pre_roll_limit_bytes]
                 if speaking and (marker == "ended" or len(frames) * 1000 >= self._max_ms * self._sample_rate * self._channels * 2):
-                    await self._finalize(bytes(frames)); return
+                    logger.info("VOICE AUDIO: accumulated_bytes=%s", len(frames))
+                    await self._finalize(frames); return
         except asyncio.CancelledError: raise
         except Exception as error: await self._failure(error)
         finally: self._pre_roll.clear()
     async def _finalize(self, pcm):
-        duration = round(len(pcm) * 1000 / (self._sample_rate * self._channels * 2))
+        # ``frames`` is a capture-loop-owned bytearray. Finalization must make
+        # an immutable snapshot before closing a capture implementation that
+        # may reset its own mutable buffers.
+        final_pcm = memoryview(pcm).tobytes()
+        logger.info("VOICE AUDIO: finalized_bytes=%s", len(final_pcm))
+        duration = round(len(final_pcm) * 1000 / (self._sample_rate * self._channels * 2))
         await self._emit(VOICE_SPEECH_ENDED, {"duration_ms": duration})
         logger.info("VOICE SPEECH: ended duration_ms=%s", duration)
         if duration < self._min_ms: await self._emit(VOICE_EMPTY_UTTERANCE, {"duration_ms": duration}); await self.stop(); return
         self._status = replace(self._status, state="thinking", listening=False, speech_detected=False); await self._transition(RobotState.THINKING, "voice_transcription")
         await self._emit(VOICE_TRANSCRIPTION_STARTED, {"provider": self._status.stt_provider})
         logger.info("VOICE STT: started provider=%s audio_duration_ms=%s", self._status.stt_provider, duration)
+        # Release microphone resources before a potentially slower cloud STT
+        # request. ``final_pcm`` is independent of capture-owned buffers.
+        await self._capture.stop()
+        logger.info("VOICE AUDIO: finalized_bytes_after_close=%s", len(final_pcm))
         logger.debug("VOICE UTTERANCE: duration_ms=%s bytes=%s sample_rate=%s channels=%s rms=%s peak=%s",
-                    duration, len(pcm), self._sample_rate, self._channels,
-                    audioop.rms(pcm, 2) if pcm else 0, audioop.max(pcm, 2) if pcm else 0)
+                    duration, len(final_pcm), self._sample_rate, self._channels,
+                    audioop.rms(final_pcm, 2) if final_pcm else 0, audioop.max(final_pcm, 2) if final_pcm else 0)
         if self._debug_dump_utterance_wav:
-            try: await asyncio.to_thread(self._write_debug_wav, pcm)
+            try: await asyncio.to_thread(self._write_debug_wav, final_pcm)
             except Exception as error:
                 logger.exception("VOICE DEBUG WAV ERROR: exception_type=%s exception_message=%s",
                                  type(error).__name__, error)
         started_at = time.monotonic()
-        try: result = await (self._active_stt or self._stt).transcribe(pcm, sample_rate=self._sample_rate, channels=self._channels)
+        logger.info("VOICE AUDIO: submitted_bytes=%s", len(final_pcm))
+        try: result = await (self._active_stt or self._stt).transcribe(final_pcm, sample_rate=self._sample_rate, channels=self._channels)
         except Exception as error: await self._failure(error); return
         elapsed = round((time.monotonic() - started_at) * 1000)
         logger.info("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)
@@ -157,7 +168,9 @@ class VoiceCaptureSession:
         self._status = replace(self._status, last_transcript=result.text or None, last_confidence=result.confidence,
                                language=result.language, last_transcription_at=result.completed_at or datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                                last_transcription_duration_ms=elapsed)
-        await self._emit(VOICE_TRANSCRIPTION_COMPLETED, result.document()); await self.stop()
+        # Release capture and leave the listening lifecycle before transcript
+        # subscribers may begin an optional spoken response.
+        await self.stop(); await self._emit(VOICE_TRANSCRIPTION_COMPLETED, result.document())
     def _write_debug_wav(self, pcm: bytes) -> None:
         with self._debug_utterance_wav_path.open("wb") as stream:
             with wave.open(stream, "wb") as output:

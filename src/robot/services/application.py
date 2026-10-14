@@ -500,10 +500,7 @@ class PhosApplicationService:
     def cancel_voice_session(self): return self._voice_command(self._runtime.stop_listening, cancelled=True, operation="cancel")
 
     def speak(self, text: str):
-        if not isinstance(text, str) or not (text := text.strip()):
-            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
-        if len(text) > 500:
-            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
+        text = self._validated_speech_text(text)
         loop = self._runtime._loop
         if loop is None:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
@@ -514,6 +511,42 @@ class PhosApplicationService:
             raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
         except TTSProviderError as error:
             # The provider already logged its sanitized stable code.
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except (TTSConfigurationError, TTSError) as error:
+            logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except Exception as error:
+            logger.exception("TTS: failed exception_type=%s", type(error).__name__)
+            raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
+
+    @staticmethod
+    def _validated_speech_text(text: str) -> str:
+        if not isinstance(text, str) or not (text := text.strip()):
+            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
+        if len(text) > 500:
+            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
+        return text
+
+    async def speak_interaction_response(self, text: str, language: str, *, intent: str) -> dict:
+        """Speak a rendered response through the normal runtime TTS lifecycle.
+
+        Language remains response metadata because the provider-neutral TTS
+        contract currently accepts text only.
+        """
+        text = self._validated_speech_text(text)
+        try:
+            provider = "unknown"
+            runtime_status = getattr(self._runtime, "application_status", None)
+            if callable(runtime_status):
+                speech = runtime_status().get("speech", {})
+                provider = speech.get("tts", {}).get("active_provider") or provider
+            logger.info("PHOS INTERACTION: response speech started intent=%s language=%s provider=%s",
+                        intent, language, provider)
+            await self._runtime.speak(text)
+            return {"status": "completed", "language": language}
+        except TTSBusyError as error:
+            raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except TTSProviderError as error:
             raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
         except (TTSConfigurationError, TTSError) as error:
             logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)

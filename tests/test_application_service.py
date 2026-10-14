@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 
 from robot.core.runtime import RobotCore
@@ -35,6 +36,24 @@ def test_status_has_semantic_environment_and_health():
     assert status["environment"]["status"] == "available"
     assert status["health"]["subsystems"]["ccs811"]["state"] == "warming_up"
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
+
+
+def test_interaction_response_speech_awaits_the_runtime_speech_path(caplog):
+    caplog.set_level(logging.INFO)
+    runtime = Runtime()
+    spoken = []
+
+    async def speak(text):
+        spoken.append(text)
+
+    runtime.speak = speak
+    runtime.application_status = lambda: {"speech": {"tts": {"active_provider": "local"}}}
+    result = asyncio.run(PhosApplicationService(runtime).speak_interaction_response(
+        " Ciao ", "it", intent="get_temperature"))
+
+    assert spoken == ["Ciao"]
+    assert result == {"status": "completed", "language": "it"}
+    assert "response speech started intent=get_temperature language=it provider=local" in caplog.text
 
 
 def test_status_reads_the_runtime_observed_expression_instance():

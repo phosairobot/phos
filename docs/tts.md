@@ -41,7 +41,10 @@ It never logs speech
 text or audio content. REST-triggered speech uses this exact same runtime-owned
 Piper → normalized/prerolled single WAV → one `aplay` path. The first utterance
 includes lazy model loading and logs `piper_model_load_*`; later utterances reuse
-the loaded voice. PHOS does not run a persistent Piper server.
+the loaded voice. Optional localized interaction query responses use this same
+application-owned path when `interaction.response_tts_enabled` is true; they do
+not select a provider or add a language argument to the current text-only
+`TTSProvider` contract. PHOS does not run a persistent Piper server.
 
 ### Diagnosing intermittent HDMI playback
 

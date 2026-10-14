@@ -38,7 +38,7 @@ from robot.voice import (AplayAudioOutputProvider, PyAudioCaptureProvider,
                          STTProviderFactory, STTError, UnavailableSTTProvider)
 from robot.voice.tts import speech_log, speech_request_id
 from robot.interaction import (CommandExecutor, CommandRouter, InteractionCoordinator,
-                               IntentResolverError, IntentResolverFactory)
+                               InteractionSpeechCoordinator, IntentResolverError, IntentResolverFactory)
 from robot.vision import (
     ExpressionSmoother,
     OpenCVExpressionProvider,
@@ -232,12 +232,13 @@ class PhosRuntime:
     def interaction_status(self) -> dict:
         if self._interaction_coordinator is not None:
             return self._interaction_coordinator.status()
-        return {"enabled": False, "execution_enabled": False, "configured_resolver": None, "active_resolver": None,
+        return {"enabled": False, "execution_enabled": False, "response_tts_enabled": False, "configured_resolver": None, "active_resolver": None,
                 "available": False, "default_language": None, "supported_languages": [],
                 "last_resolution": {"status": None, "intent": None, "source_language": None},
                 "last_execution": {"status": None, "intent": None, "command": None, "source_language": None},
                 "last_outcome": {"status": None, "intent": None, "source_language": None},
                 "last_response": {"status": None, "intent": None, "language": None, "text": None},
+                "last_speech": {"status": None, "intent": None, "language": None},
                 "unavailable_reason": "unconfigured"}
 
     async def start_listening(self):
@@ -707,7 +708,8 @@ def build_runtime(
         default_language=config.interaction_default_language,
         supported_languages=config.interaction_supported_languages,
         resolver=interaction_resolver, unavailable_reason=interaction_reason,
-        execution_enabled=config.interaction_execution_enabled, router=CommandRouter(),
+        execution_enabled=config.interaction_execution_enabled,
+        response_tts_enabled=config.interaction_response_tts_enabled, router=CommandRouter(),
     )
     voice = VoiceCaptureSession(
         ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
@@ -846,8 +848,10 @@ def build_runtime(
     # the only permitted state/expression operations. The coordinator remains
     # the sole voice-event subscriber.
     from robot.services.application import PhosApplicationService
-    runtime._interaction_executor = CommandExecutor(PhosApplicationService(runtime))
+    runtime._interaction_application_service = PhosApplicationService(runtime)
+    runtime._interaction_executor = CommandExecutor(runtime._interaction_application_service)
     interaction.set_executor(runtime._interaction_executor)
+    interaction.set_speech_coordinator(InteractionSpeechCoordinator(runtime._interaction_application_service))
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

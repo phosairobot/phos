@@ -327,6 +327,7 @@ _SCHEMA = {
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
     "interaction": {"enabled": "interaction_enabled", "execution_enabled": "interaction_execution_enabled",
+                    "response_tts_enabled": "interaction_response_tts_enabled",
                     "resolver": "interaction_resolver",
                     "default_language": "interaction_default_language",
                     "supported_languages": "interaction_supported_languages"},
@@ -442,6 +443,7 @@ class RuntimeConfig:
     attention_lost_hold_ms: int
     interaction_enabled: bool
     interaction_execution_enabled: bool
+    interaction_response_tts_enabled: bool
     interaction_resolver: str
     interaction_default_language: str
     interaction_supported_languages: Tuple[str, ...]
@@ -663,6 +665,7 @@ class RuntimeConfig:
         interaction = document.get("interaction") if isinstance(document, dict) else None
         if isinstance(interaction, dict):
             interaction.setdefault("execution_enabled", False)
+            interaction.setdefault("response_tts_enabled", False)
         result = object.__new__(cls)
         result._assign(_decode(document), base_dir, overrides)
         if check_paths:
@@ -912,7 +915,7 @@ class RuntimeConfig:
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
                      "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav",
-                     "interaction_enabled", "interaction_execution_enabled"):
+                     "interaction_enabled", "interaction_execution_enabled", "interaction_response_tts_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ConfigurationError(f"{name} must be a boolean")
         for name in ("camera_resolution", "expression_input_size", "detector_min_size"):

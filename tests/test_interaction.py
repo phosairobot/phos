@@ -80,17 +80,19 @@ def _resolver(*, default_language="en", supported_languages=("en", "it")):
 
 def test_interaction_config_defaults_and_factory_selection():
     config = RuntimeConfig.from_file()
-    assert (config.interaction_enabled, config.interaction_execution_enabled, config.interaction_resolver,
+    assert (config.interaction_enabled, config.interaction_execution_enabled, config.interaction_response_tts_enabled, config.interaction_resolver,
             config.interaction_default_language, config.interaction_supported_languages) == (
-                False, False, "deterministic", "en", ("en", "it"))
+                False, False, False, "deterministic", "en", ("en", "it"))
     assert type(_resolver()).__name__ == "DeterministicIntentResolver"
 
 
 def test_existing_interaction_document_defaults_execution_to_disabled():
     document = load_document()
     document["interaction"].pop("execution_enabled")
+    document["interaction"].pop("response_tts_enabled")
     config = RuntimeConfig.from_dict(document, base_dir=Path("config").resolve(), check_paths=False)
     assert config.interaction_execution_enabled is False
+    assert config.interaction_response_tts_enabled is False
 
 
 def test_unknown_resolver_is_rejected_without_fallback():
@@ -227,12 +229,13 @@ def test_runtime_status_exposes_configured_and_active_observational_resolver():
     config = RuntimeConfig.from_dict(document, base_dir=Path("config").resolve(), check_paths=False)
     runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
     assert runtime.application_status()["interaction"] == {
-        "enabled": True, "execution_enabled": False, "configured_resolver": "deterministic",
+        "enabled": True, "execution_enabled": False, "response_tts_enabled": False, "configured_resolver": "deterministic",
         "active_resolver": "deterministic", "available": True,
         "default_language": "en", "supported_languages": ["en", "it"],
         "last_resolution": {"status": None, "intent": None, "source_language": None},
         "last_execution": {"status": None, "intent": None, "command": None, "source_language": None},
         "last_outcome": {"status": None, "intent": None, "source_language": None},
         "last_response": {"status": None, "intent": None, "language": None, "text": None},
+        "last_speech": {"status": None, "intent": None, "language": None},
         "unavailable_reason": None,
     }
