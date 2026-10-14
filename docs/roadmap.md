@@ -10,10 +10,9 @@
   execution for sleep, wake, and expression commands; voice execution is opt-in
   and disabled by default.
 - [x] Authorized temperature and air-quality read-model queries with structured
-  semantic outcomes, plus deterministic English/Italian response rendering;
-  TTS responses remain deferred.
-- [ ] TTS responses,
-  LLM resolver, language detection, wake word, and continuous listening.
+  semantic outcomes, deterministic English/Italian response rendering, and
+  opt-in query-response speech through the existing TTS/audio path.
+- [ ] LLM resolver, language detection, wake word, and continuous listening.
 
 ## PHOS 1.4.0 — Voice & Interaction Foundation
 

@@ -136,7 +136,10 @@ from this startup acceptance slice.
   Queries return bounded `InteractionOutcome` data (`temperature_c` or atomic
   `eco2_ppm`/`tvoc_ppb`) or an explicit unavailable outcome. The local,
   deterministic `InteractionResponseRenderer` renders query outcomes in English
-  or Italian; it does not invoke TTS.
+  or Italian. Optional `interaction.response_tts_enabled` (false by default)
+  speaks those query responses through the existing application-owned TTS/audio
+  path; actions and unresolved input remain silent, and a speech failure preserves
+  the rendered response.
 - Speech output follows `text → TTSProvider → AudioOutputProvider → SPEAKING`. `TTSProvider` supports Local/Piper, Cartesia and ElevenLabs integration; the output provider owns normalized playback and `/api/v1/speak` reaches this same runtime path.
 - Voice & Speech applies supported STT/TTS/audio changes live. Candidate activation precedes persistence; failure retains the previous provider/configuration. In-progress sessions/speech retain their original references; subsequent work uses the replacement.
 - Project physical-validation records cover local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching without a service restart. ElevenLabs is implemented, but end-to-end physical availability remains subject to external account and voice-plan constraints.

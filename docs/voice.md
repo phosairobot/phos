@@ -38,7 +38,10 @@ SSE emits only lifecycle edges such as `voice_speech_started` and
 `voice_transcription_completed`. TTS and playback are implemented separately:
 `/api/v1/speak` uses `TTSProvider` (Local/Piper, Cartesia, or ElevenLabs) and
 `AudioOutputProvider`, entering `SPEAKING` for playback. Supported TTS provider
-changes use the documented live activation path. Wake words, continuous
+changes use the documented live activation path. When enabled explicitly through
+`interaction.response_tts_enabled`, completed temperature and air-quality query
+responses use that same application-owned speech path after voice capture has
+closed; actions and unresolved input remain silent. Wake words, continuous
 listening, transcript-to-intent/command handling, LLM conversation, Home
 Assistant, MCP/tool execution, and speaker identification remain deferred.
 

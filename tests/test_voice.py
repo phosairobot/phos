@@ -286,10 +286,49 @@ def test_session_prepends_bounded_pre_roll_and_writes_exact_vosk_wav(tmp_path, c
     assert stt.pcm == expected
     assert events == [{"duration_ms": 420}]
     assert "VOICE SPEECH: started pre_roll_ms=300 pre_roll_bytes=9600" in caplog.text
+    assert f"VOICE AUDIO: accumulated_bytes={len(expected)}" in caplog.text
+    assert f"VOICE AUDIO: finalized_bytes={len(expected)}" in caplog.text
+    assert f"VOICE AUDIO: finalized_bytes_after_close={len(expected)}" in caplog.text
+    assert f"VOICE AUDIO: submitted_bytes={len(expected)}" in caplog.text
     assert f"VOICE DEBUG WAV: path={dump} bytes={len(expected)} duration_ms=420" in caplog.text
     with wave.open(str(dump), "rb") as output:
         assert (output.getnchannels(), output.getsampwidth(), output.getframerate(), output.getnframes()) == (1, 2, 16000, 6720)
         assert output.readframes(output.getnframes()) == expected
+
+
+def test_finalized_pcm_is_immutable_and_survives_capture_close_before_stt(tmp_path, caplog):
+    source = bytearray(_pcm(300))
+    expected = bytes(source)
+
+    class ClearingCapture:
+        def __init__(self, buffer):
+            self.buffer, self.stop_calls = buffer, 0
+        async def start(self): pass
+        async def stop(self):
+            self.stop_calls += 1
+            self.buffer.clear()
+
+    capture, stt = ClearingCapture(source), _STT()
+    async def transition(state, reason): pass
+    dump = tmp_path / "finalized.wav"
+    session = VoiceCaptureSession(capture, stt, EventBus(), transition, enabled=True, sample_rate=16000,
+        channels=1, chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30,
+        max_utterance_ms=1000, threshold=100, debug_dump_utterance_wav=True,
+        debug_utterance_wav_path=dump)
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(session._finalize(source))
+
+    assert source == bytearray()
+    assert capture.stop_calls >= 1
+    assert isinstance(stt.pcm, bytes)
+    assert stt.pcm == expected
+    assert "VOICE AUDIO: finalized_bytes=%s" % len(expected) in caplog.text
+    assert "VOICE AUDIO: finalized_bytes_after_close=%s" % len(expected) in caplog.text
+    assert "VOICE AUDIO: submitted_bytes=%s" % len(expected) in caplog.text
+    with wave.open(str(dump), "rb") as output:
+        assert (output.getnchannels(), output.getsampwidth(), output.getframerate()) == (1, 2, 16000)
+        assert output.readframes(output.getnframes()) == stt.pcm
 
 
 def test_empty_stt_result_is_not_an_error_and_logs_empty_transcript(caplog):

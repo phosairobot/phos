@@ -44,6 +44,7 @@
   "interaction": {
     "enabled": false,
     "execution_enabled": false,
+    "response_tts_enabled": false,
     "resolver": "deterministic",
     "default_language": "en",
     "supported_languages": ["en", "it"]
