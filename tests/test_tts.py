@@ -13,10 +13,12 @@ import pytest
 
 from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
                          SynthesizedAudio, TTSConfigurationError, TTSSynthesisError,
-                         CartesiaTTSProvider, ElevenLabsTTSProvider, TTSProviderError, TTSProviderFactory, TTSUnavailableError)
+                         CartesiaTTSProvider, ElevenLabsTTSProvider, STTProviderFactory,
+                         TTSProviderError, TTSProviderFactory, TTSUnavailableError)
 from robot.config import RuntimeConfig, load_document
 from robot.core import RobotCore, RobotState
 from robot.runtime import PhosRuntime, build_runtime
+from robot.secrets import SecretsService
 from robot.ui import MemoryEyeDisplay
 from robot.voice import TTSBusyError
 from robot.voice.tts import speech_request_id
@@ -214,8 +216,10 @@ def test_cartesia_factory_uses_runtime_secret_and_reuses_client(tmp_path, monkey
                 return Response()
 
     monkeypatch.setitem(sys.modules, "cartesia", types.SimpleNamespace(Cartesia=Client))
-    provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
+    with caplog.at_level("INFO"):
+        provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
     assert isinstance(provider, CartesiaTTSProvider) and created == [("secret-value", {"cartesia-version": "2026-08-14"})]
+    assert "PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=True" in caplog.text
     with caplog.at_level("INFO"):
         first, second = provider.synthesize("Hello"), provider.synthesize("Again")
     assert len(created) == 1 and len(requests) == 2
@@ -231,16 +235,64 @@ def test_cartesia_factory_uses_runtime_secret_and_reuses_client(tmp_path, monkey
     first.path.unlink(); second.path.unlink()
 
 
-def test_cartesia_missing_credential_and_voice_are_typed(tmp_path):
+def test_cartesia_stt_and_tts_use_one_shared_secret_slot(tmp_path, monkeypatch):
+    document = load_document()
+    document["voice"]["stt"]["provider"] = "cartesia"
+    document["tts"].update(enabled=True, provider="cartesia")
+    document["tts"]["cartesia"]["voice_id"] = "voice-id"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    requested = []
+
+    class Secrets:
+        def get_secret(self, name):
+            requested.append(name)
+            return "shared-secret"
+
+    class Client:
+        def __init__(self, **kwargs): pass
+
+    monkeypatch.setitem(sys.modules, "cartesia", types.SimpleNamespace(Cartesia=Client))
+    assert STTProviderFactory.create(config, Secrets()).name == "cartesia"
+    assert TTSProviderFactory.create(config, Secrets()).name == "cartesia"
+    assert requested == ["tts.cartesia.api_key", "tts.cartesia.api_key"]
+
+
+def test_runtime_retains_cartesia_stt_secret_service_for_live_tts_configuration(tmp_path, monkeypatch):
+    document = load_document()
+    document["voice"]["stt"]["provider"] = "cartesia"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    expected = SecretsService(tmp_path / ".phos-secrets")
+    expected.set_secret("tts.cartesia.api_key", "shared-secret")
+    received = []
+
+    class STT:
+        name = "cartesia"
+        def available(self): return True
+
+    def create_stt(received_config, secrets):
+        received.append(secrets)
+        return STT()
+
+    monkeypatch.setattr("robot.runtime.STTProviderFactory.create", create_stt)
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    assert received == [runtime._secrets_service]
+    assert runtime._secrets_service.get_secret("tts.cartesia.api_key") == "shared-secret"
+
+
+def test_cartesia_missing_credential_and_required_fields_are_typed(tmp_path):
     document = load_document()
     document["tts"].update(enabled=True, provider="cartesia")
     document["tts"]["cartesia"]["voice_id"] = "voice-id"
     config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
     with pytest.raises(TTSConfigurationError, match="credential"):
         TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: None))
-    document["tts"]["cartesia"]["voice_id"] = None
-    with pytest.raises(Exception, match="voice_id"):
-        RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    for field in ("voice_id", "model_id"):
+        incomplete = load_document()
+        incomplete["tts"].update(enabled=True, provider="cartesia")
+        incomplete["tts"]["cartesia"]["voice_id"] = "voice-id"
+        incomplete["tts"]["cartesia"][field] = None
+        with pytest.raises(Exception, match=field):
+            RuntimeConfig.from_dict(incomplete, base_dir=tmp_path)
 
 
 def test_cartesia_missing_sdk_leaves_runtime_healthy(tmp_path, monkeypatch):

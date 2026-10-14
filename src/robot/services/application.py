@@ -564,6 +564,22 @@ class PhosApplicationService:
         saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
 
+    @staticmethod
+    def _speech_configuration_reason(subsystem: str, provider: str | None, error: Exception) -> str:
+        """Classify setup failures without exposing exception details or secrets."""
+        if subsystem != "tts" or provider != "cartesia":
+            return type(error).__name__
+        message = str(error).casefold()
+        if "credential" in message:
+            return "cartesia_credential_missing"
+        if "voice id" in message or "voice_id" in message:
+            return "cartesia_voice_id_missing"
+        if "model" in message:
+            return "cartesia_model_missing"
+        if "client could not be initialized" in message:
+            return "cartesia_client_initialization_failed"
+        return "cartesia_invalid_configuration"
+
     def _speech_transaction(self, patch, *, subsystem):
         """Build first, persist atomically, then publish; publication failure rolls back.
 
@@ -573,15 +589,20 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503)
         previous = self._lifecycle.config_repository.load()
         document = previous.to_dict(); _merge(document, patch)
+        provider = (document.get("voice", {}).get("stt", {}).get("provider") if subsystem == "stt"
+                    else document.get("tts", {}).get("provider") if subsystem == "tts" else None)
         try:
             requested = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
             if subsystem == "stt":
-                candidate = STTProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if requested.voice_enabled else None
                 enabled, provider = requested.voice_enabled, requested.voice_stt_provider
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
+                candidate = STTProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if enabled else None
             elif subsystem == "tts":
-                candidate = TTSProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if requested.tts_enabled else None
                 enabled, provider = requested.tts_enabled, requested.tts_provider
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
+                candidate = TTSProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if enabled else None
             else:
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, "audio_output")
                 candidate = AplayAudioOutputProvider(requested.tts_audio_output_player, requested.tts_audio_output_device,
                     sample_rate=requested.tts_audio_output_sample_rate, channels=requested.tts_audio_output_channels,
                     sample_width=requested.tts_audio_output_sample_width, preroll_ms=requested.tts_audio_output_preroll_ms,
@@ -590,6 +611,9 @@ class PhosApplicationService:
                     retry_delay_ms=requested.tts_audio_output_retry_delay_ms)
                 enabled, provider = True, None
         except (ConfigurationError, TTSError, ValueError, ImportError) as error:
+            logger.warning("PHOS SPEECH CONFIG: configuration failed subsystem=%s provider=%s reason=%s",
+                           subsystem, provider or "unknown",
+                           self._speech_configuration_reason(subsystem, provider, error))
             raise ApplicationError("invalid_configuration", "Could not activate requested speech configuration.", status=400) from error
         try:
             self._lifecycle.config_repository.save(requested)
@@ -607,7 +631,11 @@ class PhosApplicationService:
             # ConfigRepository uses atomic writes; restore the previous complete snapshot.
             try: self._lifecycle.config_repository.save(previous)
             except OSError: logger.exception("Speech configuration rollback failed")
+            logger.warning("PHOS SPEECH CONFIG: configuration failed subsystem=%s provider=%s reason=%s",
+                           subsystem, provider or "unknown",
+                           self._speech_configuration_reason(subsystem, provider, error))
             raise ApplicationError("activation_failed", "Speech configuration could not be activated.", status=503) from error
+        logger.info("PHOS SPEECH CONFIG: configured subsystem=%s provider=%s", subsystem, provider or "audio_output")
         return SpeechConfigurationResult(provider, provider, enabled, candidate is not None).document()
 
     def configure_stt(self, patch): return self._speech_transaction({"voice": patch}, subsystem="stt")

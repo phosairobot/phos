@@ -56,6 +56,14 @@ def test_interaction_response_speech_awaits_the_runtime_speech_path(caplog):
     assert "response speech started intent=get_temperature language=it provider=local" in caplog.text
 
 
+def test_cartesia_tts_configuration_failures_have_safe_semantic_reasons():
+    reason = PhosApplicationService._speech_configuration_reason
+    assert reason("tts", "cartesia", RuntimeError("Cartesia credential is not configured.")) == "cartesia_credential_missing"
+    assert reason("tts", "cartesia", RuntimeError("Cartesia voice ID is required.")) == "cartesia_voice_id_missing"
+    assert reason("tts", "cartesia", RuntimeError("Cartesia client could not be initialized.")) == "cartesia_client_initialization_failed"
+    assert reason("tts", "cartesia", RuntimeError("untrusted detail")) == "cartesia_invalid_configuration"
+
+
 def test_status_reads_the_runtime_observed_expression_instance():
     runtime = Runtime()
     observation = ObservedExpression(True, "happy", 1.0, "local", "FER+", 42.0)

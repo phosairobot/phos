@@ -263,22 +263,33 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 try:
                     if area == "voice" and application_service is not None:
                         prepared = config.prepare_form_update(request.form, area=area)
+                        current = config.read()
+                        tts_payload = dict(prepared.document["tts"])
+                        tts_previous = dict(current["tts"])
+                        # Audio output has its own transaction and must not
+                        # rebuild the TTS provider when it alone changes.
+                        tts_payload.pop("audio_output")
+                        tts_previous.pop("audio_output")
                         # Each subsystem is independently transactional in the
-                        # main process; successful earlier sections remain live
-                        # if a later section cannot be activated.
+                        # main process. Never infer a subsystem from a provider
+                        # name: Cartesia is valid for both STT and TTS.
                         results = []
-                        for label, method, payload in (
-                            ("Speech to text", application_service.configure_stt, prepared.document["voice"]),
-                            ("Text to speech", application_service.configure_tts, prepared.document["tts"]),
+                        for label, method, payload, previous in (
+                            ("Speech to text", application_service.configure_stt,
+                             prepared.document["voice"], current["voice"]),
+                            ("Text to speech", application_service.configure_tts,
+                             tts_payload, tts_previous),
                             ("Audio output", application_service.configure_audio_output,
-                             prepared.document["tts"]["audio_output"]),
+                             prepared.document["tts"]["audio_output"], current["tts"]["audio_output"]),
                         ):
+                            if payload == previous:
+                                continue
                             try:
                                 result = method(payload)
                                 results.append(f"{label}: applied ({result.get('active_provider') or 'active'})")
                             except Exception:
                                 results.append(f"{label}: activation failed")
-                        flash("; ".join(results))
+                        flash("; ".join(results) or "No Voice & Speech settings changed.")
                         return redirect(url_for("configuration", area=area))
                     config.save_form(request.form, area=area)
                 except ConfigurationError as exc:

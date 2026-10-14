@@ -96,6 +96,8 @@ class TTSProviderFactory:
                                          config.tts_elevenlabs_output_format)
         if provider == "cartesia":
             secret = secrets_service.get_secret("tts.cartesia.api_key") if secrets_service else None
+            logger.info("PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=%s",
+                        bool(secret))
             if not secret:
                 raise TTSConfigurationError("Cartesia credential is not configured.")
             return CartesiaTTSProvider(secret, config.tts_cartesia_voice_id,

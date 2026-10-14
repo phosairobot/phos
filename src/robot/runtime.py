@@ -684,11 +684,12 @@ def build_runtime(
     async def voice_transition(target, reason):
         if core.state is not target:
             await core.transition_to(target, reason=reason)
-    stt_secrets = secrets_service
     try:
-        if config.voice_stt_provider == "cartesia" and stt_secrets is None:
-            stt_secrets = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
-        stt_provider = STTProviderFactory.create(config, stt_secrets)
+        if config.voice_stt_provider == "cartesia" and secrets_service is None:
+            # Cartesia STT and TTS share one account credential. Retain the
+            # lazily created service for later live TTS activation as well.
+            secrets_service = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+        stt_provider = STTProviderFactory.create(config, secrets_service)
     except (STTError, SecretsError) as error:
         logger.warning("PHOS STT: provider=%s unavailable reason=%s", config.voice_stt_provider,
                        "missing_credential" if "credential" in str(error).lower() else "initialization_failed")

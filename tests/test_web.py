@@ -423,7 +423,8 @@ def test_voice_settings_show_provider_availability_and_persist_local_settings(se
     assert "Google Cloud TTS (Coming soon)" in page
     assert "Cartesia (Coming soon)" not in page and "Cartesia" in page
     assert "ElevenLabs credential:" in page and "Cartesia credential:" in page and "Not configured" in page
-    assert 'name="tts.cartesia.speed"' in page and 'name="tts.cartesia.volume"' in page
+    for field in ("voice_id", "model_id", "sample_rate", "speed", "volume"):
+        assert f'name="tts.cartesia.{field}"' in page
     model = path.parent / "voice.onnx"; model.write_bytes(b"model")
     data = form(client, "voice")
     data.update({"tts.enabled": "on", "tts.provider": "local", "tts.local.model_path": "voice.onnx"})
@@ -477,6 +478,36 @@ def test_voice_provider_toggle_script_scopes_stt_and_tts_panels_independently():
     assert 'section.querySelectorAll("[data-tts-provider-panel]")' in script
     tts_handler = script[script.index('const ttsProvider'):script.index('(() =>', script.index('const ttsProvider'))]
     assert 'data-provider' not in tts_handler
+
+
+def test_voice_save_routes_only_the_changed_speech_subsystem(setup):
+    class SpeechService:
+        def __init__(self): self.calls = []
+        def configure_stt(self, payload):
+            self.calls.append(("stt", payload)); return {"active_provider": payload["stt"]["provider"]}
+        def configure_tts(self, payload):
+            self.calls.append(("tts", payload)); return {"active_provider": payload["provider"]}
+        def configure_audio_output(self, payload):
+            self.calls.append(("audio", payload)); return {"active_provider": None}
+
+    _, path, now = setup
+    service = SpeechService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    app.testing = True
+    client = authorize(app)
+
+    tts_form = form(client, "voice")
+    tts_form["tts.provider"] = "cartesia"
+    assert client.post("/configuration/voice", data=tts_form).status_code == 302
+    assert [name for name, _ in service.calls] == ["tts"]
+    assert service.calls[0][1]["provider"] == "cartesia"
+
+    service.calls.clear()
+    stt_form = form(client, "voice")
+    stt_form["voice.stt.provider"] = "cartesia"
+    assert client.post("/configuration/voice", data=stt_form).status_code == 302
+    assert [name for name, _ in service.calls] == ["stt"]
+    assert service.calls[0][1]["stt"]["provider"] == "cartesia"
 
 
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),
