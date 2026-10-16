@@ -1015,3 +1015,8 @@ class RuntimeConfig:
             model = self.resolve_path(self.voice_stt_model_path)
             if model is None or not model.is_dir() or not os.access(model, os.R_OK):
                 raise ConfigurationError(f"voice.stt.model_path: readable model directory required: {model}")
+        try:
+            from robot.ui.backgrounds import validate_background_assets
+            validate_background_assets(self)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error

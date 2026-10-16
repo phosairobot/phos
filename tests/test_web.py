@@ -75,6 +75,31 @@ def form(client, area="display"):
     return parser.values
 
 
+def test_backgrounds_page_requires_authentication_and_exposes_no_filesystem_paths(setup):
+    app, path, _ = setup
+    anonymous = app.test_client()
+    assert anonymous.get("/configuration/backgrounds").location == "/login"
+    client = authorize(app)
+    assert client.get("/configuration/backgrounds").location.endswith("/appearance/backgrounds")
+    page = client.get("/appearance/backgrounds")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "State Backgrounds" in text and str(path.parent) not in text
+
+
+def test_backgrounds_page_remains_available_when_runtime_asset_service_is_unavailable(setup):
+    app, _, _ = setup
+    class Unavailable:
+        def background_assets(self): raise RuntimeError("IPC unavailable")
+        def status(self): raise RuntimeError("IPC unavailable")
+    # Rebuild with the same temporary config so the route receives the failing
+    # read-only service boundary, then verify its canonical-config fallback.
+    path = app.extensions["phos_config"].path
+    fallback = create_app(path, application_service=Unavailable())
+    client = authorize(fallback)
+    assert client.get("/appearance/backgrounds").status_code == 200
+
+
 def editor_form(client):
     response = client.get("/configuration/editor")
     source = html.unescape(re.search(r'<textarea[^>]*name="configuration"[^>]*>(.*?)</textarea>',

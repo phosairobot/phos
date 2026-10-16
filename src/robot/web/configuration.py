@@ -75,14 +75,6 @@ class ConfigurationService:
             prepared = self.prepare_form_update(form, area=area)
             self.repository.save(prepared.config)
 
-
-@dataclass(frozen=True)
-class PreparedFormUpdate:
-    """Validated canonical candidate; preparation deliberately has no writes."""
-    config: RuntimeConfig
-    document: dict
-    base_revision: str
-
     def editable_yaml(self):
         """Return the validated active configuration as human-editable YAML."""
         with self.lock:
@@ -109,6 +101,13 @@ class PreparedFormUpdate:
                 raise ConfigurationError("Configuration changed since this page was loaded. Reload before saving.")
             self.repository.save(self.validate_yaml(source))
 
+
+@dataclass(frozen=True)
+class PreparedFormUpdate:
+    """Validated canonical candidate; preparation deliberately has no writes."""
+    config: RuntimeConfig
+    document: dict
+    base_revision: str
 
 # Presentation hints only. Field structure and validation belong to robot.config.
 CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),

@@ -12,7 +12,16 @@
     "transition_seconds": 0.18,
     "iris_color": "cyan",
     "base_visual_source": "manual",
-    "environment_overlays_enabled": true
+    "environment_overlays_enabled": true,
+    "backgrounds": {
+      "enabled": false,
+      "idle": null,
+      "listening": null,
+      "thinking": null,
+      "speaking": null,
+      "sleeping": null,
+      "error": null
+    }
   },
   "led_ring": {
     "enabled": false,

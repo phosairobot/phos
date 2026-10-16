@@ -14,8 +14,12 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 import platform
 import time
+import os
+import tempfile
+import re
 from threading import RLock
 from typing import Any, Callable
+from pathlib import Path
 
 from robot.core import Event, RobotState
 from robot.core.state import InvalidStateTransition, allowed_next_states, transition_graph, writable_states
@@ -144,6 +148,10 @@ class RemoteApplicationService:
     def configure_stt(self, value): return self._call("configure_stt", value)
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
+    def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
+    def background_assets(self): return self._call("background_assets")
+    def upload_background(self, value): return self._call("upload_background", value)
+    def delete_background(self, value): return self._call("delete_background", {"name": value})
     def set_expression(self, value): return self._call("expression", {"expression": value})
     def set_state(self, value): return self._call("set_state", {"state": value})
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
@@ -637,6 +645,109 @@ class PhosApplicationService:
     def configure_stt(self, patch): return self._speech_transaction({"voice": patch}, subsystem="stt")
     def configure_tts(self, patch): return self._speech_transaction({"tts": patch}, subsystem="tts")
     def configure_audio_output(self, patch): return self._speech_transaction({"tts": {"audio_output": patch}}, subsystem="audio")
+
+    def configure_backgrounds(self, patch: dict) -> dict:
+        """Atomically save and publish the canonical display.backgrounds block."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
+        allowed = {"enabled", "idle", "listening", "thinking", "speaking", "sleeping", "error"}
+        if not isinstance(patch, dict) or set(patch) - allowed:
+            raise ApplicationError("invalid_configuration", "Unsupported background configuration.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        _merge(document["display"]["backgrounds"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        except ConfigurationError as error:
+            raise ApplicationError("invalid_configuration", "Background configuration was rejected.", {"reason": str(error)}) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "Background configuration could not be applied."))
+        except Exception as error:
+            try:
+                self._lifecycle.config_repository.save(previous)
+            except OSError:
+                logger.exception("PHOS VISUAL: background configuration rollback failed")
+            raise ApplicationError("runtime_unavailable", "Background configuration could not be applied.", status=503) from error
+        logger.info("PHOS VISUAL: backgrounds configured enabled=%s", candidate.backgrounds_enabled)
+        return {"saved": candidate.to_dict()["display"]["backgrounds"], "applied": result.get("applied", []),
+                "status": self._runtime.application_status().get("backgrounds", {})}
+
+    def background_assets(self) -> list[dict]:
+        """List only safe, existing images in the canonical asset directory."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
+        directory = (self._lifecycle.path.parent / "backgrounds").resolve()
+        if not directory.is_dir():
+            return []
+        return [{"name": path.name, "format": path.suffix[1:].lower()}
+                for path in sorted(directory.iterdir())
+                if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}]
+
+    def upload_background(self, upload: dict) -> dict:
+        if self._lifecycle is None or not isinstance(upload, dict):
+            raise ApplicationError("service_unavailable", "Background upload is unavailable.", status=503)
+        content, name = upload.get("content"), upload.get("name")
+        if (not isinstance(name, str) or not name or len(name) > 96 or name != Path(name).name
+                or ".." in name or any(ord(char) < 32 for char in name)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)", name, re.IGNORECASE)):
+            raise ApplicationError("invalid_filename", "Choose a safe PNG or JPEG filename.")
+        if not isinstance(content, (bytes, bytearray)) or not 0 < len(content) <= 48 * 1024:
+            raise ApplicationError("invalid_image", "Image must be between 1 byte and 48 KiB.")
+        try:
+            import cv2, numpy as np
+            image = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if image is None or not image.shape[0] or not image.shape[1] or max(image.shape[:2]) > 4096:
+                raise ValueError
+            extension = ".png" if content.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if content.startswith(b"\xff\xd8") else None
+        except (ImportError, ValueError):
+            import imghdr
+            kind = imghdr.what(None, h=content)
+            extension = ".png" if kind == "png" else ".jpg" if kind == "jpeg" else None
+        if extension is None:
+            raise ApplicationError("invalid_image", "Upload a valid PNG or JPEG image.")
+        directory = (self._lifecycle.path.parent / "backgrounds").resolve()
+        directory.mkdir(mode=0o750, exist_ok=True)
+        if Path(name).suffix.lower() != extension and not (extension == ".jpg" and Path(name).suffix.lower() == ".jpeg"):
+            raise ApplicationError("invalid_image", "Filename extension does not match the decoded image.")
+        target = directory / name
+        if target.exists():
+            raise ApplicationError("asset_exists", f'A background named "{name}" already exists.', status=409)
+        fd, temporary = tempfile.mkstemp(prefix=".upload-", dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(content); output.flush(); os.fsync(output.fileno())
+            # Refuse a concurrent winner rather than overwriting it.
+            if target.exists():
+                raise ApplicationError("asset_exists", f'A background named "{name}" already exists.', status=409)
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
+        return {"name": name, "format": extension[1:]}
+
+    def delete_background(self, name: str) -> dict:
+        """Clear canonical references before removing one managed asset."""
+        if self._lifecycle is None or not isinstance(name, str):
+            raise ApplicationError("service_unavailable", "Background deletion is unavailable.", status=503)
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)", name, re.IGNORECASE)
+                or name != Path(name).name or ".." in name):
+            raise ApplicationError("invalid_asset", "Invalid background asset name.")
+        directory = (self._lifecycle.path.parent / "backgrounds").resolve()
+        target = directory / name
+        if not target.is_file():
+            raise ApplicationError("asset_not_found", "Background asset was not found.", status=404)
+        current = self._lifecycle.config_repository.load()
+        assignments = {state: None for state in ("idle", "listening", "thinking", "speaking", "sleeping", "error")
+                       if getattr(current, f"background_{state}") == Path("backgrounds") / name}
+        if assignments:
+            self.configure_backgrounds(assignments)
+        try:
+            target.unlink()
+        except OSError as error:
+            raise ApplicationError("deletion_failed", "Background assignments were reset, but the file could not be removed.", status=503) from error
+        return {"name": name, "reset_states": sorted(assignments), "status": self._runtime.application_status().get("backgrounds", {})}
 
     def update_config(self, patch: dict) -> dict:
         """Validate and persist a partial canonical-config edit, then reload safely."""

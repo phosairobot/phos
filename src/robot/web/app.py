@@ -241,6 +241,42 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                config_path=config.path, storage_format=config.repository.format.upper(),
                                error=error, valid=valid, dirty=dirty), 400 if error else 200
 
+    @app.post("/appearance/backgrounds/upload")
+    def upload_background():
+        if application_service is None:
+            abort(503)
+        with auth.lock:
+            if not auth.valid(session.get("sid")) or passwords.must_change:
+                return redirect(url_for("login"))
+            uploaded = request.files.get("background")
+            if uploaded is None:
+                abort(400)
+            try:
+                application_service.upload_background({"content": uploaded.read(), "name": uploaded.filename})
+            except Exception as error:
+                flash(getattr(error, "message", "Background upload was rejected."))
+            else:
+                flash("Background uploaded.")
+        return redirect(url_for("appearance_backgrounds"))
+
+    @app.post("/appearance/backgrounds/delete")
+    def delete_background():
+        if application_service is None:
+            abort(503)
+        with auth.lock:
+            if not auth.valid(session.get("sid")) or passwords.must_change:
+                return redirect(url_for("login"))
+            try:
+                result = application_service.delete_background(request.form.get("name", ""))
+                flash(f'Background "{result["name"]}" deleted. {len(result["reset_states"])} state assignments were reset to default.')
+            except Exception as error:
+                flash(getattr(error, "message", "Background deletion was rejected."))
+        return redirect(url_for("appearance_backgrounds"))
+
+    @app.route("/appearance/backgrounds", methods=["GET", "POST"])
+    def appearance_backgrounds():
+        return configuration("backgrounds")
+
     @app.route("/", methods=["GET", "POST"])
     @app.route("/configuration/<area>", methods=["GET", "POST"])
     def configuration(area="general"):
@@ -248,6 +284,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                    "expression": "runtime", "logging": "runtime", "security": "integrations"}
         if area in aliases:
             return redirect(url_for("configuration", area=aliases[area]) + f"#{area}")
+        if area == "backgrounds" and request.method == "GET" and request.path == "/configuration/backgrounds":
+            return redirect(url_for("appearance_backgrounds"))
         # Keep the original save URL usable with a page's explicit area value.
         if request.method == "POST" and request.path == "/":
             area = request.form.get("area", "general")
@@ -261,6 +299,17 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 if not auth.valid(session.get("sid")) or passwords.must_change:
                     return redirect(url_for("login"))
                 try:
+                    if area == "backgrounds" and application_service is not None:
+                        assets = {item["name"] for item in application_service.background_assets()}
+                        assignments = {}
+                        for state in ("idle", "listening", "thinking", "speaking", "sleeping", "error"):
+                            name = request.form.get(f"background-{state}", "").strip()
+                            if name and name not in assets:
+                                raise ConfigurationError("Selected background asset is unavailable.")
+                            assignments[state] = f"backgrounds/{name}" if name else None
+                        result = application_service.configure_backgrounds({"enabled": request.form.get("backgrounds-enabled") == "on", **assignments})
+                        flash("State backgrounds saved and applied live.")
+                        return redirect(url_for("configuration", area=area))
                     if area == "voice" and application_service is not None:
                         prepared = config.prepare_form_update(request.form, area=area)
                         current = config.read()
@@ -307,6 +356,21 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
         runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
+        if area == "backgrounds":
+            assets, status_view = [], {"enabled": document["display"]["backgrounds"]["enabled"],
+                                       "current_state": None, "current_asset": None,
+                                       "available": False, "reason": None}
+            if application_service is not None:
+                try:
+                    assets = application_service.background_assets()
+                    status_view = application_service.status().get("backgrounds", status_view)
+                except Exception:
+                    # The editor is a configuration view. A temporarily
+                    # unavailable runtime IPC endpoint must not make its
+                    # canonical persisted settings inaccessible.
+                    logger.warning("Background runtime status is unavailable")
+            return render_template("backgrounds.html", document=document, assets=assets, status=status_view,
+                                   error=error, config_path=config.path), status
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
         return render_template("configuration.html", sections=domain_sections(document, area),

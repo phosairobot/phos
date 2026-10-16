@@ -35,6 +35,22 @@ def test_canonical_config_is_complete_safe_and_round_trips(document):
     assert config.display_width == 800 and config.display_height == 600
 
 
+@pytest.mark.parametrize(("filename", "content", "reason"), [
+    ("missing.png", None, "asset_missing"),
+    ("idle.gif", b"GIF89a", "unsupported_format"),
+    ("broken.png", b"not an image", "invalid_image"),
+])
+def test_enabled_background_assets_require_a_supported_decodable_file(document, tmp_path, filename, content, reason):
+    directory = tmp_path / "backgrounds"
+    directory.mkdir()
+    if content is not None:
+        (directory / filename).write_bytes(content)
+    document["display"]["backgrounds"].update(enabled=True, idle=f"backgrounds/{filename}")
+
+    with pytest.raises(ConfigurationError, match=reason):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path)
+
+
 def test_legacy_voice_stt_without_provider_defaults_to_local_vosk(tmp_path, document):
     document["voice"]["stt"].pop("provider")
     document["voice"]["stt"].pop("cartesia")

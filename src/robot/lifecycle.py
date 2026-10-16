@@ -48,7 +48,9 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
     "behavior.environmental.recovery_seconds",
 })
 RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
-                        *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
+                        "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
+                        "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
+                        "display.backgrounds.error", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
 
 
 def changed_fields(active, saved, prefix=""):
@@ -88,6 +90,7 @@ class LifecycleService:
         self._apply_imu_behavior = None
         self._apply_led_ring = None
         self._apply_environmental_behavior = None
+        self._apply_backgrounds = None
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
@@ -126,6 +129,9 @@ class LifecycleService:
     def register_environmental_behavior_applier(self, applier):
         with self._lock:
             self._apply_environmental_behavior = applier
+
+    def register_backgrounds_applier(self, applier):
+        with self._lock: self._apply_backgrounds = applier
 
     @property
     def restart_due(self):
@@ -190,6 +196,11 @@ class LifecycleService:
                     return {"ok": False, "error": "Runtime visual source service is not ready. No settings were applied; retry reload shortly."}
                 if (self.active["display"]["environment_overlays_enabled"] != saved["display"]["environment_overlays_enabled"] and self._apply_environment_overlays is None):
                     return {"ok": False, "error": "Runtime environmental overlay service is not ready. No settings were applied; retry reload shortly."}
+                backgrounds_changed = self.active["display"]["backgrounds"] != saved["display"]["backgrounds"]
+                background_paths = (changed_fields(self.active["display"]["backgrounds"], saved["display"]["backgrounds"],
+                                                   "display.backgrounds") if backgrounds_changed else [])
+                if backgrounds_changed and self._apply_backgrounds is None:
+                    return {"ok": False, "error": "Runtime background service is not ready. No settings were applied; retry reload shortly."}
                 preview_paths = changed_fields(self.active["vision"]["camera_preview"],
                     saved["vision"]["camera_preview"], "vision.camera_preview")
                 preview_changed = bool(preview_paths)
@@ -226,6 +237,13 @@ class LifecycleService:
                     self._apply_environment_overlays(config)
                     self.active["display"]["environment_overlays_enabled"] = saved["display"]["environment_overlays_enabled"]
                     applied.append("display.environment_overlays_enabled")
+                if backgrounds_changed:
+                    try:
+                        self._apply_backgrounds(config)
+                    except Exception:
+                        return {"ok": False, "error": "The running display could not accept the background update. No active configuration was recorded; retry reload or restart PHOS."}
+                    self.active["display"]["backgrounds"] = deepcopy(saved["display"]["backgrounds"])
+                    applied.extend(background_paths)
                 if preview_changed:
                     try:
                         self._apply_camera_preview(config)
@@ -295,6 +313,10 @@ class LifecycleService:
             "application.configure_stt": lambda: self._application_service.configure_stt(payload),
             "application.configure_tts": lambda: self._application_service.configure_tts(payload),
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
+            "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
+            "application.background_assets": lambda: self._application_service.background_assets(),
+            "application.upload_background": lambda: self._application_service.upload_background(payload),
+            "application.delete_background": lambda: self._application_service.delete_background(payload.get("name")),
             "application.expression": lambda: self._application_service.set_expression(payload.get("expression")),
             "application.set_state": lambda: self._application_service.set_state(payload.get("state")),
             "application.visual_source": lambda: self._application_service.set_visual_source(payload.get("source")),

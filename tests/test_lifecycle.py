@@ -66,6 +66,40 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     assert result["restart_required"] == []
 
 
+def test_backgrounds_reload_through_the_registered_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    directory = path.parent / "backgrounds"
+    directory.mkdir()
+    # A valid 1x1 PNG; configuration validation deliberately happens before
+    # the display/runtime applier is invoked.
+    (directory / "idle.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        b"\x00\x00\x00\x0cIDAT\x08\xd7c\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    applied = []
+    service.register_backgrounds_applier(lambda config: applied.append(config.background_idle.name))
+    update(path, lambda d: d["display"].update(backgrounds={"enabled": True, "idle": "backgrounds/idle.png",
+           "listening": None, "thinking": None, "speaking": None, "sleeping": None, "error": None}))
+
+    result = service.execute("reload")
+
+    assert result["ok"] and result["applied"] == ["display.backgrounds.enabled", "display.backgrounds.idle"]
+    assert applied == ["idle.png"]
+    assert result["active"]["display"]["backgrounds"]["idle"] == "backgrounds/idle.png"
+
+
+def test_invalid_background_candidate_is_rejected_before_runtime_application(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_backgrounds_applier(lambda config: applied.append(config))
+    update(path, lambda d: d["display"].update(backgrounds={"enabled": True, "idle": "backgrounds/missing.png",
+           "listening": None, "thinking": None, "speaking": None, "sleeping": None, "error": None}))
+
+    result = service.execute("reload")
+
+    assert not result["ok"] and not applied
+    assert service.active["display"]["backgrounds"]["enabled"] is False
+
+
 def test_imu_behavior_settings_reload_without_restart(runtime):
     path, service, _, _ = runtime
     applied = []
