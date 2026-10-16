@@ -35,7 +35,7 @@ from robot.interaction import (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_U
                                INTERACTION_RESOLUTION_FAILED)
 from robot.voice.capture import UnsupportedCaptureRate
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
-from robot.voice import AplayAudioOutputProvider, STTProviderFactory, TTSProviderFactory
+from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -590,7 +590,8 @@ class PhosApplicationService:
         previous = self._lifecycle.config_repository.load()
         document = previous.to_dict(); _merge(document, patch)
         provider = (document.get("voice", {}).get("stt", {}).get("provider") if subsystem == "stt"
-                    else document.get("tts", {}).get("provider") if subsystem == "tts" else None)
+                    else document.get("tts", {}).get("provider") if subsystem == "tts"
+                    else document.get("tts", {}).get("audio_output", {}).get("player"))
         try:
             requested = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
             if subsystem == "stt":
@@ -602,14 +603,9 @@ class PhosApplicationService:
                 logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
                 candidate = TTSProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if enabled else None
             else:
-                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, "audio_output")
-                candidate = AplayAudioOutputProvider(requested.tts_audio_output_player, requested.tts_audio_output_device,
-                    sample_rate=requested.tts_audio_output_sample_rate, channels=requested.tts_audio_output_channels,
-                    sample_width=requested.tts_audio_output_sample_width, preroll_ms=requested.tts_audio_output_preroll_ms,
-                    debug_retain_final_wav=requested.tts_audio_output_debug_retain_final_wav,
-                    retry_max_attempts=requested.tts_audio_output_retry_max_attempts,
-                    retry_delay_ms=requested.tts_audio_output_retry_delay_ms)
-                enabled, provider = True, None
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
+                candidate = AudioOutputProviderFactory.create(requested)
+                enabled = True
         except (ConfigurationError, TTSError, ValueError, ImportError) as error:
             logger.warning("PHOS SPEECH CONFIG: configuration failed subsystem=%s provider=%s reason=%s",
                            subsystem, provider or "unknown",
@@ -626,7 +622,7 @@ class PhosApplicationService:
             elif subsystem == "tts":
                 if candidate is not None: self._runtime.replace_tts_provider(candidate)
                 self._runtime.set_tts_enabled(enabled)
-            else: self._runtime.replace_audio_output(candidate)
+            else: self._runtime.replace_audio_output(candidate, config=requested)
         except Exception as error:
             # ConfigRepository uses atomic writes; restore the previous complete snapshot.
             try: self._lifecycle.config_repository.save(previous)

@@ -96,6 +96,7 @@ tts:
     speed: 1.0
     volume: 1.0
   audio_output:
+    # aplay (ALSA) or pipewire (pw-play); PipeWire uses its OS default sink.
     player: aplay
     device: null
     sample_rate: 48000

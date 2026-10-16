@@ -895,10 +895,12 @@ class RuntimeConfig:
             number("tts_cartesia_sample_rate", minimum=8000, inclusive=True, maximum=48000, integer=True)
             number("tts_cartesia_speed", minimum=.6, inclusive=True, maximum=1.5)
             number("tts_cartesia_volume", minimum=.5, inclusive=True, maximum=2)
-        if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player != "aplay":
-            raise ConfigurationError("tts.audio_output.player must be aplay")
+        if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player not in {"aplay", "pipewire"}:
+            raise ConfigurationError("tts.audio_output.player must be aplay or pipewire")
         if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):
             raise ConfigurationError("tts.audio_output.device must be a nonempty ALSA device or null")
+        if self.tts_audio_output_player == "pipewire" and self.tts_audio_output_device is not None:
+            raise ConfigurationError("tts.audio_output.device must be null for pipewire")
         number("tts_audio_output_preroll_ms", minimum=0, inclusive=True, maximum=10000, integer=True)
         number("tts_audio_output_retry_max_attempts", minimum=1, inclusive=True, maximum=2, integer=True)
         number("tts_audio_output_retry_delay_ms", minimum=0, inclusive=True, maximum=5000, integer=True)

@@ -11,7 +11,8 @@ import wave
 
 import pytest
 
-from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
+from robot.voice import (AplayAudioOutputProvider, AudioOutputError, AudioOutputProviderFactory, PiperTTSProvider,
+                         PipeWireAudioOutputProvider,
                          SynthesizedAudio, TTSConfigurationError, TTSSynthesisError,
                          CartesiaTTSProvider, ElevenLabsTTSProvider, STTProviderFactory,
                          TTSProviderError, TTSProviderFactory, TTSUnavailableError)
@@ -90,6 +91,51 @@ def test_runtime_unavailable_tts_is_typed_without_provider_reconstruction():
             await runtime.accept_speech("Hello")
 
     asyncio.run(exercise())
+
+
+def test_audio_output_status_uses_live_audio_output_player(tmp_path):
+    document = load_document()
+    document["tts"]["audio_output"]["player"] = "pipewire"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    runtime.replace_audio_output(types.SimpleNamespace(name="pipewire", device=None, play=lambda audio: None), config=config)
+    status = runtime.application_status()["speech"]["audio_output"]
+    assert status["configured_provider"] == "pipewire"
+    assert status["active_provider"] == "pipewire"
+
+
+@pytest.mark.parametrize("retain_final_wav", [False, True])
+def test_runtime_final_wav_cleanup_and_pipewire_retention(tmp_path, monkeypatch, retain_final_wav, caplog):
+    source = tmp_path / "speech.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed")); wav.writeframes(b"\x11\0" * 16)
+    expected_bytes = source.read_bytes()
+    request_id = os.getpid() * 1000 + (62 if retain_final_wav else 61)
+    retained_glob = f"phos-speech-{os.getpid()}-{request_id}-*.wav"
+    for path in Path("/tmp").glob(retained_glob): path.unlink()
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play")
+    played = []
+    monkeypatch.setattr("robot.voice.tts.subprocess.run", lambda command, **kwargs: played.append(Path(command[-1]).read_bytes()) or subprocess.CompletedProcess(command, 0, "", ""))
+    runtime = object.__new__(PhosRuntime)
+    runtime.core = RobotCore(); runtime._tts_lock = asyncio.Lock()
+    runtime._tts_provider = types.SimpleNamespace(synthesize=lambda text: SynthesizedAudio(source))
+    runtime._audio_output = PipeWireAudioOutputProvider(debug_retain_final_wav=retain_final_wav)
+    runtime._tts_enabled = True
+    try:
+        with caplog.at_level("INFO"):
+            asyncio.run(runtime.speak("Hello", request_id=request_id))
+        retained = list(Path("/tmp").glob(retained_glob))
+        assert played == [expected_bytes]
+        assert not source.exists()
+        assert f"PHOS SPEECH: audio_output provider=pipewire retain_final_wav={str(retain_final_wav).lower()}" in caplog.text
+        if retain_final_wav:
+            assert len(retained) == 1
+            assert retained[0].read_bytes() == played[0]
+            assert f"PHOS SPEECH: retained_wav path={retained[0]} bytes={len(played[0])}" in caplog.text
+        else:
+            assert retained == []
+    finally:
+        for path in Path("/tmp").glob(retained_glob): path.unlink(missing_ok=True)
 
 
 def test_piper_rejects_empty_or_oversized_text(tmp_path):
@@ -770,3 +816,38 @@ def test_tts_output_format_configuration_is_validated(tmp_path, field, value):
     document = load_document(); document["tts"]["audio_output"][field] = value
     with pytest.raises(Exception, match="tts.audio_output"):
         RuntimeConfig.from_dict(document, base_dir=tmp_path)
+def test_pipewire_output_uses_pw_play_without_shell_and_bounds_failures(tmp_path, monkeypatch, caplog):
+    artifact = tmp_path / "speech.wav"
+    artifact.write_bytes(b"RIFF test")
+    calls = []
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play" if command == "pw-play" else None)
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 7, "", "sink unavailable\n" + "x" * 400)
+
+    monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
+    with caplog.at_level("INFO"), pytest.raises(AudioOutputError, match="PipeWire audio playback failed"):
+        PipeWireAudioOutputProvider(retry_max_attempts=1).play(SynthesizedAudio(artifact))
+
+    assert calls == [(["/usr/bin/pw-play", str(artifact)], {"capture_output": True, "text": True,
+                                                               "timeout": 90, "check": False})]
+    assert "shell" not in calls[0][1]
+    assert "PHOS AUDIO: provider=pipewire playback_started" in caplog.text
+    assert "PHOS AUDIO: provider=pipewire playback_failed" in caplog.text
+    assert len(caplog.text) < 1000
+
+
+def test_pipewire_factory_requires_pw_play_and_keeps_aplay_available(tmp_path, monkeypatch):
+    document = load_document()
+    document["tts"]["audio_output"]["player"] = "pipewire"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play" if command == "pw-play" else None)
+    assert isinstance(AudioOutputProviderFactory.create(config), PipeWireAudioOutputProvider)
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: None)
+    with pytest.raises(AudioOutputError, match="unavailable"):
+        AudioOutputProviderFactory.create(config)
+
+    document["tts"]["audio_output"]["player"] = "aplay"
+    assert isinstance(AudioOutputProviderFactory.create(RuntimeConfig.from_dict(document, base_dir=tmp_path)),
+                      AplayAudioOutputProvider)

@@ -32,7 +32,7 @@ from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeR
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.runtime import EyeRenderLoop
 from robot.secrets import SecretsError, SecretsService
-from robot.voice import (AplayAudioOutputProvider, PyAudioCaptureProvider,
+from robot.voice import (AudioOutputProviderFactory, PyAudioCaptureProvider,
                          ResamplingAudioCaptureProvider, TTSBusyError, TTSConfigurationError,
                          TTSProviderError, TTSProviderFactory, TTSUnavailableError, TTSError, VoiceCaptureSession,
                          STTProviderFactory, STTError, UnavailableSTTProvider)
@@ -216,7 +216,9 @@ class PhosRuntime:
                         "active_provider": getattr(self._tts_provider, "name", None),
                         "available": bool(self._tts_enabled and self._tts_provider and self._audio_output),
                         "last_activation_error": None},
-                "audio_output": {"configured_device": self._config.tts_audio_output_device if self._config else None,
+                "audio_output": {"configured_provider": self._config.tts_audio_output_player if self._config else None,
+                                 "active_provider": getattr(self._audio_output, "name", None),
+                                 "configured_device": self._config.tts_audio_output_device if self._config else None,
                                  "active_device": getattr(self._audio_output, "device", None),
                                  "available": self._audio_output is not None, "last_activation_error": None},
             },
@@ -267,6 +269,9 @@ class PhosRuntime:
                     speech_log("synthesis_start")
                     audio = await asyncio.to_thread(provider.synthesize, text)
                     speech_log("synthesis_complete", duration_ms=round((time.monotonic() - synthesis_started) * 1000))
+                    logger.info("PHOS SPEECH: audio_output provider=%s retain_final_wav=%s",
+                                getattr(audio_output, "name", "unknown"),
+                                str(bool(getattr(audio_output, "debug_retain_final_wav", False))).lower())
                     await asyncio.to_thread(audio_output.play, audio)
                     speech_log("total_complete", duration_ms=round((time.monotonic() - total_started) * 1000))
                 except TTSProviderError:
@@ -312,10 +317,12 @@ class PhosRuntime:
             raise TTSConfigurationError("Invalid TTS provider candidate.")
         self._tts_provider = provider
 
-    def replace_audio_output(self, output) -> None:
+    def replace_audio_output(self, output, *, config: RuntimeConfig | None = None) -> None:
         if output is None or not callable(getattr(output, "play", None)):
             raise TTSConfigurationError("Invalid audio output candidate.")
         self._audio_output = output
+        if config is not None:
+            self._config = config
 
     def set_stt_enabled(self, enabled: bool) -> None:
         self._stt_enabled = bool(enabled)
@@ -732,14 +739,7 @@ def build_runtime(
             secrets_service = (secrets_service or SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
                                if config.tts_provider in {"elevenlabs", "cartesia"} else secrets_service)
             tts_provider = TTSProviderFactory.create(config, secrets_service)
-            audio_output = AplayAudioOutputProvider(config.tts_audio_output_player, config.tts_audio_output_device,
-                                                     sample_rate=config.tts_audio_output_sample_rate,
-                                                     channels=config.tts_audio_output_channels,
-                                                     sample_width=config.tts_audio_output_sample_width,
-                                                     preroll_ms=config.tts_audio_output_preroll_ms,
-                                                     debug_retain_final_wav=config.tts_audio_output_debug_retain_final_wav,
-                                                     retry_max_attempts=config.tts_audio_output_retry_max_attempts,
-                                                     retry_delay_ms=config.tts_audio_output_retry_delay_ms)
+            audio_output = AudioOutputProviderFactory.create(config)
             tts_status.update(available=True, reason=None)
         except (TTSError, SecretsError) as error:
             cause = error.__cause__

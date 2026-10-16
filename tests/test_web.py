@@ -480,6 +480,15 @@ def test_voice_provider_toggle_script_scopes_stt_and_tts_panels_independently():
     assert 'data-provider' not in tts_handler
 
 
+def test_voice_audio_output_selector_includes_pipewire(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/configuration/voice").get_data(as_text=True)
+    assert 'value="aplay"' in page
+    assert 'ALSA (aplay)' in page
+    assert 'value="pipewire"' in page
+    assert 'PipeWire (pw-play)' in page
+
+
 def test_voice_save_routes_only_the_changed_speech_subsystem(setup):
     class SpeechService:
         def __init__(self): self.calls = []

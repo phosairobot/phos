@@ -2,6 +2,8 @@ import asyncio
 import logging
 from types import SimpleNamespace
 
+import pytest
+
 from robot.core.runtime import RobotCore
 from robot.core.behavior_engine import BehaviorEngine
 from robot.services.application import COMMANDS, OVERLAY_COMMANDS, PhosApplicationService
@@ -12,6 +14,8 @@ from robot.vision.provider import ObservedExpression
 from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
 from robot.core import Event
 from robot.web.openapi import _resolve, load_spec
+from robot.config import RuntimeConfig, load_document
+from robot.services.application import ApplicationError
 
 
 class Runtime:
@@ -62,6 +66,35 @@ def test_cartesia_tts_configuration_failures_have_safe_semantic_reasons():
     assert reason("tts", "cartesia", RuntimeError("Cartesia voice ID is required.")) == "cartesia_voice_id_missing"
     assert reason("tts", "cartesia", RuntimeError("Cartesia client could not be initialized.")) == "cartesia_client_initialization_failed"
     assert reason("tts", "cartesia", RuntimeError("untrusted detail")) == "cartesia_invalid_configuration"
+
+
+def test_live_audio_output_switch_uses_pipewire_candidate_and_keeps_old_backend_on_failure(tmp_path, monkeypatch):
+    class Repository:
+        def __init__(self, config): self.config = config
+        def load(self): return self.config
+        def save(self, config): self.config = config
+
+    class AudioRuntime:
+        def __init__(self): self._secrets_service = None; self.output = object(); self.config = None
+        def replace_audio_output(self, output, *, config=None): self.output, self.config = output, config
+
+    config = RuntimeConfig.from_dict(load_document(), base_dir=tmp_path)
+    lifecycle = SimpleNamespace(config_repository=Repository(config), path=tmp_path / "phos.yaml")
+    runtime = AudioRuntime()
+    service = object.__new__(PhosApplicationService)
+    service._runtime, service._lifecycle = runtime, lifecycle
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play" if command == "pw-play" else None)
+
+    result = service.configure_audio_output({**config.to_dict()["tts"]["audio_output"], "player": "pipewire"})
+    assert result == {"configured_provider": "pipewire", "active_provider": "pipewire", "enabled": True, "available": True}
+    assert runtime.output.name == "pipewire"
+    assert runtime.config.tts_audio_output_player == "pipewire"
+
+    previous = runtime.output
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: None)
+    with pytest.raises(ApplicationError, match="Could not activate"):
+        service.configure_audio_output({**lifecycle.config_repository.load().to_dict()["tts"]["audio_output"], "player": "pipewire"})
+    assert runtime.output is previous
 
 
 def test_status_reads_the_runtime_observed_expression_instance():
