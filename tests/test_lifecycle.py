@@ -15,6 +15,7 @@ import pytest
 from robot.config import RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
+from robot.services.application import ApplicationError, PhosApplicationService
 
 
 @pytest.fixture
@@ -98,6 +99,80 @@ def test_invalid_background_candidate_is_rejected_before_runtime_application(run
 
     assert not result["ok"] and not applied
     assert service.active["display"]["backgrounds"]["enabled"] is False
+
+
+def test_state_effects_reload_through_the_registered_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_state_effects_applier(lambda config: applied.append(
+        (config.state_effects_enabled, config.state_effects_preset,
+         config.state_effects_palette, config.state_effects_smooth_transitions, config.state_effects_reduce_motion)))
+    update(path, lambda d: d["display"].update(state_effects={
+        "enabled": True, "preset": "expressive", "palette": "violet", "smooth_transitions": False, "reduce_motion": True}))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["display.state_effects.enabled", "display.state_effects.preset",
+                                 "display.state_effects.palette", "display.state_effects.smooth_transitions", "display.state_effects.reduce_motion"]
+    assert applied == [(True, "expressive", "violet", False, True)]
+
+
+def test_state_effects_application_transaction_persists_or_rolls_back(runtime):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_state_effects_applier(lambda config: applied.append(config.state_effects_preset))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    result = application.configure_state_effects({"enabled": True, "preset": "subtle"})
+
+    assert result["saved"]["preset"] == "subtle"
+    assert applied == ["subtle"]
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+    with pytest.raises(ApplicationError) as error:
+        application.configure_state_effects({"preset": "unknown"})
+    assert error.value.code == "invalid_configuration"
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+    with pytest.raises(ApplicationError) as error:
+        application.configure_state_effects({"enabled": "yes"})
+    assert error.value.code == "invalid_configuration"
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+    lifecycle.register_state_effects_applier(lambda _config: (_ for _ in ()).throw(RuntimeError("unavailable")))
+    with pytest.raises(ApplicationError) as error:
+        application.configure_state_effects({"preset": "expressive"})
+    assert error.value.code == "runtime_unavailable"
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+
+def test_lifecycle_channel_dispatches_state_effects_configuration(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def configure_state_effects(self, payload):
+            received.append(payload)
+            return {"saved": payload}
+
+    service.register_application_service(Application())
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"enabled": True, "preset": "balanced", "smooth_transitions": False, "reduce_motion": True}
+        assert client.execute("application.configure_state_effects", payload) == {"ok": True, "result": {"saved": payload}}
+        assert received == [payload]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_imu_behavior_settings_reload_without_restart(runtime):

@@ -149,6 +149,7 @@ class RemoteApplicationService:
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
+    def configure_state_effects(self, value): return self._call("configure_state_effects", value)
     def background_assets(self): return self._call("background_assets")
     def upload_background(self, value): return self._call("upload_background", value)
     def delete_background(self, value): return self._call("delete_background", {"name": value})
@@ -674,6 +675,30 @@ class PhosApplicationService:
         logger.info("PHOS VISUAL: backgrounds configured enabled=%s", candidate.backgrounds_enabled)
         return {"saved": candidate.to_dict()["display"]["backgrounds"], "applied": result.get("applied", []),
                 "status": self._runtime.application_status().get("backgrounds", {})}
+
+    def configure_state_effects(self, patch: dict) -> dict:
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
+        allowed = {"enabled", "preset", "palette", "smooth_transitions", "reduce_motion"}
+        if not isinstance(patch, dict) or set(patch) - allowed:
+            raise ApplicationError("invalid_configuration", "Unsupported state effects configuration.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        _merge(document["display"]["state_effects"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        except ConfigurationError as error:
+            raise ApplicationError("invalid_configuration", "State effects configuration was rejected.", {"reason": str(error)}) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "State effects configuration could not be applied."))
+        except Exception as error:
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("PHOS VISUAL: state effects rollback failed")
+            raise ApplicationError("runtime_unavailable", "State effects configuration could not be applied.", status=503) from error
+        return {"saved": candidate.to_dict()["display"]["state_effects"], "applied": result.get("applied", [])}
 
     def background_assets(self) -> list[dict]:
         """List only safe, existing images in the canonical asset directory."""

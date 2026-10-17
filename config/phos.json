@@ -21,6 +21,13 @@
       "speaking": null,
       "sleeping": null,
       "error": null
+    },
+    "state_effects": {
+      "enabled": false,
+      "preset": "balanced",
+      "palette": "phos",
+      "smooth_transitions": true,
+      "reduce_motion": false
     }
   },
   "led_ring": {

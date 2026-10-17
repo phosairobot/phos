@@ -277,6 +277,42 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
     def appearance_backgrounds():
         return configuration("backgrounds")
 
+    @app.route("/appearance/state-effects", methods=["GET", "POST"])
+    def appearance_state_effects():
+        """Configure only the canonical State Effects values via the app boundary."""
+        error, status = None, 200
+        if request.method == "POST":
+            if application_service is None:
+                abort(503)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change:
+                    return redirect(url_for("login"))
+                preset = request.form.get("state-effects-preset", "")
+                palette = request.form.get("state-effects-palette", "")
+                if preset not in {"subtle", "balanced", "expressive"} or palette not in {"phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"}:
+                    error, status = "Choose supported state-effects options.", 400
+                else:
+                    payload = {
+                        "enabled": request.form.get("state-effects-enabled") == "on",
+                        "preset": preset,
+                        "palette": palette,
+                        "smooth_transitions": request.form.get("state-effects-smooth-transitions") == "on",
+                        "reduce_motion": request.form.get("state-effects-reduce-motion") == "on",
+                    }
+                    try:
+                        application_service.configure_state_effects(payload)
+                    except Exception as exc:
+                        error, status = getattr(exc, "message", "State effects could not be applied."), 400
+                    else:
+                        flash("State effects saved and applied live.")
+                        return redirect(url_for("appearance_state_effects"))
+        try:
+            document = config.read()
+        except (ConfigurationError, OSError):
+            return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
+        return render_template("state_effects.html", document=document, error=error,
+                               config_path=config.path), status
+
     @app.route("/", methods=["GET", "POST"])
     @app.route("/configuration/<area>", methods=["GET", "POST"])
     def configuration(area="general"):

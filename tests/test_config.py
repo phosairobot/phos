@@ -35,6 +35,31 @@ def test_canonical_config_is_complete_safe_and_round_trips(document):
     assert config.display_width == 800 and config.display_height == 600
 
 
+def test_state_effect_defaults_backfill_and_validate(document, tmp_path):
+    document["display"].pop("state_effects", None)
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert (config.state_effects_enabled, config.state_effects_preset,
+            config.state_effects_palette, config.state_effects_smooth_transitions, config.state_effects_reduce_motion) == (False, "balanced", "phos", True, False)
+    for preset in ("subtle", "balanced", "expressive"):
+        document["display"]["state_effects"] = {"enabled": True, "preset": preset, "smooth_transitions": True, "reduce_motion": False}
+        assert RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).state_effects_preset == preset
+    for palette in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"):
+        document["display"]["state_effects"]["palette"] = palette
+        assert RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).state_effects_palette == palette
+    document["display"]["state_effects"]["palette"] = "invalid"
+    with pytest.raises(ConfigurationError, match="state_effects.palette"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    document["display"]["state_effects"]["palette"] = "phos"
+    document["display"]["state_effects"]["preset"] = "unknown"
+    with pytest.raises(ConfigurationError, match="state_effects.preset"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+    document["display"]["state_effects"] = {"enabled": "yes", "preset": "balanced",
+                                             "smooth_transitions": 1, "reduce_motion": None}
+    with pytest.raises(ConfigurationError, match="state_effects values must be booleans"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
 @pytest.mark.parametrize(("filename", "content", "reason"), [
     ("missing.png", None, "asset_missing"),
     ("idle.gif", b"GIF89a", "unsupported_format"),

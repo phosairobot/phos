@@ -317,7 +317,10 @@ _SCHEMA = {
                 "environment_overlays_enabled": "environment_overlays_enabled",
                 "backgrounds": {"enabled": "backgrounds_enabled", "idle": "background_idle",
                     "listening": "background_listening", "thinking": "background_thinking",
-                    "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error"}},
+                    "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error"},
+                "state_effects": {"enabled": "state_effects_enabled", "preset": "state_effects_preset",
+                    "palette": "state_effects_palette",
+                    "smooth_transitions": "state_effects_smooth_transitions", "reduce_motion": "state_effects_reduce_motion"}},
     "led_ring": {"enabled": "led_ring_enabled", "led_count": "led_ring_led_count",
                  "gpio_pin": "led_ring_gpio_pin", "brightness": "led_ring_brightness",
                  "base_color": "led_ring_base_color", "follow_visual_state": "led_ring_follow_visual_state",
@@ -552,6 +555,11 @@ class RuntimeConfig:
     background_speaking: Optional[Path]
     background_sleeping: Optional[Path]
     background_error: Optional[Path]
+    state_effects_enabled: bool
+    state_effects_preset: str
+    state_effects_palette: str
+    state_effects_smooth_transitions: bool
+    state_effects_reduce_motion: bool
     led_ring_enabled: bool
     led_ring_led_count: int
     led_ring_gpio_pin: int
@@ -681,6 +689,9 @@ class RuntimeConfig:
             display.setdefault("backgrounds", {"enabled": False, "idle": None, "listening": None,
                                                 "thinking": None, "speaking": None, "sleeping": None,
                                                 "error": None})
+            display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
+                                                  "smooth_transitions": True, "reduce_motion": False})
+            display["state_effects"].setdefault("palette", "phos")
         result = object.__new__(cls)
         result._assign(_decode(document), base_dir, overrides)
         if check_paths:
@@ -959,6 +970,12 @@ class RuntimeConfig:
             raise ConfigurationError("display.environment_overlays_enabled must be a boolean")
         if type(self.backgrounds_enabled) is not bool:
             raise ConfigurationError("display.backgrounds.enabled must be a boolean")
+        if type(self.state_effects_enabled) is not bool or type(self.state_effects_smooth_transitions) is not bool or type(self.state_effects_reduce_motion) is not bool:
+            raise ConfigurationError("display.state_effects values must be booleans")
+        if self.state_effects_preset not in {"subtle", "balanced", "expressive"}:
+            raise ConfigurationError("display.state_effects.preset must be subtle, balanced or expressive")
+        if self.state_effects_palette not in {"phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"}:
+            raise ConfigurationError("display.state_effects.palette must be phos, cyan, blue, violet, aqua, amber, white or green")
         for name in ("startup_splash_title", "startup_splash_subtitle"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ConfigurationError(f"{name} must be a nonempty string")

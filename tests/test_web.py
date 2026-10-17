@@ -100,6 +100,66 @@ def test_backgrounds_page_remains_available_when_runtime_asset_service_is_unavai
     assert client.get("/appearance/backgrounds").status_code == 200
 
 
+def test_state_effects_page_renders_canonical_values_and_appearance_navigation(setup):
+    app, path, _ = setup
+    document = json.loads(path.read_text())
+    document["display"]["state_effects"] = {"enabled": True, "preset": "expressive", "palette": "violet",
+                                             "smooth_transitions": False, "reduce_motion": True}
+    path.write_text(json.dumps(document))
+    page = authorize(app).get("/appearance/state-effects")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'id="state-effects-enabled" name="state-effects-enabled" type="checkbox" checked' in text
+    assert 'id="state-effects-preset-expressive" name="state-effects-preset" type="radio" value="expressive" checked' in text
+    assert '<option value="violet" selected>Violet</option>' in text
+    assert 'id="state-effects-smooth-transitions" name="state-effects-smooth-transitions" type="checkbox" >' in text
+    assert 'id="state-effects-reduce-motion" name="state-effects-reduce-motion" type="checkbox" checked' in text
+    assert 'class="state-effects-card"' in text and "Effect Color" in text
+    assert all(f'value="{value}"' in text for value in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"))
+    assert all(f'id="state-effects-preset-{value}"' in text for value in ("subtle", "balanced", "expressive"))
+    assert "↳ Backgrounds" in text and "↳ State Effects" in text
+
+
+@pytest.mark.parametrize("preset", ["subtle", "balanced", "expressive"])
+def test_state_effects_save_uses_the_existing_application_operation(setup, preset):
+    class EffectsService:
+        def __init__(self): self.calls = []
+        def configure_state_effects(self, payload):
+            self.calls.append(payload)
+            return {"saved": payload, "applied": ["display.state_effects.preset"]}
+
+    _, path, now = setup
+    service = EffectsService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    app.testing = True
+    client = authorize(app)
+    response = post(client, "/appearance/state-effects", {
+        "state-effects-enabled": "on", "state-effects-preset": preset,
+        "state-effects-palette": "cyan",
+        "state-effects-smooth-transitions": "on", "state-effects-reduce-motion": "on"})
+    assert response.status_code == 302 and response.location.endswith("/appearance/state-effects")
+    assert service.calls == [{"enabled": True, "preset": preset, "palette": "cyan", "smooth_transitions": True, "reduce_motion": True}]
+
+
+def test_state_effects_save_supports_all_toggle_values_and_bounded_failures(setup):
+    class EffectsService:
+        def __init__(self): self.calls = []
+        def configure_state_effects(self, payload): self.calls.append(payload); return {"saved": payload}
+
+    _, path, now = setup
+    service = EffectsService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    app.testing = True
+    client = authorize(app)
+    assert post(client, "/appearance/state-effects", {"state-effects-preset": "balanced", "state-effects-palette": "amber"}).status_code == 302
+    assert service.calls[-1] == {"enabled": False, "preset": "balanced", "palette": "amber", "smooth_transitions": False, "reduce_motion": False}
+    previous = path.read_bytes()
+    rejected = post(client, "/appearance/state-effects", {"state-effects-preset": "invalid", "state-effects-palette": "phos"})
+    assert rejected.status_code == 400
+    assert "Choose supported state-effects options." in rejected.get_data(as_text=True)
+    assert path.read_bytes() == previous
+
+
 def editor_form(client):
     response = client.get("/configuration/editor")
     source = html.unescape(re.search(r'<textarea[^>]*name="configuration"[^>]*>(.*?)</textarea>',
