@@ -55,9 +55,9 @@ def test_interaction_response_speech_awaits_the_runtime_speech_path(caplog):
     runtime.speak = speak
     runtime.application_status = lambda: {"speech": {"tts": {"active_provider": "local"}}}
     result = asyncio.run(PhosApplicationService(runtime).speak_interaction_response(
-        " Ciao ", "it", intent="get_temperature"))
+        " Temperatura 24 °C ", "it", intent="get_temperature"))
 
-    assert spoken == ["Ciao"]
+    assert spoken == ["Temperatura ventiquattro gradi Celsius"]
     assert result == {"status": "completed", "language": "it"}
     assert "response speech started intent=get_temperature language=it provider=local" in caplog.text
 

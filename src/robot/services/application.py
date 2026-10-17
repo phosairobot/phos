@@ -37,7 +37,8 @@ from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SES
                                  VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
 from robot.interaction import (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED,
                                INTERACTION_RESOLUTION_FAILED)
-from robot.voice.capture import UnsupportedCaptureRate
+from robot.voice.capture import CaptureDeviceUnavailable, UnsupportedCaptureRate
+from robot.voice.normalization import SpeechTextNormalizer
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
@@ -45,6 +46,8 @@ from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 
 logger = logging.getLogger(__name__)
+
+_speech_text_normalizer = SpeechTextNormalizer()
 
 STATE_COMMAND_TIMEOUT_SECONDS = 2.0
 
@@ -508,6 +511,9 @@ class PhosApplicationService:
                              operation, type(error).__name__, error)
             raise ApplicationError("unsupported_capture_rate", "The selected microphone does not support a usable PCM16 capture rate.",
                                    {"requested_rate": error.requested_rate, "device_default_rate": error.device_default_rate}, 503) from error
+        except CaptureDeviceUnavailable as error:
+            raise ApplicationError("capture_device_unavailable", "The configured microphone is unavailable.",
+                                   {"reason": str(error)}, 503) from error
         except Exception as error:
             logger.exception("VOICE SESSION: failed operation=%s exception_type=%s exception_message=%s",
                              operation, type(error).__name__, error)
@@ -552,6 +558,7 @@ class PhosApplicationService:
         contract currently accepts text only.
         """
         text = self._validated_speech_text(text)
+        speech_text = _speech_text_normalizer.normalize(text, language)
         try:
             provider = "unknown"
             runtime_status = getattr(self._runtime, "application_status", None)
@@ -560,7 +567,9 @@ class PhosApplicationService:
                 provider = speech.get("tts", {}).get("active_provider") or provider
             logger.info("PHOS INTERACTION: response speech started intent=%s language=%s provider=%s",
                         intent, language, provider)
-            await self._runtime.speak(text)
+            logger.debug("PHOS TTS NORMALIZATION: language=%s normalizer=%s changed=%s", language,
+                         _speech_text_normalizer.normalizer_name(language), str(speech_text != text).lower())
+            await self._runtime.speak(speech_text)
             return {"status": "completed", "language": language}
         except TTSBusyError as error:
             raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
