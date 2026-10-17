@@ -733,7 +733,8 @@ def build_runtime(
     )
     voice = VoiceCaptureSession(
         ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
-            config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms), config.voice_processing_sample_rate),
+            config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms,
+            debug_native_wav=config.voice_debug_dump_utterance_wav), config.voice_processing_sample_rate),
         stt_provider, core.events, voice_transition,
         enabled=config.voice_enabled, sample_rate=config.voice_processing_sample_rate, channels=config.voice_channels, chunk_ms=config.voice_chunk_ms,
         speech_start_ms=config.voice_speech_start_ms, silence_end_ms=config.voice_silence_end_ms,
