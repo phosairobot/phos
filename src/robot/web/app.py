@@ -296,7 +296,6 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         "enabled": request.form.get("state-effects-enabled") == "on",
                         "preset": preset,
                         "palette": palette,
-                        "smooth_transitions": request.form.get("state-effects-smooth-transitions") == "on",
                         "reduce_motion": request.form.get("state-effects-reduce-motion") == "on",
                     }
                     try:

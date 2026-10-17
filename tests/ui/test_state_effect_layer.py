@@ -13,7 +13,7 @@ from robot.ui.display import TkEyeDisplay
 
 def _resolver(**overrides):
     values = {"state_effects_enabled": True, "state_effects_preset": "balanced",
-              "state_effects_smooth_transitions": False, "state_effects_reduce_motion": False}
+              "state_effects_reduce_motion": False}
     values.update(overrides)
     return StateEffectResolver(SimpleNamespace(**values))
 
@@ -43,6 +43,45 @@ def test_effect_layer_is_cached_per_display_size_and_preserves_state_languages()
 def test_error_effect_is_restrained_and_not_a_continuous_flash():
     layer, error = StateEffectLayer(), _resolver().resolve(RobotState.ERROR)
     assert layer.primitives(error, 800, 600, 1.0) == layer.primitives(error, 800, 600, 100.0)
+
+
+def test_thinking_uses_a_peripheral_asymmetric_glow_constellation_that_moves():
+    layer, thinking = StateEffectLayer(), _resolver().resolve(RobotState.THINKING)
+    at_start = layer.primitives(thinking, 800, 600, 0)
+    later = layer.primitives(thinking, 800, 600, 1)
+    assert len(at_start) == 4
+    assert all(primitive.kind == "glow" for primitive in at_start)
+    assert at_start != later
+    # Fields stay clear of the eye corridor (the central 20% of the display).
+    assert all(bounds.bounds[2] <= 800 * .40 or bounds.bounds[0] >= 800 * .60 for bounds in at_start)
+    centers = [((item.bounds[0] + item.bounds[2]) / 2, (item.bounds[1] + item.bounds[3]) / 2)
+               for item in at_start]
+    assert len(set(centers)) == 4
+
+
+def test_sleeping_is_dim_broad_and_breathes_without_positional_motion():
+    layer, sleeping = StateEffectLayer(), _resolver().resolve(RobotState.SLEEPING)
+    early = layer.primitives(sleeping, 800, 600, 0)
+    later = layer.primitives(sleeping, 800, 600, 2)
+    idle = layer.primitives(_resolver().resolve(RobotState.IDLE), 800, 600, 0)
+    assert len(early) == 2 and all(item.kind == "glow" for item in early)
+    assert all((item.bounds[2] - item.bounds[0]) > 500 for item in early)
+    assert max(item.opacity for item in early) < max(item.opacity for item in idle)
+    assert tuple(item.bounds for item in early) == tuple(item.bounds for item in later)
+    assert tuple(item.opacity for item in early) != tuple(item.opacity for item in later)
+
+
+def test_error_is_a_visible_bounded_palette_aware_persistent_warning():
+    layer = StateEffectLayer()
+    blue = layer.primitives(_resolver(state_effects_palette="blue").resolve(RobotState.ERROR), 800, 600, 1)
+    amber = layer.primitives(_resolver(state_effects_palette="amber").resolve(RobotState.ERROR), 800, 600, 1)
+    assert len(blue) == len(amber) == 2
+    assert all(item.kind == "glow" for item in blue)
+    assert max(item.opacity for item in blue) < .69
+    assert blue[0].color != amber[0].color
+    # The warning bias remains warm but does not erase the selected palette.
+    red, _green, channel_blue = (int(blue[0].color[index:index + 2], 16) for index in (1, 3, 5))
+    assert red > channel_blue
 
 
 def test_idle_uses_multiple_oversized_peripheral_glows_with_slow_motion():
@@ -85,10 +124,10 @@ def test_speaking_is_broad_center_origin_and_expands_outward():
     assert first.opacity > listening.opacity
 
 
-def test_reduce_motion_makes_idle_listening_and_speaking_static():
+def test_reduce_motion_makes_all_effect_modes_static():
     layer = StateEffectLayer()
     resolver = _resolver(state_effects_reduce_motion=True)
-    for state in (RobotState.IDLE, RobotState.LISTENING, RobotState.SPEAKING):
+    for state in RobotState:
         effect = resolver.resolve(state)
         assert layer.primitives(effect, 800, 600, 1) == layer.primitives(effect, 800, 600, 30)
 
@@ -158,21 +197,43 @@ def test_live_palette_replacement_prewarm_requests_active_state_textures():
     assert display.prewarmed[-1][1:] == (800, 600)
 
 
-def test_smooth_transition_interpolates_but_false_switches_immediately():
-    display, state = Display(), [RobotState.IDLE]
-    loop = _loop(display, _resolver(state_effects_smooth_transitions=True), state)
+def test_live_palette_prewarm_is_deferred_when_the_render_loop_is_running():
+    class SlowPrewarmDisplay(Display):
+        def __init__(self): super().__init__(); self.prewarmed = []
+        def prewarm_state_effect(self, *args): self.prewarmed.append(args)
+
+    class Handle:
+        def cancel(self): pass
+
+    class Loop:
+        def __init__(self): self.scheduled = []
+        def call_later(self, delay, callback, *args):
+            self.scheduled.append((delay, callback, args))
+            return Handle()
+
+    display, state = SlowPrewarmDisplay(), [RobotState.LISTENING]
+    loop = _loop(display, _resolver(state_effects_palette="phos"), state)
+    loop._effect_dimensions = (800, 600)
+    loop._loop = scheduled = Loop()
+    loop._replace_state_effect_resolver(_resolver(state_effects_palette="amber"))
+    assert display.prewarmed == []
+    delay, callback, args = scheduled.scheduled[-1]
+    assert delay == pytest.approx(loop._frame_interval)
+    callback(*args)
+    assert display.prewarmed[-1][0].palette.primary == "#FFE05B"
+
+
+@pytest.mark.parametrize("target", list(RobotState))
+def test_state_changes_select_the_new_effect_immediately(target):
+    display, current = Display(), [RobotState.IDLE]
+    loop = _loop(display, _resolver(), current)
     frame = EyeRenderer().render(FaceState(), timestamp=0)
     loop._draw(frame, timestamp=.5)
-    loop._draw(frame, timestamp=1)
-    state[0] = RobotState.SPEAKING
-    loop._draw(frame, timestamp=1.2)
-    partial = display.calls[-1][1]["state_effect"]
-    loop._draw(frame, timestamp=1.6)
-    complete = display.calls[-1][1]["state_effect"]
-    assert 0 < partial.intensity < complete.intensity
-    loop._replace_state_effect_resolver(_resolver(state_effects_smooth_transitions=False))
-    loop._draw(frame, timestamp=2)
-    assert display.calls[-1][1]["state_effect"].intensity == _resolver().resolve(RobotState.SPEAKING).intensity
+    current[0] = target
+    loop._draw(frame, timestamp=.51)
+    effect = display.calls[-1][1]["state_effect"]
+    expected = _resolver().resolve(target)
+    assert effect == expected
 
 
 def test_tk_effect_layer_is_below_eyes_and_failures_are_isolated(caplog):

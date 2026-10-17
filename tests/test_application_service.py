@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -211,6 +213,63 @@ def test_invalid_robot_transition_becomes_a_structured_application_error(monkeyp
         assert error.details == {"current": "idle", "target": "thinking"}
     else:
         raise AssertionError("invalid state transition was accepted")
+
+
+def test_state_command_acknowledges_commit_without_waiting_for_slow_downstream_event():
+    runtime = Runtime()
+    loop = asyncio.new_event_loop()
+    runtime._loop = loop
+    event_started = threading.Event()
+
+    async def slow_observer(_event):
+        event_started.set()
+        await asyncio.sleep(.25)
+
+    runtime.core.events.subscribe("core.state_changed", slow_observer)
+    thread = threading.Thread(target=loop.run_forever)
+    thread.start()
+    try:
+        started = time.monotonic()
+        result = PhosApplicationService(runtime).set_state("listening")
+        assert result["state"] == "listening"
+        assert runtime.core.state is RobotState.LISTENING
+        assert time.monotonic() - started < .15
+        assert event_started.wait(.1)
+        # A repeated request for an already committed target is safe and does
+        # not enqueue another transition/event side effect.
+        assert PhosApplicationService(runtime).set_state("listening")["state"] == "listening"
+        time.sleep(.30)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=1)
+        loop.close()
+
+
+def test_timed_out_queued_state_command_is_cancelled_before_it_can_apply(monkeypatch):
+    import robot.services.application as application
+    runtime = Runtime()
+    runtime._loop = object()
+    service = PhosApplicationService(runtime)
+
+    class Queued:
+        cancelled = False
+        def result(self, timeout): raise TimeoutError()
+        def cancel(self):
+            self.cancelled = True
+            return True
+
+    queued = Queued()
+
+    def submit(coroutine, _loop):
+        coroutine.close()
+        return queued
+
+    monkeypatch.setattr(application.asyncio, "run_coroutine_threadsafe", submit)
+    with pytest.raises(ApplicationError) as error:
+        service.set_state("listening")
+    assert error.value.code == "runtime_unavailable"
+    assert queued.cancelled is True
+    assert runtime.core.state is RobotState.IDLE
 
 
 def test_robot_state_model_and_capabilities_share_canonical_transition_graph():

@@ -46,6 +46,8 @@ from robot.ui.state import FaceExpression
 
 logger = logging.getLogger(__name__)
 
+STATE_COMMAND_TIMEOUT_SECONDS = 2.0
+
 
 # These are enum members, not duplicated wire values. ERROR is lifecycle-only;
 # the current visual-event command deliberately supports only reactions that the
@@ -154,7 +156,14 @@ class RemoteApplicationService:
     def upload_background(self, value): return self._call("upload_background", value)
     def delete_background(self, value): return self._call("delete_background", {"name": value})
     def set_expression(self, value): return self._call("expression", {"expression": value})
-    def set_state(self, value): return self._call("set_state", {"state": value})
+    def set_state(self, value):
+        started_at = time.monotonic()
+        logger.info("PHOS COMMAND: state target=%s request_received", value)
+        logger.info("PHOS COMMAND: state target=%s submitted_ms=0.0", value)
+        result = self._call("set_state", {"state": value})
+        logger.info("PHOS COMMAND: state target=%s response_ms=%.1f", value,
+                    (time.monotonic() - started_at) * 1000)
+        return result
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
     def overlay(self): return self._call("overlay")
     def set_overlay(self, value): return self._call("set_overlay", value)
@@ -679,7 +688,7 @@ class PhosApplicationService:
     def configure_state_effects(self, patch: dict) -> dict:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
-        allowed = {"enabled", "preset", "palette", "smooth_transitions", "reduce_motion"}
+        allowed = {"enabled", "preset", "palette", "reduce_motion"}
         if not isinstance(patch, dict) or set(patch) - allowed:
             raise ApplicationError("invalid_configuration", "Unsupported state effects configuration.")
         previous = self._lifecycle.config_repository.load()
@@ -823,6 +832,16 @@ class PhosApplicationService:
         self._emit("expression_changed", payload)
         return payload
 
+    async def _accept_state_command(self, target: RobotState, submitted_at: float):
+        """Run on the runtime loop and acknowledge immediately after commit."""
+        dequeued_at = time.monotonic()
+        logger.info("PHOS COMMAND: state target=%s dequeued_ms=%.1f", target.value,
+                    (dequeued_at - submitted_at) * 1000)
+        transition = await self._core.accept_transition_to(target, reason="remote_api")
+        logger.info("PHOS COMMAND: state target=%s applied_ms=%.1f", target.value,
+                    (time.monotonic() - submitted_at) * 1000)
+        return transition
+
     def set_state(self, state: str) -> dict:
         try:
             target = RobotState(state)
@@ -833,13 +852,32 @@ class PhosApplicationService:
         loop = self._runtime._loop
         if loop is None:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        submitted_at = time.monotonic()
+        if self._core.state is target:
+            logger.info("PHOS COMMAND: state target=%s accepted_ms=%.1f already_current=true", target.value,
+                        (time.monotonic() - submitted_at) * 1000)
+            return self.robot_state()
+        future = asyncio.run_coroutine_threadsafe(self._accept_state_command(target, submitted_at), loop)
         try:
-            asyncio.run_coroutine_threadsafe(self._core.transition_to(target, reason="remote_api"), loop).result(timeout=2)
+            future.result(timeout=STATE_COMMAND_TIMEOUT_SECONDS)
         except InvalidStateTransition as error:
             raise ApplicationError("invalid_state_transition", str(error),
                                    {"current": self._core.state.value, "target": target.value}, status=409) from error
         except TimeoutError as error:
+            # A queued coroutine must never execute after its requester was
+            # told that PHOS did not accept it. If it is already running, the
+            # state commit is synchronous and can be acknowledged truthfully.
+            cancelled = future.cancel()
+            if not cancelled and self._core.state is target:
+                logger.info("PHOS COMMAND: state target=%s accepted_ms=%.1f after_timeout=true", target.value,
+                            (time.monotonic() - submitted_at) * 1000)
+                return self.robot_state()
+            phase = "queued_cancelled" if cancelled else "runtime_unresponsive"
+            logger.warning("PHOS COMMAND: state timeout target=%s phase=%s elapsed_ms=%.1f", target.value, phase,
+                           (time.monotonic() - submitted_at) * 1000)
             raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
+        logger.info("PHOS COMMAND: state target=%s accepted_ms=%.1f", target.value,
+                    (time.monotonic() - submitted_at) * 1000)
         return self.robot_state()
 
 

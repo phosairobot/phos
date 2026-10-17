@@ -58,7 +58,6 @@ class StateEffectResolver:
         self.enabled = bool(config.state_effects_enabled)
         self.preset = config.state_effects_preset
         self.palette = _PALETTES[getattr(config, "state_effects_palette", "phos")]
-        self.smooth_transitions = bool(config.state_effects_smooth_transitions)
         self.reduce_motion = bool(config.state_effects_reduce_motion)
 
     def resolve(self, state: RobotState | str) -> StateEffectParams:

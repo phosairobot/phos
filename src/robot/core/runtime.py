@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from .behaviors import Behavior, BehaviorManager
 from .events import Event, EventBus
 from .state import RobotState, RobotStateMachine, StateTransition
@@ -10,6 +13,8 @@ from .tasks import BackgroundTasks
 CORE_STARTED = "core.started"
 CORE_STOPPED = "core.stopped"
 STATE_CHANGED = "core.state_changed"
+
+logger = logging.getLogger(__name__)
 
 
 class RobotCore:
@@ -76,3 +81,29 @@ class RobotCore:
                 )
             )
         return transition
+
+    async def accept_transition_to(self, target: RobotState, *, reason: str | None = None) -> StateTransition:
+        """Commit a semantic command before scheduling downstream observers.
+
+        Remote command acknowledgement means the state machine has accepted
+        and committed the target state.  Rendering, browser notifications, and
+        other event consumers remain downstream and must not hold that
+        acknowledgement hostage.
+        """
+        transition = self.state_machine.transition_to(target, reason=reason)
+        if transition.previous != transition.current:
+            task = asyncio.create_task(self.events.publish(Event(
+                STATE_CHANGED,
+                {"previous": transition.previous.value, "current": transition.current.value, "reason": reason},
+            )))
+            task.add_done_callback(self._report_state_event_failure)
+        return transition
+
+    @staticmethod
+    def _report_state_event_failure(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("PHOS CORE: state-change event delivery failed")

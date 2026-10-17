@@ -39,9 +39,9 @@ def test_state_effect_defaults_backfill_and_validate(document, tmp_path):
     document["display"].pop("state_effects", None)
     config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
     assert (config.state_effects_enabled, config.state_effects_preset,
-            config.state_effects_palette, config.state_effects_smooth_transitions, config.state_effects_reduce_motion) == (False, "balanced", "phos", True, False)
+            config.state_effects_palette, config.state_effects_reduce_motion) == (False, "balanced", "phos", False)
     for preset in ("subtle", "balanced", "expressive"):
-        document["display"]["state_effects"] = {"enabled": True, "preset": preset, "smooth_transitions": True, "reduce_motion": False}
+        document["display"]["state_effects"] = {"enabled": True, "preset": preset, "reduce_motion": False}
         assert RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).state_effects_preset == preset
     for palette in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"):
         document["display"]["state_effects"]["palette"] = palette
@@ -54,10 +54,15 @@ def test_state_effect_defaults_backfill_and_validate(document, tmp_path):
     with pytest.raises(ConfigurationError, match="state_effects.preset"):
         RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
 
-    document["display"]["state_effects"] = {"enabled": "yes", "preset": "balanced",
-                                             "smooth_transitions": 1, "reduce_motion": None}
+    document["display"]["state_effects"] = {"enabled": "yes", "preset": "balanced", "reduce_motion": None}
     with pytest.raises(ConfigurationError, match="state_effects values must be booleans"):
         RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
+def test_legacy_state_effect_smooth_transitions_loads_but_is_not_persisted(document, tmp_path):
+    document["display"]["state_effects"]["smooth_transitions"] = False
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert "smooth_transitions" not in config.to_dict()["display"]["state_effects"]
 
 
 @pytest.mark.parametrize(("filename", "content", "reason"), [

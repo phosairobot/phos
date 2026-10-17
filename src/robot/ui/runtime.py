@@ -64,11 +64,8 @@ class EyeRenderLoop(Behavior):
         self._pending_background_resolver: Optional[BackgroundResolver] = None
         self._state_effect_resolver = state_effect_resolver
         self._pending_state_effect_resolver: Optional[StateEffectResolver] = None
-        self._effect_target = StateEffectParams("idle")
-        self._effect_current = StateEffectParams("idle")
-        self._effect_changed_at = 0.0
-        self._effect_initialized = False
         self._effect_dimensions = None
+        self._state_effect_prewarm_handle = None
         self._task: Optional[asyncio.Task[None]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._appearance_lock = Lock()
@@ -113,12 +110,29 @@ class EyeRenderLoop(Behavior):
 
     def _replace_state_effect_resolver(self, resolver: StateEffectResolver) -> None:
         self._state_effect_resolver = resolver
-        self._effect_changed_at = 0.0  # force a target refresh on the next frame
         if self._effect_dimensions is not None and hasattr(self._display, "prewarm_state_effect"):
             state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
             effect = resolver.resolve(state)
-            self._display.prewarm_state_effect(effect, *self._effect_dimensions, time.monotonic())
+            self._schedule_state_effect_prewarm(effect)
         logger.info("PHOS VISUAL: state effects configured enabled=%s preset=%s", resolver.enabled, resolver.preset)
+
+    def _schedule_state_effect_prewarm(self, effect: StateEffectParams) -> None:
+        """Keep texture preparation downstream of semantic runtime commands."""
+        if self._effect_dimensions is None:
+            return
+        if self._loop is None:
+            # Headless/test construction has no runtime queue; retain the
+            # direct behavior for that safe, non-running case.
+            self._display.prewarm_state_effect(effect, *self._effect_dimensions, time.monotonic())
+            return
+        if self._state_effect_prewarm_handle is not None:
+            self._state_effect_prewarm_handle.cancel()
+        self._state_effect_prewarm_handle = self._loop.call_later(
+            self._frame_interval, self._prewarm_state_effect, effect, self._effect_dimensions)
+
+    def _prewarm_state_effect(self, effect: StateEffectParams, dimensions: tuple[int, int]) -> None:
+        self._state_effect_prewarm_handle = None
+        self._display.prewarm_state_effect(effect, *dimensions, time.monotonic())
 
     def _replace_background_resolver(self, resolver: BackgroundResolver) -> None:
         self._background_resolver = resolver
@@ -190,6 +204,9 @@ class EyeRenderLoop(Behavior):
         with self._appearance_lock:
             self._appearance_ready = False
             self._loop = None
+        if self._state_effect_prewarm_handle is not None:
+            self._state_effect_prewarm_handle.cancel()
+            self._state_effect_prewarm_handle = None
         failure: Optional[Exception] = None
         if self._task is not None:
             self._task.cancel()
@@ -233,7 +250,7 @@ class EyeRenderLoop(Behavior):
                 self._display.draw_startup(state=state, message="Starting..." if state == "starting" else "Unable to start",
                                            image_path=splash.get("image"), title=splash.get("title", "PHOS"), subtitle=splash.get("subtitle", "Starting..."))
                 return
-        effect = self._state_effect(time.monotonic() if timestamp is None else timestamp)
+        effect = self._state_effect()
         effect_kwargs = ({"state_effect": effect, "effect_timestamp": timestamp or 0.0}
                          if effect.intensity > 0 else {})
         if self._preview_settings.enabled:
@@ -251,34 +268,11 @@ class EyeRenderLoop(Behavior):
                 # or no state image is usable.
                 self._display.draw(frame, **effect_kwargs)
 
-    def _state_effect(self, timestamp: float) -> StateEffectParams:
+    def _state_effect(self) -> StateEffectParams:
         if self._state_effect_resolver is None:
             return StateEffectParams("idle")
         state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
-        target = self._state_effect_resolver.resolve(state)
-        if not self._effect_initialized:
-            self._effect_initialized = True
-            self._effect_current = self._effect_target = target
-            self._effect_changed_at = timestamp
-            return target
-        if target != self._effect_target or self._effect_changed_at == 0.0:
-            self._effect_current = self._effect_at(timestamp)
-            self._effect_target, self._effect_changed_at = target, timestamp
-        return self._effect_at(timestamp)
-
-    def _effect_at(self, timestamp: float) -> StateEffectParams:
-        target = self._effect_target
-        if self._state_effect_resolver is None or not self._state_effect_resolver.smooth_transitions:
-            self._effect_current = target
-            return target
-        fraction = min(1.0, max(0.0, (timestamp - self._effect_changed_at) / .45))
-        current = self._effect_current
-        result = StateEffectParams(target.state,
-            *(getattr(current, field) + (getattr(target, field) - getattr(current, field)) * fraction
-              for field in ("intensity", "speed", "glow", "pulse_strength", "motion_scale")), target.mode, target.palette)
-        if fraction >= 1.0:
-            self._effect_current = target
-        return result
+        return self._state_effect_resolver.resolve(state)
 
     def _background(self) -> BackgroundAsset:
         """Resolve only on semantic state changes, never in EyeRenderer."""

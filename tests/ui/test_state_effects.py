@@ -11,7 +11,7 @@ import zlib
 
 def resolver(**values):
     defaults = dict(state_effects_enabled=False, state_effects_preset="balanced",
-                    state_effects_palette="phos", state_effects_smooth_transitions=True, state_effects_reduce_motion=False)
+                    state_effects_palette="phos", state_effects_reduce_motion=False)
     defaults.update(values)
     return StateEffectResolver(SimpleNamespace(**defaults))
 

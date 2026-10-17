@@ -11,21 +11,35 @@ from types import SimpleNamespace
 
 def _effect(state, preset="balanced"):
     return StateEffectResolver(SimpleNamespace(state_effects_enabled=True, state_effects_preset=preset,
-        state_effects_palette="amber", state_effects_smooth_transitions=True, state_effects_reduce_motion=False)).resolve(state)
+        state_effects_palette="amber", state_effects_reduce_motion=False)).resolve(state)
 
 
 def _pixel(data, width, x, y):
     return data[(y * width + x) * 4:(y * width + x + 1) * 4]
 
 
-def test_balanced_glow_textures_have_visible_alpha_for_primary_states():
+def test_balanced_glow_textures_have_visible_alpha_for_all_states():
     layer = StateEffectLayer()
-    for state in (RobotState.IDLE, RobotState.LISTENING, RobotState.SPEAKING):
+    for state in RobotState:
         primitive = layer.primitives(_effect(state), 800, 600, 1)[0]
         width, height = round(primitive.bounds[2]-primitive.bounds[0]), round(primitive.bounds[3]-primitive.bounds[1])
         data = TkEyeDisplay._glow_rgba(width, height, primitive.color, primitive.opacity)
         alpha = data[3::4]
         assert max(alpha) > 40 and sum(value > 0 for value in alpha) > width * height // 4
+
+
+def test_new_glow_modes_reuse_cached_textures_across_frames():
+    display = TkEyeDisplay()
+    created = []
+    display._tk = SimpleNamespace(PhotoImage=lambda **kwargs: created.append(kwargs) or object())
+    layer = StateEffectLayer()
+    for state in (RobotState.THINKING, RobotState.SLEEPING, RobotState.ERROR):
+        primitives = layer.primitives(_effect(state), 800, 600, 1)
+        first = [display._state_effect_photo(primitive) for primitive in primitives]
+        count = len(created)
+        second = [display._state_effect_photo(primitive) for primitive in primitives]
+        assert first == second
+        assert len(created) == count
 
 
 def test_opacity_is_nonzero_and_scales_by_preset():

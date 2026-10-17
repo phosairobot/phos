@@ -50,7 +50,7 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
 RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
                         "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
                         "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
-                        "display.backgrounds.error", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.smooth_transitions", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
+                        "display.backgrounds.error", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
 
 
 def changed_fields(active, saved, prefix=""):

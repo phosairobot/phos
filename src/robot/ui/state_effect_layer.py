@@ -34,16 +34,21 @@ class StateEffectLayer:
     def primitives(self, effect: StateEffectParams, width: int, height: int, timestamp: float) -> tuple[EffectPrimitive, ...]:
         if effect.intensity <= 0 or effect.mode == "none":
             return ()
-        margin, cx, cy = self._geometry.setdefault((width, height), (min(width, height) * .075, width / 2, height / 2))
+        self._geometry.setdefault((width, height), (min(width, height) * .075, width / 2, height / 2))
         strength = max(0.0, min(1.0, effect.intensity))
-        color = effect.palette.accent if effect.mode == "circulate" else effect.palette.primary
-        # Idle's .10 semantic speed is already a ten-second cycle. Faster
-        # semantic states are slowed to similarly ambient multi-second travel.
-        phase_scale = 1.35 if effect.mode == "ambient" else (.35 if effect.mode in {"inward", "outward"} else .22)
+        # Each semantic mode gets a calm, state-appropriate multi-second cadence.
+        phase_scale = {
+            "ambient": 1.35,
+            "inward": .35,
+            "outward": .35,
+            # Thinking is deliberately more active than idle: with the
+            # resolver's balanced speed this is a roughly four-second orbit.
+            "circulate": .40,
+            # Sleeping is a slow, low-energy brightness breath (about eight
+            # seconds), rather than visible positional travel.
+            "breathe": 1.80,
+        }.get(effect.mode, .22)
         phase = timestamp * effect.speed * math.tau * phase_scale if effect.motion_scale else 0.0
-        drift = math.sin(phase) * margin * effect.motion_scale
-        ring = min(width, height) * (.34 + effect.pulse_strength * .08 * math.sin(phase))
-        edge = margin + drift
         if effect.mode == "ambient":
             # Transparent radial fields, mostly off screen: visual light, not
             # an outlined object.  The movement cycle is 8–15 seconds at the
@@ -59,17 +64,14 @@ class StateEffectLayer:
         if effect.mode == "inward":
             return self._listening_fields(width, height, strength, phase, effect.palette.primary, effect.palette.glow_gain)
         if effect.mode == "circulate":
-            return (EffectPrimitive("arc", (margin, margin, cx + ring*.5, cy + ring*.5), color, 3),
-                    EffectPrimitive("arc", (cx-ring*.5, cy-ring*.5, width-margin, height-margin), color, 3))
+            return self._thinking_fields(width, height, strength, phase, effect)
         if effect.mode == "outward":
             return self._speaking_fields(width, height, strength, phase, effect.palette.secondary, effect.palette.glow_gain)
         if effect.mode == "breathe":
-            radius = margin * (1.2 + effect.pulse_strength * math.sin(phase))
-            return (EffectPrimitive("oval", (margin, height-margin-radius, margin+radius, height-margin), color, 2),)
+            return self._sleeping_fields(width, height, strength, phase, effect)
         # Error intentionally has no timestamp-based flashing; it is restrained
         # after any state transition handled by the render loop.
-        return (EffectPrimitive("arc", (margin, margin, margin*4, margin*3), color, 3),
-                EffectPrimitive("arc", (width-margin*4, margin, width-margin, margin*3), color, 3))
+        return self._error_fields(width, height, strength, effect)
 
     def render(self, canvas, effect: StateEffectParams, width: int, height: int, timestamp: float, *, arc_style,
                glow_factory=None) -> None:
@@ -115,6 +117,62 @@ class StateEffectLayer:
             fields.extend((EffectPrimitive("glow", left, color, opacity=opacity),
                            EffectPrimitive("glow", right, color, opacity=opacity)))
         return tuple(fields)
+
+    def _thinking_fields(self, width: int, height: int, strength: float, phase: float,
+                         effect: StateEffectParams) -> tuple[EffectPrimitive, ...]:
+        """Four peripheral fields orbit softly without becoming a spinner."""
+        fields = []
+        # The positions form an asymmetric peripheral constellation.  Their
+        # phase offsets make the motion read as processing rather than as a
+        # literal ring or loading icon; a small radius modulation leans inward.
+        for index, offset in enumerate((.13, .25, .75, .87)):
+            angle = phase + index * math.tau / 4
+            pull = .010 * math.cos(angle)
+            center_x = width * (offset + (math.cos(angle) * .020) + (pull if offset < .5 else -pull))
+            center_y = height * ((.25, .70, .30, .73)[index] + math.sin(angle) * .045)
+            field_width, field_height = width * .20, height * .36
+            opacity = min(.76, (.14 + strength * .72) * effect.palette.glow_gain * (1.0 - index * .07))
+            color = (effect.palette.primary, effect.palette.secondary, effect.palette.accent, effect.palette.secondary)[index]
+            fields.append(EffectPrimitive("glow", (center_x - field_width / 2, center_y - field_height / 2,
+                                                  center_x + field_width / 2, center_y + field_height / 2),
+                                          color, opacity=opacity))
+        return tuple(fields)
+
+    def _sleeping_fields(self, width: int, height: int, strength: float, phase: float,
+                         effect: StateEffectParams) -> tuple[EffectPrimitive, ...]:
+        """A dim broad breath that leaves closed eyes visually dominant."""
+        breath = 1.0 + (math.sin(phase) * effect.pulse_strength if effect.motion_scale else 0.0)
+        opacity = min(.30, (.10 + strength * .55) * effect.palette.glow_gain * breath)
+        return (
+            EffectPrimitive("glow", (-width * .18, height * .53, width * .58, height * 1.25),
+                            effect.palette.secondary, opacity=opacity),
+            EffectPrimitive("glow", (width * .48, -height * .25, width * 1.18, height * .38),
+                            effect.palette.accent, opacity=opacity * .62),
+        )
+
+    def _error_fields(self, width: int, height: int, strength: float,
+                      effect: StateEffectParams) -> tuple[EffectPrimitive, ...]:
+        """Persistent, peripheral warning light with a bounded palette-aware bias."""
+        warning = self._warning_color(effect.palette.primary)
+        opacity = min(.68, (.18 + strength * .55) * effect.palette.glow_gain)
+        return (
+            EffectPrimitive("glow", (-width * .16, -height * .20, width * .43, height * .42),
+                            warning, opacity=opacity),
+            EffectPrimitive("glow", (width * .58, height * .54, width * 1.16, height * 1.18),
+                            effect.palette.accent, opacity=opacity * .60),
+        )
+
+    @staticmethod
+    def _warning_color(color: str) -> str:
+        """Centralized warm bias: preserve palette identity without a red screen."""
+        red, green, blue = (int(color[index:index + 2], 16) for index in (1, 3, 5))
+        # A bounded amber blend communicates warning in the leading field;
+        # the companion field retains the selected palette identity.
+        return "#%02X%02X%02X" % (
+            round(red * .40 + 255 * .60),
+            round(green * .40 + 132 * .60),
+            round(blue * .40 + 68 * .60),
+        )
 
     @staticmethod
     def _color(mode: str, intensity: float) -> str:
