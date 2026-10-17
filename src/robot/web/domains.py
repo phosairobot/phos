@@ -15,6 +15,7 @@ DOMAINS = {
     "api": {"title": "API", "description": "Remote API documentation, OpenAPI contract and authenticated capability discovery."},
     "diagnostics": {"title": "Diagnostics", "description": "Runtime health, saved-versus-active configuration and system diagnostic actions."},
     "appearance": {"title": "Appearance", "description": "Display geometry, animation and LED-ring appearance settings."},
+    "backgrounds": {"title": "State Backgrounds", "description": "Optional state-specific images, applied live to the PHOS display."},
     "eyes": {"title": "Eyes", "description": "PHOS iris color and supported eye visual settings."},
     "network": {"title": "Network", "description": "Web Admin host, bind address and local network exposure settings."},
     "runtime": {"title": "Runtime", "description": "Vision, expression and safe logging configuration."},
@@ -56,6 +57,7 @@ GROUPS["eyes"] = [("eyes", "Eye appearance", ("display.iris_color", "display.bas
 GROUPS["runtime"] = [*GROUPS["vision"], *GROUPS["expression"], *GROUPS["logging"]]
 GROUPS["behavior"] = [("behavior", "Eye behavior", ("behavior.",), None)]
 GROUPS["integrations"] = GROUPS["security"]
+GROUPS["backgrounds"] = []
 GROUPS["voice"] = [("stt", "Speech-to-text", ("voice.enabled", "voice.stt.provider"), None),
                     ("vosk", "Local / Vosk", ("voice.stt.model_path", "voice.stt.language"), "local"),
                     ("cartesia-stt", "Cartesia Ink", ("voice.stt.cartesia.",), "cartesia"),

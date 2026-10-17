@@ -15,6 +15,7 @@ import pytest
 from robot.config import RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
+from robot.services.application import ApplicationError, PhosApplicationService
 
 
 @pytest.fixture
@@ -64,6 +65,140 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     assert result["active"]["display"]["iris_color"] == "violet"
     assert result["reloadable"] == []
     assert result["restart_required"] == []
+
+
+def test_backgrounds_reload_through_the_registered_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    directory = path.parent / "backgrounds"
+    directory.mkdir()
+    # A valid 1x1 PNG; configuration validation deliberately happens before
+    # the display/runtime applier is invoked.
+    (directory / "idle.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        b"\x00\x00\x00\x0cIDAT\x08\xd7c\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    applied = []
+    service.register_backgrounds_applier(lambda config: applied.append(config.background_idle.name))
+    update(path, lambda d: d["display"].update(backgrounds={"enabled": True, "idle": "backgrounds/idle.png",
+           "listening": None, "thinking": None, "speaking": None, "sleeping": None, "error": None}))
+
+    result = service.execute("reload")
+
+    assert result["ok"] and result["applied"] == ["display.backgrounds.enabled", "display.backgrounds.idle"]
+    assert applied == ["idle.png"]
+    assert result["active"]["display"]["backgrounds"]["idle"] == "backgrounds/idle.png"
+
+
+def test_invalid_background_candidate_is_rejected_before_runtime_application(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_backgrounds_applier(lambda config: applied.append(config))
+    update(path, lambda d: d["display"].update(backgrounds={"enabled": True, "idle": "backgrounds/missing.png",
+           "listening": None, "thinking": None, "speaking": None, "sleeping": None, "error": None}))
+
+    result = service.execute("reload")
+
+    assert not result["ok"] and not applied
+    assert service.active["display"]["backgrounds"]["enabled"] is False
+
+
+def test_state_effects_reload_through_the_registered_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_state_effects_applier(lambda config: applied.append(
+        (config.state_effects_enabled, config.state_effects_preset,
+         config.state_effects_palette, config.state_effects_reduce_motion)))
+    update(path, lambda d: d["display"].update(state_effects={
+        "enabled": True, "preset": "expressive", "palette": "violet", "reduce_motion": True}))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["display.state_effects.enabled", "display.state_effects.preset",
+                                 "display.state_effects.palette", "display.state_effects.reduce_motion"]
+    assert applied == [(True, "expressive", "violet", True)]
+
+
+def test_state_effects_application_transaction_persists_or_rolls_back(runtime):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_state_effects_applier(lambda config: applied.append(config.state_effects_preset))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    result = application.configure_state_effects({"enabled": True, "preset": "subtle"})
+
+    assert result["saved"]["preset"] == "subtle"
+    assert applied == ["subtle"]
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+    with pytest.raises(ApplicationError) as error:
+        application.configure_state_effects({"preset": "unknown"})
+    assert error.value.code == "invalid_configuration"
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+    with pytest.raises(ApplicationError) as error:
+        application.configure_state_effects({"enabled": "yes"})
+    assert error.value.code == "invalid_configuration"
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+    lifecycle.register_state_effects_applier(lambda _config: (_ for _ in ()).throw(RuntimeError("unavailable")))
+    with pytest.raises(ApplicationError) as error:
+        application.configure_state_effects({"preset": "expressive"})
+    assert error.value.code == "runtime_unavailable"
+    assert RuntimeConfig.from_file(path).state_effects_preset == "subtle"
+
+
+def test_lifecycle_channel_dispatches_state_effects_configuration(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def configure_state_effects(self, payload):
+            received.append(payload)
+            return {"saved": payload}
+
+    service.register_application_service(Application())
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"enabled": True, "preset": "balanced", "reduce_motion": True}
+        assert client.execute("application.configure_state_effects", payload) == {"ok": True, "result": {"saved": payload}}
+        assert received == [payload]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_dispatches_semantic_state_command(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def set_state(self, state):
+            received.append(state)
+            return {"state": state, "accepted": True}
+
+    service.register_application_service(Application())
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.set_state", {"state": "listening"}) == {
+            "ok": True, "result": {"state": "listening", "accepted": True}}
+        assert received == ["listening"]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_imu_behavior_settings_reload_without_restart(runtime):

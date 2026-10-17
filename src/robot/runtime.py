@@ -30,6 +30,8 @@ from robot.core.expression_reaction import ExpressionReactionPolicy
 from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
+from robot.ui.backgrounds import BackgroundResolver
+from robot.ui.state_effects import StateEffectResolver
 from robot.ui.runtime import EyeRenderLoop
 from robot.secrets import SecretsError, SecretsService
 from robot.voice import (AudioOutputProviderFactory, PyAudioCaptureProvider,
@@ -80,6 +82,7 @@ class PhosRuntime:
         self._eye_render_loop = eye_render_loop
         self._vision_pipeline = vision_pipeline
         self._config = config
+        self._state_effects = StateEffectResolver(config) if config is not None else None
         self._vision_forced = vision_forced
         self._sensor_service = sensor_service
         self._air_quality_service = air_quality_service
@@ -134,6 +137,14 @@ class PhosRuntime:
     def apply_appearance(self, config: RuntimeConfig) -> None:
         """Apply validated appearance through the display runtime boundary."""
         self._eye_render_loop.request_appearance(iris_color=config.iris_color)
+
+    def apply_backgrounds(self, config: RuntimeConfig) -> None:
+        """Apply an already-validated state-background configuration live."""
+        self._eye_render_loop.request_backgrounds(BackgroundResolver(config))
+
+    def apply_state_effects(self, config: RuntimeConfig) -> None:
+        self._state_effects = StateEffectResolver(config)
+        self._eye_render_loop.request_state_effects(self._state_effects)
 
     def apply_imu_behavior(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_imu_reactions(
@@ -199,6 +210,7 @@ class PhosRuntime:
         return {
             "robot": {"state": self.core.state.value, "running": self.core.is_running},
             "visual": plain(self._behavior_engine.face_state),
+            "backgrounds": self._eye_render_loop.background_status(),
             "active_visual_source": self._behavior_engine.base_visual_source,
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
@@ -721,7 +733,8 @@ def build_runtime(
     )
     voice = VoiceCaptureSession(
         ResamplingAudioCaptureProvider(PyAudioCaptureProvider(config.voice_input_device, config.voice_input_device_index,
-            config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms), config.voice_processing_sample_rate),
+            config.voice_capture_sample_rate, config.voice_channels, config.voice_chunk_ms,
+            debug_native_wav=config.voice_debug_dump_utterance_wav), config.voice_processing_sample_rate),
         stt_provider, core.events, voice_transition,
         enabled=config.voice_enabled, sample_rate=config.voice_processing_sample_rate, channels=config.voice_channels, chunk_ms=config.voice_chunk_ms,
         speech_start_ms=config.voice_speech_start_ms, silence_end_ms=config.voice_silence_end_ms,
@@ -766,6 +779,8 @@ def build_runtime(
         view["splash"] = {"image": str(splash_image),
                           "title": config.startup_splash_title, "subtitle": config.startup_splash_subtitle}
         return view
+    background_resolver = BackgroundResolver(config)
+    state_effect_resolver = StateEffectResolver(config)
     eye_render_loop = EyeRenderLoop(
         EyeRenderer(width=config.display_width, height=config.display_height,
                     transition_seconds=config.display_transition_seconds, iris_color=config.iris_color),
@@ -778,6 +793,9 @@ def build_runtime(
         startup_supplier=startup_view if config.startup_splash_enabled else None,
         touch_handler=publish_touch,
         touch_settings={"tap_max_duration_ms": config.touch_tap_max_duration_ms, "tap_max_movement_px": config.touch_tap_max_movement_px, "long_press_min_duration_ms": config.touch_long_press_min_duration_ms, "long_press_max_movement_px": config.touch_long_press_max_movement_px, "swipe_min_distance_px": config.touch_swipe_min_distance_px, "swipe_max_vertical_drift_px": config.touch_swipe_max_vertical_drift_px, "swipe_max_duration_ms": config.touch_swipe_max_duration_ms},
+        background_resolver=background_resolver,
+        robot_state_supplier=lambda: behavior_engine.robot_state,
+        state_effect_resolver=state_effect_resolver,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)

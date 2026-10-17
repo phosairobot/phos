@@ -147,6 +147,11 @@ class BehaviorEngine(Behavior):
             resolved = replace(resolved, expression=expression, accent=accent, reaction_strength=1.0)
         return replace(resolved, ambient_overlay=overlay).normalized()
 
+    @property
+    def robot_state(self) -> RobotState:
+        """Return the semantic state that selected the current face intent."""
+        return self._robot_state
+
     def overlay_state(self):
         """Read semantic overlay arbitration state; no renderer is involved."""
         return self._overlay_arbiter.snapshot()

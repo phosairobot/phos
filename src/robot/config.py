@@ -314,7 +314,13 @@ _SCHEMA = {
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
                 "iris_color": "iris_color", "base_visual_source": "base_visual_source",
-                "environment_overlays_enabled": "environment_overlays_enabled"},
+                "environment_overlays_enabled": "environment_overlays_enabled",
+                "backgrounds": {"enabled": "backgrounds_enabled", "idle": "background_idle",
+                    "listening": "background_listening", "thinking": "background_thinking",
+                    "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error"},
+                "state_effects": {"enabled": "state_effects_enabled", "preset": "state_effects_preset",
+                    "palette": "state_effects_palette",
+                    "reduce_motion": "state_effects_reduce_motion"}},
     "led_ring": {"enabled": "led_ring_enabled", "led_count": "led_ring_led_count",
                  "gpio_pin": "led_ring_gpio_pin", "brightness": "led_ring_brightness",
                  "base_color": "led_ring_base_color", "follow_visual_state": "led_ring_follow_visual_state",
@@ -395,7 +401,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path"}
+_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size",
                  "interaction_supported_languages"}
@@ -542,6 +548,17 @@ class RuntimeConfig:
     iris_color: str
     base_visual_source: str
     environment_overlays_enabled: bool
+    backgrounds_enabled: bool
+    background_idle: Optional[Path]
+    background_listening: Optional[Path]
+    background_thinking: Optional[Path]
+    background_speaking: Optional[Path]
+    background_sleeping: Optional[Path]
+    background_error: Optional[Path]
+    state_effects_enabled: bool
+    state_effects_preset: str
+    state_effects_palette: str
+    state_effects_reduce_motion: bool
     led_ring_enabled: bool
     led_ring_led_count: int
     led_ring_gpio_pin: int
@@ -666,6 +683,18 @@ class RuntimeConfig:
         if isinstance(interaction, dict):
             interaction.setdefault("execution_enabled", False)
             interaction.setdefault("response_tts_enabled", False)
+        display = document.get("display") if isinstance(document, dict) else None
+        if isinstance(display, dict):
+            display.setdefault("backgrounds", {"enabled": False, "idle": None, "listening": None,
+                                                "thinking": None, "speaking": None, "sleeping": None,
+                                                "error": None})
+            display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
+                                                  "reduce_motion": False})
+            if isinstance(display["state_effects"], dict):
+                # Retired in favour of immediate semantic state switching.
+                # Consume legacy config safely, but never persist or expose it.
+                display["state_effects"].pop("smooth_transitions", None)
+                display["state_effects"].setdefault("palette", "phos")
         result = object.__new__(cls)
         result._assign(_decode(document), base_dir, overrides)
         if check_paths:
@@ -942,6 +971,14 @@ class RuntimeConfig:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:
             raise ConfigurationError("display.environment_overlays_enabled must be a boolean")
+        if type(self.backgrounds_enabled) is not bool:
+            raise ConfigurationError("display.backgrounds.enabled must be a boolean")
+        if type(self.state_effects_enabled) is not bool or type(self.state_effects_reduce_motion) is not bool:
+            raise ConfigurationError("display.state_effects values must be booleans")
+        if self.state_effects_preset not in {"subtle", "balanced", "expressive"}:
+            raise ConfigurationError("display.state_effects.preset must be subtle, balanced or expressive")
+        if self.state_effects_palette not in {"phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"}:
+            raise ConfigurationError("display.state_effects.palette must be phos, cyan, blue, violet, aqua, amber, white or green")
         for name in ("startup_splash_title", "startup_splash_subtitle"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ConfigurationError(f"{name} must be a nonempty string")
@@ -998,3 +1035,8 @@ class RuntimeConfig:
             model = self.resolve_path(self.voice_stt_model_path)
             if model is None or not model.is_dir() or not os.access(model, os.R_OK):
                 raise ConfigurationError(f"voice.stt.model_path: readable model directory required: {model}")
+        try:
+            from robot.ui.backgrounds import validate_background_assets
+            validate_background_assets(self)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error

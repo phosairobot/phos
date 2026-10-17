@@ -6,12 +6,19 @@ from abc import ABC, abstractmethod
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+import base64
+import math
+import struct
+import zlib
 import logging
 import os
 import time
 from typing import Any, Deque, List, Optional
 
 from .eyes import EyeFrame, EyeGeometry
+from .backgrounds import BackgroundAsset
+from .state_effects import StateEffectParams
+from .state_effect_layer import StateEffectLayer
 from .touch import TouchInputAdapter
 
 logger = logging.getLogger(__name__)
@@ -96,7 +103,8 @@ class EyeDisplay(ABC):
 
     @abstractmethod
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
-             preview_settings: Optional[CameraPreviewSettings] = None) -> None:
+             preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
+             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -123,7 +131,8 @@ class MemoryEyeDisplay(EyeDisplay):
         return None
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
-             preview_settings: Optional[CameraPreviewSettings] = None) -> None:
+             preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
+             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         self.frames.append(frame)
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
@@ -155,6 +164,12 @@ class TkEyeDisplay(EyeDisplay):
         self._startup_image_item = None
         self._startup_image_path = None
         self._touch_adapter = None
+        self._background_photo = None
+        self._background_key = None
+        self._background_failed = set()
+        self._state_effect_layer = StateEffectLayer()
+        self._state_effect_failed = set()
+        self._state_effect_photos = {}
 
     def set_touch_handler(self, handler, **settings) -> None:
         self._touch_adapter = TouchInputAdapter(handler, **settings)
@@ -186,7 +201,8 @@ class TkEyeDisplay(EyeDisplay):
         self._preview_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phos-preview")
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
-             preview_settings: Optional[CameraPreviewSettings] = None) -> None:
+             preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
+             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         if self._root is None or self._canvas is None:
             raise RuntimeError("Display has not been opened.")
         self._canvas.delete("all")
@@ -194,6 +210,8 @@ class TkEyeDisplay(EyeDisplay):
         self._startup_image_path = None
         self._startup_photo = None
         self._canvas.configure(background=frame.background)
+        self._draw_background(background, frame.width, frame.height)
+        self._draw_state_effect(state_effect, frame.width, frame.height, effect_timestamp)
         for eye in frame.eyes:
             self._draw_eye(eye, frame)
         self._draw_ambient_overlay(frame)
@@ -261,6 +279,11 @@ class TkEyeDisplay(EyeDisplay):
         self._startup_photo = None
         self._startup_image_item = None
         self._startup_image_path = None
+        self._background_photo = None
+        self._background_key = None
+        self._background_failed = set()
+        self._state_effect_failed = set()
+        self._state_effect_photos = {}
         if self._preview_executor is not None:
             self._preview_executor.shutdown(wait=False, cancel_futures=True)
             self._preview_executor = None
@@ -280,6 +303,120 @@ class TkEyeDisplay(EyeDisplay):
             color = "#D99B4B" if overlay.air_quality == "warning" else "#C76550"
             for x1, y1, x2, y2 in layout.haze:
                 self._canvas.create_arc(x1, y1, x2, y2, start=190, extent=160, style=self._tk.ARC, outline=color, width=3)
+
+    def _draw_state_effect(self, effect: Optional[StateEffectParams], width: int, height: int, timestamp: float) -> None:
+        if effect is None:
+            return
+        key = (effect.mode, width, height)
+        try:
+            self._state_effect_layer.render(self._canvas, effect, width, height, timestamp, arc_style=self._tk.ARC,
+                                            glow_factory=self._state_effect_photo)
+        except Exception as error:
+            if key not in self._state_effect_failed:
+                self._state_effect_failed.add(key)
+                logger.warning("PHOS VISUAL: state effect unavailable mode=%s reason=%s", effect.mode, type(error).__name__)
+
+    def prewarm_state_effect(self, effect: StateEffectParams, width: int, height: int, timestamp: float) -> None:
+        """Prepare the small active-palette texture set before the next frame."""
+        if self._tk is None:
+            return
+        started = time.monotonic()
+        try:
+            for primitive in self._state_effect_layer.primitives(effect, width, height, timestamp):
+                if primitive.kind == "glow":
+                    self._state_effect_photo(primitive)
+        except Exception:
+            logger.warning("PHOS VISUAL: state effect prewarm unavailable mode=%s", effect.mode)
+        else:
+            logger.debug("PHOS VISUAL: state_effect palette=%s prepare_ms=%.1f", effect.palette.primary,
+                         (time.monotonic() - started) * 1000)
+
+    def _state_effect_photo(self, primitive):
+        """Return a cached transparent radial PNG for a glow-field primitive."""
+        x1, y1, x2, y2 = primitive.bounds
+        width, height = max(2, round(x2-x1)), max(2, round(y2-y1))
+        # Bucketing alpha prevents smooth transitions from manufacturing a
+        # PhotoImage each frame while retaining visible preset differences.
+        opacity = round(max(0.0, min(.95, primitive.opacity)) * 24) / 24
+        key = (width, height, primitive.color, opacity)
+        photo = self._state_effect_photos.get(key)
+        if photo is not None:
+            return photo
+        try:
+            rgba = self._glow_rgba(width, height, primitive.color, opacity)
+            # Keep this dependency-free: Tk supports transparent PNG directly,
+            # while this tiny encoder is used only on cache misses (never in
+            # the hot frame loop).
+            scanlines = bytearray()
+            row_bytes = width * 4
+            for row in range(height):
+                scanlines.append(0)  # PNG filter: None; makes round-trip bounded and explicit.
+                start = row * row_bytes
+                scanlines.extend(rgba[start:start + row_bytes])
+            def chunk(name, data):
+                return (struct.pack(">I", len(data)) + name + data
+                        + struct.pack(">I", zlib.crc32(name + data) & 0xffffffff))
+            encoded = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+                       + chunk(b"IDAT", zlib.compress(bytes(scanlines), 6)) + chunk(b"IEND", b""))
+            photo = self._tk.PhotoImage(data=base64.b64encode(encoded), format="PNG")
+            self._state_effect_photos[key] = photo
+            return photo
+        except Exception:
+            return None
+
+    @staticmethod
+    def _glow_rgba(width, height, color, opacity):
+        """Cached-texture input: saturated core with a still-soft transparent edge."""
+        # This runs only for a cache miss.  Keep it stdlib-only: the Pi
+        # display must not silently lose effects when optional NumPy/OpenCV is
+        # absent. The hot render path merely reuses the resulting PhotoImage.
+        red, green, blue = (int(color[index:index+2], 16) for index in (1, 3, 5))
+        image = bytearray(width * height * 4)
+        index = 0
+        for y in range(height):
+            yn = (2 * y / max(1, height - 1)) - 1
+            for x in range(width):
+                xn = (2 * x / max(1, width - 1)) - 1
+                edge = max(0.0, 1.0 - (xn*xn + yn*yn))
+                alpha = round((edge ** 1.35) * opacity * 255)
+                image[index], image[index + 1], image[index + 2], image[index + 3] = blue, green, red, alpha
+                index += 4
+        return bytes(image)
+
+    def _draw_background(self, asset: Optional[BackgroundAsset], width: int, height: int) -> None:
+        """Draw one prepared state image beneath the face; never decode per frame."""
+        if asset is None or not asset.available or asset.path is None:
+            self._background_photo = None
+            self._background_key = None
+            return
+        key = (asset.path, width, height)
+        if key != self._background_key:
+            self._background_key = key
+            self._background_photo = self._prepare_background(asset, width, height)
+        if self._background_photo is not None:
+            self._canvas.create_image(0, 0, image=self._background_photo, anchor="nw")
+
+    def _prepare_background(self, asset: BackgroundAsset, width: int, height: int):
+        key = (asset.path, width, height)
+        if key in self._background_failed:
+            return None
+        try:
+            import cv2
+            image = cv2.imread(str(asset.path), cv2.IMREAD_COLOR)
+            if image is None:
+                raise ValueError("invalid_image")
+            source_height, source_width = image.shape[:2]
+            scale = max(width / source_width, height / source_height)
+            resized = cv2.resize(image, (round(source_width * scale), round(source_height * scale)), interpolation=cv2.INTER_AREA)
+            left, top = (resized.shape[1] - width) // 2, (resized.shape[0] - height) // 2
+            cropped = resized[top:top + height, left:left + width]
+            rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+            encoded = f"P6 {width} {height} 255\n".encode("ascii") + rgb.tobytes()
+            return self._tk.PhotoImage(data=encoded, format="PPM")
+        except Exception:
+            self._background_failed.add(key)
+            logger.warning("PHOS VISUAL: background unavailable state=%s reason=invalid_image", asset.state)
+            return None
 
     def _draw_eye(self, eye: EyeGeometry, frame: EyeFrame) -> None:
         if eye.closed:

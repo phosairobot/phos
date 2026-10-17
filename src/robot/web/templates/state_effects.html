@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>State Effects</h2>
+<p>Subtle peripheral visual feedback for PHOS states. These controls affect presentation only.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('appearance_state_effects') }}" id="state-effects-panel">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<section class="state-effects-card">
+<fieldset>
+<legend>State Effects</legend>
+<label><input id="state-effects-enabled" name="state-effects-enabled" type="checkbox" {{ 'checked' if document.display.state_effects.enabled else '' }}> Enable state effects</label>
+<div class="field state-effects-options"><span>Preset</span>
+<label><input id="state-effects-preset-subtle" name="state-effects-preset" type="radio" value="subtle" {{ 'checked' if document.display.state_effects.preset == 'subtle' else '' }}> <strong>Subtle</strong><small>Minimal ambient motion and brightness.</small></label>
+<label><input id="state-effects-preset-balanced" name="state-effects-preset" type="radio" value="balanced" {{ 'checked' if document.display.state_effects.preset == 'balanced' else '' }}> <strong>Balanced</strong><small>Default PHOS visual behavior.</small></label>
+<label><input id="state-effects-preset-expressive" name="state-effects-preset" type="radio" value="expressive" {{ 'checked' if document.display.state_effects.preset == 'expressive' else '' }}> <strong>Expressive</strong><small>Stronger but still bounded visual effects.</small></label>
+</div>
+<label><input id="state-effects-reduce-motion" name="state-effects-reduce-motion" type="checkbox" {{ 'checked' if document.display.state_effects.reduce_motion else '' }}> Reduce motion <small>Suppresses continuous movement while preserving basic state feedback.</small></label>
+</fieldset>
+</section>
+<section class="state-effects-card state-effects-palette-card"><fieldset><legend>Effect Color</legend><div class="field"><label for="state-effects-palette">Effect palette</label><select id="state-effects-palette" name="state-effects-palette">{% for value, label in (('phos','PHOS'), ('cyan','Cyan'), ('blue','Blue'), ('violet','Violet'), ('aqua','Aqua'), ('amber','Amber'), ('white','White'), ('green','Green')) %}<option value="{{ value }}" {{ 'selected' if document.display.state_effects.palette == value else '' }}>{{ label }}</option>{% endfor %}</select></div></fieldset></section>
+<button class="save">Save State Effects</button>
+</form>
+{% endblock %}

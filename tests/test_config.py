@@ -35,6 +35,52 @@ def test_canonical_config_is_complete_safe_and_round_trips(document):
     assert config.display_width == 800 and config.display_height == 600
 
 
+def test_state_effect_defaults_backfill_and_validate(document, tmp_path):
+    document["display"].pop("state_effects", None)
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert (config.state_effects_enabled, config.state_effects_preset,
+            config.state_effects_palette, config.state_effects_reduce_motion) == (False, "balanced", "phos", False)
+    for preset in ("subtle", "balanced", "expressive"):
+        document["display"]["state_effects"] = {"enabled": True, "preset": preset, "reduce_motion": False}
+        assert RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).state_effects_preset == preset
+    for palette in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"):
+        document["display"]["state_effects"]["palette"] = palette
+        assert RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).state_effects_palette == palette
+    document["display"]["state_effects"]["palette"] = "invalid"
+    with pytest.raises(ConfigurationError, match="state_effects.palette"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    document["display"]["state_effects"]["palette"] = "phos"
+    document["display"]["state_effects"]["preset"] = "unknown"
+    with pytest.raises(ConfigurationError, match="state_effects.preset"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+    document["display"]["state_effects"] = {"enabled": "yes", "preset": "balanced", "reduce_motion": None}
+    with pytest.raises(ConfigurationError, match="state_effects values must be booleans"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
+def test_legacy_state_effect_smooth_transitions_loads_but_is_not_persisted(document, tmp_path):
+    document["display"]["state_effects"]["smooth_transitions"] = False
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert "smooth_transitions" not in config.to_dict()["display"]["state_effects"]
+
+
+@pytest.mark.parametrize(("filename", "content", "reason"), [
+    ("missing.png", None, "asset_missing"),
+    ("idle.gif", b"GIF89a", "unsupported_format"),
+    ("broken.png", b"not an image", "invalid_image"),
+])
+def test_enabled_background_assets_require_a_supported_decodable_file(document, tmp_path, filename, content, reason):
+    directory = tmp_path / "backgrounds"
+    directory.mkdir()
+    if content is not None:
+        (directory / filename).write_bytes(content)
+    document["display"]["backgrounds"].update(enabled=True, idle=f"backgrounds/{filename}")
+
+    with pytest.raises(ConfigurationError, match=reason):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path)
+
+
 def test_legacy_voice_stt_without_provider_defaults_to_local_vosk(tmp_path, document):
     document["voice"]["stt"].pop("provider")
     document["voice"]["stt"].pop("cartesia")
