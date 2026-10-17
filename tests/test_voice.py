@@ -2,14 +2,16 @@ import asyncio
 import logging
 import sys
 import threading
+import time
 import wave
 from types import SimpleNamespace
 import pytest
 
 from robot.core import EventBus, RobotState
+import robot.voice.capture as capture_module
 from robot.voice import (CartesiaSTTProvider, PCM16Resampler, PyAudioCaptureProvider,
                          ResamplingAudioCaptureProvider, SpeechRecognitionResult, STTConfigurationError,
-                         STTProviderError, STTProviderFactory, UnsupportedCaptureRate,
+                         STTProviderError, STTProviderFactory, UnsupportedCaptureRate, CaptureDeviceUnavailable,
                          VoiceCaptureSession, VoiceActivityDetector, VoskSTTProvider)
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 
@@ -91,7 +93,7 @@ def _fake_pyaudio(monkeypatch, supported, stream=None):
         def close(self): pass
     class Audio:
         def get_device_count(self): return 3
-        def get_device_info_by_index(self, index): return {"index": index, "name": "USB PnP Sound Device: Audio (hw:2,0)", "maxInputChannels": 1, "defaultSampleRate": 44100}
+        def get_device_info_by_index(self, index): return {"index": index, "name": "USB PnP Sound Device: Audio (hw:2,0)" if index == 0 else f"Other input {index}", "maxInputChannels": 1, "defaultSampleRate": 44100}
         def get_default_input_device_info(self): return self.get_device_info_by_index(2)
         def is_format_supported(self, rate, **kwargs): return rate in supported
         def open(self, **kwargs): self.opened = kwargs; return stream or Stream()
@@ -107,16 +109,34 @@ def test_capture_negotiates_native_rate_when_requested_16k_is_unsupported(monkey
     assert provider.capture_rate == 44100 and provider.resolved_device_index == 0
     assert provider._audio.opened == {"format": 8, "channels": 1, "rate": 44100, "input": True,
                                       "input_device_index": 0, "frames_per_buffer": 1323}
+    assert provider._native_frames_per_read == 1323
     asyncio.run(provider.stop())
 
 
-def test_capture_reports_unsupported_rate_with_device_default(monkeypatch):
+def test_stale_numeric_capture_index_is_rejected_instead_of_selecting_another_input(monkeypatch):
     _fake_pyaudio(monkeypatch, set())
     provider = PyAudioCaptureProvider(device_index=2, sample_rate=16000)
     try: asyncio.run(provider.start())
-    except UnsupportedCaptureRate as error:
-        assert error.requested_rate == 16000 and error.device_default_rate == 44100
-    else: raise AssertionError("unsupported microphone format was accepted")
+    except CaptureDeviceUnavailable as error:
+        assert str(error) == "capture_device_name_required"
+    else: raise AssertionError("stale numeric input index was accepted")
+
+
+def test_configured_device_name_selects_the_same_microphone_after_enumeration_reorder(monkeypatch):
+    class Audio:
+        def get_device_count(self): return 3
+        def get_device_info_by_index(self, index):
+            names = ["HDMI input", "Other USB input", "USB PnP Sound Device"]
+            return {"index": index, "name": names[index], "maxInputChannels": 1, "defaultSampleRate": 48000}
+        def get_default_input_device_info(self): return self.get_device_info_by_index(0)
+        def is_format_supported(self, rate, **_kwargs): return rate == 48000
+        def open(self, **kwargs): self.opened = kwargs; return SimpleNamespace(stop_stream=lambda: None, close=lambda: None)
+        def terminate(self): pass
+    monkeypatch.setitem(sys.modules, "pyaudio", SimpleNamespace(paInt16=8, PyAudio=Audio))
+    provider = PyAudioCaptureProvider(device_name="USB PnP")
+    asyncio.run(provider.start())
+    assert (provider.resolved_device_index, provider.capture_rate) == (2, 48000)
+    asyncio.run(provider.stop())
 
 
 def test_pcm16_resampler_preserves_mono_framing_and_session_receives_16k():
@@ -147,9 +167,80 @@ def test_capture_read_frames_yields_audio_and_logs_first_read(monkeypatch, caplo
             return frame
     with caplog.at_level(logging.DEBUG): frame = asyncio.run(run())
     assert len(frame) == 1323 * 2
-    assert "VOICE AUDIO READ: waiting" in caplog.text
-    assert "VOICE AUDIO READ: received bytes=2646" in caplog.text
-    assert "VOICE AUDIO FRAME: bytes=2646 capture_rate=44100 processing_rate=44100" in caplog.text
+    assert "PHOS VOICE CAPTURE: native_read_seq=1 native_frames=1323 native_bytes=2646" in caplog.text
+
+
+def test_dedicated_capture_executor_yields_multiple_sequential_chunks(monkeypatch):
+    chunks = [_pcm(100, 1323), _pcm(200, 1323), _pcm(300, 1323)]
+    class Stream:
+        def __init__(self): self.index = 0
+        def read(self, _frames, exception_on_overflow=False):
+            value = chunks[self.index]; self.index += 1; return value
+        def stop_stream(self): pass
+        def close(self): pass
+    _fake_pyaudio(monkeypatch, {44100}, Stream())
+    provider = PyAudioCaptureProvider(device_name="USB PnP")
+    async def run():
+        await provider.start()
+        iterator = provider.read_frames()
+        result = [await anext(iterator) for _ in chunks]
+        await provider.stop()
+        return result, provider.native_chunks_read
+    result, native_chunks = asyncio.run(run())
+    assert result == chunks and native_chunks == 3
+
+
+def test_every_native_chunk_reaches_resampling_processing(monkeypatch):
+    chunks = [_pcm(100, 1323), _pcm(200, 1323), _pcm(300, 1323)]
+    class Stream:
+        def __init__(self): self.index = 0
+        def read(self, _frames, exception_on_overflow=False):
+            value = chunks[self.index]; self.index += 1; return value
+        def stop_stream(self): pass
+        def close(self): pass
+    _fake_pyaudio(monkeypatch, {44100}, Stream())
+    raw = PyAudioCaptureProvider(device_name="USB PnP")
+    capture = ResamplingAudioCaptureProvider(raw, 16000)
+    async def run():
+        await capture.start()
+        iterator = capture.read_frames()
+        output = [await anext(iterator) for _ in chunks]
+        await capture.stop()
+        return output
+    output = asyncio.run(run())
+    assert len(output) == 3
+    assert raw.native_chunks_read == raw.processed_chunks == 3
+
+
+def test_capture_producer_continues_while_consumer_is_delayed_and_queue_is_bounded(monkeypatch):
+    class RealtimeStream:
+        def __init__(self): self.read_count = 0; self.stopped = False
+        def read(self, frames, exception_on_overflow=False):
+            time.sleep(.01)
+            self.read_count += 1
+            return _pcm(self.read_count, frames)
+        def stop_stream(self): self.stopped = True
+        def close(self): self.stopped = True
+    stream = RealtimeStream()
+    _fake_pyaudio(monkeypatch, {44100}, stream)
+    provider = PyAudioCaptureProvider(device_name="USB PnP", native_queue_chunks=2)
+    async def run():
+        await provider.start()
+        iterator = provider.read_frames()
+        first = await anext(iterator)
+        # Processing takes much longer than one 30ms audio chunk. The worker
+        # must nevertheless continue consuming the native stream.
+        await asyncio.sleep(.08)
+        second = await anext(iterator)
+        await provider.stop()
+        return first, second
+    first, second = asyncio.run(run())
+    assert int.from_bytes(first[:2], "little", signed=True) == 1
+    assert int.from_bytes(second[:2], "little", signed=True) == 2
+    assert provider.native_chunks_read >= 6
+    assert provider.queue_high_watermark <= 2
+    assert provider.dropped_chunks > 0
+    assert stream.stopped and provider._capture_thread is None
 
 
 def test_blocking_capture_read_does_not_freeze_event_loop_and_cancellation_closes_stream(monkeypatch):
@@ -191,7 +282,7 @@ def test_capture_read_error_is_logged_with_read_stage(monkeypatch, caplog):
         try: asyncio.run(run())
         except OSError: pass
         else: raise AssertionError("read failure was swallowed")
-    assert "VOICE AUDIO ERROR: stage=read exception_type=OSError exception_message=device disconnected" in caplog.text
+    assert "VOICE AUDIO ERROR: stage=capture_worker exception_type=OSError exception_message=device disconnected" in caplog.text
 
 
 def test_resampling_provider_yields_16k_pcm_and_logs_rates(caplog):
@@ -210,6 +301,137 @@ def test_resampling_provider_yields_16k_pcm_and_logs_rates(caplog):
     assert len(frame) % 2 == 0 and 940 <= len(frame) <= 970
     assert "VOICE AUDIO RESAMPLING: input_rate=44100 output_rate=16000" in caplog.text
     assert "VOICE AUDIO FRAME:" in caplog.text
+
+
+def test_chunk_geometry_keeps_native_and_processing_rate_domains_separate(monkeypatch, caplog):
+    _fake_pyaudio(monkeypatch, {44100})
+    raw = PyAudioCaptureProvider(device_name="USB PnP", sample_rate=16000, chunk_ms=30)
+    capture = ResamplingAudioCaptureProvider(raw, 16000)
+    async def run():
+        await capture.start()
+        result = raw._native_frames_per_read, capture.processing_frames_per_chunk
+        await capture.stop()
+        return result
+    with caplog.at_level(logging.INFO): native_frames, processing_frames = asyncio.run(run())
+    assert (native_frames, processing_frames) == (1323, 480)
+    assert "native_frames_per_read=1323 processing_frames_per_chunk=480" in caplog.text
+
+
+def test_native_capture_reports_realtime_ratio_from_wall_and_audio_duration(monkeypatch, tmp_path, caplog):
+    provider = PyAudioCaptureProvider(debug_native_wav=True, debug_native_wav_path=tmp_path / "native.wav")
+    provider.capture_rate, provider.channels, provider._capture_started_at = 44100, 1, 100.0
+    monkeypatch.setattr(capture_module.time, "monotonic", lambda: 106.3)
+    # 6.3 seconds at 44.1 kHz, mono PCM16.
+    pcm = _pcm(100, 44100 * 63 // 10)
+    with caplog.at_level(logging.INFO):
+        provider._write_native_wav(pcm)
+    assert "capture_wall_ms=6300 native_audio_ms=6300 realtime_ratio=1.0" in caplog.text
+
+
+def test_stereo_capture_is_downmixed_before_the_single_16k_resample():
+    left, right = _pcm(1000, 4410), _pcm(-1000, 4410)
+    stereo = b"".join(left[index:index + 2] + right[index:index + 2] for index in range(0, len(left), 2))
+    class Native:
+        capture_rate, channels, resolved_device_name, resolved_device_index = 44100, 2, "USB", 2
+        def available(self): return True
+        async def start(self): pass
+        async def stop(self): pass
+        async def close(self): pass
+        async def read_frames(self): yield stereo
+    wrapped = ResamplingAudioCaptureProvider(Native(), 16000)
+    async def run():
+        await wrapped.start()
+        async for frame in wrapped.read_frames(): return frame
+    frame = asyncio.run(run())
+    assert len(frame) % 2 == 0 and 3000 <= len(frame) <= 3400
+    assert max(abs(value) for value in memoryview(frame).cast("h")) <= 2
+
+
+def test_debug_native_capture_wav_is_written_before_processing(monkeypatch, tmp_path):
+    chunks = [_pcm(100, 3), _pcm(-200, 5), _pcm(300, 2)]
+    class Stream:
+        def __init__(self): self.index = 0
+        def read(self, _frames, exception_on_overflow=False):
+            value = chunks[self.index]; self.index += 1; return value
+        def stop_stream(self): pass
+        def close(self): pass
+    _fake_pyaudio(monkeypatch, {44100}, Stream())
+    native = tmp_path / "phos-debug-native-capture.wav"
+    provider = PyAudioCaptureProvider(device_name="USB PnP", sample_rate=16000,
+                                      debug_native_wav=True, debug_native_wav_path=native)
+    async def run():
+        await provider.start()
+        iterator = provider.read_frames()
+        for _ in chunks: await anext(iterator)
+        await provider.stop()
+    asyncio.run(run())
+    with wave.open(str(native), "rb") as captured:
+        assert (captured.getframerate(), captured.getnchannels(), captured.getsampwidth()) == (44100, 1, 2)
+        expected = b"".join(chunks)
+        assert captured.getnframes() == len(expected) // 2
+        assert captured.readframes(captured.getnframes()) == expected
+
+
+def test_native_debug_duration_uses_all_raw_frames_not_vad_sized(monkeypatch, tmp_path, caplog):
+    # Silence is included deliberately: VAD would exclude it from an utterance,
+    # but native diagnostics must preserve every stream.read() byte.
+    chunks = [_pcm(0, 441), _pcm(0, 441), _pcm(500, 441), _pcm(0, 441)]
+    class Stream:
+        def __init__(self): self.index = 0
+        def read(self, _frames, exception_on_overflow=False):
+            value = chunks[self.index]; self.index += 1; return value
+        def stop_stream(self): pass
+        def close(self): pass
+    _fake_pyaudio(monkeypatch, {44100}, Stream())
+    native = tmp_path / "native.wav"
+    provider = PyAudioCaptureProvider(device_name="USB PnP", debug_native_wav=True,
+                                      debug_native_wav_path=native)
+    async def run():
+        await provider.start()
+        iterator = provider.read_frames()
+        for _ in chunks: await anext(iterator)
+        await provider.stop()
+    with caplog.at_level(logging.INFO): asyncio.run(run())
+    expected = b"".join(chunks)
+    with wave.open(str(native), "rb") as captured:
+        assert captured.readframes(captured.getnframes()) == expected
+        assert captured.getnframes() == len(expected) // 2
+        assert captured.getnframes() / captured.getframerate() == pytest.approx(.04)
+    assert "PHOS VOICE NATIVE: frames=1764 bytes=3528 duration_ms=40" in caplog.text
+
+
+def test_native_debug_dump_is_independent_from_vad_selected_utterance(monkeypatch, tmp_path):
+    # Six native 30ms reads: one leading silence is intentionally not part of
+    # the VAD utterance (pre-roll is disabled), but must stay in the diagnostic.
+    chunks = [_pcm(0, 1323), _pcm(500, 1323), _pcm(500, 1323),
+              _pcm(0, 1323), _pcm(0, 1323), _pcm(0, 1323)]
+    class Stream:
+        def __init__(self): self.index = 0
+        def read(self, _frames, exception_on_overflow=False):
+            value = chunks[self.index]; self.index += 1; return value
+        def stop_stream(self): pass
+        def close(self): pass
+    _fake_pyaudio(monkeypatch, {44100}, Stream())
+    native, utterance = tmp_path / "native.wav", tmp_path / "utterance.wav"
+    raw = PyAudioCaptureProvider(device_name="USB PnP", debug_native_wav=True,
+                                 debug_native_wav_path=native)
+    capture = ResamplingAudioCaptureProvider(raw, 16000)
+    async def transition(_state, _reason): pass
+    session = VoiceCaptureSession(capture, _STT(), EventBus(), transition, enabled=True,
+        sample_rate=16000, channels=1, chunk_ms=30, speech_start_ms=60, silence_end_ms=90,
+        min_utterance_ms=30, max_utterance_ms=1000, threshold=100, pre_roll_ms=0,
+        debug_dump_utterance_wav=True, debug_utterance_wav_path=utterance)
+    async def run():
+        await session.start()
+        await session._task
+    asyncio.run(run())
+    with wave.open(str(native), "rb") as native_wav:
+        native_payload = native_wav.readframes(native_wav.getnframes())
+        assert native_payload == b"".join(chunks)
+        assert (native_wav.getframerate(), native_wav.getnchannels()) == (44100, 1)
+    with wave.open(str(utterance), "rb") as utterance_wav:
+        assert (utterance_wav.getframerate(), utterance_wav.getnchannels(), utterance_wav.getsampwidth()) == (16000, 1, 2)
+        assert utterance_wav.getnframes() < len(native_payload) // 2
 
 
 class _Capture:
@@ -247,6 +469,29 @@ def test_capture_session_transcribes_bounded_utterance_and_returns_idle(caplog):
     levels = [record.message for record in caplog.records if record.message.startswith("VOICE VAD LEVEL:")]
     assert len(levels) == 1
     assert "rms=300 peak=300 threshold=100 speech_candidate_ms=30 speech_active=False" in levels[0]
+
+
+def test_capture_processing_stall_ends_session_cleanly():
+    class StalledCapture:
+        def __init__(self): self.stopped = False
+        async def start(self): pass
+        async def stop(self): self.stopped = True
+        async def read_frames(self):
+            await asyncio.Event().wait()
+            yield b""
+    capture, states = StalledCapture(), []
+    async def transition(state, _reason): states.append(state)
+    session = VoiceCaptureSession(capture, _STT(), EventBus(), transition, enabled=True, sample_rate=16000,
+        channels=1, chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30,
+        max_utterance_ms=1000, threshold=100, capture_stall_timeout_s=.01)
+    async def run():
+        await session.start()
+        await session._task
+    asyncio.run(run())
+    assert capture.stopped
+    assert session.status()["state"] == "idle"
+    assert session.status()["last_error"] == "capture_processing_stalled"
+    assert states == [RobotState.LISTENING, RobotState.IDLE]
 
 
 def test_active_voice_session_keeps_pinned_stt_when_default_is_replaced():
