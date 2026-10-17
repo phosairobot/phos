@@ -146,6 +146,18 @@ def test_preset_reduce_motion_and_live_replacement_change_the_next_frame():
     assert updated.intensity > subtle.intensity and updated.motion_scale == 0
 
 
+def test_live_palette_replacement_prewarm_requests_active_state_textures():
+    class PrewarmDisplay(Display):
+        def __init__(self): super().__init__(); self.prewarmed = []
+        def prewarm_state_effect(self, effect, width, height, timestamp): self.prewarmed.append((effect, width, height))
+    display, state = PrewarmDisplay(), [RobotState.LISTENING]
+    loop = _loop(display, _resolver(state_effects_palette="phos"), state)
+    loop._effect_dimensions = (800, 600)
+    loop._replace_state_effect_resolver(_resolver(state_effects_palette="amber"))
+    assert display.prewarmed[-1][0].palette.primary == "#FFE05B"
+    assert display.prewarmed[-1][1:] == (800, 600)
+
+
 def test_smooth_transition_interpolates_but_false_switches_immediately():
     display, state = Display(), [RobotState.IDLE]
     loop = _loop(display, _resolver(state_effects_smooth_transitions=True), state)

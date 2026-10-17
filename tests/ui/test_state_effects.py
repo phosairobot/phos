@@ -49,7 +49,9 @@ def test_palette_channels_have_deliberately_distinct_real_display_identities():
     cyan, blue, violet, aqua, amber = (rgb(palettes[name].primary) for name in ("cyan", "blue", "violet", "aqua", "amber"))
     assert cyan[1] > cyan[0] and cyan[2] > cyan[0]
     assert blue[2] > blue[1] and blue[2] > blue[0]
-    assert aqua[1] > aqua[2] and aqua[1] > blue[1]
+    assert cyan[1] - blue[1] >= 120 and aqua[1] - blue[1] >= 120
+    assert aqua[1] > aqua[2]
+    assert aqua[1] - aqua[2] > cyan[1] - cyan[2]
     assert violet[0] > violet[1] and violet[2] > violet[1]
     assert amber[0] > amber[1] > amber[2]
 

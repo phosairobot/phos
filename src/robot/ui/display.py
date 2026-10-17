@@ -316,6 +316,21 @@ class TkEyeDisplay(EyeDisplay):
                 self._state_effect_failed.add(key)
                 logger.warning("PHOS VISUAL: state effect unavailable mode=%s reason=%s", effect.mode, type(error).__name__)
 
+    def prewarm_state_effect(self, effect: StateEffectParams, width: int, height: int, timestamp: float) -> None:
+        """Prepare the small active-palette texture set before the next frame."""
+        if self._tk is None:
+            return
+        started = time.monotonic()
+        try:
+            for primitive in self._state_effect_layer.primitives(effect, width, height, timestamp):
+                if primitive.kind == "glow":
+                    self._state_effect_photo(primitive)
+        except Exception:
+            logger.warning("PHOS VISUAL: state effect prewarm unavailable mode=%s", effect.mode)
+        else:
+            logger.debug("PHOS VISUAL: state_effect palette=%s prepare_ms=%.1f", effect.palette.primary,
+                         (time.monotonic() - started) * 1000)
+
     def _state_effect_photo(self, primitive):
         """Return a cached transparent radial PNG for a glow-field primitive."""
         x1, y1, x2, y2 = primitive.bounds

@@ -68,6 +68,7 @@ class EyeRenderLoop(Behavior):
         self._effect_current = StateEffectParams("idle")
         self._effect_changed_at = 0.0
         self._effect_initialized = False
+        self._effect_dimensions = None
         self._task: Optional[asyncio.Task[None]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._appearance_lock = Lock()
@@ -113,6 +114,10 @@ class EyeRenderLoop(Behavior):
     def _replace_state_effect_resolver(self, resolver: StateEffectResolver) -> None:
         self._state_effect_resolver = resolver
         self._effect_changed_at = 0.0  # force a target refresh on the next frame
+        if self._effect_dimensions is not None and hasattr(self._display, "prewarm_state_effect"):
+            state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
+            effect = resolver.resolve(state)
+            self._display.prewarm_state_effect(effect, *self._effect_dimensions, time.monotonic())
         logger.info("PHOS VISUAL: state effects configured enabled=%s preset=%s", resolver.enabled, resolver.preset)
 
     def _replace_background_resolver(self, resolver: BackgroundResolver) -> None:
@@ -219,6 +224,7 @@ class EyeRenderLoop(Behavior):
             await asyncio.sleep(max(0.0, self._frame_interval - (time.monotonic() - started_at)))
 
     def _draw(self, frame, preview=None, *, timestamp=None) -> None:
+        self._effect_dimensions = (frame.width, frame.height)
         if self._startup_supplier is not None:
             startup = self._startup_supplier()
             state = startup["overall_state"]

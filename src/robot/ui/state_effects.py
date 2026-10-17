@@ -16,10 +16,10 @@ class StateEffectPalette:
 
 _PALETTES = {
     "phos": StateEffectPalette("#62D7FF", "#8E9BFF", "#46CBE8", 1.05),
-    "cyan": StateEffectPalette("#38F2FF", "#78E9FF", "#19CFE8", 1.08),
-    "blue": StateEffectPalette("#287DFF", "#4E67FF", "#2458D6", 1.12),
+    "cyan": StateEffectPalette("#4DF6FF", "#7BEFFF", "#1DDDEB", 1.08),
+    "blue": StateEffectPalette("#1E5BFF", "#2C3FFF", "#1737C8", 1.12),
     "violet": StateEffectPalette("#B18CFF", "#9678F5", "#8A72D9", 1.15),
-    "aqua": StateEffectPalette("#25F0B2", "#42E6C8", "#17C796", 1.16),
+    "aqua": StateEffectPalette("#22F0A8", "#3BE6BF", "#12C887", 1.16),
     "amber": StateEffectPalette("#FFE05B", "#FFAC3D", "#F58A24", 1.32),
     "white": StateEffectPalette("#F4FAFF", "#DDEBFF", "#C8D8EE", 1.04),
     "green": StateEffectPalette("#62F56E", "#35D95A", "#22B847", 1.24),

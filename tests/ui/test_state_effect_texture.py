@@ -49,3 +49,14 @@ def test_cached_png_round_trip_preserves_rgba_and_photo_reference():
     assert center[3] > 0 and center[:3] == _pixel(raw, width, width//2, height//2)[:3]
     assert display._state_effect_photo(primitive) is display._state_effect_photo(primitive)
     assert len(created) == 1
+
+
+def test_prewarm_creates_once_then_reuses_required_active_palette_textures():
+    display = TkEyeDisplay()
+    created = []
+    display._tk = SimpleNamespace(PhotoImage=lambda **kwargs: created.append(kwargs) or object())
+    effect = _effect(RobotState.LISTENING)
+    display.prewarm_state_effect(effect, 800, 600, 1)
+    first = len(created)
+    display.prewarm_state_effect(effect, 800, 600, 1)
+    assert first > 0 and len(created) == first
