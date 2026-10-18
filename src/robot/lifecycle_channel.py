@@ -1,5 +1,9 @@
 """Bounded local process channel for application lifecycle operations."""
+import logging
 from threading import Lock
+
+
+logger = logging.getLogger(__name__)
 
 
 class LifecycleClient:
@@ -40,13 +44,25 @@ class LifecycleClient:
         return {"ok": False, "error": "Runtime lifecycle service is unavailable. An in-flight request may have completed; check PHOS locally before retrying."}
 
 
-def serve_lifecycle(connection, service, stop):
+def serve_lifecycle(connection, service, stop, ready=None):
     try:
+        if ready is not None:
+            ready.set()
         while not stop.is_set():
             if connection.poll(.2):
-                operation = connection.recv()
-                result = service.execute(operation)
-                connection.send(result)
+                try:
+                    operation = connection.recv()
+                except (EOFError, OSError):
+                    return
+                try:
+                    result = service.execute(operation)
+                except Exception:
+                    logger.exception("Lifecycle dispatcher failed")
+                    result = {"ok": False, "error": "PHOS could not process the lifecycle request.", "status": 500}
+                try:
+                    connection.send(result)
+                except (EOFError, OSError):
+                    return
     except (EOFError, OSError):
         pass
     finally:

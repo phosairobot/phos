@@ -159,6 +159,7 @@ def test_lifecycle_channel_dispatches_state_effects_configuration(runtime):
             return {"saved": payload}
 
     service.register_application_service(Application())
+    service.mark_application_ready()
     parent, child = multiprocessing.Pipe()
     stop = Event()
     thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
@@ -185,6 +186,7 @@ def test_lifecycle_channel_dispatches_semantic_state_command(runtime):
             return {"state": state, "accepted": True}
 
     service.register_application_service(Application())
+    service.mark_application_ready()
     parent, child = multiprocessing.Pipe()
     stop = Event()
     thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
@@ -424,6 +426,77 @@ def test_local_channel_updates_parent_service(runtime):
         assert not thread.is_alive()
 
 
+def test_application_channel_recovers_after_runtime_command_boundary_becomes_ready(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def start_listening(self):
+            return {"listening": True}
+
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        before_registration = client.execute("application.start_listening")
+        assert before_registration == {
+            "ok": False,
+            "error": {
+                "code": "service_unavailable",
+                "message": "PHOS runtime command service is starting. Retry shortly.",
+                "details": {"reason": "runtime_starting"},
+            },
+            "status": 503,
+        }
+        assert client.available is True
+
+        service.register_application_service(Application())
+        before_runtime_start = client.execute("application.start_listening")
+        assert before_runtime_start["error"]["details"] == {"reason": "runtime_starting"}
+        assert client.available is True
+
+        service.mark_application_ready()
+        assert client.execute("application.start_listening") == {
+            "ok": True, "result": {"listening": True}}
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_dispatcher_survives_one_unexpected_service_failure(caplog):
+    class Service:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, operation):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("simulated startup failure")
+            return {"ok": True, "operation": operation}
+
+    parent, child = multiprocessing.Pipe()
+    stop, ready = Event(), Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, Service(), stop, ready))
+    thread.start()
+    try:
+        assert ready.wait(1)
+        client = LifecycleClient(child)
+        with caplog.at_level(logging.ERROR):
+            assert client.execute("status") == {
+                "ok": False, "error": "PHOS could not process the lifecycle request.", "status": 500}
+        assert thread.is_alive()
+        assert client.execute("status") == {"ok": True, "operation": "status"}
+        assert "Lifecycle dispatcher failed" in caplog.text
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_lifecycle_channel_forwards_presence_and_attention_read_models(runtime):
     _, service, _, _ = runtime
 
@@ -432,6 +505,7 @@ def test_lifecycle_channel_forwards_presence_and_attention_read_models(runtime):
         def attention(self): return {"state": "idle", "target": None}
 
     service.register_application_service(Application())
+    service.mark_application_ready()
     parent, child = multiprocessing.Pipe()
     stop = Event()
     thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
@@ -460,6 +534,7 @@ def test_lifecycle_channel_acknowledges_sequential_speak_commands(runtime):
         def status(self): return {"running": True}
 
     service.register_application_service(Application())
+    service.mark_application_ready()
     parent, child = multiprocessing.Pipe()
     stop = Event()
     thread = Thread(target=serve_lifecycle, args=(parent, service, stop))

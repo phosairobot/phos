@@ -110,6 +110,7 @@ class PhosRuntime:
         self._preview_tasks = set()
         self._stopping = False
         self._unsubscribers: list[Callable[[], None]] = []
+        self._started_callbacks: list[Callable[[], None]] = []
         self._started = False
         self._vision_started = False
 
@@ -239,6 +240,12 @@ class PhosRuntime:
     def touch_status(self) -> dict:
         """Read-only completed-gesture state for application adapters."""
         return self._touch_status.document()
+
+    def register_started_callback(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` after the runtime command loop is usable."""
+        if not callable(callback):
+            raise TypeError("Runtime startup callback must be callable")
+        self._started_callbacks.append(callback)
 
     def voice_status(self) -> dict:
         return self._voice_session.status() if self._voice_session else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
@@ -525,6 +532,8 @@ class PhosRuntime:
             else:
                 self._startup.set("vision", StartupState.UNAVAILABLE, "optional vision disabled")
             self._started = True
+            for callback in tuple(self._started_callbacks):
+                callback()
             logger.info("STARTUP: %s", self._startup.overall_state.value)
             self._play_ready_sound()
             logger.info("PHOS runtime started")
