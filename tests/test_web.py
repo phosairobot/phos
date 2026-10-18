@@ -101,6 +101,49 @@ def test_backgrounds_page_remains_available_when_runtime_asset_service_is_unavai
     assert client.get("/appearance/backgrounds").status_code == 200
 
 
+def test_eye_safe_layer_page_renders_canonical_controls(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/appearance/eye-safe-layer")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'id="eye-safe-layer-enabled"' in text
+    assert 'value="balanced" checked' in text
+
+
+@pytest.mark.parametrize("previous,next_mode", [("balanced", "subtle"), ("subtle", "expressive"), ("expressive", "balanced")])
+def test_eye_safe_layer_mode_posts_the_canonical_application_payload(setup, previous, next_mode):
+    class EyeSafeService:
+        def __init__(self): self.calls = []
+        def configure_eye_safe_layer(self, payload): self.calls.append(payload); return {"saved": payload}
+
+    _, path, now = setup
+    document = json.loads(path.read_text())
+    document["display"]["eye_safe_layer"]["mode"] = previous
+    path.write_text(json.dumps(document))
+    service = EyeSafeService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    client = authorize(app)
+    response = post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-enabled": "on", "eye-safe-layer-mode": next_mode})
+    assert response.status_code == 302
+    assert service.calls == [{"enabled": True, "mode": next_mode}]
+
+
+def test_eye_safe_layer_toggle_and_invalid_mode_are_handled_cleanly(setup):
+    class EyeSafeService:
+        def __init__(self): self.calls = []
+        def configure_eye_safe_layer(self, payload): self.calls.append(payload); return {"saved": payload}
+
+    _, path, now = setup
+    service = EyeSafeService()
+    client = authorize(create_app(path, clock=lambda: now[0], application_service=service))
+    assert post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-mode": "balanced"}).status_code == 302
+    assert post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-enabled": "on", "eye-safe-layer-mode": "balanced"}).status_code == 302
+    assert [call["enabled"] for call in service.calls] == [False, True]
+    rejected = post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-mode": "invalid"})
+    assert rejected.status_code == 400
+    assert "Choose a supported eye safe layer mode." in rejected.get_data(as_text=True)
+
+
 def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonical_list(setup):
     app, path, now = setup
 

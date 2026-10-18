@@ -52,7 +52,7 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
 RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
                         "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
                         "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
-                        "display.backgrounds.error", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
+                        "display.backgrounds.error", "display.eye_safe_layer.enabled", "display.eye_safe_layer.mode", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
 
 
 def changed_fields(active, saved, prefix=""):
@@ -93,6 +93,7 @@ class LifecycleService:
         self._apply_led_ring = None
         self._apply_environmental_behavior = None
         self._apply_backgrounds = None
+        self._apply_eye_safe_layer = None
         self._apply_state_effects = None
         self._sensor_status = None
         self._application_status = None
@@ -136,6 +137,9 @@ class LifecycleService:
 
     def register_backgrounds_applier(self, applier):
         with self._lock: self._apply_backgrounds = applier
+
+    def register_eye_safe_layer_applier(self, applier):
+        with self._lock: self._apply_eye_safe_layer = applier
 
     def register_state_effects_applier(self, applier):
         with self._lock: self._apply_state_effects = applier
@@ -219,6 +223,11 @@ class LifecycleService:
                 if (self.active["display"]["environment_overlays_enabled"] != saved["display"]["environment_overlays_enabled"] and self._apply_environment_overlays is None):
                     return {"ok": False, "error": "Runtime environmental overlay service is not ready. No settings were applied; retry reload shortly."}
                 backgrounds_changed = self.active["display"]["backgrounds"] != saved["display"]["backgrounds"]
+                eye_safe_changed = self.active["display"]["eye_safe_layer"] != saved["display"]["eye_safe_layer"]
+                eye_safe_paths = (changed_fields(self.active["display"]["eye_safe_layer"], saved["display"]["eye_safe_layer"],
+                                                "display.eye_safe_layer") if eye_safe_changed else [])
+                if eye_safe_changed and self._apply_eye_safe_layer is None:
+                    return {"ok": False, "error": "Runtime eye safe layer service is not ready. No settings were applied; retry reload shortly."}
                 effects_changed = self.active["display"]["state_effects"] != saved["display"]["state_effects"]
                 effect_paths = (changed_fields(self.active["display"]["state_effects"], saved["display"]["state_effects"],
                                                "display.state_effects") if effects_changed else [])
@@ -271,6 +280,13 @@ class LifecycleService:
                         return {"ok": False, "error": "The running display could not accept the background update. No active configuration was recorded; retry reload or restart PHOS."}
                     self.active["display"]["backgrounds"] = deepcopy(saved["display"]["backgrounds"])
                     applied.extend(background_paths)
+                if eye_safe_changed:
+                    try:
+                        self._apply_eye_safe_layer(config)
+                    except Exception:
+                        return {"ok": False, "error": "The running display could not accept the eye safe layer update. No active configuration was recorded; retry reload or restart PHOS."}
+                    self.active["display"]["eye_safe_layer"] = deepcopy(saved["display"]["eye_safe_layer"])
+                    applied.extend(eye_safe_paths)
                 if effects_changed:
                     try:
                         self._apply_state_effects(config)
@@ -348,6 +364,7 @@ class LifecycleService:
             "application.configure_tts": lambda: self._application_service.configure_tts(payload),
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
             "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
+            "application.configure_eye_safe_layer": lambda: self._application_service.configure_eye_safe_layer(payload),
             "application.configure_state_effects": lambda: self._application_service.configure_state_effects(payload),
             "application.background_assets": lambda: self._application_service.background_assets(),
             "application.upload_background": lambda: self._application_service.upload_background(payload),

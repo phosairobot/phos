@@ -328,6 +328,12 @@ runtime's display-loop update boundary; the iris color blends smoothly into the
 next frames. PHOS, Vision, camera, BehaviorEngine and providers keep running.
 Expression semantics do not enter the renderer directly.
 
+The **Eye Safe Layer** optionally adds a cached transparent radial halo behind
+each eye when an uploaded background could reduce contrast. It is enabled by
+default and has subtle, balanced and expressive modes. Dark, low-variation
+backgrounds receive little or no protection; the layer never modifies the
+uploaded file and can be disabled.
+
 **State Backgrounds** accepts validated PNG and JPEG files from the managed
 `backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the
 per-image limit (the shipped value is 4 MiB); the page shows that same limit.

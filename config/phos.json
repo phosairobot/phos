@@ -23,6 +23,10 @@
       "error": null,
       "max_upload_bytes": 4194304
     },
+    "eye_safe_layer": {
+      "enabled": true,
+      "mode": "balanced"
+    },
     "state_effects": {
       "enabled": false,
       "preset": "balanced",

@@ -122,6 +122,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             backgrounds_applier = getattr(runtime, "apply_backgrounds", None)
             if backgrounds_applier is not None:
                 lifecycle.register_backgrounds_applier(backgrounds_applier)
+            eye_safe_applier = getattr(runtime, "apply_eye_safe_layer", None)
+            if eye_safe_applier is not None:
+                lifecycle.register_eye_safe_layer_applier(eye_safe_applier)
             effects_applier = getattr(runtime, "apply_state_effects", None)
             if effects_applier is not None:
                 lifecycle.register_state_effects_applier(effects_applier)

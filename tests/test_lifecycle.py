@@ -67,6 +67,20 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     assert result["restart_required"] == []
 
 
+def test_eye_safe_layer_reload_uses_the_registered_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_eye_safe_layer_applier(lambda config: applied.append(
+        (config.eye_safe_layer_enabled, config.eye_safe_layer_mode)))
+    update(path, lambda d: d["display"].update(eye_safe_layer={"enabled": False, "mode": "expressive"}))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["display.eye_safe_layer.enabled", "display.eye_safe_layer.mode"]
+    assert applied == [(False, "expressive")]
+
+
 def test_backgrounds_reload_through_the_registered_runtime_boundary(runtime):
     path, service, _, _ = runtime
     directory = path.parent / "backgrounds"
@@ -459,6 +473,34 @@ def test_application_channel_recovers_after_runtime_command_boundary_becomes_rea
         service.mark_application_ready()
         assert client.execute("application.start_listening") == {
             "ok": True, "result": {"listening": True}}
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_forwards_eye_safe_layer_configuration(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def __init__(self): self.calls = []
+        def configure_eye_safe_layer(self, payload):
+            self.calls.append(payload)
+            return {"saved": payload}
+
+    application = Application()
+    service.register_application_service(application)
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"enabled": True, "mode": "expressive"}
+        assert client.execute("application.configure_eye_safe_layer", payload) == {"ok": True, "result": {"saved": payload}}
+        assert application.calls == [payload]
     finally:
         stop.set()
         child.close()
