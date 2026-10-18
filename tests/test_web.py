@@ -144,6 +144,24 @@ def test_eye_safe_layer_toggle_and_invalid_mode_are_handled_cleanly(setup):
     assert "Choose a supported eye safe layer mode." in rejected.get_data(as_text=True)
 
 
+def test_appearance_preview_is_a_static_application_service_image(setup):
+    class PreviewService:
+        def __init__(self): self.calls = []
+        def appearance_preview(self, options):
+            self.calls.append(options)
+            return {"svg": "<svg xmlns='http://www.w3.org/2000/svg'/>"}
+
+    _, path, now = setup
+    service = PreviewService()
+    client = authorize(create_app(path, clock=lambda: now[0], application_service=service))
+    page = client.get("/appearance/preview?state=sleeping&expression=happy")
+    assert page.status_code == 200 and "Static 800" in page.get_data(as_text=True)
+    response = client.get("/appearance/preview.svg?state=sleeping&expression=happy&eye_safe=0&eye_safe_mode=expressive&effects=0")
+    assert response.status_code == 200 and response.mimetype == "image/svg+xml"
+    assert service.calls == [{"state": "sleeping", "expression": "happy", "eye_safe_enabled": False,
+                              "eye_safe_mode": "expressive", "state_effects_enabled": False}]
+
+
 def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonical_list(setup):
     app, path, now = setup
 

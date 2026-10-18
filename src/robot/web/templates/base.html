@@ -23,6 +23,7 @@
 <a href="{{ url_for('credentials') }}" {% if request.endpoint == 'credentials' %}aria-current="page"{% endif %}><i>◈</i>Credentials</a>
 <a href="{{ url_for('configuration_editor') }}" {% if request.endpoint == 'configuration_editor' %}aria-current="page"{% endif %}><i>⌨</i>Configuration</a>
 <a href="{{ url_for('configuration', area='appearance') }}" {% if area is defined and area == 'appearance' %}aria-current="page"{% endif %}><i>◫</i>Appearance</a>
+<a href="{{ url_for('appearance_preview_page') }}" {% if request.endpoint == 'appearance_preview_page' %}aria-current="page"{% endif %}><i>◉</i>↳ Preview</a>
 <a href="{{ url_for('appearance_backgrounds') }}" {% if request.endpoint == 'appearance_backgrounds' %}aria-current="page"{% endif %}><i>▧</i>↳ Backgrounds</a>
 <a href="{{ url_for('appearance_eye_safe_layer') }}" {% if request.endpoint == 'appearance_eye_safe_layer' %}aria-current="page"{% endif %}><i>◌</i>↳ Eye Safe Layer</a>
 <a href="{{ url_for('appearance_state_effects') }}" {% if request.endpoint == 'appearance_state_effects' %}aria-current="page"{% endif %}><i>✧</i>↳ State Effects</a>

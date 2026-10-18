@@ -10,7 +10,9 @@ import time
 from dataclasses import replace
 from typing import Callable, Optional
 
-from robot.ui.state import AmbientOverlayState, BlinkPhase, EnvironmentalLEDIntent, FaceExpression, FaceState, TransientVisualEffect, VisualAccent
+from robot.ui.state import (AmbientOverlayState, BlinkPhase, EnvironmentalLEDIntent, FaceExpression,
+                            FaceState, TransientVisualEffect, VisualAccent,
+                            expression_reaction_accent)
 from robot.motion import MotionState
 
 from .behaviors import Behavior
@@ -133,17 +135,13 @@ class BehaviorEngine(Behavior):
             resolved = replace(resolved, expression=FaceExpression.CURIOUS, accent=VisualAccent.CURIOUS, reaction_strength=0.72, eye_open=1.12)
         if reaction is not None:
             expression = FaceExpression(reaction["reaction"])
-            accent = {FaceExpression.HAPPY: VisualAccent.CURIOUS,
-                      FaceExpression.CURIOUS: VisualAccent.CURIOUS,
-                      FaceExpression.SURPRISED: VisualAccent.ALERT}[expression]
+            accent = expression_reaction_accent(expression)
             resolved = replace(resolved, expression=expression, accent=accent, reaction_strength=1.0)
         # Operator intent is applied here, at the semantic arbitration point.
         # Robot states remain higher priority than a cosmetic manual command.
         if manual is not None and self._robot_state is RobotState.IDLE:
             expression = FaceExpression(manual["expression"])
-            accent = {FaceExpression.HAPPY: VisualAccent.CURIOUS,
-                      FaceExpression.CURIOUS: VisualAccent.CURIOUS,
-                      FaceExpression.SURPRISED: VisualAccent.ALERT}.get(expression, VisualAccent.NEUTRAL)
+            accent = expression_reaction_accent(expression)
             resolved = replace(resolved, expression=expression, accent=accent, reaction_strength=1.0)
         return replace(resolved, ambient_overlay=overlay).normalized()
 
