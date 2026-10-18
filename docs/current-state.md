@@ -131,9 +131,11 @@ from this startup acceptance slice.
   interaction events/status. A separate pure `CommandRouter` validates and maps
   resolved intents to semantic commands. Voice execution is opt-in through
   `interaction.execution_enabled`, which defaults to false; when enabled, a
-  voice-scoped allowlist authorizes sleep, wake, expression, temperature, and
-  air-quality commands through `CommandExecutor` and `PhosApplicationService`.
-  Queries return bounded `InteractionOutcome` data (`temperature_c` or atomic
+  voice-scoped allowlist authorizes sleep, wake, expression, temperature,
+  pressure, and air-quality commands through `CommandExecutor` and
+  `PhosApplicationService`; the accepted phrases are listed in
+  [Voice Commands](voice-commands.md). Queries return bounded
+  `InteractionOutcome` data (`temperature_c`, `pressure_hpa`, or atomic
   `eco2_ppm`/`tvoc_ppb`) or an explicit unavailable outcome. The local,
   deterministic `InteractionResponseRenderer` renders query outcomes in English
   or Italian. Optional `interaction.response_tts_enabled` (false by default)

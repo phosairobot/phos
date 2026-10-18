@@ -189,15 +189,16 @@ transitions. It does not control GPIO, renderers, LEDs, or `BehaviorEngine`.
 canonical resolved/unresolved intent contracts. Its async `IntentResolver`
 boundary interprets language only; it has no runtime/hardware access and does
 not route or execute commands. The selectable deterministic resolver has a
-small exact English/Italian catalog for `sleep`, `wake`, temperature and
-air-quality queries, and expression intent data. When interaction is enabled,
+small exact English/Italian catalog for state, expression, temperature,
+pressure, and air-quality commands; see [Voice Commands](voice-commands.md)
+for the user-facing accepted phrases. When interaction is enabled,
 the main runtime observes completed voice transcripts and publishes resolution
 events/status. `CommandRouter` separately validates a resolved canonical intent
 and maps it to a semantic command. Voice execution is opt-in through
 `interaction.execution_enabled` (false by default): the coordinator creates a
-voice-scoped allowlist, then `CommandExecutor` invokes only sleep, wake, and
-expression commands through `PhosApplicationService`. Authorized temperature and
-air-quality queries reuse that service's read models and produce an
+voice-scoped allowlist, then `CommandExecutor` invokes sleep, wake, expression,
+and authorized sensor commands through `PhosApplicationService`. Sensor queries
+reuse that service's read models and produce an
 `InteractionOutcome` with canonical numeric fields; unavailable snapshots are
 normal outcomes. The pure local `InteractionResponseRenderer` produces
 deterministic English or Italian user-facing text from query outcomes. With
