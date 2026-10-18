@@ -4,9 +4,17 @@ from .display import CameraPreviewSettings, CameraPreviewView, EyeDisplay, Memor
 from .eyes import EyeFrame, EyeGeometry, EyeRenderer
 from .state import AmbientOverlayState, BlinkPhase, EnvironmentalLEDIntent, FaceExpression, FaceState, VisualAccent
 from .led_ring import LEDRingController, LEDRingFrame, LEDRingSettings
+from .backgrounds import BackgroundAsset, BackgroundResolver
+from .state_effects import StateEffectParams, StateEffectResolver
+from .state_effect_layer import StateEffectLayer
 
 __all__ = [
     "BlinkPhase",
+    "BackgroundAsset",
+    "BackgroundResolver",
+    "StateEffectLayer",
+    "StateEffectParams",
+    "StateEffectResolver",
     "AmbientOverlayState",
     "CameraPreviewSettings",
     "CameraPreviewView",

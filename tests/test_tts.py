@@ -11,12 +11,15 @@ import wave
 
 import pytest
 
-from robot.voice import (AplayAudioOutputProvider, AudioOutputError, PiperTTSProvider,
+from robot.voice import (AplayAudioOutputProvider, AudioOutputError, AudioOutputProviderFactory, PiperTTSProvider,
+                         PipeWireAudioOutputProvider,
                          SynthesizedAudio, TTSConfigurationError, TTSSynthesisError,
-                         CartesiaTTSProvider, ElevenLabsTTSProvider, TTSProviderError, TTSProviderFactory, TTSUnavailableError)
+                         CartesiaTTSProvider, ElevenLabsTTSProvider, STTProviderFactory,
+                         TTSProviderError, TTSProviderFactory, TTSUnavailableError)
 from robot.config import RuntimeConfig, load_document
 from robot.core import RobotCore, RobotState
 from robot.runtime import PhosRuntime, build_runtime
+from robot.secrets import SecretsService
 from robot.ui import MemoryEyeDisplay
 from robot.voice import TTSBusyError
 from robot.voice.tts import speech_request_id
@@ -88,6 +91,51 @@ def test_runtime_unavailable_tts_is_typed_without_provider_reconstruction():
             await runtime.accept_speech("Hello")
 
     asyncio.run(exercise())
+
+
+def test_audio_output_status_uses_live_audio_output_player(tmp_path):
+    document = load_document()
+    document["tts"]["audio_output"]["player"] = "pipewire"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    runtime.replace_audio_output(types.SimpleNamespace(name="pipewire", device=None, play=lambda audio: None), config=config)
+    status = runtime.application_status()["speech"]["audio_output"]
+    assert status["configured_provider"] == "pipewire"
+    assert status["active_provider"] == "pipewire"
+
+
+@pytest.mark.parametrize("retain_final_wav", [False, True])
+def test_runtime_final_wav_cleanup_and_pipewire_retention(tmp_path, monkeypatch, retain_final_wav, caplog):
+    source = tmp_path / "speech.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed")); wav.writeframes(b"\x11\0" * 16)
+    expected_bytes = source.read_bytes()
+    request_id = os.getpid() * 1000 + (62 if retain_final_wav else 61)
+    retained_glob = f"phos-speech-{os.getpid()}-{request_id}-*.wav"
+    for path in Path("/tmp").glob(retained_glob): path.unlink()
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play")
+    played = []
+    monkeypatch.setattr("robot.voice.tts.subprocess.run", lambda command, **kwargs: played.append(Path(command[-1]).read_bytes()) or subprocess.CompletedProcess(command, 0, "", ""))
+    runtime = object.__new__(PhosRuntime)
+    runtime.core = RobotCore(); runtime._tts_lock = asyncio.Lock()
+    runtime._tts_provider = types.SimpleNamespace(synthesize=lambda text: SynthesizedAudio(source))
+    runtime._audio_output = PipeWireAudioOutputProvider(debug_retain_final_wav=retain_final_wav)
+    runtime._tts_enabled = True
+    try:
+        with caplog.at_level("DEBUG"):
+            asyncio.run(runtime.speak("Hello", request_id=request_id))
+        retained = list(Path("/tmp").glob(retained_glob))
+        assert played == [expected_bytes]
+        assert not source.exists()
+        assert f"PHOS SPEECH: audio_output provider=pipewire retain_final_wav={str(retain_final_wav).lower()}" in caplog.text
+        if retain_final_wav:
+            assert len(retained) == 1
+            assert retained[0].read_bytes() == played[0]
+            assert f"PHOS SPEECH: retained_wav path={retained[0]} bytes={len(played[0])}" in caplog.text
+        else:
+            assert retained == []
+    finally:
+        for path in Path("/tmp").glob(retained_glob): path.unlink(missing_ok=True)
 
 
 def test_piper_rejects_empty_or_oversized_text(tmp_path):
@@ -214,9 +262,11 @@ def test_cartesia_factory_uses_runtime_secret_and_reuses_client(tmp_path, monkey
                 return Response()
 
     monkeypatch.setitem(sys.modules, "cartesia", types.SimpleNamespace(Cartesia=Client))
-    provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
+    with caplog.at_level("DEBUG"):
+        provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
     assert isinstance(provider, CartesiaTTSProvider) and created == [("secret-value", {"cartesia-version": "2026-08-14"})]
-    with caplog.at_level("INFO"):
+    assert "PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=True" in caplog.text
+    with caplog.at_level("DEBUG"):
         first, second = provider.synthesize("Hello"), provider.synthesize("Again")
     assert len(created) == 1 and len(requests) == 2
     assert requests[0]["model_id"] == "configured-model"
@@ -231,16 +281,64 @@ def test_cartesia_factory_uses_runtime_secret_and_reuses_client(tmp_path, monkey
     first.path.unlink(); second.path.unlink()
 
 
-def test_cartesia_missing_credential_and_voice_are_typed(tmp_path):
+def test_cartesia_stt_and_tts_use_one_shared_secret_slot(tmp_path, monkeypatch):
+    document = load_document()
+    document["voice"]["stt"]["provider"] = "cartesia"
+    document["tts"].update(enabled=True, provider="cartesia")
+    document["tts"]["cartesia"]["voice_id"] = "voice-id"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    requested = []
+
+    class Secrets:
+        def get_secret(self, name):
+            requested.append(name)
+            return "shared-secret"
+
+    class Client:
+        def __init__(self, **kwargs): pass
+
+    monkeypatch.setitem(sys.modules, "cartesia", types.SimpleNamespace(Cartesia=Client))
+    assert STTProviderFactory.create(config, Secrets()).name == "cartesia"
+    assert TTSProviderFactory.create(config, Secrets()).name == "cartesia"
+    assert requested == ["tts.cartesia.api_key", "tts.cartesia.api_key"]
+
+
+def test_runtime_retains_cartesia_stt_secret_service_for_live_tts_configuration(tmp_path, monkeypatch):
+    document = load_document()
+    document["voice"]["stt"]["provider"] = "cartesia"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    expected = SecretsService(tmp_path / ".phos-secrets")
+    expected.set_secret("tts.cartesia.api_key", "shared-secret")
+    received = []
+
+    class STT:
+        name = "cartesia"
+        def available(self): return True
+
+    def create_stt(received_config, secrets):
+        received.append(secrets)
+        return STT()
+
+    monkeypatch.setattr("robot.runtime.STTProviderFactory.create", create_stt)
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    assert received == [runtime._secrets_service]
+    assert runtime._secrets_service.get_secret("tts.cartesia.api_key") == "shared-secret"
+
+
+def test_cartesia_missing_credential_and_required_fields_are_typed(tmp_path):
     document = load_document()
     document["tts"].update(enabled=True, provider="cartesia")
     document["tts"]["cartesia"]["voice_id"] = "voice-id"
     config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
     with pytest.raises(TTSConfigurationError, match="credential"):
         TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: None))
-    document["tts"]["cartesia"]["voice_id"] = None
-    with pytest.raises(Exception, match="voice_id"):
-        RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    for field in ("voice_id", "model_id"):
+        incomplete = load_document()
+        incomplete["tts"].update(enabled=True, provider="cartesia")
+        incomplete["tts"]["cartesia"]["voice_id"] = "voice-id"
+        incomplete["tts"]["cartesia"][field] = None
+        with pytest.raises(Exception, match=field):
+            RuntimeConfig.from_dict(incomplete, base_dir=tmp_path)
 
 
 def test_cartesia_missing_sdk_leaves_runtime_healthy(tmp_path, monkeypatch):
@@ -293,7 +391,7 @@ def test_cartesia_400_logs_safe_message_and_effective_parameters(caplog):
 
     provider = CartesiaTTSProvider("secret-value", "voice-id", "sonic-3.6", 44100, 1.0, 1.0,
                                    client_factory=lambda **kwargs: Client())
-    with caplog.at_level("INFO"), pytest.raises(TTSProviderError, match="provider_configuration_error"):
+    with caplog.at_level("DEBUG"), pytest.raises(TTSProviderError, match="provider_configuration_error"):
         provider.synthesize(transcript)
     assert ("provider=cartesia request model_id=sonic-3.6 voice_id=voice-id sample_rate=44100 "
             "speed=1.0 volume=1.0 api_version=2026-08-14 container=wav encoding=pcm_s16le" in caplog.text)
@@ -348,7 +446,7 @@ def test_piper_lazily_loads_one_voice_and_reuses_it_for_sequential_utterances(tm
 
     voice = Voice()
     provider = PiperTTSProvider("piper", model, voice_loader=lambda path: loads.append(path) or voice)
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         first = provider.synthesize("Hello")
         second = provider.synthesize("Again")
 
@@ -468,7 +566,7 @@ def test_aplay_logs_normalized_final_wav_and_one_playback_timing(tmp_path, monke
     monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/aplay")
     monkeypatch.setattr("robot.voice.tts.subprocess.run", lambda command, **kwargs: calls.append(command) or subprocess.CompletedProcess(command, 0, "", ""))
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         AplayAudioOutputProvider(preroll_ms=1000).play(SynthesizedAudio(source))
 
     assert len(calls) == 1
@@ -506,7 +604,7 @@ def test_aplay_retries_the_same_final_wav_once_then_succeeds(tmp_path, monkeypat
         return subprocess.CompletedProcess(command, 7 if len(calls) == 1 else 0, "", "sink unavailable" if len(calls) == 1 else "")
 
     monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         AplayAudioOutputProvider(device="hw:1", retry_delay_ms=0).play(SynthesizedAudio(source))
 
     assert len(calls) == 2
@@ -640,7 +738,7 @@ def test_debug_retention_passes_a_closed_final_wav_to_aplay_and_preserves_it(tmp
     monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
     token = speech_request_id.set(request_id)
     try:
-        with caplog.at_level("INFO"):
+        with caplog.at_level("DEBUG"):
             AplayAudioOutputProvider(preroll_ms=1000, debug_retain_final_wav=True).play(SynthesizedAudio(source))
     finally:
         speech_request_id.reset(token)
@@ -718,3 +816,38 @@ def test_tts_output_format_configuration_is_validated(tmp_path, field, value):
     document = load_document(); document["tts"]["audio_output"][field] = value
     with pytest.raises(Exception, match="tts.audio_output"):
         RuntimeConfig.from_dict(document, base_dir=tmp_path)
+def test_pipewire_output_uses_pw_play_without_shell_and_bounds_failures(tmp_path, monkeypatch, caplog):
+    artifact = tmp_path / "speech.wav"
+    artifact.write_bytes(b"RIFF test")
+    calls = []
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play" if command == "pw-play" else None)
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 7, "", "sink unavailable\n" + "x" * 400)
+
+    monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
+    with caplog.at_level("DEBUG"), pytest.raises(AudioOutputError, match="PipeWire audio playback failed"):
+        PipeWireAudioOutputProvider(retry_max_attempts=1).play(SynthesizedAudio(artifact))
+
+    assert calls == [(["/usr/bin/pw-play", str(artifact)], {"capture_output": True, "text": True,
+                                                               "timeout": 90, "check": False})]
+    assert "shell" not in calls[0][1]
+    assert "PHOS AUDIO: provider=pipewire playback_started" in caplog.text
+    assert "PHOS AUDIO: provider=pipewire playback_failed" in caplog.text
+    assert len(caplog.text) < 1000
+
+
+def test_pipewire_factory_requires_pw_play_and_keeps_aplay_available(tmp_path, monkeypatch):
+    document = load_document()
+    document["tts"]["audio_output"]["player"] = "pipewire"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/pw-play" if command == "pw-play" else None)
+    assert isinstance(AudioOutputProviderFactory.create(config), PipeWireAudioOutputProvider)
+    monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: None)
+    with pytest.raises(AudioOutputError, match="unavailable"):
+        AudioOutputProviderFactory.create(config)
+
+    document["tts"]["audio_output"]["player"] = "aplay"
+    assert isinstance(AudioOutputProviderFactory.create(RuntimeConfig.from_dict(document, base_dir=tmp_path)),
+                      AplayAudioOutputProvider)

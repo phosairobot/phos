@@ -12,8 +12,8 @@ Piper is the preferred first local TTS engine because the project targets a Rasp
 
 `PiperTTSProvider` lazily loads the installed `piper-tts` Python voice API once
 in the main PHOS runtime process, then reuses that in-memory model for each secure
-temporary WAV. `AplayAudioOutputProvider` plays that artifact through ALSA and the
-runtime removes it afterwards. Piper never selects a speaker device directly.
+temporary WAV. An `AudioOutputProvider` plays that artifact and the runtime removes
+it afterwards. Piper never selects a speaker device directly.
 
 Models are local deployment assets, normally under `models/tts/piper/`, and are
 not committed. Configure `tts.local.model_path` (plus an optional Piper
@@ -41,19 +41,24 @@ It never logs speech
 text or audio content. REST-triggered speech uses this exact same runtime-owned
 Piper → normalized/prerolled single WAV → one `aplay` path. The first utterance
 includes lazy model loading and logs `piper_model_load_*`; later utterances reuse
-the loaded voice. PHOS does not run a persistent Piper server.
+the loaded voice. Optional localized interaction query responses use this same
+application-owned path when `interaction.response_tts_enabled` is true; they do
+not select a provider or add a language argument to the current text-only
+`TTSProvider` contract. PHOS does not run a persistent Piper server.
 
 ### Diagnosing intermittent HDMI playback
 
 `tts.audio_output.debug.retain_final_wav` is disabled by default. Set it to
-`true` only while diagnosing playback. For a REST request, PHOS first creates its
-normal unique, fully closed and fsynced final WAV, then makes a byte-identical
-diagnostic copy under `/tmp/phos-speech-<pid>-<request-id>-<unique>.wav`. The
-normal temporary final WAV remains the artifact passed to `aplay` and is removed
-only after `aplay` exits. Retained diagnostics are not removed automatically, do
+`true` only while diagnosing playback. For a REST request, PHOS makes a
+byte-identical diagnostic copy at
+`/tmp/phos-speech-<pid>-<request-id>-<unique>.wav` before playback. This is the
+exact final WAV supplied to the selected output provider: the normalized/prerolled
+WAV for ALSA, or the generated WAV for PipeWire. The normal temporary artifact is
+removed after playback; retained diagnostics are not removed automatically, do
 not overwrite prior samples, and can accumulate under `/tmp`. Retention is
 best-effort: collisions, permission failures, and filesystem errors are logged as
-warnings but never prevent speech playback.
+warnings but never prevent speech playback. Successful retention logs the path
+and byte count as `PHOS SPEECH: retained_wav`.
 
 Every request logs sanitized final-WAV metadata (format, frames, duration, peak,
 RMS, byte size, and SHA-256 prefix), plus the selected `aplay` executable/device,
@@ -72,6 +77,20 @@ successful process merely because physical output cannot be observed in software
 The selected user, runtime directory, ALSA/Pulse/PipeWire variables, working
 directory, and process group are emitted only at DEBUG level to compare service
 and manual-shell execution safely.
+
+### PipeWire output
+
+Set `tts.audio_output.player: pipewire` to select `PipeWire (pw-play)` in Voice
+& Speech. PHOS then passes the generated WAV directly to `pw-play` and waits for
+completion; it does not apply the ALSA HDMI normalization or warm-up signal.
+`pw-play` must be available when the live candidate is activated, otherwise the
+saved and active audio output remain unchanged. PipeWire chooses its default
+sink, so Bluetooth pairing, reconnection, volume, and sink selection remain OS
+responsibilities. Leave `tts.audio_output.device` as `null` for PipeWire.
+
+PipeWire playback emits bounded `PHOS AUDIO` start, completion-duration, and
+failure-reason logs. The default remains `aplay`, preserving existing ALSA
+installations.
 
 After a noisy request, replay its retained artifact without regenerating speech:
 
@@ -186,7 +205,7 @@ Provider-specific SDK objects must never escape the adapter.
 - convert Piper failures into explicit application errors
 
 ### Audio playback
-Playback is a separate responsibility. `TTSProvider` generates audio; it does not own speaker selection, volume, ALSA configuration or playback lifecycle.
+Playback is a separate responsibility. `TTSProvider` generates audio; it does not own speaker selection, volume, ALSA/PipeWire configuration or playback lifecycle. `AudioOutputProviderFactory` selects either ALSA (`aplay`) or PipeWire (`pw-play`) independently of the TTS provider.
 
 ## Raspberry Pi 3 constraints
 

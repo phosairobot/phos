@@ -14,13 +14,24 @@ if (provider) {
   if (!document.querySelector(".error")) update();
 }
 
+const sttProvider = document.getElementById("voice.stt.provider");
+if (sttProvider) {
+  const section = sttProvider.closest(".voice-section--stt");
+  const update = () => {
+    for (const panel of section.querySelectorAll("[data-stt-provider-panel]")) {
+      panel.hidden = sttProvider.value !== panel.dataset.sttProviderPanel;
+    }
+  };
+  sttProvider.addEventListener("change", update);
+  if (!document.querySelector(".error")) update();
+}
+
 const ttsProvider = document.getElementById("tts.provider");
 if (ttsProvider) {
+  const section = ttsProvider.closest(".voice-section--tts");
   const update = () => {
-    for (const name of ["local", "elevenlabs", "cartesia"]) {
-      for (const section of document.querySelectorAll(`[data-provider="${name}"]`)) {
-        section.hidden = ttsProvider.value !== name;
-      }
+    for (const panel of section.querySelectorAll("[data-tts-provider-panel]")) {
+      panel.hidden = ttsProvider.value !== panel.dataset.ttsProviderPanel;
     }
   };
   ttsProvider.addEventListener("change", update);

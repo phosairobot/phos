@@ -1,5 +1,9 @@
 """Bounded local process channel for application lifecycle operations."""
+import logging
 from threading import Lock
+
+
+logger = logging.getLogger(__name__)
 
 
 class LifecycleClient:
@@ -16,7 +20,7 @@ class LifecycleClient:
         application = {"application.status", "application.state", "application.environment", "application.motion",
                        "application.presence", "application.attention", "application.observed_expression", "application.health", "application.capabilities", "application.config", "application.update_config", "application.expression",
                        "application.set_state", "application.visual_source", "application.overlay", "application.set_overlay", "application.clear_overlay", "application.voice", "application.start_listening", "application.stop_listening", "application.cancel_voice_session", "application.speak"}
-        application.update({"application.configure_stt", "application.configure_tts", "application.configure_audio_output"})
+        application.update({"application.configure_stt", "application.configure_tts", "application.configure_audio_output", "application.configure_backgrounds", "application.configure_state_effects", "application.background_assets", "application.upload_background", "application.delete_background"})
         if not ((isinstance(request, str) and request in allowed)
                 or (isinstance(request, dict) and request.get("operation") in application)):
             return {"ok": False, "error": "Unsupported lifecycle operation."}
@@ -40,13 +44,25 @@ class LifecycleClient:
         return {"ok": False, "error": "Runtime lifecycle service is unavailable. An in-flight request may have completed; check PHOS locally before retrying."}
 
 
-def serve_lifecycle(connection, service, stop):
+def serve_lifecycle(connection, service, stop, ready=None):
     try:
+        if ready is not None:
+            ready.set()
         while not stop.is_set():
             if connection.poll(.2):
-                operation = connection.recv()
-                result = service.execute(operation)
-                connection.send(result)
+                try:
+                    operation = connection.recv()
+                except (EOFError, OSError):
+                    return
+                try:
+                    result = service.execute(operation)
+                except Exception:
+                    logger.exception("Lifecycle dispatcher failed")
+                    result = {"ok": False, "error": "PHOS could not process the lifecycle request.", "status": 500}
+                try:
+                    connection.send(result)
+                except (EOFError, OSError):
+                    return
     except (EOFError, OSError):
         pass
     finally:

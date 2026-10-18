@@ -6,7 +6,7 @@
 
 PHOS combines an animated face, camera-based perception, environmental and motion sensing, touch, voice, and LAN administration into a modular physical robot platform. It targets Raspberry Pi 3 today and is developed as a real hardware project: capabilities are designed behind explicit provider boundaries, covered by hardware-free tests where possible, and distinguished from physical Pi validation.
 
-**Current source version:** 1.4.0 · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
+**Current release:** PHOS 1.6.0 — Multilingual Voice Commands & Runtime Hardening · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
 
 ## What is PHOS?
 
@@ -34,6 +34,7 @@ The project is local-first where practical. Its core display, local vision, loca
 - Synthesize through `TTSProvider`: Local/Piper, Cartesia, and ElevenLabs integration feed a separate `AudioOutputProvider` playback boundary.
 - Accept speech through `/api/v1/speak`, reflecting playback through the `SPEAKING` state.
 - Apply supported STT, TTS, and audio-output changes live: active operations retain their original provider, while subsequent work uses the replacement.
+- Resolve the supported local English/Italian command catalog; see [Voice Commands](docs/voice-commands.md) for the exact accepted phrases and required interaction settings.
 
 ### Sensors & physical interaction
 
@@ -90,9 +91,22 @@ The Remote API exposes semantic status and control through the shared applicatio
 
 ## Project status & roadmap
 
-PHOS 1.4.0 contains implemented, automated-test-covered foundations for visual behavior, perception, voice providers, audio output, and live Voice & Speech configuration. Project records also distinguish physical validation from source implementation: local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching have recorded Pi validation. Optional sensor, provider, and deployment acceptance remains component-specific.
+### PHOS 1.6.0 — Multilingual Voice Commands & Runtime Hardening
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are transcript-to-intent/command handling, conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP/tool execution. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+This release adds deterministic local voice commands in English and Italian,
+with opt-in execution through the existing application-service boundary. It
+also documents the supported command catalog, hardens native audio-capture
+shutdown to avoid the PortAudio/ALSA SIGSEGV path, makes cold-boot lifecycle
+readiness deterministic, and cleans up runtime logging. See [Voice
+Commands](docs/voice-commands.md) for the supported phrases and configuration;
+the README intentionally does not duplicate the catalog.
+
+PHOS continues to distinguish source implementation from physical validation.
+Local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web
+Admin, and live STT/TTS switching have recorded Pi validation. Optional sensor,
+provider, and deployment acceptance remains component-specific.
+
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP/tool execution. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

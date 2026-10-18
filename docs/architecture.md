@@ -159,8 +159,11 @@ USB microphone
   -> ResamplingAudioCaptureProvider
   -> canonical PCM16 mono, 16 kHz
   -> VAD -> bounded pre-roll -> VoiceCaptureSession
-  -> STTProvider -> local Vosk or optional Cartesia Ink
-  -> VoiceStatus / semantic events -> RobotState
+  -> STTProvider -> TranscriptResult
+  -> InteractionInput -> IntentResolver -> ResolvedIntent or UnresolvedIntent
+  -> CommandRouter -> semantic command route
+  -> explicit source-aware authorization -> CommandExecutor -> PhosApplicationService
+  -> InteractionOutcome -> InteractionResponseRenderer -> InteractionResponse
 ```
 
 Capture rate and processing rate are deliberately separate. Raspberry Pi 3
@@ -182,10 +185,31 @@ accuracy for longer phrases and non-native English accents.
 
 Voice input publishes status/events and uses centralized runtime state
 transitions. It does not control GPIO, renderers, LEDs, or `BehaviorEngine`.
-The unimplemented next boundary is: transcript → intent/command interpretation
-→ application command → behavior/action. Text output follows `TTSProvider ->
-AudioOutputProvider`; local Piper, Cartesia and ElevenLabs adapters are implemented.
-Wake words, continuous listening, LLM conversation, and Home Assistant remain future work.
+`robot.interaction` provides plain `TranscriptResult`, `InteractionInput`, and
+canonical resolved/unresolved intent contracts. Its async `IntentResolver`
+boundary interprets language only; it has no runtime/hardware access and does
+not route or execute commands. The selectable deterministic resolver has a
+small exact English/Italian catalog for state, expression, temperature,
+pressure, and air-quality commands; see [Voice Commands](voice-commands.md)
+for the user-facing accepted phrases. When interaction is enabled,
+the main runtime observes completed voice transcripts and publishes resolution
+events/status. `CommandRouter` separately validates a resolved canonical intent
+and maps it to a semantic command. Voice execution is opt-in through
+`interaction.execution_enabled` (false by default): the coordinator creates a
+voice-scoped allowlist, then `CommandExecutor` invokes sleep, wake, expression,
+and authorized sensor commands through `PhosApplicationService`. Sensor queries
+reuse that service's read models and produce an
+`InteractionOutcome` with canonical numeric fields; unavailable snapshots are
+normal outcomes. The pure local `InteractionResponseRenderer` produces
+deterministic English or Italian user-facing text from query outcomes. With
+`interaction.response_tts_enabled` (false by default), query responses pass through
+the application speech boundary and the existing `TTSProvider -> AudioOutputProvider`
+path, including `SPEAKING`; actions and unresolved input remain silent. The current
+provider-neutral TTS contract accepts text only, so response language is retained as
+interaction metadata rather than passed as a provider-specific argument. Local Piper,
+Cartesia and ElevenLabs adapters are implemented.
+Phrase resolution, command routing/execution, wake words, continuous listening,
+LLM conversation, and Home Assistant remain future work.
 
 Physical validation on Raspberry Pi 3 with a USB microphone confirmed native
 capture, 44.1 kHz → 16 kHz resampling, VAD, preserved speech onset through

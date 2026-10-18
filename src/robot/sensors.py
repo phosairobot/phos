@@ -242,7 +242,7 @@ class _SensorService:
                         self._last_poll = self._clock()
                     self._unavailable_sink(error.status)
                     if previous != error.status and self._clock() - last_readiness_log >= 60:
-                        logger.info("%s %s: %s", self._label, error.status, error)
+                        logger.warning("%s %s: %s", self._label, error.status, error)
                         last_readiness_log = self._clock()
                     # Preserve device/conditioning, never restart on DATA_READY=0.
                     # Ordinary readiness polling does not log recovery per sample.

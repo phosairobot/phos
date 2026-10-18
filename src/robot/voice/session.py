@@ -35,7 +35,7 @@ class VoiceCaptureSession:
     def __init__(self, capture, stt, events, transition, *, enabled, sample_rate, channels, chunk_ms,
                  speech_start_ms, silence_end_ms, min_utterance_ms, max_utterance_ms, threshold,
                  pre_roll_ms=300, debug_dump_utterance_wav=False,
-                 debug_utterance_wav_path=Path("/tmp/phos-last-utterance.wav")) -> None:
+                 debug_utterance_wav_path=Path("/tmp/phos-last-utterance.wav"), capture_stall_timeout_s=3) -> None:
         self._capture, self._stt, self._events, self._transition = capture, stt, events, transition
         self._active_stt = None
         self._sample_rate, self._channels, self._chunk_ms = sample_rate, channels, chunk_ms
@@ -48,6 +48,7 @@ class VoiceCaptureSession:
         self._pre_roll = bytearray()
         self._debug_dump_utterance_wav = debug_dump_utterance_wav
         self._debug_utterance_wav_path = Path(debug_utterance_wav_path)
+        self._capture_stall_timeout_s = capture_stall_timeout_s
     def status(self): return self._status.document()
     def replace_stt_provider(self, provider) -> None:
         """Set the default for the next session; an active session stays pinned."""
@@ -61,7 +62,7 @@ class VoiceCaptureSession:
         logger.info("VOICE SESSION: start requested")
         stage = "config"
         try:
-            logger.info("VOICE CONFIG: enabled=%s", self._status.enabled)
+            logger.debug("VOICE CONFIG: enabled=%s", self._status.enabled)
             if not self._status.enabled: raise RuntimeError("Voice is disabled")
             if self._task and not self._task.done(): return self.status()
             self._pre_roll.clear()
@@ -91,6 +92,8 @@ class VoiceCaptureSession:
         except Exception as error:
             logger.exception("VOICE SESSION ERROR: stage=%s exception_type=%s exception_message=%s",
                              stage, type(error).__name__, error)
+            await self._capture.stop()
+            self._status = replace(self._status, state="idle", listening=False, speech_detected=False)
             raise
         return self.status()
     async def stop(self, *, cancelled=False):
@@ -103,9 +106,22 @@ class VoiceCaptureSession:
         return self.status()
     async def _run(self):
         frames = bytearray(); speaking = False
+        vad_sequence = 0
         try:
-            async for frame in self._capture.read_frames():
+            iterator = self._capture.read_frames().__aiter__()
+            while True:
+                try:
+                    frame = await asyncio.wait_for(anext(iterator), timeout=self._capture_stall_timeout_s)
+                except StopAsyncIteration:
+                    return
+                except asyncio.TimeoutError as error:
+                    raise RuntimeError("capture_processing_stalled") from error
                 marker = self._vad.observe(frame)
+                vad_sequence += 1
+                if vad_sequence <= 3:
+                    level = self._vad.level()
+                    logger.debug("PHOS VOICE VAD: vad_seq=%s rms=%s peak=%s speech_decision=%s",
+                                vad_sequence, level["rms"], level["peak"], marker or "none")
                 now = time.monotonic()
                 if now - self._last_vad_level_log >= .5:
                     level = self._vad.level()
@@ -126,38 +142,54 @@ class VoiceCaptureSession:
                     if len(self._pre_roll) > self._pre_roll_limit_bytes:
                         del self._pre_roll[:-self._pre_roll_limit_bytes]
                 if speaking and (marker == "ended" or len(frames) * 1000 >= self._max_ms * self._sample_rate * self._channels * 2):
-                    await self._finalize(bytes(frames)); return
+                    logger.debug("VOICE AUDIO: accumulated_bytes=%s", len(frames))
+                    await self._finalize(frames); return
         except asyncio.CancelledError: raise
         except Exception as error: await self._failure(error)
         finally: self._pre_roll.clear()
     async def _finalize(self, pcm):
-        duration = round(len(pcm) * 1000 / (self._sample_rate * self._channels * 2))
+        # ``frames`` is a capture-loop-owned bytearray. Finalization must make
+        # an immutable snapshot before closing a capture implementation that
+        # may reset its own mutable buffers.
+        final_pcm = memoryview(pcm).tobytes()
+        logger.debug("VOICE AUDIO: finalized_bytes=%s", len(final_pcm))
+        duration = round(len(final_pcm) * 1000 / (self._sample_rate * self._channels * 2))
+        frames = len(final_pcm) // (self._channels * 2)
+        logger.debug("PHOS VOICE UTTERANCE: frames=%s bytes=%s duration_ms=%s",
+                    frames, len(final_pcm), duration)
         await self._emit(VOICE_SPEECH_ENDED, {"duration_ms": duration})
         logger.info("VOICE SPEECH: ended duration_ms=%s", duration)
         if duration < self._min_ms: await self._emit(VOICE_EMPTY_UTTERANCE, {"duration_ms": duration}); await self.stop(); return
         self._status = replace(self._status, state="thinking", listening=False, speech_detected=False); await self._transition(RobotState.THINKING, "voice_transcription")
         await self._emit(VOICE_TRANSCRIPTION_STARTED, {"provider": self._status.stt_provider})
         logger.info("VOICE STT: started provider=%s audio_duration_ms=%s", self._status.stt_provider, duration)
+        # Release microphone resources before a potentially slower cloud STT
+        # request. ``final_pcm`` is independent of capture-owned buffers.
+        await self._capture.stop()
+        logger.debug("VOICE AUDIO: finalized_bytes_after_close=%s", len(final_pcm))
         logger.debug("VOICE UTTERANCE: duration_ms=%s bytes=%s sample_rate=%s channels=%s rms=%s peak=%s",
-                    duration, len(pcm), self._sample_rate, self._channels,
-                    audioop.rms(pcm, 2) if pcm else 0, audioop.max(pcm, 2) if pcm else 0)
+                    duration, len(final_pcm), self._sample_rate, self._channels,
+                    audioop.rms(final_pcm, 2) if final_pcm else 0, audioop.max(final_pcm, 2) if final_pcm else 0)
         if self._debug_dump_utterance_wav:
-            try: await asyncio.to_thread(self._write_debug_wav, pcm)
+            try: await asyncio.to_thread(self._write_debug_wav, final_pcm)
             except Exception as error:
                 logger.exception("VOICE DEBUG WAV ERROR: exception_type=%s exception_message=%s",
                                  type(error).__name__, error)
         started_at = time.monotonic()
-        try: result = await (self._active_stt or self._stt).transcribe(pcm, sample_rate=self._sample_rate, channels=self._channels)
+        logger.debug("VOICE AUDIO: submitted_bytes=%s", len(final_pcm))
+        try: result = await (self._active_stt or self._stt).transcribe(final_pcm, sample_rate=self._sample_rate, channels=self._channels)
         except Exception as error: await self._failure(error); return
         elapsed = round((time.monotonic() - started_at) * 1000)
-        logger.info("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)
+        logger.debug("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)
         logger.info("VOICE TRANSCRIPT: text=%r", result.text) if result.text else logger.info("VOICE TRANSCRIPT: <empty>")
         if result.confidence is not None or result.language is not None:
-            logger.info("VOICE STT RESULT: confidence=%s language=%s", result.confidence, result.language)
+            logger.debug("VOICE STT RESULT: confidence=%s language=%s", result.confidence, result.language)
         self._status = replace(self._status, last_transcript=result.text or None, last_confidence=result.confidence,
                                language=result.language, last_transcription_at=result.completed_at or datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                                last_transcription_duration_ms=elapsed)
-        await self._emit(VOICE_TRANSCRIPTION_COMPLETED, result.document()); await self.stop()
+        # Release capture and leave the listening lifecycle before transcript
+        # subscribers may begin an optional spoken response.
+        await self.stop(); await self._emit(VOICE_TRANSCRIPTION_COMPLETED, result.document())
     def _write_debug_wav(self, pcm: bytes) -> None:
         with self._debug_utterance_wav_path.open("wb") as stream:
             with wave.open(stream, "wb") as output:
@@ -168,7 +200,15 @@ class VoiceCaptureSession:
         duration = round(len(pcm) * 1000 / (self._sample_rate * self._channels * 2))
         logger.debug("VOICE DEBUG WAV: path=%s bytes=%s duration_ms=%s",
                     self._debug_utterance_wav_path, len(pcm), duration)
+        samples = len(pcm) // 2
+        logger.debug("PHOS VOICE: final_utterance rate=%s channels=%s sample_width=2 peak=%s rms=%s clipping=%s nonzero_ratio=%.4f",
+                    self._sample_rate, self._channels, audioop.max(pcm, 2) if pcm else 0,
+                    audioop.rms(pcm, 2) if pcm else 0,
+                    sum(abs(value) >= 32767 for value in memoryview(pcm).cast("h")) if pcm else 0,
+                    (sum(value != 0 for value in memoryview(pcm).cast("h")) / samples) if samples else 0)
     async def _failure(self, error):
-        self._status = replace(self._status, last_error=type(error).__name__)
-        await self._emit(VOICE_ERROR, {"reason": type(error).__name__}); await self.stop()
+        reason = "capture_processing_stalled" if str(error) == "capture_processing_stalled" else type(error).__name__
+        logger.error("VOICE SESSION ERROR: reason=%s", reason)
+        self._status = replace(self._status, last_error=reason)
+        await self._emit(VOICE_ERROR, {"reason": reason}); await self.stop()
     async def _emit(self, name, payload): await self._events.publish(Event(name, payload))

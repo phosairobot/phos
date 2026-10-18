@@ -10,6 +10,8 @@ import time
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 
+logger = logging.getLogger(__name__)
+
 RESTART_EXIT_CODE = 75
 PREVIEW_RELOADABLE = frozenset({
     "vision.camera_preview.enabled", "vision.camera_preview.position", "vision.camera_preview.scale",
@@ -48,7 +50,9 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
     "behavior.environmental.recovery_seconds",
 })
 RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
-                        *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
+                        "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
+                        "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
+                        "display.backgrounds.error", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
 
 
 def changed_fields(active, saved, prefix=""):
@@ -88,9 +92,12 @@ class LifecycleService:
         self._apply_imu_behavior = None
         self._apply_led_ring = None
         self._apply_environmental_behavior = None
+        self._apply_backgrounds = None
+        self._apply_state_effects = None
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
+        self._application_ready = False
         self._clock = clock
         self._lock = RLock()
 
@@ -127,6 +134,12 @@ class LifecycleService:
         with self._lock:
             self._apply_environmental_behavior = applier
 
+    def register_backgrounds_applier(self, applier):
+        with self._lock: self._apply_backgrounds = applier
+
+    def register_state_effects_applier(self, applier):
+        with self._lock: self._apply_state_effects = applier
+
     @property
     def restart_due(self):
         with self._lock:
@@ -146,6 +159,19 @@ class LifecycleService:
         """Register the semantic command/status boundary for remote adapters."""
         with self._lock:
             self._application_service = service
+            self._application_ready = False
+
+    def mark_application_ready(self):
+        """Publish that the registered service can safely enter the runtime loop."""
+        with self._lock:
+            if self._application_service is None:
+                raise RuntimeError("Cannot mark an unregistered application service ready")
+            self._application_ready = True
+
+    def clear_application_ready(self):
+        """Withdraw command availability while the runtime is stopping."""
+        with self._lock:
+            self._application_ready = False
 
     def _snapshot(self, saved):
         changed = changed_fields(self.active, saved)
@@ -155,6 +181,7 @@ class LifecycleService:
                 "restart_required": sorted(set(changed) - RELOADABLE),
                 "restart_supported": self.restart_supported,
                 "restart_requested": self.restart_at is not None,
+                "application_ready": self._application_ready,
                 "sensors": self._sensor_status() if self._sensor_status is not None else {},
                 "runtime": self._application_status() if self._application_status is not None else {}}
 
@@ -174,6 +201,7 @@ class LifecycleService:
             if operation == "restart":
                 if not self.restart_supported:
                     return {"ok": False, "error": "Restart PHOS requires the documented user systemd service. For a terminal launch, stop PHOS and run the startup command again."}
+                logger.info("PHOS LIFECYCLE: restart requested")
                 if self.restart_at is None:
                     # Let the worker deliver its HTTP acknowledgement before exit.
                     self.restart_at = self._clock() + 1.0
@@ -190,6 +218,16 @@ class LifecycleService:
                     return {"ok": False, "error": "Runtime visual source service is not ready. No settings were applied; retry reload shortly."}
                 if (self.active["display"]["environment_overlays_enabled"] != saved["display"]["environment_overlays_enabled"] and self._apply_environment_overlays is None):
                     return {"ok": False, "error": "Runtime environmental overlay service is not ready. No settings were applied; retry reload shortly."}
+                backgrounds_changed = self.active["display"]["backgrounds"] != saved["display"]["backgrounds"]
+                effects_changed = self.active["display"]["state_effects"] != saved["display"]["state_effects"]
+                effect_paths = (changed_fields(self.active["display"]["state_effects"], saved["display"]["state_effects"],
+                                               "display.state_effects") if effects_changed else [])
+                if effects_changed and self._apply_state_effects is None:
+                    return {"ok": False, "error": "Runtime state effects service is not ready. No settings were applied; retry reload shortly."}
+                background_paths = (changed_fields(self.active["display"]["backgrounds"], saved["display"]["backgrounds"],
+                                                   "display.backgrounds") if backgrounds_changed else [])
+                if backgrounds_changed and self._apply_backgrounds is None:
+                    return {"ok": False, "error": "Runtime background service is not ready. No settings were applied; retry reload shortly."}
                 preview_paths = changed_fields(self.active["vision"]["camera_preview"],
                     saved["vision"]["camera_preview"], "vision.camera_preview")
                 preview_changed = bool(preview_paths)
@@ -226,6 +264,20 @@ class LifecycleService:
                     self._apply_environment_overlays(config)
                     self.active["display"]["environment_overlays_enabled"] = saved["display"]["environment_overlays_enabled"]
                     applied.append("display.environment_overlays_enabled")
+                if backgrounds_changed:
+                    try:
+                        self._apply_backgrounds(config)
+                    except Exception:
+                        return {"ok": False, "error": "The running display could not accept the background update. No active configuration was recorded; retry reload or restart PHOS."}
+                    self.active["display"]["backgrounds"] = deepcopy(saved["display"]["backgrounds"])
+                    applied.extend(background_paths)
+                if effects_changed:
+                    try:
+                        self._apply_state_effects(config)
+                    except Exception:
+                        return {"ok": False, "error": "The running display could not accept the state effects update. No active configuration was recorded; retry reload or restart PHOS."}
+                    self.active["display"]["state_effects"] = deepcopy(saved["display"]["state_effects"])
+                    applied.extend(effect_paths)
                 if preview_changed:
                     try:
                         self._apply_camera_preview(config)
@@ -295,14 +347,23 @@ class LifecycleService:
             "application.configure_stt": lambda: self._application_service.configure_stt(payload),
             "application.configure_tts": lambda: self._application_service.configure_tts(payload),
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
+            "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
+            "application.configure_state_effects": lambda: self._application_service.configure_state_effects(payload),
+            "application.background_assets": lambda: self._application_service.background_assets(),
+            "application.upload_background": lambda: self._application_service.upload_background(payload),
+            "application.delete_background": lambda: self._application_service.delete_background(payload.get("name")),
             "application.expression": lambda: self._application_service.set_expression(payload.get("expression")),
             "application.set_state": lambda: self._application_service.set_state(payload.get("state")),
             "application.visual_source": lambda: self._application_service.set_visual_source(payload.get("source")),
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        if self._application_service is None:
-            return {"ok": False, "error": "Application service is unavailable.", "status": 503}
+        if self._application_service is None or not getattr(self, "_application_ready", True):
+            return {"ok": False, "error": {
+                "code": "service_unavailable",
+                "message": "PHOS runtime command service is starting. Retry shortly.",
+                "details": {"reason": "runtime_starting"},
+            }, "status": 503}
         try:
             return {"ok": True, "result": handlers[name]()}
         except Exception as error:

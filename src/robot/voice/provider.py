@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime, timezone
 import asyncio
 import io
@@ -13,6 +12,8 @@ import time
 from typing import Optional
 import wave
 
+from robot.interaction.models import TranscriptResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,20 +23,9 @@ class STTProviderError(STTError):
     def __init__(self, code: str): super().__init__(code); self.code = code
 
 
-@dataclass(frozen=True)
-class SpeechRecognitionResult:
-    text: str
-    provider: str
-    model: Optional[str] = None
-    confidence: Optional[float] = None
-    language: Optional[str] = None
-    duration_ms: Optional[int] = None
-    completed_at: Optional[str] = None
-
-    def document(self) -> dict:
-        return {"text": self.text, "provider": self.provider, "model": self.model,
-                "confidence": self.confidence, "language": self.language,
-                "duration_ms": self.duration_ms, "completed_at": self.completed_at}
+# Public compatibility name for the existing STT boundary.  New interaction
+# code uses TranscriptResult directly; both names identify the same plain type.
+SpeechRecognitionResult = TranscriptResult
 
 
 class STTProvider(ABC):
@@ -130,7 +120,7 @@ class CartesiaSTTProvider(STTProvider):
 
     def _transcribe(self, pcm: bytes, sample_rate: int, channels: int) -> SpeechRecognitionResult:
         started = time.monotonic()
-        logger.info("PHOS STT: provider=cartesia transcription_start")
+        logger.debug("PHOS STT: provider=cartesia transcription_start")
         try:
             audio = self._wav(pcm, sample_rate, channels)
             response = self._client.stt.transcribe(
@@ -140,7 +130,7 @@ class CartesiaSTTProvider(STTProvider):
             text = getattr(response, "text", None)
             if not isinstance(text, str):
                 text = response.get("text", "") if isinstance(response, dict) else ""
-            logger.info("PHOS STT: provider=cartesia transcription_complete duration_ms=%s",
+            logger.debug("PHOS STT: provider=cartesia transcription_complete duration_ms=%s",
                         round((time.monotonic() - started) * 1000))
             return SpeechRecognitionResult(text.strip(), self.name, self.model, None, self._language,
                                            round(len(pcm) * 1000 / (sample_rate * channels * 2)),

@@ -14,8 +14,12 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 import platform
 import time
+import os
+import tempfile
+import re
 from threading import RLock
 from typing import Any, Callable
+from pathlib import Path
 
 from robot.core import Event, RobotState
 from robot.core.state import InvalidStateTransition, allowed_next_states, transition_graph, writable_states
@@ -31,14 +35,52 @@ from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESS
 from robot.core.touch import TOUCH_EVENT_NAMES
 from robot.voice.session import (VOICE_ERROR, VOICE_LISTENING_STARTED, VOICE_SESSION_CANCELLED, VOICE_SPEECH_ENDED,
                                  VOICE_SPEECH_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_TRANSCRIPTION_STARTED, VOICE_EMPTY_UTTERANCE)
-from robot.voice.capture import UnsupportedCaptureRate
+from robot.interaction import (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED,
+                               INTERACTION_RESOLUTION_FAILED)
+from robot.voice.capture import CaptureDeviceUnavailable, UnsupportedCaptureRate
+from robot.voice.normalization import SpeechTextNormalizer
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
-from robot.voice import AplayAudioOutputProvider, STTProviderFactory, TTSProviderFactory
+from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 
 logger = logging.getLogger(__name__)
+
+_MAX_BACKGROUND_DIMENSIONS = (1920, 1080)
+
+
+def _header_image_details(content: bytes) -> tuple[str, int, int] | None:
+    """Return a conservatively parsed PNG/JPEG header when OpenCV is absent."""
+    if content.startswith(b"\x89PNG\r\n\x1a\n") and len(content) >= 24 and content[12:16] == b"IHDR":
+        width, height = int.from_bytes(content[16:20], "big"), int.from_bytes(content[20:24], "big")
+        return (".png", width, height) if width and height else None
+    if not content.startswith(b"\xff\xd8"):
+        return None
+    offset = 2
+    while offset + 9 <= len(content):
+        if content[offset] != 0xFF:
+            return None
+        while offset < len(content) and content[offset] == 0xFF:
+            offset += 1
+        marker = content[offset]
+        offset += 1
+        if marker in {0xD8, 0xD9}:
+            continue
+        if offset + 2 > len(content):
+            return None
+        length = int.from_bytes(content[offset:offset + 2], "big")
+        if length < 2 or offset + length > len(content):
+            return None
+        if marker in {*range(0xC0, 0xC4), *range(0xC5, 0xC8), *range(0xC9, 0xCC), *range(0xCD, 0xD0)}:
+            height, width = int.from_bytes(content[offset + 3:offset + 5], "big"), int.from_bytes(content[offset + 5:offset + 7], "big")
+            return (".jpg", width, height) if width and height else None
+        offset += length
+    return None
+
+_speech_text_normalizer = SpeechTextNormalizer()
+
+STATE_COMMAND_TIMEOUT_SECONDS = 2.0
 
 
 # These are enum members, not duplicated wire values. ERROR is lifecycle-only;
@@ -142,8 +184,20 @@ class RemoteApplicationService:
     def configure_stt(self, value): return self._call("configure_stt", value)
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
+    def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
+    def configure_state_effects(self, value): return self._call("configure_state_effects", value)
+    def background_assets(self): return self._call("background_assets")
+    def upload_background(self, value): return self._call("upload_background", value)
+    def delete_background(self, value): return self._call("delete_background", {"name": value})
     def set_expression(self, value): return self._call("expression", {"expression": value})
-    def set_state(self, value): return self._call("set_state", {"state": value})
+    def set_state(self, value):
+        started_at = time.monotonic()
+        logger.debug("PHOS COMMAND: state target=%s request_received", value)
+        logger.debug("PHOS COMMAND: state target=%s submitted_ms=0.0", value)
+        result = self._call("set_state", {"state": value})
+        logger.debug("PHOS COMMAND: state target=%s response_ms=%.1f", value,
+                    (time.monotonic() - started_at) * 1000)
+        return result
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
     def overlay(self): return self._call("overlay")
     def set_overlay(self, value): return self._call("set_overlay", value)
@@ -186,10 +240,10 @@ class RemoteApplicationService:
                 continue
             self._last[event_type] = frozen
             if event_type == "observed_expression_changed":
-                logger.info("EXPR SSE SNAPSHOT: available=%s label=%s confidence=%s",
+                logger.debug("EXPR SSE SNAPSHOT: available=%s label=%s confidence=%s",
                             payload.get("available"), payload.get("label"), payload.get("confidence"))
             if event_type == "expression_reaction_changed":
-                logger.info("SSE OUT: type=%s payload=%s", event_type, payload)
+                logger.debug("SSE OUT: type=%s payload=%s", event_type, payload)
             event = {"type": event_type,
                      "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                      "payload": payload}
@@ -240,6 +294,8 @@ class PhosApplicationService:
               for name in TOUCH_EVENT_NAMES.values()],
             *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
               for name in (VOICE_LISTENING_STARTED, VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED, VOICE_ERROR)],
+            *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
+              for name in (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED, INTERACTION_RESOLUTION_FAILED)],
         ]
 
     def close(self):
@@ -278,7 +334,7 @@ class PhosApplicationService:
         """Trace the exact runtime snapshot forwarded to remote adapters."""
         self._emit("observed_expression_changed", event.data)
         snapshot = self.observed_expression()
-        logger.info("EXPR SNAPSHOT: state_id=%s available=%s label=%s confidence=%s",
+        logger.debug("EXPR SNAPSHOT: state_id=%s available=%s label=%s confidence=%s",
                     id(getattr(getattr(self._runtime, "_vision_pipeline", None), "observed_expression", None)),
                     snapshot.get("available"), snapshot.get("label"), snapshot.get("confidence"))
 
@@ -449,6 +505,12 @@ class PhosApplicationService:
         result["expression_reaction"] = self.expression_reaction()
         result["touch"] = self.touch()
         result["voice"] = self.voice()
+        interaction = getattr(self._runtime, "interaction_status", None)
+        result["interaction"] = self._plain(interaction()) if interaction is not None else {
+            "enabled": False, "configured_resolver": None, "active_resolver": None,
+            "available": False, "default_language": None, "supported_languages": [],
+            "last_resolution": {"status": None, "intent": None, "source_language": None},
+            "unavailable_reason": "unconfigured"}
         result.setdefault("sensors", self.sensors())
         self._emit("visual_state_changed", result["visual"])
         return result
@@ -480,6 +542,9 @@ class PhosApplicationService:
                              operation, type(error).__name__, error)
             raise ApplicationError("unsupported_capture_rate", "The selected microphone does not support a usable PCM16 capture rate.",
                                    {"requested_rate": error.requested_rate, "device_default_rate": error.device_default_rate}, 503) from error
+        except CaptureDeviceUnavailable as error:
+            raise ApplicationError("capture_device_unavailable", "The configured microphone is unavailable.",
+                                   {"reason": str(error)}, 503) from error
         except Exception as error:
             logger.exception("VOICE SESSION: failed operation=%s exception_type=%s exception_message=%s",
                              operation, type(error).__name__, error)
@@ -490,10 +555,7 @@ class PhosApplicationService:
     def cancel_voice_session(self): return self._voice_command(self._runtime.stop_listening, cancelled=True, operation="cancel")
 
     def speak(self, text: str):
-        if not isinstance(text, str) or not (text := text.strip()):
-            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
-        if len(text) > 500:
-            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
+        text = self._validated_speech_text(text)
         loop = self._runtime._loop
         if loop is None:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
@@ -512,6 +574,45 @@ class PhosApplicationService:
             logger.exception("TTS: failed exception_type=%s", type(error).__name__)
             raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
 
+    @staticmethod
+    def _validated_speech_text(text: str) -> str:
+        if not isinstance(text, str) or not (text := text.strip()):
+            raise ApplicationError("invalid_speech", "Speech text must not be empty.")
+        if len(text) > 500:
+            raise ApplicationError("invalid_speech", "Speech text exceeds the 500 character limit.")
+        return text
+
+    async def speak_interaction_response(self, text: str, language: str, *, intent: str) -> dict:
+        """Speak a rendered response through the normal runtime TTS lifecycle.
+
+        Language remains response metadata because the provider-neutral TTS
+        contract currently accepts text only.
+        """
+        text = self._validated_speech_text(text)
+        speech_text = _speech_text_normalizer.normalize(text, language)
+        try:
+            provider = "unknown"
+            runtime_status = getattr(self._runtime, "application_status", None)
+            if callable(runtime_status):
+                speech = runtime_status().get("speech", {})
+                provider = speech.get("tts", {}).get("active_provider") or provider
+            logger.info("PHOS INTERACTION: response speech started intent=%s language=%s provider=%s",
+                        intent, language, provider)
+            logger.debug("PHOS TTS NORMALIZATION: language=%s normalizer=%s changed=%s", language,
+                         _speech_text_normalizer.normalizer_name(language), str(speech_text != text).lower())
+            await self._runtime.speak(speech_text)
+            return {"status": "completed", "language": language}
+        except TTSBusyError as error:
+            raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except TTSProviderError as error:
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except (TTSConfigurationError, TTSError) as error:
+            logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except Exception as error:
+            logger.exception("TTS: failed exception_type=%s", type(error).__name__)
+            raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
+
     def config(self) -> dict:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
@@ -520,6 +621,22 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", result.get("error", "Configuration service is unavailable."), status=503)
         saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
+
+    @staticmethod
+    def _speech_configuration_reason(subsystem: str, provider: str | None, error: Exception) -> str:
+        """Classify setup failures without exposing exception details or secrets."""
+        if subsystem != "tts" or provider != "cartesia":
+            return type(error).__name__
+        message = str(error).casefold()
+        if "credential" in message:
+            return "cartesia_credential_missing"
+        if "voice id" in message or "voice_id" in message:
+            return "cartesia_voice_id_missing"
+        if "model" in message:
+            return "cartesia_model_missing"
+        if "client could not be initialized" in message:
+            return "cartesia_client_initialization_failed"
+        return "cartesia_invalid_configuration"
 
     def _speech_transaction(self, patch, *, subsystem):
         """Build first, persist atomically, then publish; publication failure rolls back.
@@ -530,23 +647,27 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503)
         previous = self._lifecycle.config_repository.load()
         document = previous.to_dict(); _merge(document, patch)
+        provider = (document.get("voice", {}).get("stt", {}).get("provider") if subsystem == "stt"
+                    else document.get("tts", {}).get("provider") if subsystem == "tts"
+                    else document.get("tts", {}).get("audio_output", {}).get("player"))
         try:
             requested = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
             if subsystem == "stt":
-                candidate = STTProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if requested.voice_enabled else None
                 enabled, provider = requested.voice_enabled, requested.voice_stt_provider
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
+                candidate = STTProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if enabled else None
             elif subsystem == "tts":
-                candidate = TTSProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if requested.tts_enabled else None
                 enabled, provider = requested.tts_enabled, requested.tts_provider
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
+                candidate = TTSProviderFactory.create(requested, getattr(self._runtime, "_secrets_service", None)) if enabled else None
             else:
-                candidate = AplayAudioOutputProvider(requested.tts_audio_output_player, requested.tts_audio_output_device,
-                    sample_rate=requested.tts_audio_output_sample_rate, channels=requested.tts_audio_output_channels,
-                    sample_width=requested.tts_audio_output_sample_width, preroll_ms=requested.tts_audio_output_preroll_ms,
-                    debug_retain_final_wav=requested.tts_audio_output_debug_retain_final_wav,
-                    retry_max_attempts=requested.tts_audio_output_retry_max_attempts,
-                    retry_delay_ms=requested.tts_audio_output_retry_delay_ms)
-                enabled, provider = True, None
+                logger.info("PHOS SPEECH CONFIG: configuring subsystem=%s provider=%s", subsystem, provider)
+                candidate = AudioOutputProviderFactory.create(requested)
+                enabled = True
         except (ConfigurationError, TTSError, ValueError, ImportError) as error:
+            logger.warning("PHOS SPEECH CONFIG: configuration failed subsystem=%s provider=%s reason=%s",
+                           subsystem, provider or "unknown",
+                           self._speech_configuration_reason(subsystem, provider, error))
             raise ApplicationError("invalid_configuration", "Could not activate requested speech configuration.", status=400) from error
         try:
             self._lifecycle.config_repository.save(requested)
@@ -559,17 +680,159 @@ class PhosApplicationService:
             elif subsystem == "tts":
                 if candidate is not None: self._runtime.replace_tts_provider(candidate)
                 self._runtime.set_tts_enabled(enabled)
-            else: self._runtime.replace_audio_output(candidate)
+            else: self._runtime.replace_audio_output(candidate, config=requested)
         except Exception as error:
             # ConfigRepository uses atomic writes; restore the previous complete snapshot.
             try: self._lifecycle.config_repository.save(previous)
             except OSError: logger.exception("Speech configuration rollback failed")
+            logger.warning("PHOS SPEECH CONFIG: configuration failed subsystem=%s provider=%s reason=%s",
+                           subsystem, provider or "unknown",
+                           self._speech_configuration_reason(subsystem, provider, error))
             raise ApplicationError("activation_failed", "Speech configuration could not be activated.", status=503) from error
+        logger.info("PHOS SPEECH CONFIG: configured subsystem=%s provider=%s", subsystem, provider or "audio_output")
         return SpeechConfigurationResult(provider, provider, enabled, candidate is not None).document()
 
     def configure_stt(self, patch): return self._speech_transaction({"voice": patch}, subsystem="stt")
     def configure_tts(self, patch): return self._speech_transaction({"tts": patch}, subsystem="tts")
     def configure_audio_output(self, patch): return self._speech_transaction({"tts": {"audio_output": patch}}, subsystem="audio")
+
+    def configure_backgrounds(self, patch: dict) -> dict:
+        """Atomically save and publish the canonical display.backgrounds block."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
+        allowed = {"enabled", "idle", "listening", "thinking", "speaking", "sleeping", "error"}
+        if not isinstance(patch, dict) or set(patch) - allowed:
+            raise ApplicationError("invalid_configuration", "Unsupported background configuration.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        _merge(document["display"]["backgrounds"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        except ConfigurationError as error:
+            raise ApplicationError("invalid_configuration", "Background configuration was rejected.", {"reason": str(error)}) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "Background configuration could not be applied."))
+        except Exception as error:
+            try:
+                self._lifecycle.config_repository.save(previous)
+            except OSError:
+                logger.exception("PHOS VISUAL: background configuration rollback failed")
+            raise ApplicationError("runtime_unavailable", "Background configuration could not be applied.", status=503) from error
+        logger.info("PHOS VISUAL: backgrounds configured enabled=%s", candidate.backgrounds_enabled)
+        return {"saved": candidate.to_dict()["display"]["backgrounds"], "applied": result.get("applied", []),
+                "status": self._runtime.application_status().get("backgrounds", {})}
+
+    def configure_state_effects(self, patch: dict) -> dict:
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
+        allowed = {"enabled", "preset", "palette", "reduce_motion"}
+        if not isinstance(patch, dict) or set(patch) - allowed:
+            raise ApplicationError("invalid_configuration", "Unsupported state effects configuration.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        _merge(document["display"]["state_effects"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        except ConfigurationError as error:
+            raise ApplicationError("invalid_configuration", "State effects configuration was rejected.", {"reason": str(error)}) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "State effects configuration could not be applied."))
+        except Exception as error:
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("PHOS VISUAL: state effects rollback failed")
+            raise ApplicationError("runtime_unavailable", "State effects configuration could not be applied.", status=503) from error
+        return {"saved": candidate.to_dict()["display"]["state_effects"], "applied": result.get("applied", [])}
+
+    def background_assets(self) -> list[dict]:
+        """List only safe, existing images in the canonical asset directory."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Configuration service is unavailable.", status=503)
+        directory = (self._lifecycle.path.parent / "backgrounds").resolve()
+        if not directory.is_dir():
+            return []
+        return [{"name": path.name, "format": path.suffix[1:].lower()}
+                for path in sorted(directory.iterdir())
+                if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}]
+
+    def upload_background(self, upload: dict) -> dict:
+        if self._lifecycle is None or not isinstance(upload, dict):
+            raise ApplicationError("service_unavailable", "Background upload is unavailable.", status=503)
+        content, name = upload.get("content"), upload.get("name")
+        if (not isinstance(name, str) or not name or len(name) > 96 or name != Path(name).name
+                or ".." in name or any(ord(char) < 32 for char in name)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)", name, re.IGNORECASE)):
+            raise ApplicationError("invalid_filename", "Choose a safe PNG or JPEG filename.")
+        maximum_bytes = self._lifecycle.config_repository.load().background_max_upload_bytes
+        if not isinstance(content, (bytes, bytearray)) or not content:
+            raise ApplicationError("invalid_image", "Image must not be empty.")
+        if len(content) > maximum_bytes:
+            raise ApplicationError("file_too_large", f"Image exceeds the {maximum_bytes // (1024 * 1024)} MiB limit.", status=413)
+        try:
+            import cv2, numpy as np
+            image = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if (image is None or not image.shape[0] or not image.shape[1]
+                    or image.shape[1] > _MAX_BACKGROUND_DIMENSIONS[0]
+                    or image.shape[0] > _MAX_BACKGROUND_DIMENSIONS[1]):
+                raise ValueError
+            extension = ".png" if content.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if content.startswith(b"\xff\xd8") else None
+        except ImportError:
+            details = _header_image_details(content)
+            if details is None:
+                extension = None
+            else:
+                extension, width, height = details
+                if width > _MAX_BACKGROUND_DIMENSIONS[0] or height > _MAX_BACKGROUND_DIMENSIONS[1]:
+                    extension = None
+        except ValueError:
+            extension = None
+        if extension is None:
+            raise ApplicationError("invalid_image", "Upload a valid PNG or JPEG image.")
+        directory = (self._lifecycle.path.parent / "backgrounds").resolve()
+        directory.mkdir(mode=0o750, exist_ok=True)
+        if Path(name).suffix.lower() != extension and not (extension == ".jpg" and Path(name).suffix.lower() == ".jpeg"):
+            raise ApplicationError("invalid_image", "Filename extension does not match the decoded image.")
+        target = directory / name
+        if target.exists():
+            raise ApplicationError("asset_exists", f'A background named "{name}" already exists.', status=409)
+        fd, temporary = tempfile.mkstemp(prefix=".upload-", dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(content); output.flush(); os.fsync(output.fileno())
+            # Refuse a concurrent winner rather than overwriting it.
+            if target.exists():
+                raise ApplicationError("asset_exists", f'A background named "{name}" already exists.', status=409)
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
+        return {"name": name, "format": extension[1:]}
+
+    def delete_background(self, name: str) -> dict:
+        """Clear canonical references before removing one managed asset."""
+        if self._lifecycle is None or not isinstance(name, str):
+            raise ApplicationError("service_unavailable", "Background deletion is unavailable.", status=503)
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)", name, re.IGNORECASE)
+                or name != Path(name).name or ".." in name):
+            raise ApplicationError("invalid_asset", "Invalid background asset name.")
+        directory = (self._lifecycle.path.parent / "backgrounds").resolve()
+        target = directory / name
+        if not target.is_file():
+            raise ApplicationError("asset_not_found", "Background asset was not found.", status=404)
+        current = self._lifecycle.config_repository.load()
+        assignments = {state: None for state in ("idle", "listening", "thinking", "speaking", "sleeping", "error")
+                       if getattr(current, f"background_{state}") == Path("backgrounds") / name}
+        if assignments:
+            self.configure_backgrounds(assignments)
+        try:
+            target.unlink()
+        except OSError as error:
+            raise ApplicationError("deletion_failed", "Background assignments were reset, but the file could not be removed.", status=503) from error
+        return {"name": name, "reset_states": sorted(assignments), "status": self._runtime.application_status().get("backgrounds", {})}
 
     def update_config(self, patch: dict) -> dict:
         """Validate and persist a partial canonical-config edit, then reload safely."""
@@ -620,6 +883,16 @@ class PhosApplicationService:
         self._emit("expression_changed", payload)
         return payload
 
+    async def _accept_state_command(self, target: RobotState, submitted_at: float):
+        """Run on the runtime loop and acknowledge immediately after commit."""
+        dequeued_at = time.monotonic()
+        logger.debug("PHOS COMMAND: state target=%s dequeued_ms=%.1f", target.value,
+                    (dequeued_at - submitted_at) * 1000)
+        transition = await self._core.accept_transition_to(target, reason="remote_api")
+        logger.debug("PHOS COMMAND: state target=%s applied_ms=%.1f", target.value,
+                    (time.monotonic() - submitted_at) * 1000)
+        return transition
+
     def set_state(self, state: str) -> dict:
         try:
             target = RobotState(state)
@@ -630,13 +903,29 @@ class PhosApplicationService:
         loop = self._runtime._loop
         if loop is None:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        submitted_at = time.monotonic()
+        if self._core.state is target:
+            logger.info("PHOS COMMAND: state target=%s accepted already_current=true", target.value)
+            return self.robot_state()
+        future = asyncio.run_coroutine_threadsafe(self._accept_state_command(target, submitted_at), loop)
         try:
-            asyncio.run_coroutine_threadsafe(self._core.transition_to(target, reason="remote_api"), loop).result(timeout=2)
+            future.result(timeout=STATE_COMMAND_TIMEOUT_SECONDS)
         except InvalidStateTransition as error:
             raise ApplicationError("invalid_state_transition", str(error),
                                    {"current": self._core.state.value, "target": target.value}, status=409) from error
         except TimeoutError as error:
+            # A queued coroutine must never execute after its requester was
+            # told that PHOS did not accept it. If it is already running, the
+            # state commit is synchronous and can be acknowledged truthfully.
+            cancelled = future.cancel()
+            if not cancelled and self._core.state is target:
+                logger.info("PHOS COMMAND: state target=%s accepted after_timeout=true", target.value)
+                return self.robot_state()
+            phase = "queued_cancelled" if cancelled else "runtime_unresponsive"
+            logger.warning("PHOS COMMAND: state timeout target=%s phase=%s elapsed_ms=%.1f", target.value, phase,
+                           (time.monotonic() - submitted_at) * 1000)
             raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
+        logger.info("PHOS COMMAND: state target=%s accepted", target.value)
         return self.robot_state()
 
 

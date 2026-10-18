@@ -1,6 +1,7 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
 import json
 import html
+import io
 from html.parser import HTMLParser
 import re
 import socket
@@ -73,6 +74,118 @@ def form(client, area="display"):
     parser = FormParser()
     parser.feed(client.get(f"/configuration/{area}", follow_redirects=True).get_data(as_text=True))
     return parser.values
+
+
+def test_backgrounds_page_requires_authentication_and_exposes_no_filesystem_paths(setup):
+    app, path, _ = setup
+    anonymous = app.test_client()
+    assert anonymous.get("/configuration/backgrounds").location == "/login"
+    client = authorize(app)
+    assert client.get("/configuration/backgrounds").location.endswith("/appearance/backgrounds")
+    page = client.get("/appearance/backgrounds")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "State Backgrounds" in text and str(path.parent) not in text
+
+
+def test_backgrounds_page_remains_available_when_runtime_asset_service_is_unavailable(setup):
+    app, _, _ = setup
+    class Unavailable:
+        def background_assets(self): raise RuntimeError("IPC unavailable")
+        def status(self): raise RuntimeError("IPC unavailable")
+    # Rebuild with the same temporary config so the route receives the failing
+    # read-only service boundary, then verify its canonical-config fallback.
+    path = app.extensions["phos_config"].path
+    fallback = create_app(path, application_service=Unavailable())
+    client = authorize(fallback)
+    assert client.get("/appearance/backgrounds").status_code == 200
+
+
+def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonical_list(setup):
+    app, path, now = setup
+
+    class Assets:
+        def __init__(self): self.names = []
+        def upload_background(self, upload):
+            self.names.append(upload["name"])
+            return {"name": upload["name"]}
+        def background_assets(self):
+            return [{"name": name, "format": "png"} for name in self.names]
+        def status(self): return {"backgrounds": {}}
+
+    assets = Assets()
+    app = create_app(path, clock=lambda: now[0], application_service=assets)
+    client = authorize(app)
+    payload = b"x" * (70 * 1024)  # deliberately exceeds the retired 64 KiB HTTP cap
+    response = client.post("/appearance/backgrounds/upload", data={
+        "csrf_token": csrf(client.get("/appearance/backgrounds")),
+        "background": (io.BytesIO(payload), "second.png"),
+    })
+
+    assert response.status_code == 302
+    assert assets.names == ["second.png"]
+    assert "second.png" in client.get("/appearance/backgrounds").get_data(as_text=True)
+    assert app.config["MAX_CONTENT_LENGTH"] > len(payload)
+
+
+def test_state_effects_page_renders_canonical_values_and_appearance_navigation(setup):
+    app, path, _ = setup
+    document = json.loads(path.read_text())
+    document["display"]["state_effects"] = {"enabled": True, "preset": "expressive", "palette": "violet",
+                                             "reduce_motion": True}
+    path.write_text(json.dumps(document))
+    page = authorize(app).get("/appearance/state-effects")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'id="state-effects-enabled" name="state-effects-enabled" type="checkbox" checked' in text
+    assert 'id="state-effects-preset-expressive" name="state-effects-preset" type="radio" value="expressive" checked' in text
+    assert '<option value="violet" selected>Violet</option>' in text
+    assert "state-effects-smooth-transitions" not in text
+    assert 'id="state-effects-reduce-motion" name="state-effects-reduce-motion" type="checkbox" checked' in text
+    assert 'class="state-effects-card"' in text and "Effect Color" in text
+    assert all(f'value="{value}"' in text for value in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"))
+    assert all(f'id="state-effects-preset-{value}"' in text for value in ("subtle", "balanced", "expressive"))
+    assert "↳ Backgrounds" in text and "↳ State Effects" in text
+
+
+@pytest.mark.parametrize("preset", ["subtle", "balanced", "expressive"])
+def test_state_effects_save_uses_the_existing_application_operation(setup, preset):
+    class EffectsService:
+        def __init__(self): self.calls = []
+        def configure_state_effects(self, payload):
+            self.calls.append(payload)
+            return {"saved": payload, "applied": ["display.state_effects.preset"]}
+
+    _, path, now = setup
+    service = EffectsService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    app.testing = True
+    client = authorize(app)
+    response = post(client, "/appearance/state-effects", {
+        "state-effects-enabled": "on", "state-effects-preset": preset,
+        "state-effects-palette": "cyan",
+        "state-effects-reduce-motion": "on"})
+    assert response.status_code == 302 and response.location.endswith("/appearance/state-effects")
+    assert service.calls == [{"enabled": True, "preset": preset, "palette": "cyan", "reduce_motion": True}]
+
+
+def test_state_effects_save_supports_all_toggle_values_and_bounded_failures(setup):
+    class EffectsService:
+        def __init__(self): self.calls = []
+        def configure_state_effects(self, payload): self.calls.append(payload); return {"saved": payload}
+
+    _, path, now = setup
+    service = EffectsService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    app.testing = True
+    client = authorize(app)
+    assert post(client, "/appearance/state-effects", {"state-effects-preset": "balanced", "state-effects-palette": "amber"}).status_code == 302
+    assert service.calls[-1] == {"enabled": False, "preset": "balanced", "palette": "amber", "reduce_motion": False}
+    previous = path.read_bytes()
+    rejected = post(client, "/appearance/state-effects", {"state-effects-preset": "invalid", "state-effects-palette": "phos"})
+    assert rejected.status_code == 400
+    assert "Choose supported state-effects options." in rejected.get_data(as_text=True)
+    assert path.read_bytes() == previous
 
 
 def editor_form(client):
@@ -423,7 +536,8 @@ def test_voice_settings_show_provider_availability_and_persist_local_settings(se
     assert "Google Cloud TTS (Coming soon)" in page
     assert "Cartesia (Coming soon)" not in page and "Cartesia" in page
     assert "ElevenLabs credential:" in page and "Cartesia credential:" in page and "Not configured" in page
-    assert 'name="tts.cartesia.speed"' in page and 'name="tts.cartesia.volume"' in page
+    for field in ("voice_id", "model_id", "sample_rate", "speed", "volume"):
+        assert f'name="tts.cartesia.{field}"' in page
     model = path.parent / "voice.onnx"; model.write_bytes(b"model")
     data = form(client, "voice")
     data.update({"tts.enabled": "on", "tts.provider": "local", "tts.local.model_path": "voice.onnx"})
@@ -433,6 +547,89 @@ def test_voice_settings_show_provider_availability_and_persist_local_settings(se
     assert saved.tts_enabled and saved.tts_provider == "local"
     assert saved.tts_local_model_path == Path("voice.onnx")
     assert "restart PHOS" in response.get_data(as_text=True)
+
+
+def test_voice_settings_use_concise_user_facing_provider_copy(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/configuration/voice").get_data(as_text=True)
+    assert "Choose between local Vosk and optional Cartesia speech recognition." in page
+    assert "Cartesia uses the credential configured in Credentials." in page
+    assert page.count("Runs locally on PHOS.") == 2
+    assert "Cloud TTS using the Cartesia credential configured in Credentials." in page
+    assert "Cloud TTS using the ElevenLabs credential configured in Credentials." in page
+    assert "Choose where PHOS plays speech." in page
+    assert "If activation fails, the previous working settings remain active." in page
+    assert "requires restart after saving" not in page
+    assert "PHOS VAD" not in page
+    assert "utterance boundaries" not in page
+    assert "batch transcription" not in page
+    assert "normalization, and warm-up" not in page
+
+
+def test_voice_provider_panels_have_unique_scoped_ids_and_preserve_backend_names(setup):
+    app, _, _ = setup
+    client = authorize(app)
+    page = client.get("/configuration/voice").get_data(as_text=True)
+    identifiers = re.findall(r'\bid="([^"]+)"', page)
+    assert len(identifiers) == len(set(identifiers))
+    assert 'id="voice.stt.provider" name="voice.stt.provider"' in page
+    assert 'id="tts.provider" name="tts.provider"' in page
+    assert 'id="voice-vosk" data-section="vosk" data-stt-provider-panel="local"' in page
+    assert 'id="voice-cartesia-stt" data-section="cartesia-stt" data-stt-provider-panel="cartesia"' in page
+    assert 'id="voice-local" data-section="local" data-tts-provider-panel="local"' in page
+    assert 'id="voice-cartesia" data-section="cartesia" data-tts-provider-panel="cartesia"' in page
+    assert 'id="voice-elevenlabs" data-section="elevenlabs" data-tts-provider-panel="elevenlabs"' in page
+    assert 'data-provider="cartesia"' not in page
+
+
+def test_voice_provider_toggle_script_scopes_stt_and_tts_panels_independently():
+    script = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    assert 'document.getElementById("voice.stt.provider")' in script
+    assert 'sttProvider.closest(".voice-section--stt")' in script
+    assert 'section.querySelectorAll("[data-stt-provider-panel]")' in script
+    assert 'ttsProvider.closest(".voice-section--tts")' in script
+    assert 'section.querySelectorAll("[data-tts-provider-panel]")' in script
+    tts_handler = script[script.index('const ttsProvider'):script.index('(() =>', script.index('const ttsProvider'))]
+    assert 'data-provider' not in tts_handler
+
+
+def test_voice_audio_output_selector_includes_pipewire(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/configuration/voice").get_data(as_text=True)
+    assert 'value="aplay"' in page
+    assert 'ALSA (aplay)' in page
+    assert 'value="pipewire"' in page
+    assert 'PipeWire (pw-play)' in page
+
+
+def test_voice_save_routes_only_the_changed_speech_subsystem(setup):
+    class SpeechService:
+        def __init__(self): self.calls = []
+        def configure_stt(self, payload):
+            self.calls.append(("stt", payload)); return {"active_provider": payload["stt"]["provider"]}
+        def configure_tts(self, payload):
+            self.calls.append(("tts", payload)); return {"active_provider": payload["provider"]}
+        def configure_audio_output(self, payload):
+            self.calls.append(("audio", payload)); return {"active_provider": None}
+
+    _, path, now = setup
+    service = SpeechService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    app.testing = True
+    client = authorize(app)
+
+    tts_form = form(client, "voice")
+    tts_form["tts.provider"] = "cartesia"
+    assert client.post("/configuration/voice", data=tts_form).status_code == 302
+    assert [name for name, _ in service.calls] == ["tts"]
+    assert service.calls[0][1]["provider"] == "cartesia"
+
+    service.calls.clear()
+    stt_form = form(client, "voice")
+    stt_form["voice.stt.provider"] = "cartesia"
+    assert client.post("/configuration/voice", data=stt_form).status_code == 302
+    assert [name for name, _ in service.calls] == ["stt"]
+    assert service.calls[0][1]["stt"]["provider"] == "cartesia"
 
 
 @pytest.mark.parametrize("field,value", [("display.fps", "0"), ("vision.camera_resolution", "1,2,3"),

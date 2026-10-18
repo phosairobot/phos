@@ -27,9 +27,10 @@ def _serve(path, active, connection, lifecycle_connection):
         app = create_app(Path(path), active_document=active, lifecycle=lifecycle,
                          application_service=RemoteApplicationService(lifecycle))
         host, port = bind_address(active)
+        max_upload_bytes = active["display"]["backgrounds"]["max_upload_bytes"]
         server = create_server(app, host=host, port=port,
                                threads=2, connection_limit=32, channel_timeout=30,
-                               max_request_body_size=64 * 1024, max_request_header_size=8192,
+                               max_request_body_size=max_upload_bytes + 8 * 1024, max_request_header_size=8192,
                                expose_tracebacks=False, clear_untrusted_proxy_headers=True)
         connection.send(None)
         connection.close()
@@ -75,11 +76,15 @@ class WebServer:
         self.process = context.Process(target=_serve, args=(self.path, self.config.to_dict(), writer, worker_channel),
                                        name="phos-admin", daemon=True)
         try:
-            self.process.start()
-            worker_channel.close()
-            self._thread = Thread(target=serve_lifecycle, args=(self._channel, self.lifecycle, self._stop),
+            lifecycle_ready = Event()
+            self._thread = Thread(target=serve_lifecycle,
+                                  args=(self._channel, self.lifecycle, self._stop, lifecycle_ready),
                                   name="phos-lifecycle", daemon=True)
             self._thread.start()
+            if not lifecycle_ready.wait(5):
+                raise RuntimeError("Lifecycle dispatcher startup timed out")
+            self.process.start()
+            worker_channel.close()
             writer.close()
             if not reader.poll(30):
                 raise RuntimeError("Web administration startup timed out")

@@ -398,7 +398,7 @@ def test_expression_observation_is_logged_before_it_becomes_stable(caplog):
         for timestamp in (0.0, 0.2, 0.4, 0.6):
             await pipeline.process_once(timestamp=timestamp)
 
-    with caplog.at_level(logging.INFO, logger="robot.vision.pipeline"):
+    with caplog.at_level(logging.DEBUG, logger="robot.vision.pipeline"):
         asyncio.run(exercise())
 
     assert "Visible expression observation: happiness (confidence 0.90)" in caplog.messages
@@ -442,7 +442,7 @@ def test_unknown_is_published_with_diagnostics_while_tracking_continues(caplog):
             assert result.visual_expression.label == "unknown"
         assert len(positions) == 3
         assert [item["visual_expression"]["label"] for item in semantic] == ["unknown", "unknown"]
-    with caplog.at_level(logging.INFO, logger="robot.vision.pipeline"):
+    with caplog.at_level(logging.DEBUG, logger="robot.vision.pipeline"):
         asyncio.run(exercise())
     assert any("reason=neutral_not_calibrated" in message for message in caplog.messages)
     assert any("reason=missing_prediction" in message for message in caplog.messages)
@@ -492,7 +492,7 @@ def test_jump_does_not_reach_classifier_or_gaze_and_diagnostics_explain_rejectio
         await pipeline.process_once(timestamp=0.8)
         assert len(provider.crops) == 2
         assert positions[-1] == positions[0]
-    with caplog.at_level(logging.INFO, logger='robot.vision.pipeline'):
+    with caplog.at_level(logging.DEBUG, logger='robot.vision.pipeline'):
         asyncio.run(exercise())
     assert any('position_jump' in message and 'selected=None' in message for message in caplog.messages)
     assert any('reason=continuity_match' in message for message in caplog.messages)

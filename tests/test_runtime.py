@@ -7,6 +7,7 @@ import pytest
 
 from robot.core import RobotState
 from robot.runtime import RuntimeConfig, build_runtime
+from robot.ui.state_effects import StateEffectResolver
 from robot.ui import FaceExpression, MemoryEyeDisplay, VisualAccent
 from robot.vision import ExpressionObservation, ExpressionSmoother, FaceRegion, VisionPipeline
 
@@ -76,6 +77,19 @@ class FailingInitialDrawDisplay(MemoryEyeDisplay):
         self.closed = True
 
 
+def test_runtime_shutdown_stops_the_voice_session_before_teardown():
+    class VoiceSession:
+        def __init__(self): self.cancelled = None
+        def status(self): return {"listening": True}
+        async def stop(self, *, cancelled=False): self.cancelled = cancelled
+
+    runtime = build_runtime(eye_display=MemoryEyeDisplay())
+    voice = VoiceSession()
+    runtime._voice_session = voice
+    asyncio.run(runtime.stop())
+    assert voice.cancelled is True
+
+
 def _runtime_with_sound_config(tmp_path, *, sound_file=None):
     from robot.config import load_document
 
@@ -104,7 +118,7 @@ def test_ready_sound_reports_missing_player(tmp_path, monkeypatch, caplog):
 
 def test_ready_sound_preserves_failure_and_only_marks_success(tmp_path, monkeypatch, caplog):
     runtime = _runtime_with_sound_config(tmp_path)
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     monkeypatch.setattr("robot.runtime.shutil.which", lambda _player: "/usr/bin/aplay")
     monkeypatch.setattr("robot.runtime.subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="ALSA error"))
     runtime._play_ready_sound()
@@ -157,6 +171,24 @@ def test_runtime_starts_and_stops_vision_camera_and_display():
     assert not runtime.core.is_running
     assert camera.started and camera.stopped
     assert display.frames
+
+
+def test_apply_state_effects_replaces_semantic_resolver_without_rendering():
+    display = MemoryEyeDisplay()
+    runtime = build_runtime(eye_display=display)
+    initial_frames = list(display.frames)
+    config = RuntimeConfig(state_effects_enabled=True, state_effects_preset="subtle", state_effects_reduce_motion=False)
+
+    runtime.apply_state_effects(config)
+    subtle = runtime._state_effects.resolve(RobotState.THINKING)
+    runtime.apply_state_effects(RuntimeConfig(state_effects_enabled=True, state_effects_preset="expressive",
+                                              state_effects_reduce_motion=True))
+    expressive_reduced = runtime._state_effects.resolve(RobotState.THINKING)
+
+    assert isinstance(runtime._state_effects, StateEffectResolver)
+    assert expressive_reduced.intensity > subtle.intensity
+    assert expressive_reduced.motion_scale == 0
+    assert display.frames == initial_frames
 
 
 def test_reloading_iris_appearance_updates_running_renderer_without_restarting_runtime(tmp_path):

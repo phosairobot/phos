@@ -83,7 +83,7 @@ def test_invalid_startup_image_logs_loader_failure_without_crashing(caplog):
 
 
 def test_startup_splash_is_one_centered_full_screen_item(tmp_path, caplog):
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     splash = tmp_path / "phos-startup-800x600.png"
     splash.touch()
     photo = SimpleNamespace(width=lambda: 800, height=lambda: 600)

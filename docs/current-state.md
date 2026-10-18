@@ -122,7 +122,27 @@ from this startup acceptance slice.
 
 ### Voice / TTS
 - Voice input follows `Microphone → capture/VAD → VoiceCaptureSession → STTProvider → transcript` for bounded utterances. Local/Vosk is the default provider and Cartesia Ink is opt-in batch STT; explicit cloud selection never silently falls back. Optional provider failures do not prevent general PHOS startup.
-- Speech output follows `text → TTSProvider → AudioOutputProvider → SPEAKING`. `TTSProvider` supports Local/Piper, Cartesia and ElevenLabs integration; the output provider owns normalized playback and `/api/v1/speak` reaches this same runtime path.
+- `robot.interaction` supplies provider-neutral `TranscriptResult`,
+  `InteractionInput`, resolved/unresolved canonical intent data, conservative
+  language-tag normalization, and an async `IntentResolver` contract. These are
+  foundation-only contracts. The configured deterministic resolver has a small
+  exact English/Italian vocabulary. When enabled, the main runtime observes
+  completed voice transcripts and publishes resolved, unresolved, or failed
+  interaction events/status. A separate pure `CommandRouter` validates and maps
+  resolved intents to semantic commands. Voice execution is opt-in through
+  `interaction.execution_enabled`, which defaults to false; when enabled, a
+  voice-scoped allowlist authorizes sleep, wake, expression, temperature,
+  pressure, and air-quality commands through `CommandExecutor` and
+  `PhosApplicationService`; the accepted phrases are listed in
+  [Voice Commands](voice-commands.md). Queries return bounded
+  `InteractionOutcome` data (`temperature_c`, `pressure_hpa`, or atomic
+  `eco2_ppm`/`tvoc_ppb`) or an explicit unavailable outcome. The local,
+  deterministic `InteractionResponseRenderer` renders query outcomes in English
+  or Italian. Optional `interaction.response_tts_enabled` (false by default)
+  speaks those query responses through the existing application-owned TTS/audio
+  path; actions and unresolved input remain silent, and a speech failure preserves
+  the rendered response.
+- Speech output follows `text → TTSProvider → AudioOutputProvider → SPEAKING`. `TTSProvider` supports Local/Piper, Cartesia and ElevenLabs integration; Audio Output selects ALSA (`aplay`, default, normalized HDMI playback) or PipeWire (`pw-play`, direct WAV to PipeWire's default sink) independently, and `/api/v1/speak` reaches this same runtime path.
 - Voice & Speech applies supported STT/TTS/audio changes live. Candidate activation precedes persistence; failure retains the previous provider/configuration. In-progress sessions/speech retain their original references; subsequent work uses the replacement.
 - Project physical-validation records cover local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching without a service restart. ElevenLabs is implemented, but end-to-end physical availability remains subject to external account and voice-plan constraints.
 

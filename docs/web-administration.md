@@ -328,6 +328,12 @@ runtime's display-loop update boundary; the iris color blends smoothly into the
 next frames. PHOS, Vision, camera, BehaviorEngine and providers keep running.
 Expression semantics do not enter the renderer directly.
 
+**State Backgrounds** accepts validated PNG and JPEG files from the managed
+`backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the
+per-image limit (the shipped value is 4 MiB); the page shows that same limit.
+Images are limited to 1920×1080 to bound decoded memory on the Pi. Uploading,
+deleting and assignment selection always use the directory-backed asset list.
+
 The **Vision** page also manages the optional camera preview on the physical
 PHOS display. It is off by default; choose a corner, scale and maximum preview
 FPS, then select whether to show the current face box and expression diagnostics.

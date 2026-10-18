@@ -12,7 +12,23 @@
     "transition_seconds": 0.18,
     "iris_color": "cyan",
     "base_visual_source": "manual",
-    "environment_overlays_enabled": true
+    "environment_overlays_enabled": true,
+    "backgrounds": {
+      "enabled": false,
+      "idle": null,
+      "listening": null,
+      "thinking": null,
+      "speaking": null,
+      "sleeping": null,
+      "error": null,
+      "max_upload_bytes": 4194304
+    },
+    "state_effects": {
+      "enabled": false,
+      "preset": "balanced",
+      "palette": "phos",
+      "reduce_motion": false
+    }
   },
   "led_ring": {
     "enabled": false,
@@ -41,6 +57,14 @@
     }
   },
   "attention": {"lost_hold_ms": 800},
+  "interaction": {
+    "enabled": false,
+    "execution_enabled": false,
+    "response_tts_enabled": false,
+    "resolver": "deterministic",
+    "default_language": "en",
+    "supported_languages": ["en", "it"]
+  },
   "voice": {"enabled": false, "input": {"device": null, "device_index": null, "sample_rate": null, "channels": 1, "chunk_ms": 30}, "processing": {"sample_rate": 16000}, "vad": {"speech_start_ms": 120, "silence_end_ms": 700, "min_utterance_ms": 300, "max_utterance_ms": 12000, "pre_roll_ms": 300, "threshold": 50}, "debug": {"dump_utterance_wav": false, "utterance_wav_path": "/tmp/phos-last-utterance.wav"}, "stt": {"provider": "local", "model_path": null, "language": null, "cartesia": {"model_id": "ink-whisper-2025-06-04", "language": "en", "sample_rate": 16000}}},
   "tts": {"enabled": false, "provider": "local", "local": {"engine": "piper", "executable": "piper", "model_path": null, "speaker_id": null}, "elevenlabs": {"voice_id": null, "model_id": "eleven_multilingual_v2", "output_format": "pcm_24000"}, "cartesia": {"voice_id": null, "model_id": "sonic-3.6", "sample_rate": 44100, "speed": 1.0, "volume": 1.0}, "audio_output": {"player": "aplay", "device": null, "sample_rate": 48000, "channels": 2, "sample_width": 2, "preroll_ms": 1000, "retry": {"max_attempts": 2, "delay_ms": 200}, "debug": {"retain_final_wav": false}}},
   "touch": {"enabled": true, "tap": {"max_duration_ms": 350, "max_movement_px": 20}, "long_press": {"min_duration_ms": 800, "max_movement_px": 20}, "swipe": {"min_distance_px": 100, "max_vertical_drift_px": 80, "max_duration_ms": 1000}, "reaction": {"enabled": true, "duration_ms": 700, "cooldown_ms": 400}},

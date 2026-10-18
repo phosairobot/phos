@@ -75,14 +75,6 @@ class ConfigurationService:
             prepared = self.prepare_form_update(form, area=area)
             self.repository.save(prepared.config)
 
-
-@dataclass(frozen=True)
-class PreparedFormUpdate:
-    """Validated canonical candidate; preparation deliberately has no writes."""
-    config: RuntimeConfig
-    document: dict
-    base_revision: str
-
     def editable_yaml(self):
         """Return the validated active configuration as human-editable YAML."""
         with self.lock:
@@ -110,6 +102,13 @@ class PreparedFormUpdate:
             self.repository.save(self.validate_yaml(source))
 
 
+@dataclass(frozen=True)
+class PreparedFormUpdate:
+    """Validated canonical candidate; preparation deliberately has no writes."""
+    config: RuntimeConfig
+    document: dict
+    base_revision: str
+
 # Presentation hints only. Field structure and validation belong to robot.config.
 CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),
            "sensors.imu.motion.forward_axis": ("x", "-x", "y", "-y", "z", "-z"),
@@ -119,6 +118,7 @@ CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),
            "expression.provider": ("local", "aws"),
            "voice.stt.provider": ("local", "cartesia"),
            "tts.provider": ("local", "elevenlabs", "google", "cartesia"),
+           "tts.audio_output.player": ("aplay", "pipewire"),
            "tts.elevenlabs.output_format": ("pcm_16000", "pcm_22050", "pcm_24000", "pcm_44100", "pcm_48000"),
            "sensors.environmental.i2c_address": ("0x76", "0x77"),
            "logging.level": ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),

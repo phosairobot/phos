@@ -24,7 +24,7 @@ CARTESIA_API_VERSION = "2026-08-14"
 WAV_CHUNK_FRAMES = 4096
 
 
-def speech_log(stage: str, level=logging.INFO, **fields) -> None:
+def speech_log(stage: str, level=logging.DEBUG, **fields) -> None:
     """Emit request-correlated, metadata-only speech diagnostics."""
     request_id = speech_request_id.get()
     prefix = f"PHOS SPEECH[{request_id}]" if request_id is not None else "PHOS SPEECH"
@@ -96,6 +96,8 @@ class TTSProviderFactory:
                                          config.tts_elevenlabs_output_format)
         if provider == "cartesia":
             secret = secrets_service.get_secret("tts.cartesia.api_key") if secrets_service else None
+            logger.debug("PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=%s",
+                        bool(secret))
             if not secret:
                 raise TTSConfigurationError("Cartesia credential is not configured.")
             return CartesiaTTSProvider(secret, config.tts_cartesia_voice_id,
@@ -129,7 +131,7 @@ class PiperTTSProvider(TTSProvider):
         with self._voice_lock:
             if self._voice is not None:
                 return self._voice
-            speech_log("piper_model_load_start")
+            speech_log("piper_model_load_start", logging.INFO)
             started = time.monotonic()
             try:
                 if self._voice_loader is None:
@@ -139,7 +141,8 @@ class PiperTTSProvider(TTSProvider):
             except Exception as error:
                 speech_log("piper_model_load_failed", logging.WARNING, exception_type=type(error).__name__)
                 raise TTSConfigurationError("Piper voice could not be loaded.") from error
-            speech_log("piper_model_load_complete", duration_ms=round((time.monotonic() - started) * 1000))
+            speech_log("piper_model_load_complete", logging.INFO,
+                       duration_ms=round((time.monotonic() - started) * 1000))
             return self._voice
 
     def _synthesize_wav(self, voice, text: str, output) -> None:
@@ -373,13 +376,13 @@ class CartesiaTTSProvider(TTSProvider):
     def synthesize(self, text: str) -> SynthesizedAudio:
         if not isinstance(text, str) or not text.strip() or len(text) > self.max_text_length:
             raise TTSConfigurationError("Speech text is invalid.")
-        logger.info("PHOS TTS: provider=cartesia synthesis_start")
+        logger.debug("PHOS TTS: provider=cartesia synthesis_start")
         started = time.monotonic()
         temporary = tempfile.NamedTemporaryFile(prefix="phos-tts-cartesia-", suffix=".wav", delete=False)
         temporary.close()
         path = Path(temporary.name)
         try:
-            logger.info("PHOS TTS: provider=cartesia request model_id=%s voice_id=%s sample_rate=%s speed=%s "
+            logger.debug("PHOS TTS: provider=cartesia request model_id=%s voice_id=%s sample_rate=%s speed=%s "
                         "volume=%s api_version=%s container=wav encoding=pcm_s16le",
                         self.model_id, self.voice_id, self.sample_rate, self.speed, self.volume,
                         CARTESIA_API_VERSION)
@@ -413,17 +416,19 @@ class CartesiaTTSProvider(TTSProvider):
                            f" provider_code={provider_code}" if provider_code else "",
                            f" provider_message={provider_message!r}" if provider_message else "")
             raise TTSProviderError(code) from error
-        logger.info("PHOS TTS: provider=cartesia synthesis_complete duration_ms=%s",
+        logger.debug("PHOS TTS: provider=cartesia synthesis_complete duration_ms=%s",
                     round((time.monotonic() - started) * 1000))
         return SynthesizedAudio(path, sample_rate=params.framerate, channels=params.nchannels)
 
 
 class AudioOutputProvider:
+    name: str
     def play(self, audio: SynthesizedAudio) -> None: raise NotImplementedError
 
 
 class AplayAudioOutputProvider(AudioOutputProvider):
     """ALSA aplay adapter for already-synthesized WAV files."""
+    name = "aplay"
     def __init__(self, player="aplay", device: str | None = None, *, sample_rate=48000,
                  channels=2, sample_width=2, preroll_ms=0, timeout=90,
                  debug_retain_final_wav=False, retry_max_attempts=2, retry_delay_ms=200) -> None:
@@ -467,6 +472,7 @@ class AplayAudioOutputProvider(AudioOutputProvider):
             _fsync_path(retained_path)
             if _sha256_prefix(retained_path) != checksum:
                 raise OSError("retained WAV checksum mismatch")
+            logger.debug("PHOS SPEECH: retained_wav path=%s bytes=%s", retained_path, retained_path.stat().st_size)
             speech_log("retained_wav", path=str(retained_path), sha256=checksum)
             return retained_path
         except OSError as error:
@@ -642,3 +648,91 @@ class AplayAudioOutputProvider(AudioOutputProvider):
         finally:
             if normalized is not None:
                 normalized.unlink(missing_ok=True)
+
+
+class PipeWireAudioOutputProvider(AudioOutputProvider):
+    """PipeWire ``pw-play`` adapter for an already-synthesized WAV artifact."""
+    name = "pipewire"
+
+    def __init__(self, *, timeout=90, debug_retain_final_wav=False, retry_max_attempts=2,
+                 retry_delay_ms=200) -> None:
+        self.player = "pw-play"
+        self.device = None
+        self.timeout = timeout
+        self.debug_retain_final_wav = debug_retain_final_wav
+        self.retry_max_attempts, self.retry_delay_ms = retry_max_attempts, retry_delay_ms
+        self.executable = shutil.which(self.player)
+        if self.executable is None:
+            raise AudioOutputError("PipeWire audio player is unavailable.")
+
+    def play(self, audio: SynthesizedAudio) -> None:
+        if not audio.path.is_file() or not audio.path.stat().st_size:
+            raise AudioOutputError("Audio playback artifact is unavailable.")
+        command = [self.executable, str(audio.path)]
+        retained_path = self._retain_final_wav(audio.path)
+        started = time.monotonic()
+        logger.debug("PHOS AUDIO: provider=pipewire playback_started")
+        failure = "unknown"
+        for attempt in range(1, self.retry_max_attempts + 1):
+            try:
+                result = subprocess.run(command, capture_output=True, text=True,
+                                        timeout=self.timeout, check=False)
+            except (subprocess.TimeoutExpired, OSError) as error:
+                failure = type(error).__name__
+            else:
+                if not result.returncode:
+                    if retained_path is not None and retained_path.read_bytes() != audio.path.read_bytes():
+                        raise AudioOutputError("Retained playback WAV changed during playback.")
+                    logger.debug("PHOS AUDIO: provider=pipewire playback_completed duration_ms=%s",
+                                round((time.monotonic() - started) * 1000))
+                    return
+                detail = " ".join(result.stderr.splitlines())[:160]
+                failure = f"returncode={result.returncode}" + (f" stderr={detail}" if detail else "")
+            if attempt < self.retry_max_attempts:
+                time.sleep(self.retry_delay_ms / 1000)
+        logger.warning("PHOS AUDIO: provider=pipewire playback_failed reason=%s", failure[:200])
+        raise AudioOutputError("PipeWire audio playback failed after retry.")
+
+    def _retain_final_wav(self, playback_path: Path) -> Path | None:
+        """Keep a byte-identical diagnostic copy of PipeWire's input WAV."""
+        request_id = speech_request_id.get()
+        if not self.debug_retain_final_wav or request_id is None:
+            return None
+        retained_path = None
+        try:
+            descriptor, generated_path = tempfile.mkstemp(
+                prefix=f"phos-speech-{os.getpid()}-{request_id}-", suffix=".wav", dir="/tmp")
+            os.close(descriptor)
+            retained_path = Path(generated_path)
+            shutil.copyfile(playback_path, retained_path)
+            _fsync_path(retained_path)
+            if _sha256_prefix(retained_path) != _sha256_prefix(playback_path):
+                raise OSError("retained WAV checksum mismatch")
+            logger.debug("PHOS SPEECH: retained_wav path=%s bytes=%s", retained_path, retained_path.stat().st_size)
+            return retained_path
+        except OSError as error:
+            if retained_path is not None:
+                retained_path.unlink(missing_ok=True)
+            speech_log("retained_wav_failed", logging.WARNING, exception_type=type(error).__name__)
+            return None
+
+
+class AudioOutputProviderFactory:
+    """Build the configured playback adapter without involving TTS providers."""
+
+    @classmethod
+    def create(cls, config) -> AudioOutputProvider:
+        kwargs = dict(sample_rate=config.tts_audio_output_sample_rate,
+                      channels=config.tts_audio_output_channels,
+                      sample_width=config.tts_audio_output_sample_width,
+                      preroll_ms=config.tts_audio_output_preroll_ms,
+                      debug_retain_final_wav=config.tts_audio_output_debug_retain_final_wav,
+                      retry_max_attempts=config.tts_audio_output_retry_max_attempts,
+                      retry_delay_ms=config.tts_audio_output_retry_delay_ms)
+        if config.tts_audio_output_player == "aplay":
+            return AplayAudioOutputProvider("aplay", config.tts_audio_output_device, **kwargs)
+        if config.tts_audio_output_player == "pipewire":
+            return PipeWireAudioOutputProvider(debug_retain_final_wav=kwargs["debug_retain_final_wav"],
+                                               retry_max_attempts=kwargs["retry_max_attempts"],
+                                               retry_delay_ms=kwargs["retry_delay_ms"])
+        raise TTSConfigurationError("Unknown audio output provider.")

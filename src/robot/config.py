@@ -314,7 +314,14 @@ _SCHEMA = {
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
                 "iris_color": "iris_color", "base_visual_source": "base_visual_source",
-                "environment_overlays_enabled": "environment_overlays_enabled"},
+                "environment_overlays_enabled": "environment_overlays_enabled",
+                "backgrounds": {"enabled": "backgrounds_enabled", "idle": "background_idle",
+                    "listening": "background_listening", "thinking": "background_thinking",
+                    "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error",
+                    "max_upload_bytes": "background_max_upload_bytes"},
+                "state_effects": {"enabled": "state_effects_enabled", "preset": "state_effects_preset",
+                    "palette": "state_effects_palette",
+                    "reduce_motion": "state_effects_reduce_motion"}},
     "led_ring": {"enabled": "led_ring_enabled", "led_count": "led_ring_led_count",
                  "gpio_pin": "led_ring_gpio_pin", "brightness": "led_ring_brightness",
                  "base_color": "led_ring_base_color", "follow_visual_state": "led_ring_follow_visual_state",
@@ -326,6 +333,11 @@ _SCHEMA = {
                  "bottom_led_index": "led_ring_bottom_led_index", "forward_led_index": "led_ring_forward_led_index", "clockwise": "led_ring_clockwise"},
     "presence": {"led_reactions": {"enabled": "presence_led_reactions_enabled", "entered": {"duration_ms": "presence_led_entered_duration_ms", "direction": "presence_led_entered_direction"}, "left": {"duration_ms": "presence_led_left_duration_ms", "direction": "presence_led_left_direction"}}},
     "attention": {"lost_hold_ms": "attention_lost_hold_ms"},
+    "interaction": {"enabled": "interaction_enabled", "execution_enabled": "interaction_execution_enabled",
+                    "response_tts_enabled": "interaction_response_tts_enabled",
+                    "resolver": "interaction_resolver",
+                    "default_language": "interaction_default_language",
+                    "supported_languages": "interaction_supported_languages"},
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
     "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
@@ -390,9 +402,10 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path"}
+_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
-                 "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size"}
+                 "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size",
+                 "interaction_supported_languages"}
 
 
 def _decode(document, schema=_SCHEMA, location="config"):
@@ -435,6 +448,12 @@ class RuntimeConfig:
     presence_led_left_duration_ms: int
     presence_led_left_direction: str
     attention_lost_hold_ms: int
+    interaction_enabled: bool
+    interaction_execution_enabled: bool
+    interaction_response_tts_enabled: bool
+    interaction_resolver: str
+    interaction_default_language: str
+    interaction_supported_languages: Tuple[str, ...]
     voice_enabled: bool
     voice_input_device: Optional[str]
     voice_input_device_index: Optional[int]
@@ -530,6 +549,18 @@ class RuntimeConfig:
     iris_color: str
     base_visual_source: str
     environment_overlays_enabled: bool
+    backgrounds_enabled: bool
+    background_idle: Optional[Path]
+    background_listening: Optional[Path]
+    background_thinking: Optional[Path]
+    background_speaking: Optional[Path]
+    background_sleeping: Optional[Path]
+    background_error: Optional[Path]
+    background_max_upload_bytes: int
+    state_effects_enabled: bool
+    state_effects_preset: str
+    state_effects_palette: str
+    state_effects_reduce_motion: bool
     led_ring_enabled: bool
     led_ring_led_count: int
     led_ring_gpio_pin: int
@@ -647,6 +678,27 @@ class RuntimeConfig:
         Editors may skip filesystem checks to repair removed model paths; schema
         and value validation still run. Startup and save always check paths.
         """
+        # Step 4C adds an opt-in execution gate.  Older complete documents
+        # remain observational rather than being rejected or implicitly enabled.
+        document = copy.deepcopy(document)
+        interaction = document.get("interaction") if isinstance(document, dict) else None
+        if isinstance(interaction, dict):
+            interaction.setdefault("execution_enabled", False)
+            interaction.setdefault("response_tts_enabled", False)
+        display = document.get("display") if isinstance(document, dict) else None
+        if isinstance(display, dict):
+            display.setdefault("backgrounds", {"enabled": False, "idle": None, "listening": None,
+                                                "thinking": None, "speaking": None, "sleeping": None,
+                                                "error": None, "max_upload_bytes": 4 * 1024 * 1024})
+            if isinstance(display["backgrounds"], dict):
+                display["backgrounds"].setdefault("max_upload_bytes", 4 * 1024 * 1024)
+            display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
+                                                  "reduce_motion": False})
+            if isinstance(display["state_effects"], dict):
+                # Retired in favour of immediate semantic state switching.
+                # Consume legacy config safely, but never persist or expose it.
+                display["state_effects"].pop("smooth_transitions", None)
+                display["state_effects"].setdefault("palette", "phos")
         result = object.__new__(cls)
         result._assign(_decode(document), base_dir, overrides)
         if check_paths:
@@ -838,6 +890,13 @@ class RuntimeConfig:
             raise ConfigurationError("voice.debug.utterance_wav_path must be a nonempty path")
         if self.voice_stt_provider not in {"local", "cartesia"}:
             raise ConfigurationError("voice.stt.provider must be local or cartesia")
+        if (not isinstance(self.interaction_resolver, str) or not self.interaction_resolver.strip()
+                or not isinstance(self.interaction_default_language, str) or not self.interaction_default_language.strip()
+                or not isinstance(self.interaction_supported_languages, tuple)
+                or not self.interaction_supported_languages
+                or any(not isinstance(language, str) or not language.strip()
+                       for language in self.interaction_supported_languages)):
+            raise ConfigurationError("interaction configuration is invalid")
         if self.voice_stt_language is not None and (not isinstance(self.voice_stt_language, str) or not self.voice_stt_language.strip()):
             raise ConfigurationError("voice.stt.language must be a nonempty string or null")
         if (not isinstance(self.voice_stt_cartesia_model_id, str) or not self.voice_stt_cartesia_model_id.strip()
@@ -869,10 +928,12 @@ class RuntimeConfig:
             number("tts_cartesia_sample_rate", minimum=8000, inclusive=True, maximum=48000, integer=True)
             number("tts_cartesia_speed", minimum=.6, inclusive=True, maximum=1.5)
             number("tts_cartesia_volume", minimum=.5, inclusive=True, maximum=2)
-        if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player != "aplay":
-            raise ConfigurationError("tts.audio_output.player must be aplay")
+        if not isinstance(self.tts_audio_output_player, str) or self.tts_audio_output_player not in {"aplay", "pipewire"}:
+            raise ConfigurationError("tts.audio_output.player must be aplay or pipewire")
         if self.tts_audio_output_device is not None and (not isinstance(self.tts_audio_output_device, str) or not self.tts_audio_output_device.strip()):
             raise ConfigurationError("tts.audio_output.device must be a nonempty ALSA device or null")
+        if self.tts_audio_output_player == "pipewire" and self.tts_audio_output_device is not None:
+            raise ConfigurationError("tts.audio_output.device must be null for pipewire")
         number("tts_audio_output_preroll_ms", minimum=0, inclusive=True, maximum=10000, integer=True)
         number("tts_audio_output_retry_max_attempts", minimum=1, inclusive=True, maximum=2, integer=True)
         number("tts_audio_output_retry_delay_ms", minimum=0, inclusive=True, maximum=5000, integer=True)
@@ -888,7 +949,8 @@ class RuntimeConfig:
         for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
-                     "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav"):
+                     "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav",
+                     "interaction_enabled", "interaction_execution_enabled", "interaction_response_tts_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ConfigurationError(f"{name} must be a boolean")
         for name in ("camera_resolution", "expression_input_size", "detector_min_size"):
@@ -913,6 +975,16 @@ class RuntimeConfig:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:
             raise ConfigurationError("display.environment_overlays_enabled must be a boolean")
+        if type(self.backgrounds_enabled) is not bool:
+            raise ConfigurationError("display.backgrounds.enabled must be a boolean")
+        if type(self.background_max_upload_bytes) is not int or not 1 <= self.background_max_upload_bytes <= 16 * 1024 * 1024:
+            raise ConfigurationError("display.backgrounds.max_upload_bytes must be an integer between 1 and 16777216")
+        if type(self.state_effects_enabled) is not bool or type(self.state_effects_reduce_motion) is not bool:
+            raise ConfigurationError("display.state_effects values must be booleans")
+        if self.state_effects_preset not in {"subtle", "balanced", "expressive"}:
+            raise ConfigurationError("display.state_effects.preset must be subtle, balanced or expressive")
+        if self.state_effects_palette not in {"phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"}:
+            raise ConfigurationError("display.state_effects.palette must be phos, cyan, blue, violet, aqua, amber, white or green")
         for name in ("startup_splash_title", "startup_splash_subtitle"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ConfigurationError(f"{name} must be a nonempty string")
@@ -969,3 +1041,8 @@ class RuntimeConfig:
             model = self.resolve_path(self.voice_stt_model_path)
             if model is None or not model.is_dir() or not os.access(model, os.R_OK):
                 raise ConfigurationError(f"voice.stt.model_path: readable model directory required: {model}")
+        try:
+            from robot.ui.backgrounds import validate_background_assets
+            validate_background_assets(self)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error

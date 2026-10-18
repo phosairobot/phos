@@ -11,6 +11,20 @@ display:
   iris_color: cyan
   base_visual_source: manual
   environment_overlays_enabled: true
+  backgrounds:
+    enabled: false
+    idle: null
+    listening: null
+    thinking: null
+    speaking: null
+    sleeping: null
+    error: null
+    max_upload_bytes: 4194304
+  state_effects:
+    enabled: false
+    preset: balanced
+    palette: phos
+    reduce_motion: false
 led_ring:
   enabled: false
   led_count: 0
@@ -40,6 +54,15 @@ presence:
       direction: counter_clockwise
 attention:
   lost_hold_ms: 800
+interaction:
+  enabled: false
+  execution_enabled: false
+  response_tts_enabled: false
+  resolver: deterministic
+  default_language: en
+  supported_languages:
+    - en
+    - it
 voice:
   enabled: false
   input:
@@ -87,6 +110,7 @@ tts:
     speed: 1.0
     volume: 1.0
   audio_output:
+    # aplay (ALSA) or pipewire (pw-play); PipeWire uses its OS default sink.
     player: aplay
     device: null
     sample_rate: 48000

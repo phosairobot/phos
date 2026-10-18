@@ -1,5 +1,19 @@
 # PHOS roadmap
 
+## PHOS 1.6.0 — Multilingual Interaction & Command Layer
+
+- [x] Provider-neutral interaction contracts, conservative language-tag handling,
+  resolver selection, and a deterministic English/Italian intent vocabulary.
+- [x] Observational voice-transcript resolution with bounded events and runtime status;
+  it does not change robot behavior.
+- [x] Pure canonical-intent routing plus explicitly authorized application-service
+  execution for sleep, wake, and expression commands; voice execution is opt-in
+  and disabled by default.
+- [x] Authorized temperature and air-quality read-model queries with structured
+  semantic outcomes, deterministic English/Italian response rendering, and
+  opt-in query-response speech through the existing TTS/audio path.
+- [ ] LLM resolver, language detection, wake word, and continuous listening.
+
 ## PHOS 1.4.0 — Voice & Interaction Foundation
 
 - [x] Startup/readiness experience, splash, ready sound, hidden display cursor,
