@@ -31,6 +31,7 @@ from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.backgrounds import BackgroundResolver
+from robot.ui.eye_safe import EyeSafeResolver
 from robot.ui.state_effects import StateEffectResolver
 from robot.ui.runtime import EyeRenderLoop
 from robot.secrets import SecretsError, SecretsService
@@ -83,6 +84,7 @@ class PhosRuntime:
         self._vision_pipeline = vision_pipeline
         self._config = config
         self._state_effects = StateEffectResolver(config) if config is not None else None
+        self._eye_safe = EyeSafeResolver(config) if config is not None else None
         self._vision_forced = vision_forced
         self._sensor_service = sensor_service
         self._air_quality_service = air_quality_service
@@ -146,6 +148,10 @@ class PhosRuntime:
     def apply_state_effects(self, config: RuntimeConfig) -> None:
         self._state_effects = StateEffectResolver(config)
         self._eye_render_loop.request_state_effects(self._state_effects)
+
+    def apply_eye_safe_layer(self, config: RuntimeConfig) -> None:
+        self._eye_safe = EyeSafeResolver(config)
+        self._eye_render_loop.request_eye_safe_layer(self._eye_safe)
 
     def apply_imu_behavior(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_imu_reactions(
@@ -791,6 +797,7 @@ def build_runtime(
                           "title": config.startup_splash_title, "subtitle": config.startup_splash_subtitle}
         return view
     background_resolver = BackgroundResolver(config)
+    eye_safe_resolver = EyeSafeResolver(config)
     state_effect_resolver = StateEffectResolver(config)
     eye_render_loop = EyeRenderLoop(
         EyeRenderer(width=config.display_width, height=config.display_height,
@@ -807,6 +814,7 @@ def build_runtime(
         background_resolver=background_resolver,
         robot_state_supplier=lambda: behavior_engine.robot_state,
         state_effect_resolver=state_effect_resolver,
+        eye_safe_resolver=eye_safe_resolver,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)

@@ -319,6 +319,7 @@ _SCHEMA = {
                     "listening": "background_listening", "thinking": "background_thinking",
                     "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error",
                     "max_upload_bytes": "background_max_upload_bytes"},
+                "eye_safe_layer": {"enabled": "eye_safe_layer_enabled", "mode": "eye_safe_layer_mode"},
                 "state_effects": {"enabled": "state_effects_enabled", "preset": "state_effects_preset",
                     "palette": "state_effects_palette",
                     "reduce_motion": "state_effects_reduce_motion"}},
@@ -557,6 +558,8 @@ class RuntimeConfig:
     background_sleeping: Optional[Path]
     background_error: Optional[Path]
     background_max_upload_bytes: int
+    eye_safe_layer_enabled: bool
+    eye_safe_layer_mode: str
     state_effects_enabled: bool
     state_effects_preset: str
     state_effects_palette: str
@@ -692,6 +695,7 @@ class RuntimeConfig:
                                                 "error": None, "max_upload_bytes": 4 * 1024 * 1024})
             if isinstance(display["backgrounds"], dict):
                 display["backgrounds"].setdefault("max_upload_bytes", 4 * 1024 * 1024)
+            display.setdefault("eye_safe_layer", {"enabled": True, "mode": "balanced"})
             display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
                                                   "reduce_motion": False})
             if isinstance(display["state_effects"], dict):
@@ -979,6 +983,8 @@ class RuntimeConfig:
             raise ConfigurationError("display.backgrounds.enabled must be a boolean")
         if type(self.background_max_upload_bytes) is not int or not 1 <= self.background_max_upload_bytes <= 16 * 1024 * 1024:
             raise ConfigurationError("display.backgrounds.max_upload_bytes must be an integer between 1 and 16777216")
+        if type(self.eye_safe_layer_enabled) is not bool or self.eye_safe_layer_mode not in {"subtle", "balanced", "expressive"}:
+            raise ConfigurationError("display.eye_safe_layer requires boolean enabled and subtle, balanced or expressive mode")
         if type(self.state_effects_enabled) is not bool or type(self.state_effects_reduce_motion) is not bool:
             raise ConfigurationError("display.state_effects values must be booleans")
         if self.state_effects_preset not in {"subtle", "balanced", "expressive"}:

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Eye Safe Layer</h2>
+<p>Soft, local contrast protection keeps PHOS eyes readable over uploaded backgrounds. It does not alter source images or state effects.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('appearance_eye_safe_layer') }}" id="eye-safe-layer-panel">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<fieldset><legend>Eye Safe Layer</legend>
+<label><input id="eye-safe-layer-enabled" name="eye-safe-layer-enabled" type="checkbox" {{ 'checked' if document.display.eye_safe_layer.enabled else '' }}> Enable eye readability protection</label>
+<div class="field state-effects-options"><span>Mode</span>
+{% for value, label, description in (('subtle', 'Subtle', 'Minimal local protection.'), ('balanced', 'Balanced', 'Default protection for typical backgrounds.'), ('expressive', 'Expressive', 'Stronger protection for busy backgrounds.')) %}
+<label><input name="eye-safe-layer-mode" type="radio" value="{{ value }}" {{ 'checked' if document.display.eye_safe_layer.mode == value else '' }}> <strong>{{ label }}</strong><small>{{ description }}</small></label>
+{% endfor %}</div></fieldset><button class="save">Save Eye Safe Layer</button>
+</form>
+{% endblock %}

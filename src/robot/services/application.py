@@ -185,6 +185,7 @@ class RemoteApplicationService:
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
+    def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
     def configure_state_effects(self, value): return self._call("configure_state_effects", value)
     def background_assets(self): return self._call("background_assets")
     def upload_background(self, value): return self._call("upload_background", value)
@@ -748,6 +749,24 @@ class PhosApplicationService:
             except OSError: logger.exception("PHOS VISUAL: state effects rollback failed")
             raise ApplicationError("runtime_unavailable", "State effects configuration could not be applied.", status=503) from error
         return {"saved": candidate.to_dict()["display"]["state_effects"], "applied": result.get("applied", [])}
+
+    def configure_eye_safe_layer(self, patch: dict) -> dict:
+        if self._lifecycle is None or not isinstance(patch, dict) or set(patch) - {"enabled", "mode"}:
+            raise ApplicationError("invalid_configuration", "Unsupported eye safe layer configuration.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        _merge(document["display"]["eye_safe_layer"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "Eye safe layer could not be applied."))
+        except (ConfigurationError, OSError, RuntimeError) as error:
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("PHOS VISUAL: eye safe layer rollback failed")
+            raise ApplicationError("runtime_unavailable", "Eye safe layer could not be applied.", status=503) from error
+        return {"saved": candidate.to_dict()["display"]["eye_safe_layer"], "applied": result.get("applied", [])}
 
     def background_assets(self) -> list[dict]:
         """List only safe, existing images in the canonical asset directory."""

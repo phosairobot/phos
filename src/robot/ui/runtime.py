@@ -16,6 +16,7 @@ from .display import CameraPreviewSettings, CameraPreviewView, EyeDisplay
 from .backgrounds import BackgroundAsset, BackgroundResolver
 from .eyes import EyeRenderer
 from .state_effects import StateEffectParams, StateEffectResolver
+from .eye_safe import EyeSafeParams, EyeSafeResolver
 from .state import FaceState
 from robot.core.startup import StartupState
 
@@ -43,6 +44,7 @@ class EyeRenderLoop(Behavior):
         background_resolver: Optional[BackgroundResolver] = None,
         robot_state_supplier: Optional[Callable[[], object]] = None,
         state_effect_resolver: Optional[StateEffectResolver] = None,
+        eye_safe_resolver: Optional[EyeSafeResolver] = None,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive.")
@@ -64,6 +66,8 @@ class EyeRenderLoop(Behavior):
         self._pending_background_resolver: Optional[BackgroundResolver] = None
         self._state_effect_resolver = state_effect_resolver
         self._pending_state_effect_resolver: Optional[StateEffectResolver] = None
+        self._eye_safe_resolver = eye_safe_resolver
+        self._pending_eye_safe_resolver: Optional[EyeSafeResolver] = None
         self._effect_dimensions = None
         self._state_effect_prewarm_handle = None
         self._task: Optional[asyncio.Task[None]] = None
@@ -107,6 +111,14 @@ class EyeRenderLoop(Behavior):
                 return
             loop = self._loop
         loop.call_soon_threadsafe(self._replace_state_effect_resolver, resolver)
+
+    def request_eye_safe_layer(self, resolver: EyeSafeResolver) -> None:
+        with self._appearance_lock:
+            if not self._appearance_ready or self._loop is None:
+                self._pending_eye_safe_resolver = resolver
+                return
+            loop = self._loop
+        loop.call_soon_threadsafe(setattr, self, "_eye_safe_resolver", resolver)
 
     def _replace_state_effect_resolver(self, resolver: StateEffectResolver) -> None:
         self._state_effect_resolver = resolver
@@ -173,6 +185,11 @@ class EyeRenderLoop(Behavior):
                 self._pending_state_effect_resolver = None
             if pending_effects is not None:
                 self._replace_state_effect_resolver(pending_effects)
+            with self._appearance_lock:
+                pending_eye_safe = self._pending_eye_safe_resolver
+                self._pending_eye_safe_resolver = None
+            if pending_eye_safe is not None:
+                self._eye_safe_resolver = pending_eye_safe
             initial = self._renderer.render(self._state_supplier(), timestamp=time.monotonic())
             self._display.open(initial.width, initial.height, fullscreen=self._fullscreen)
             if self._touch_handler is not None and hasattr(self._display, "set_touch_handler"):
@@ -251,18 +268,20 @@ class EyeRenderLoop(Behavior):
                                            image_path=splash.get("image"), title=splash.get("title", "PHOS"), subtitle=splash.get("subtitle", "Starting..."))
                 return
         effect = self._state_effect()
+        eye_safe = self._eye_safe()
+        safe_kwargs = {"eye_safe": eye_safe} if eye_safe.enabled else {}
         effect_kwargs = ({"state_effect": effect, "effect_timestamp": timestamp or 0.0}
                          if effect.intensity > 0 else {})
         if self._preview_settings.enabled:
             background = self._background()
             if background.available:
-                self._display.draw(frame, preview, self._preview_settings, background=background, **effect_kwargs)
+                self._display.draw(frame, preview, self._preview_settings, background=background, **safe_kwargs, **effect_kwargs)
             else:
                 self._display.draw(frame, preview, self._preview_settings, **effect_kwargs)
         else:
             background = self._background()
             if background.available:
-                self._display.draw(frame, background=background, **effect_kwargs)
+                self._display.draw(frame, background=background, **safe_kwargs, **effect_kwargs)
             else:
                 # Preserve the legacy call exactly while backgrounds are disabled
                 # or no state image is usable.
@@ -273,6 +292,9 @@ class EyeRenderLoop(Behavior):
             return StateEffectParams("idle")
         state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
         return self._state_effect_resolver.resolve(state)
+
+    def _eye_safe(self) -> EyeSafeParams:
+        return self._eye_safe_resolver.resolve() if self._eye_safe_resolver is not None else EyeSafeParams()
 
     def _background(self) -> BackgroundAsset:
         """Resolve only on semantic state changes, never in EyeRenderer."""

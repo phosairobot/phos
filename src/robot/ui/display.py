@@ -19,6 +19,7 @@ from .eyes import EyeFrame, EyeGeometry
 from .backgrounds import BackgroundAsset
 from .state_effects import StateEffectParams
 from .state_effect_layer import StateEffectLayer
+from .eye_safe import EyeSafeLayer, EyeSafeParams
 from .touch import TouchInputAdapter
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ class EyeDisplay(ABC):
     @abstractmethod
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -132,7 +133,7 @@ class MemoryEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         self.frames.append(frame)
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
@@ -168,8 +169,11 @@ class TkEyeDisplay(EyeDisplay):
         self._background_key = None
         self._background_failed = set()
         self._state_effect_layer = StateEffectLayer()
+        self._eye_safe_layer = EyeSafeLayer()
+        self._eye_safe_photos = {}
         self._state_effect_failed = set()
         self._state_effect_photos = {}
+        self._eye_safe_photos = {}
 
     def set_touch_handler(self, handler, **settings) -> None:
         self._touch_adapter = TouchInputAdapter(handler, **settings)
@@ -202,7 +206,7 @@ class TkEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         if self._root is None or self._canvas is None:
             raise RuntimeError("Display has not been opened.")
         self._canvas.delete("all")
@@ -211,6 +215,7 @@ class TkEyeDisplay(EyeDisplay):
         self._startup_photo = None
         self._canvas.configure(background=frame.background)
         self._draw_background(background, frame.width, frame.height)
+        self._draw_eye_safe_layer(eye_safe, frame, background)
         self._draw_state_effect(state_effect, frame.width, frame.height, effect_timestamp)
         for eye in frame.eyes:
             self._draw_eye(eye, frame)
@@ -315,6 +320,43 @@ class TkEyeDisplay(EyeDisplay):
             if key not in self._state_effect_failed:
                 self._state_effect_failed.add(key)
                 logger.warning("PHOS VISUAL: state effect unavailable mode=%s reason=%s", effect.mode, type(error).__name__)
+
+    def _draw_eye_safe_layer(self, params: Optional[EyeSafeParams], frame: EyeFrame, background: Optional[BackgroundAsset]) -> None:
+        if params is None:
+            return
+        try:
+            for primitive in self._eye_safe_layer.primitives(params, frame, background):
+                photo = self._eye_safe_photo(primitive)
+                if photo is not None:
+                    self._canvas.create_image(primitive.bounds[0], primitive.bounds[1], image=photo, anchor="nw")
+        except Exception:
+            logger.debug("PHOS VISUAL: eye safe layer unavailable", exc_info=True)
+
+    def _eye_safe_photo(self, primitive):
+        """Cache one transparent radial ellipse for each bounded mask shape."""
+        x1, y1, x2, y2 = primitive.bounds
+        width, height = max(2, round(x2 - x1)), max(2, round(y2 - y1))
+        opacity = round(max(0.0, min(.5, primitive.opacity)) * 32) / 32
+        key = (width, height, primitive.color, opacity)
+        photo = self._eye_safe_photos.get(key)
+        if photo is not None:
+            return photo
+        try:
+            rgba = self._glow_rgba(width, height, primitive.color, opacity)
+            scanlines = bytearray()
+            row_bytes = width * 4
+            for row in range(height):
+                scanlines.append(0)
+                scanlines.extend(rgba[row * row_bytes:(row + 1) * row_bytes])
+            def chunk(name, data):
+                return struct.pack(">I", len(data)) + name + data + struct.pack(">I", zlib.crc32(name + data) & 0xffffffff)
+            encoded = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+                       + chunk(b"IDAT", zlib.compress(bytes(scanlines), 6)) + chunk(b"IEND", b""))
+            photo = self._tk.PhotoImage(data=base64.b64encode(encoded), format="PNG")
+            self._eye_safe_photos[key] = photo
+            return photo
+        except Exception:
+            return None
 
     def prewarm_state_effect(self, effect: StateEffectParams, width: int, height: int, timestamp: float) -> None:
         """Prepare the small active-palette texture set before the next frame."""
