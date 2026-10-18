@@ -110,6 +110,7 @@ class PhosRuntime:
         self._preview_tasks = set()
         self._stopping = False
         self._unsubscribers: list[Callable[[], None]] = []
+        self._started_callbacks: list[Callable[[], None]] = []
         self._started = False
         self._vision_started = False
 
@@ -240,6 +241,12 @@ class PhosRuntime:
         """Read-only completed-gesture state for application adapters."""
         return self._touch_status.document()
 
+    def register_started_callback(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` after the runtime command loop is usable."""
+        if not callable(callback):
+            raise TypeError("Runtime startup callback must be callable")
+        self._started_callbacks.append(callback)
+
     def voice_status(self) -> dict:
         return self._voice_session.status() if self._voice_session else {"enabled": False, "state": "idle", "listening": False, "speech_detected": False, "stt_provider": None, "stt_available": False, "last_transcript": None, "last_confidence": None, "language": None, "last_transcription_at": None, "last_transcription_duration_ms": None, "last_error": None}
 
@@ -281,7 +288,7 @@ class PhosRuntime:
                     speech_log("synthesis_start")
                     audio = await asyncio.to_thread(provider.synthesize, text)
                     speech_log("synthesis_complete", duration_ms=round((time.monotonic() - synthesis_started) * 1000))
-                    logger.info("PHOS SPEECH: audio_output provider=%s retain_final_wav=%s",
+                    logger.debug("PHOS SPEECH: audio_output provider=%s retain_final_wav=%s",
                                 getattr(audio_output, "name", "unknown"),
                                 str(bool(getattr(audio_output, "debug_retain_final_wav", False))).lower())
                     await asyncio.to_thread(audio_output.play, audio)
@@ -316,7 +323,7 @@ class PhosRuntime:
         task = asyncio.create_task(self.speak(text, request_id=request_id), name=f"phos-speech-{request_id}")
         self._speech_task = task
         task.add_done_callback(lambda completed: self._speech_finished(completed, request_id))
-        logger.info("PHOS SPEECH[%s]: accepted", request_id)
+        logger.debug("PHOS SPEECH[%s]: accepted", request_id)
 
     def replace_stt_provider(self, provider) -> None:
         if provider is None or not callable(getattr(provider, "available", None)):
@@ -347,14 +354,14 @@ class PhosRuntime:
         if self._speech_task is task:
             self._speech_task = None
         if task.cancelled():
-            logger.info("PHOS SPEECH[%s]: task_cleanup cancelled", request_id)
+            logger.debug("PHOS SPEECH[%s]: task_cleanup cancelled", request_id)
             return
         try:
             task.result()
         except Exception as error:
             logger.error("PHOS SPEECH[%s]: task_cleanup failed exception_type=%s", request_id, type(error).__name__)
         else:
-            logger.info("PHOS SPEECH[%s]: task_cleanup complete", request_id)
+            logger.debug("PHOS SPEECH[%s]: task_cleanup complete", request_id)
 
     def apply_imu_motion(self, config: RuntimeConfig) -> None:
         """Apply validated interpretation settings without reopening the IMU."""
@@ -487,7 +494,7 @@ class PhosRuntime:
                             else "package:robot.assets/audio/phos-startup.wav")
         player = self._config.startup_ready_sound_player if self._config else None
         player_resolved = shutil.which(player) if player else None
-        logger.info(
+        logger.debug(
             "PHOS STARTUP ASSETS: splash.configured=%s splash.resolved=%s splash.exists=%s splash.readable=%s; "
             "sound.configured=%s sound.resolved=%s sound.exists=%s sound.readable=%s sound.player=%s sound.player_resolved=%s sound.device=%s",
             splash_configured, splash,
@@ -525,6 +532,8 @@ class PhosRuntime:
             else:
                 self._startup.set("vision", StartupState.UNAVAILABLE, "optional vision disabled")
             self._started = True
+            for callback in tuple(self._started_callbacks):
+                callback()
             logger.info("STARTUP: %s", self._startup.overall_state.value)
             self._play_ready_sound()
             logger.info("PHOS runtime started")
@@ -541,17 +550,17 @@ class PhosRuntime:
     def _play_ready_sound(self) -> None:
         if self._ready_sound_played or self._config is None:
             return
-        logger.info("STARTUP SOUND: enabled=%s configured_path=%s device=%s", self._config.startup_ready_sound_enabled, self._config.startup_ready_sound_file, self._config.startup_ready_sound_device)
+        logger.debug("STARTUP SOUND: enabled=%s configured_path=%s device=%s", self._config.startup_ready_sound_enabled, self._config.startup_ready_sound_file, self._config.startup_ready_sound_device)
         if not self._config.startup_ready_sound_enabled:
             return
         sound = self._config.resolve_startup_ready_sound()
-        logger.info("STARTUP SOUND: resolved_path=%s exists=%s readable=%s", sound, bool(sound and sound.is_file()), bool(sound and sound.is_file() and os.access(sound, os.R_OK)))
+        logger.debug("STARTUP SOUND: resolved_path=%s exists=%s readable=%s", sound, bool(sound and sound.is_file()), bool(sound and sound.is_file() and os.access(sound, os.R_OK)))
         if not sound.is_file() or not os.access(sound, os.R_OK):
             logger.warning("STARTUP SOUND FAILED: reason=file_not_found path=%s", sound)
             return
         command = [self._config.startup_ready_sound_player, "-q"]
         player = shutil.which(command[0])
-        logger.info("STARTUP SOUND PLAYER: configured=%s resolved=%s", command[0], player)
+        logger.debug("STARTUP SOUND PLAYER: configured=%s resolved=%s", command[0], player)
         if player is None:
             logger.warning("STARTUP SOUND FAILED: reason=player_not_found player=%s", command[0])
             return
@@ -559,16 +568,16 @@ class PhosRuntime:
         if self._config.startup_ready_sound_device is not None:
             command.extend(("-D", self._config.startup_ready_sound_device))
         command.append(str(sound))
-        logger.info("STARTUP SOUND COMMAND: %r", command)
+        logger.debug("STARTUP SOUND COMMAND: %r", command)
         try:
-            logger.info("READY SOUND: playback_started")
+            logger.debug("READY SOUND: playback_started")
             result = subprocess.run(command, capture_output=True, text=True, check=False)
-            logger.info("STARTUP SOUND RESULT: returncode=%s stdout=%s stderr=%s", result.returncode, result.stdout.strip(), result.stderr.strip())
+            logger.debug("STARTUP SOUND RESULT: returncode=%s stdout=%s stderr=%s", result.returncode, result.stdout.strip(), result.stderr.strip())
             if result.returncode:
                 logger.warning("READY SOUND: playback_failed")
                 return
             self._ready_sound_played = True
-            logger.info("READY SOUND: playback_success")
+            logger.debug("READY SOUND: playback_success")
         except OSError as error:
             logger.warning("READY SOUND: playback_failed reason=%s", error)
 
@@ -609,6 +618,8 @@ class PhosRuntime:
         self._stopping = True
         if self._interaction_coordinator is not None:
             self._interaction_coordinator.close()
+        if self._voice_session is not None and self._voice_session.status().get("listening"):
+            await self._voice_session.stop(cancelled=True)
         speech_task = self._speech_task
         if speech_task is not None and not speech_task.done():
             speech_task.cancel()
@@ -747,7 +758,7 @@ def build_runtime(
     tts_status = {"enabled": bool(config.tts_enabled), "configured_provider": config.tts_provider,
                   "available": False, "reason": "disabled" if not config.tts_enabled else "initializing"}
     if config.tts_enabled:
-        logger.info("PHOS TTS: provider=%s initialization_start", config.tts_provider)
+        logger.info("PHOS TTS: provider=%s selected", config.tts_provider)
         try:
             secrets_service = (secrets_service or SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
                                if config.tts_provider in {"elevenlabs", "cartesia"} else secrets_service)
@@ -769,7 +780,7 @@ def build_runtime(
                    "normalized_x": event.normalized_x, "normalized_y": event.normalized_y,
                    "duration_ms": event.duration_ms}
         runtime._touch_status = runtime._touch_status.record(event)
-        logger.info("TOUCH EVENT kind=%s x=%s y=%s duration_ms=%s", event.kind.value, event.x, event.y, event.duration_ms)
+        logger.debug("TOUCH EVENT kind=%s x=%s y=%s duration_ms=%s", event.kind.value, event.x, event.y, event.duration_ms)
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT, payload)))
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 

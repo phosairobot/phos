@@ -120,7 +120,7 @@ class CartesiaSTTProvider(STTProvider):
 
     def _transcribe(self, pcm: bytes, sample_rate: int, channels: int) -> SpeechRecognitionResult:
         started = time.monotonic()
-        logger.info("PHOS STT: provider=cartesia transcription_start")
+        logger.debug("PHOS STT: provider=cartesia transcription_start")
         try:
             audio = self._wav(pcm, sample_rate, channels)
             response = self._client.stt.transcribe(
@@ -130,7 +130,7 @@ class CartesiaSTTProvider(STTProvider):
             text = getattr(response, "text", None)
             if not isinstance(text, str):
                 text = response.get("text", "") if isinstance(response, dict) else ""
-            logger.info("PHOS STT: provider=cartesia transcription_complete duration_ms=%s",
+            logger.debug("PHOS STT: provider=cartesia transcription_complete duration_ms=%s",
                         round((time.monotonic() - started) * 1000))
             return SpeechRecognitionResult(text.strip(), self.name, self.model, None, self._language,
                                            round(len(pcm) * 1000 / (sample_rate * channels * 2)),

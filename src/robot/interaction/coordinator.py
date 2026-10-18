@@ -33,9 +33,9 @@ INTERACTION_RESPONSE_FAILED = "interaction_response_failed"
 INTERACTION_RESPONSE_SPEECH_COMPLETED = "interaction_response_speech_completed"
 INTERACTION_RESPONSE_SPEECH_FAILED = "interaction_response_speech_failed"
 
-_VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "face.set_expression",
-                                        "environment.get_temperature", "environment.get_air_quality"})
-_SPEAKABLE_RESPONSE_INTENTS = frozenset({"get_temperature", "get_air_quality"})
+_VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "robot.set_state", "face.set_expression",
+                                        "environment.get_temperature", "environment.get_air_quality", "environment.get_sensor_value"})
+_SPEAKABLE_RESPONSE_INTENTS = frozenset({"get_temperature", "get_air_quality", "get_sensor_value"})
 
 
 class InteractionCoordinator:
@@ -191,10 +191,10 @@ class InteractionCoordinator:
             pairs = [(name, values[name]) for name in ("temperature_c", "eco2_ppm", "tvoc_ppb")
                      if name in values]
             detail = "" if not pairs else " " + " ".join(f"{name}={value}" for name, value in pairs)
-            logger.info("PHOS INTERACTION: outcome completed intent=%s language=%s%s",
+            logger.debug("PHOS INTERACTION: outcome completed intent=%s language=%s%s",
                         outcome.intent, outcome.source_language, detail)
         else:
-            logger.info("PHOS INTERACTION: outcome %s intent=%s language=%s reason=%s",
+            logger.debug("PHOS INTERACTION: outcome %s intent=%s language=%s reason=%s",
                         outcome.status.value, outcome.intent, outcome.source_language,
                         outcome.reason or "unspecified")
         await self._events.publish(Event(event_names[outcome.status.value], outcome.document()))
@@ -205,7 +205,7 @@ class InteractionCoordinator:
     async def _record_response(self, response: InteractionResponse) -> None:
         self._last_response = {"status": response.status.value, "intent": response.intent,
                                "language": response.language, "text": response.text}
-        logger.info("PHOS INTERACTION: response %s intent=%s language=%s text=%r",
+        logger.debug("PHOS INTERACTION: response %s intent=%s language=%s text=%r",
                     response.status.value, response.intent, response.language, response.text)
         event_names = {
             "ready": INTERACTION_RESPONSE_READY,
@@ -213,13 +213,13 @@ class InteractionCoordinator:
             "failed": INTERACTION_RESPONSE_FAILED,
         }
         await self._events.publish(Event(event_names[response.status.value], response.document()))
-        logger.info("PHOS INTERACTION: response speech decision intent=%s enabled=%s status=%s",
+        logger.debug("PHOS INTERACTION: response speech decision intent=%s enabled=%s status=%s",
                     response.intent, self._response_tts_enabled, response.status.value)
         if response.intent not in _SPEAKABLE_RESPONSE_INTENTS:
-            logger.info("PHOS INTERACTION: response speech skipped intent=%s reason=non_query_intent",
+            logger.debug("PHOS INTERACTION: response speech skipped intent=%s reason=non_query_intent",
                         response.intent)
         elif not self._response_tts_enabled:
-            logger.info("PHOS INTERACTION: response speech skipped intent=%s reason=response_tts_disabled",
+            logger.debug("PHOS INTERACTION: response speech skipped intent=%s reason=response_tts_disabled",
                         response.intent)
         else:
             await self._speak_response(response)
@@ -228,7 +228,7 @@ class InteractionCoordinator:
         try:
             if self._speech_coordinator is None:
                 raise RuntimeError("speech coordinator unavailable")
-            logger.info("PHOS INTERACTION: response speech scheduled intent=%s language=%s",
+            logger.debug("PHOS INTERACTION: response speech scheduled intent=%s language=%s",
                         response.intent, response.language)
             await self._speech_coordinator.speak(response)
         except Exception as error:
@@ -243,7 +243,7 @@ class InteractionCoordinator:
             return
         self._last_speech = {"status": "completed", "intent": response.intent,
                              "language": response.language}
-        logger.info("PHOS INTERACTION: response speech completed intent=%s language=%s",
+        logger.debug("PHOS INTERACTION: response speech completed intent=%s language=%s",
                     response.intent, response.language)
         await self._events.publish(Event(INTERACTION_RESPONSE_SPEECH_COMPLETED, {
             "status": "completed", "intent": response.intent, "language": response.language,

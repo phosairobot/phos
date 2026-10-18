@@ -34,6 +34,7 @@ The project is local-first where practical. Its core display, local vision, loca
 - Synthesize through `TTSProvider`: Local/Piper, Cartesia, and ElevenLabs integration feed a separate `AudioOutputProvider` playback boundary.
 - Accept speech through `/api/v1/speak`, reflecting playback through the `SPEAKING` state.
 - Apply supported STT, TTS, and audio-output changes live: active operations retain their original provider, while subsequent work uses the replacement.
+- Resolve the supported local English/Italian command catalog; see [Voice Commands](docs/voice-commands.md) for the exact accepted phrases and required interaction settings.
 
 ### Sensors & physical interaction
 
@@ -92,7 +93,7 @@ The Remote API exposes semantic status and control through the shared applicatio
 
 PHOS 1.4.0 contains implemented, automated-test-covered foundations for visual behavior, perception, voice providers, audio output, and live Voice & Speech configuration. Project records also distinguish physical validation from source implementation: local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web Admin, and live STT/TTS switching have recorded Pi validation. Optional sensor, provider, and deployment acceptance remains component-specific.
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are transcript-to-intent/command handling, conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP/tool execution. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP/tool execution. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

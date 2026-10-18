@@ -77,6 +77,19 @@ class FailingInitialDrawDisplay(MemoryEyeDisplay):
         self.closed = True
 
 
+def test_runtime_shutdown_stops_the_voice_session_before_teardown():
+    class VoiceSession:
+        def __init__(self): self.cancelled = None
+        def status(self): return {"listening": True}
+        async def stop(self, *, cancelled=False): self.cancelled = cancelled
+
+    runtime = build_runtime(eye_display=MemoryEyeDisplay())
+    voice = VoiceSession()
+    runtime._voice_session = voice
+    asyncio.run(runtime.stop())
+    assert voice.cancelled is True
+
+
 def _runtime_with_sound_config(tmp_path, *, sound_file=None):
     from robot.config import load_document
 
@@ -105,7 +118,7 @@ def test_ready_sound_reports_missing_player(tmp_path, monkeypatch, caplog):
 
 def test_ready_sound_preserves_failure_and_only_marks_success(tmp_path, monkeypatch, caplog):
     runtime = _runtime_with_sound_config(tmp_path)
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     monkeypatch.setattr("robot.runtime.shutil.which", lambda _player: "/usr/bin/aplay")
     monkeypatch.setattr("robot.runtime.subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="ALSA error"))
     runtime._play_ready_sound()

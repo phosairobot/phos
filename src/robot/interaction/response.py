@@ -10,7 +10,7 @@ from .models import (InteractionOutcome, InteractionOutcomeStatus, InteractionRe
 
 
 _SUPPORTED_LANGUAGES = frozenset({"en", "it"})
-_QUERY_INTENTS = frozenset({"get_temperature", "get_air_quality"})
+_QUERY_INTENTS = frozenset({"get_temperature", "get_air_quality", "get_sensor_value"})
 
 
 class InteractionResponseRenderer:
@@ -32,7 +32,7 @@ class InteractionResponseRenderer:
             text = self._completed(outcome, base)
             status = InteractionResponseStatus.READY
         elif outcome.status is InteractionOutcomeStatus.UNAVAILABLE:
-            text = self._unavailable(outcome.intent, base)
+            text = self._unavailable(outcome.intent, outcome.reason, base)
             status = InteractionResponseStatus.UNAVAILABLE
         else:
             text = "I couldn't retrieve that information." if base == "en" else "Non sono riuscito a recuperare quell'informazione."
@@ -46,7 +46,8 @@ class InteractionResponseRenderer:
     @staticmethod
     def _completed(outcome: InteractionOutcome, language: str) -> str:
         result = outcome.result or {}
-        if outcome.intent == "get_temperature":
+        sensor = result.get("sensor")
+        if outcome.intent == "get_temperature" or sensor == "temperature":
             value = result.get("temperature_c")
             formatted = InteractionResponseRenderer._temperature(value)
             if formatted is None:
@@ -54,6 +55,14 @@ class InteractionResponseRenderer:
                         else "Non sono riuscito a recuperare quell'informazione.")
             return (f"The temperature is {formatted} degrees Celsius." if language == "en"
                     else f"La temperatura è di {formatted} gradi Celsius.")
+        if sensor == "pressure":
+            value = result.get("pressure_hpa")
+            formatted = InteractionResponseRenderer._temperature(value)
+            if formatted is None:
+                return ("I couldn't retrieve that information." if language == "en"
+                        else "Non sono riuscito a recuperare quell'informazione.")
+            return (f"The pressure is {formatted} hectopascals." if language == "en"
+                    else f"La pressione è di {formatted} ettopascal.")
         eco2, tvoc = result.get("eco2_ppm"), result.get("tvoc_ppb")
         if type(eco2) is not int or type(tvoc) is not int:
             return ("I couldn't retrieve that information." if language == "en"
@@ -63,10 +72,13 @@ class InteractionResponseRenderer:
                 f"La qualità dell'aria rilevata è {eco2} ppm di eCO2 e {tvoc} ppb di TVOC.")
 
     @staticmethod
-    def _unavailable(intent: str, language: str) -> str:
-        if intent == "get_temperature":
+    def _unavailable(intent: str, reason: str | None, language: str) -> str:
+        if intent == "get_temperature" or reason == "temperature_unavailable":
             return ("Temperature data is currently unavailable." if language == "en"
                     else "I dati sulla temperatura non sono disponibili al momento.")
+        if reason == "pressure_unavailable":
+            return ("Pressure data is currently unavailable." if language == "en"
+                    else "I dati sulla pressione non sono disponibili al momento.")
         return ("Air quality data is currently unavailable." if language == "en"
                 else "I dati sulla qualità dell'aria non sono disponibili al momento.")
 

@@ -24,7 +24,7 @@ CARTESIA_API_VERSION = "2026-08-14"
 WAV_CHUNK_FRAMES = 4096
 
 
-def speech_log(stage: str, level=logging.INFO, **fields) -> None:
+def speech_log(stage: str, level=logging.DEBUG, **fields) -> None:
     """Emit request-correlated, metadata-only speech diagnostics."""
     request_id = speech_request_id.get()
     prefix = f"PHOS SPEECH[{request_id}]" if request_id is not None else "PHOS SPEECH"
@@ -96,7 +96,7 @@ class TTSProviderFactory:
                                          config.tts_elevenlabs_output_format)
         if provider == "cartesia":
             secret = secrets_service.get_secret("tts.cartesia.api_key") if secrets_service else None
-            logger.info("PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=%s",
+            logger.debug("PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=%s",
                         bool(secret))
             if not secret:
                 raise TTSConfigurationError("Cartesia credential is not configured.")
@@ -131,7 +131,7 @@ class PiperTTSProvider(TTSProvider):
         with self._voice_lock:
             if self._voice is not None:
                 return self._voice
-            speech_log("piper_model_load_start")
+            speech_log("piper_model_load_start", logging.INFO)
             started = time.monotonic()
             try:
                 if self._voice_loader is None:
@@ -141,7 +141,8 @@ class PiperTTSProvider(TTSProvider):
             except Exception as error:
                 speech_log("piper_model_load_failed", logging.WARNING, exception_type=type(error).__name__)
                 raise TTSConfigurationError("Piper voice could not be loaded.") from error
-            speech_log("piper_model_load_complete", duration_ms=round((time.monotonic() - started) * 1000))
+            speech_log("piper_model_load_complete", logging.INFO,
+                       duration_ms=round((time.monotonic() - started) * 1000))
             return self._voice
 
     def _synthesize_wav(self, voice, text: str, output) -> None:
@@ -375,13 +376,13 @@ class CartesiaTTSProvider(TTSProvider):
     def synthesize(self, text: str) -> SynthesizedAudio:
         if not isinstance(text, str) or not text.strip() or len(text) > self.max_text_length:
             raise TTSConfigurationError("Speech text is invalid.")
-        logger.info("PHOS TTS: provider=cartesia synthesis_start")
+        logger.debug("PHOS TTS: provider=cartesia synthesis_start")
         started = time.monotonic()
         temporary = tempfile.NamedTemporaryFile(prefix="phos-tts-cartesia-", suffix=".wav", delete=False)
         temporary.close()
         path = Path(temporary.name)
         try:
-            logger.info("PHOS TTS: provider=cartesia request model_id=%s voice_id=%s sample_rate=%s speed=%s "
+            logger.debug("PHOS TTS: provider=cartesia request model_id=%s voice_id=%s sample_rate=%s speed=%s "
                         "volume=%s api_version=%s container=wav encoding=pcm_s16le",
                         self.model_id, self.voice_id, self.sample_rate, self.speed, self.volume,
                         CARTESIA_API_VERSION)
@@ -415,7 +416,7 @@ class CartesiaTTSProvider(TTSProvider):
                            f" provider_code={provider_code}" if provider_code else "",
                            f" provider_message={provider_message!r}" if provider_message else "")
             raise TTSProviderError(code) from error
-        logger.info("PHOS TTS: provider=cartesia synthesis_complete duration_ms=%s",
+        logger.debug("PHOS TTS: provider=cartesia synthesis_complete duration_ms=%s",
                     round((time.monotonic() - started) * 1000))
         return SynthesizedAudio(path, sample_rate=params.framerate, channels=params.nchannels)
 
@@ -471,7 +472,7 @@ class AplayAudioOutputProvider(AudioOutputProvider):
             _fsync_path(retained_path)
             if _sha256_prefix(retained_path) != checksum:
                 raise OSError("retained WAV checksum mismatch")
-            logger.info("PHOS SPEECH: retained_wav path=%s bytes=%s", retained_path, retained_path.stat().st_size)
+            logger.debug("PHOS SPEECH: retained_wav path=%s bytes=%s", retained_path, retained_path.stat().st_size)
             speech_log("retained_wav", path=str(retained_path), sha256=checksum)
             return retained_path
         except OSError as error:
@@ -670,7 +671,7 @@ class PipeWireAudioOutputProvider(AudioOutputProvider):
         command = [self.executable, str(audio.path)]
         retained_path = self._retain_final_wav(audio.path)
         started = time.monotonic()
-        logger.info("PHOS AUDIO: provider=pipewire playback_started")
+        logger.debug("PHOS AUDIO: provider=pipewire playback_started")
         failure = "unknown"
         for attempt in range(1, self.retry_max_attempts + 1):
             try:
@@ -682,7 +683,7 @@ class PipeWireAudioOutputProvider(AudioOutputProvider):
                 if not result.returncode:
                     if retained_path is not None and retained_path.read_bytes() != audio.path.read_bytes():
                         raise AudioOutputError("Retained playback WAV changed during playback.")
-                    logger.info("PHOS AUDIO: provider=pipewire playback_completed duration_ms=%s",
+                    logger.debug("PHOS AUDIO: provider=pipewire playback_completed duration_ms=%s",
                                 round((time.monotonic() - started) * 1000))
                     return
                 detail = " ".join(result.stderr.splitlines())[:160]
@@ -707,7 +708,7 @@ class PipeWireAudioOutputProvider(AudioOutputProvider):
             _fsync_path(retained_path)
             if _sha256_prefix(retained_path) != _sha256_prefix(playback_path):
                 raise OSError("retained WAV checksum mismatch")
-            logger.info("PHOS SPEECH: retained_wav path=%s bytes=%s", retained_path, retained_path.stat().st_size)
+            logger.debug("PHOS SPEECH: retained_wav path=%s bytes=%s", retained_path, retained_path.stat().st_size)
             return retained_path
         except OSError as error:
             if retained_path is not None:

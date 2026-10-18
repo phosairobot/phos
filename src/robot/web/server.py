@@ -75,11 +75,15 @@ class WebServer:
         self.process = context.Process(target=_serve, args=(self.path, self.config.to_dict(), writer, worker_channel),
                                        name="phos-admin", daemon=True)
         try:
-            self.process.start()
-            worker_channel.close()
-            self._thread = Thread(target=serve_lifecycle, args=(self._channel, self.lifecycle, self._stop),
+            lifecycle_ready = Event()
+            self._thread = Thread(target=serve_lifecycle,
+                                  args=(self._channel, self.lifecycle, self._stop, lifecycle_ready),
                                   name="phos-lifecycle", daemon=True)
             self._thread.start()
+            if not lifecycle_ready.wait(5):
+                raise RuntimeError("Lifecycle dispatcher startup timed out")
+            self.process.start()
+            worker_channel.close()
             writer.close()
             if not reader.poll(30):
                 raise RuntimeError("Web administration startup timed out")

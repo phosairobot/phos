@@ -104,6 +104,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                     stop_event.set()
                     raise
             if lifecycle is not None and lifecycle.restart_due:
+                logger.info("PHOS MAIN: restart_due detected")
                 stop_event.set()
                 return
             await asyncio.sleep(.1)
@@ -114,6 +115,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             if hasattr(runtime, "core"):
                 from robot.services import PhosApplicationService
                 lifecycle.register_application_service(PhosApplicationService(runtime, lifecycle=lifecycle))
+            register_started = getattr(runtime, "register_started_callback", None)
+            if callable(register_started):
+                register_started(lifecycle.mark_application_ready)
             lifecycle.register_appearance_applier(runtime.apply_appearance)
             backgrounds_applier = getattr(runtime, "apply_backgrounds", None)
             if backgrounds_applier is not None:
@@ -149,9 +153,13 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             if application_status is not None:
                 lifecycle.register_application_status(application_status)
         await runtime.run(stop_event)
+        if stop_event.is_set():
+            logger.info("PHOS MAIN: stop_event received")
         if watcher is not None and watcher.done():
             watcher.result()
     finally:
+        if lifecycle is not None:
+            lifecycle.clear_application_ready()
         if watcher is not None:
             watcher.cancel()
             await asyncio.gather(watcher, return_exceptions=True)
@@ -264,6 +272,7 @@ def main() -> None:
     with WebServer(repository, config) as web:
         asyncio.run(async_main(config=config, lifecycle=web.lifecycle, web_server=web))
     if web.lifecycle.restart_at is not None:
+        logger.info("PHOS MAIN: exiting for managed restart exit_code=%s", RESTART_EXIT_CODE)
         raise SystemExit(RESTART_EXIT_CODE)
 
 

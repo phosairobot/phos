@@ -161,10 +161,10 @@ class RemoteApplicationService:
     def set_expression(self, value): return self._call("expression", {"expression": value})
     def set_state(self, value):
         started_at = time.monotonic()
-        logger.info("PHOS COMMAND: state target=%s request_received", value)
-        logger.info("PHOS COMMAND: state target=%s submitted_ms=0.0", value)
+        logger.debug("PHOS COMMAND: state target=%s request_received", value)
+        logger.debug("PHOS COMMAND: state target=%s submitted_ms=0.0", value)
         result = self._call("set_state", {"state": value})
-        logger.info("PHOS COMMAND: state target=%s response_ms=%.1f", value,
+        logger.debug("PHOS COMMAND: state target=%s response_ms=%.1f", value,
                     (time.monotonic() - started_at) * 1000)
         return result
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
@@ -209,10 +209,10 @@ class RemoteApplicationService:
                 continue
             self._last[event_type] = frozen
             if event_type == "observed_expression_changed":
-                logger.info("EXPR SSE SNAPSHOT: available=%s label=%s confidence=%s",
+                logger.debug("EXPR SSE SNAPSHOT: available=%s label=%s confidence=%s",
                             payload.get("available"), payload.get("label"), payload.get("confidence"))
             if event_type == "expression_reaction_changed":
-                logger.info("SSE OUT: type=%s payload=%s", event_type, payload)
+                logger.debug("SSE OUT: type=%s payload=%s", event_type, payload)
             event = {"type": event_type,
                      "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                      "payload": payload}
@@ -303,7 +303,7 @@ class PhosApplicationService:
         """Trace the exact runtime snapshot forwarded to remote adapters."""
         self._emit("observed_expression_changed", event.data)
         snapshot = self.observed_expression()
-        logger.info("EXPR SNAPSHOT: state_id=%s available=%s label=%s confidence=%s",
+        logger.debug("EXPR SNAPSHOT: state_id=%s available=%s label=%s confidence=%s",
                     id(getattr(getattr(self._runtime, "_vision_pipeline", None), "observed_expression", None)),
                     snapshot.get("available"), snapshot.get("label"), snapshot.get("confidence"))
 
@@ -844,10 +844,10 @@ class PhosApplicationService:
     async def _accept_state_command(self, target: RobotState, submitted_at: float):
         """Run on the runtime loop and acknowledge immediately after commit."""
         dequeued_at = time.monotonic()
-        logger.info("PHOS COMMAND: state target=%s dequeued_ms=%.1f", target.value,
+        logger.debug("PHOS COMMAND: state target=%s dequeued_ms=%.1f", target.value,
                     (dequeued_at - submitted_at) * 1000)
         transition = await self._core.accept_transition_to(target, reason="remote_api")
-        logger.info("PHOS COMMAND: state target=%s applied_ms=%.1f", target.value,
+        logger.debug("PHOS COMMAND: state target=%s applied_ms=%.1f", target.value,
                     (time.monotonic() - submitted_at) * 1000)
         return transition
 
@@ -863,8 +863,7 @@ class PhosApplicationService:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
         submitted_at = time.monotonic()
         if self._core.state is target:
-            logger.info("PHOS COMMAND: state target=%s accepted_ms=%.1f already_current=true", target.value,
-                        (time.monotonic() - submitted_at) * 1000)
+            logger.info("PHOS COMMAND: state target=%s accepted already_current=true", target.value)
             return self.robot_state()
         future = asyncio.run_coroutine_threadsafe(self._accept_state_command(target, submitted_at), loop)
         try:
@@ -878,15 +877,13 @@ class PhosApplicationService:
             # state commit is synchronous and can be acknowledged truthfully.
             cancelled = future.cancel()
             if not cancelled and self._core.state is target:
-                logger.info("PHOS COMMAND: state target=%s accepted_ms=%.1f after_timeout=true", target.value,
-                            (time.monotonic() - submitted_at) * 1000)
+                logger.info("PHOS COMMAND: state target=%s accepted after_timeout=true", target.value)
                 return self.robot_state()
             phase = "queued_cancelled" if cancelled else "runtime_unresponsive"
             logger.warning("PHOS COMMAND: state timeout target=%s phase=%s elapsed_ms=%.1f", target.value, phase,
                            (time.monotonic() - submitted_at) * 1000)
             raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
-        logger.info("PHOS COMMAND: state target=%s accepted_ms=%.1f", target.value,
-                    (time.monotonic() - submitted_at) * 1000)
+        logger.info("PHOS COMMAND: state target=%s accepted", target.value)
         return self.robot_state()
 
 

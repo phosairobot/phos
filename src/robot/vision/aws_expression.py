@@ -149,7 +149,7 @@ class AWSExpressionProvider(ExpressionProvider):
             self._cache = None if observation is None else ExpressionObservation(
                 observation.label, observation.confidence, observation.probabilities, sampled_at)
         if self._diagnostics:
-            logger.info("Cloud expression latency_ms=%.1f expression=%s confidence=%.3f requests=%d discarded=%s",
+            logger.debug("Cloud expression latency_ms=%.1f expression=%s confidence=%.3f requests=%d discarded=%s",
                         (self._clock() - started) * 1000,
                         observation.label if observation else "unknown",
                         observation.confidence if observation else 0, self.requests,
@@ -177,5 +177,5 @@ class AWSExpressionProvider(ExpressionProvider):
 
     def _diagnostic(self, reason: str, now: float, *, force: bool = False) -> None:
         if self._diagnostics and (force or now - self._last_diagnostic >= 5):
-            logger.info("Cloud expression policy=%s requests=%d", reason, self.requests)
+            logger.debug("Cloud expression policy=%s requests=%d", reason, self.requests)
             self._last_diagnostic = now

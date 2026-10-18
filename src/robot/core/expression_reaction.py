@@ -59,12 +59,12 @@ class ExpressionReactionPolicy:
             return None
         if self._candidate != observation.label:
             self._candidate, self._candidate_at = observation.label, now
-            logger.info("EXPRESSION REACTION CANDIDATE: label=%s confidence=%.2f", observation.label, observation.confidence)
+            logger.debug("EXPRESSION REACTION CANDIDATE: label=%s confidence=%.2f", observation.label, observation.confidence)
             return None
         if now - self._candidate_at < self.confirmation_seconds:
             return None
         if now - self._last_reaction.get(reaction, float("-inf")) < self.cooldown_seconds:
-            logger.info("EXPRESSION REACTION SUPPRESSED: reason=cooldown")
+            logger.debug("EXPRESSION REACTION SUPPRESSED: reason=cooldown")
             self._reset_candidate()
             return None
         self._last_reaction[reaction] = now

@@ -41,9 +41,11 @@ SSE emits only lifecycle edges such as `voice_speech_started` and
 changes use the documented live activation path. When enabled explicitly through
 `interaction.response_tts_enabled`, completed temperature and air-quality query
 responses use that same application-owned speech path after voice capture has
-closed; actions and unresolved input remain silent. Wake words, continuous
-listening, transcript-to-intent/command handling, LLM conversation, Home
-Assistant, MCP/tool execution, and speaker identification remain deferred.
+closed; actions and unresolved input remain silent. The deterministic
+English/Italian transcript-to-command catalog is documented in
+[Voice Commands](voice-commands.md). Wake words, continuous listening, LLM
+conversation, Home Assistant, MCP/tool execution, and speaker identification
+remain deferred.
 
 During an active capture session, PHOS writes a rate-limited `VOICE VAD LEVEL`
 diagnostic at most once per 500 ms. It reports only calculated RMS/peak levels

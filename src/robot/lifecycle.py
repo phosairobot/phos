@@ -10,6 +10,8 @@ import time
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 
+logger = logging.getLogger(__name__)
+
 RESTART_EXIT_CODE = 75
 PREVIEW_RELOADABLE = frozenset({
     "vision.camera_preview.enabled", "vision.camera_preview.position", "vision.camera_preview.scale",
@@ -95,6 +97,7 @@ class LifecycleService:
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
+        self._application_ready = False
         self._clock = clock
         self._lock = RLock()
 
@@ -156,6 +159,19 @@ class LifecycleService:
         """Register the semantic command/status boundary for remote adapters."""
         with self._lock:
             self._application_service = service
+            self._application_ready = False
+
+    def mark_application_ready(self):
+        """Publish that the registered service can safely enter the runtime loop."""
+        with self._lock:
+            if self._application_service is None:
+                raise RuntimeError("Cannot mark an unregistered application service ready")
+            self._application_ready = True
+
+    def clear_application_ready(self):
+        """Withdraw command availability while the runtime is stopping."""
+        with self._lock:
+            self._application_ready = False
 
     def _snapshot(self, saved):
         changed = changed_fields(self.active, saved)
@@ -165,6 +181,7 @@ class LifecycleService:
                 "restart_required": sorted(set(changed) - RELOADABLE),
                 "restart_supported": self.restart_supported,
                 "restart_requested": self.restart_at is not None,
+                "application_ready": self._application_ready,
                 "sensors": self._sensor_status() if self._sensor_status is not None else {},
                 "runtime": self._application_status() if self._application_status is not None else {}}
 
@@ -184,6 +201,7 @@ class LifecycleService:
             if operation == "restart":
                 if not self.restart_supported:
                     return {"ok": False, "error": "Restart PHOS requires the documented user systemd service. For a terminal launch, stop PHOS and run the startup command again."}
+                logger.info("PHOS LIFECYCLE: restart requested")
                 if self.restart_at is None:
                     # Let the worker deliver its HTTP acknowledgement before exit.
                     self.restart_at = self._clock() + 1.0
@@ -340,8 +358,12 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        if self._application_service is None:
-            return {"ok": False, "error": "Application service is unavailable.", "status": 503}
+        if self._application_service is None or not getattr(self, "_application_ready", True):
+            return {"ok": False, "error": {
+                "code": "service_unavailable",
+                "message": "PHOS runtime command service is starting. Retry shortly.",
+                "details": {"reason": "runtime_starting"},
+            }, "status": 503}
         try:
             return {"ok": True, "result": handlers[name]()}
         except Exception as error:

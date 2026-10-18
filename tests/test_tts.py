@@ -122,7 +122,7 @@ def test_runtime_final_wav_cleanup_and_pipewire_retention(tmp_path, monkeypatch,
     runtime._audio_output = PipeWireAudioOutputProvider(debug_retain_final_wav=retain_final_wav)
     runtime._tts_enabled = True
     try:
-        with caplog.at_level("INFO"):
+        with caplog.at_level("DEBUG"):
             asyncio.run(runtime.speak("Hello", request_id=request_id))
         retained = list(Path("/tmp").glob(retained_glob))
         assert played == [expected_bytes]
@@ -262,11 +262,11 @@ def test_cartesia_factory_uses_runtime_secret_and_reuses_client(tmp_path, monkey
                 return Response()
 
     monkeypatch.setitem(sys.modules, "cartesia", types.SimpleNamespace(Cartesia=Client))
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         provider = TTSProviderFactory.create(config, types.SimpleNamespace(get_secret=lambda name: "secret-value"))
     assert isinstance(provider, CartesiaTTSProvider) and created == [("secret-value", {"cartesia-version": "2026-08-14"})]
     assert "PHOS TTS: provider=cartesia credential_source=secrets_service credential_present=True" in caplog.text
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         first, second = provider.synthesize("Hello"), provider.synthesize("Again")
     assert len(created) == 1 and len(requests) == 2
     assert requests[0]["model_id"] == "configured-model"
@@ -391,7 +391,7 @@ def test_cartesia_400_logs_safe_message_and_effective_parameters(caplog):
 
     provider = CartesiaTTSProvider("secret-value", "voice-id", "sonic-3.6", 44100, 1.0, 1.0,
                                    client_factory=lambda **kwargs: Client())
-    with caplog.at_level("INFO"), pytest.raises(TTSProviderError, match="provider_configuration_error"):
+    with caplog.at_level("DEBUG"), pytest.raises(TTSProviderError, match="provider_configuration_error"):
         provider.synthesize(transcript)
     assert ("provider=cartesia request model_id=sonic-3.6 voice_id=voice-id sample_rate=44100 "
             "speed=1.0 volume=1.0 api_version=2026-08-14 container=wav encoding=pcm_s16le" in caplog.text)
@@ -446,7 +446,7 @@ def test_piper_lazily_loads_one_voice_and_reuses_it_for_sequential_utterances(tm
 
     voice = Voice()
     provider = PiperTTSProvider("piper", model, voice_loader=lambda path: loads.append(path) or voice)
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         first = provider.synthesize("Hello")
         second = provider.synthesize("Again")
 
@@ -566,7 +566,7 @@ def test_aplay_logs_normalized_final_wav_and_one_playback_timing(tmp_path, monke
     monkeypatch.setattr("robot.voice.tts.shutil.which", lambda command: "/usr/bin/aplay")
     monkeypatch.setattr("robot.voice.tts.subprocess.run", lambda command, **kwargs: calls.append(command) or subprocess.CompletedProcess(command, 0, "", ""))
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         AplayAudioOutputProvider(preroll_ms=1000).play(SynthesizedAudio(source))
 
     assert len(calls) == 1
@@ -604,7 +604,7 @@ def test_aplay_retries_the_same_final_wav_once_then_succeeds(tmp_path, monkeypat
         return subprocess.CompletedProcess(command, 7 if len(calls) == 1 else 0, "", "sink unavailable" if len(calls) == 1 else "")
 
     monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         AplayAudioOutputProvider(device="hw:1", retry_delay_ms=0).play(SynthesizedAudio(source))
 
     assert len(calls) == 2
@@ -738,7 +738,7 @@ def test_debug_retention_passes_a_closed_final_wav_to_aplay_and_preserves_it(tmp
     monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
     token = speech_request_id.set(request_id)
     try:
-        with caplog.at_level("INFO"):
+        with caplog.at_level("DEBUG"):
             AplayAudioOutputProvider(preroll_ms=1000, debug_retain_final_wav=True).play(SynthesizedAudio(source))
     finally:
         speech_request_id.reset(token)
@@ -827,7 +827,7 @@ def test_pipewire_output_uses_pw_play_without_shell_and_bounds_failures(tmp_path
         return subprocess.CompletedProcess(command, 7, "", "sink unavailable\n" + "x" * 400)
 
     monkeypatch.setattr("robot.voice.tts.subprocess.run", run)
-    with caplog.at_level("INFO"), pytest.raises(AudioOutputError, match="PipeWire audio playback failed"):
+    with caplog.at_level("DEBUG"), pytest.raises(AudioOutputError, match="PipeWire audio playback failed"):
         PipeWireAudioOutputProvider(retry_max_attempts=1).play(SynthesizedAudio(artifact))
 
     assert calls == [(["/usr/bin/pw-play", str(artifact)], {"capture_output": True, "text": True,

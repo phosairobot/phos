@@ -86,14 +86,18 @@ class CommandRouteResult:
 
 
 _COMMAND_CATALOG = {
+    "set_state": "robot.set_state",
+    "get_sensor_value": "environment.get_sensor_value",
     "sleep": "robot.sleep",
     "wake": "robot.wake",
     "get_temperature": "environment.get_temperature",
     "get_air_quality": "environment.get_air_quality",
     "set_expression": "face.set_expression",
 }
-_NO_PARAMETER_INTENTS = frozenset(_COMMAND_CATALOG) - {"set_expression"}
+_NO_PARAMETER_INTENTS = frozenset(_COMMAND_CATALOG) - {"set_expression", "set_state", "get_sensor_value"}
 _ALLOWED_EXPRESSIONS = frozenset({"neutral", "happy", "curious", "surprised"})
+_VOICE_SETTABLE_STATES = frozenset({"idle", "sleeping"})
+_SUPPORTED_SENSORS = frozenset({"temperature", "pressure", "air_quality"})
 
 
 class CommandRouter:
@@ -136,6 +140,14 @@ class CommandRouter:
             if parameters:
                 raise CommandValidationError("Unexpected parameters")
             return {}
+        if intent.name == "set_state":
+            if set(parameters) != {"state"} or parameters["state"] not in _VOICE_SETTABLE_STATES:
+                raise CommandValidationError("Unsupported state")
+            return {"state": parameters["state"]}
+        if intent.name == "get_sensor_value":
+            if set(parameters) != {"sensor"} or parameters["sensor"] not in _SUPPORTED_SENSORS:
+                raise CommandValidationError("Unsupported sensor")
+            return {"sensor": parameters["sensor"]}
         if set(parameters) != {"expression"}:
             raise CommandValidationError("set_expression requires only expression")
         expression = parameters["expression"]
