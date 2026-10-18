@@ -242,19 +242,19 @@ class TkEyeDisplay(EyeDisplay):
             root_geometry = self._root.winfo_geometry() if hasattr(self._root, "winfo_geometry") else "unknown"
             canvas_width = self._canvas.winfo_width() if hasattr(self._canvas, "winfo_width") else "unknown"
             canvas_height = self._canvas.winfo_height() if hasattr(self._canvas, "winfo_height") else "unknown"
-            logger.info("STARTUP SPLASH root_geometry=%s", root_geometry)
-            logger.info("STARTUP SPLASH canvas_size=%sx%s", canvas_width, canvas_height)
-            logger.info("STARTUP SPLASH LOADER: resolved_path=%s exists=%s readable=%s", path, path.is_file(), path.is_file() and os.access(path, os.R_OK))
+            logger.debug("STARTUP SPLASH root_geometry=%s", root_geometry)
+            logger.debug("STARTUP SPLASH canvas_size=%sx%s", canvas_width, canvas_height)
+            logger.debug("STARTUP SPLASH LOADER: resolved_path=%s exists=%s readable=%s", path, path.is_file(), path.is_file() and os.access(path, os.R_OK))
             photo = self._tk.PhotoImage(file=str(path))
-            logger.info("STARTUP SPLASH source_size=%sx%s", photo.width(), photo.height())
+            logger.debug("STARTUP SPLASH source_size=%sx%s", photo.width(), photo.height())
             if (photo.width(), photo.height()) != (800, 600):
                 raise RuntimeError("startup splash must be a pre-rendered 800x600 PNG")
             self._startup_photo = photo
             self._startup_image_path = image_path
             self._startup_image_item = self._canvas.create_image(400, 300, image=photo, anchor="center")
-            logger.info("STARTUP SPLASH resized_size=800x600")
-            logger.info("STARTUP SPLASH draw_position=(400,300)")
-            logger.info("STARTUP SPLASH anchor=center item=%s", self._startup_image_item)
+            logger.debug("STARTUP SPLASH resized_size=800x600")
+            logger.debug("STARTUP SPLASH draw_position=(400,300)")
+            logger.debug("STARTUP SPLASH anchor=center item=%s", self._startup_image_item)
         except Exception as error:
             logger.warning("STARTUP SPLASH LOAD FAILED: path=%s exception=%s", image_path, error)
 

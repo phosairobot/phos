@@ -90,7 +90,7 @@ def test_expression_diagnostics_report_scores_and_probabilities_without_saving_i
     provider._cv2 = FakeCv2()
     provider._network = FakeNetwork()
 
-    with caplog.at_level(logging.INFO, logger="robot.vision.expression"):
+    with caplog.at_level(logging.DEBUG, logger="robot.vision.expression"):
         provider._classify_sync(FakeImage())
 
     assert len(caplog.messages) == 1

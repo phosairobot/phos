@@ -195,7 +195,7 @@ class VisionPipeline(Behavior):
             # FaceDetector deliberately exposes provider-neutral geometry only.
             # A detector label/class or confidence must be normalized by its
             # adapter before this point; it is not silently inferred here.
-            logger.info("Vision raw detections: count=%s timestamp=%.3f boxes=%s", len(faces), now,
+            logger.debug("Vision raw detections: count=%s timestamp=%.3f boxes=%s", len(faces), now,
                         [(face.x, face.y, face.width, face.height) for face in faces])
         selection = self._face_selector.select(faces, width=width, height=height, timestamp=now)
         face = selection.face
@@ -206,7 +206,7 @@ class VisionPipeline(Behavior):
                 previous.semantic_expression if previous else None,
             )
         if self._diagnostics:
-            logger.info(
+            logger.debug(
                 "Face selection: detected=%s selected=%s reason=%s rejected=%s expression_ready=%s",
                 faces, face, selection.reason, selection.rejected, selection.expression_ready,
             )
@@ -237,7 +237,7 @@ class VisionPipeline(Behavior):
             observation = vision_observation(frame, face, timestamp=now)
             position = FacePosition(observation.x, observation.y)
             if self._diagnostics:
-                logger.info("Vision normalized observation: type=face id=face-1 confidence=%s "
+                logger.debug("Vision normalized observation: type=face id=face-1 confidence=%s "
                             "center=(%.3f,%.3f) bbox=(%s,%s,%s,%s)", observation.confidence, position.x, position.y,
                             face.x, face.y, face.width, face.height)
             await self._events.publish(Event(VISION_FACE_OBSERVATION, {"observation": observation.document()}))
@@ -254,7 +254,7 @@ class VisionPipeline(Behavior):
             region.y:region.y + region.height, region.x:region.x + region.width
         ]
         if self._diagnostics:
-            logger.info("Face crop: region=%s margin=%.3f smoothed_size=%s",
+            logger.debug("Face crop: region=%s margin=%.3f smoothed_size=%s",
                         region, self._crop_margin, selection.crop_size)
         if face_crop is None:
             invalidate = getattr(self._expression_provider, "invalidate", None)
@@ -264,7 +264,7 @@ class VisionPipeline(Behavior):
             self._reset_expression_log()
             return VisionResult(VisionStatus.NO_FACE)
         if self._diagnostics:
-            logger.info(
+            logger.debug(
                 "Expression diagnostics: selected_face=(x=%s, y=%s, width=%s, height=%s) crop_shape=%s",
                 face.x,
                 face.y,
@@ -285,9 +285,9 @@ class VisionPipeline(Behavior):
         # the freshness window.
         observed_now = self._clock() if timestamp is None else now
         if self._last_expression_inference_at is not None:
-            logger.info("EXPR INFERENCE: interval_ms=%.1f", (observed_now - self._last_expression_inference_at) * 1000)
+            logger.debug("EXPR INFERENCE: interval_ms=%.1f", (observed_now - self._last_expression_inference_at) * 1000)
         self._last_expression_inference_at = observed_now
-        logger.info("EXPR RAW: label=%s confidence=%s monotonic=%.3f",
+        logger.debug("EXPR RAW: label=%s confidence=%s monotonic=%.3f",
                     None if observation is None else observation.label,
                     None if observation is None else observation.confidence, observed_now)
         await self._set_observed_expression(observation, observed_now,
@@ -305,7 +305,7 @@ class VisionPipeline(Behavior):
             self._preview_snapshot = VisionPreviewSnapshot(frame, face,
                 self._observed_expression.label, self._observed_expression.confidence, stable.label)
         if self._diagnostics:
-            logger.info(
+            logger.debug(
                 "Expression semantics: top=%s semantic=%s reason=%s temporal=%s",
                 sorted(observation.probabilities, key=lambda item: item[1], reverse=True)[:3]
                 if observation is not None else [],
@@ -347,7 +347,7 @@ class VisionPipeline(Behavior):
             confidence = None
             reason = "invalid_confidence"
         if observation is not None:
-            logger.info("EXPR NORMALIZED: raw=%s canonical=%s accepted=%s reason=%s",
+            logger.debug("EXPR NORMALIZED: raw=%s canonical=%s accepted=%s reason=%s",
                         observation.label, label, label is not None, reason)
         value = ObservedExpression(
             label is not None,
@@ -374,18 +374,18 @@ class VisionPipeline(Behavior):
                 snapshot.frame, snapshot.face, value.label, value.confidence, snapshot.semantic_expression,
             )
         if value.available:
-            logger.info("EXPR CANONICAL SET: state_id=%s available=true label=%s confidence=%s observed_monotonic=%.3f",
+            logger.debug("EXPR CANONICAL SET: state_id=%s available=true label=%s confidence=%s observed_monotonic=%.3f",
                         id(self._observed_expression), value.label, value.confidence, self._observed_expression_fresh_at)
         elif previous.available:
             age_ms = 0.0 if previous_fresh_at is None else (now - previous_fresh_at) * 1000
-            logger.info("EXPR CANONICAL CLEAR: previous_label=%s reason=%s age_ms=%.1f",
+            logger.debug("EXPR CANONICAL CLEAR: previous_label=%s reason=%s age_ms=%.1f",
                         previous.label, reason, age_ms)
         if not changed:
             return
         logger.debug("OBSERVED EXPRESSION: %s -> %s confidence=%s", previous.label or "unavailable",
                      value.label or "unavailable", value.confidence)
         if self._events is not None:
-            logger.info("EXPR EVENT: observed_expression_changed available=%s label=%s",
+            logger.info("PHOS VISION: observed_expression_changed available=%s label=%s",
                         value.available, value.label)
             await self._events.publish(Event(OBSERVED_EXPRESSION_CHANGED, value.document()))
 
@@ -414,7 +414,7 @@ class VisionPipeline(Behavior):
             and now - self._last_expression_log_at < _EXPRESSION_LOG_INTERVAL_SECONDS
         ):
             return
-        logger.info("Visible expression observation: %s (confidence %.2f)", label, confidence)
+        logger.debug("Visible expression observation: %s (confidence %.2f)", label, confidence)
         self._last_logged_expression_label = label
         self._last_expression_log_at = now
 

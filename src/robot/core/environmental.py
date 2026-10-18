@@ -210,7 +210,7 @@ class EnvironmentalInterpreter:
         if now - self._last_diagnostic_at < 60:
             return
         self._last_diagnostic_at = now
-        logger.info("Environmental evaluation=%s state=%s temperature_c=%s eco2_ppm=%s tvoc_ppb=%s",
+        logger.debug("Environmental evaluation=%s state=%s temperature_c=%s eco2_ppm=%s tvoc_ppb=%s",
                     decision, self._state.value, self._temperature, self._eco2, self._tvoc)
 
     def _set(self, state, reason):

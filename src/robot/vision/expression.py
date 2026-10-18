@@ -95,7 +95,7 @@ class OpenCVExpressionProvider(ExpressionProvider):
         probabilities = _probabilities(values)
         index = max(range(len(probabilities)), key=probabilities.__getitem__)
         if self._diagnostics:
-            logger.info(
+            logger.debug(
                 "Expression diagnostics: input_shape=%s grayscale=%s blob_shape=%s raw_scores=%s "
                 "probabilities=%s top=%s confidence=%.4f inference_ms=%.2f",
                 getattr(face_crop, "shape", None),

@@ -118,7 +118,7 @@ def test_ready_sound_reports_missing_player(tmp_path, monkeypatch, caplog):
 
 def test_ready_sound_preserves_failure_and_only_marks_success(tmp_path, monkeypatch, caplog):
     runtime = _runtime_with_sound_config(tmp_path)
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     monkeypatch.setattr("robot.runtime.shutil.which", lambda _player: "/usr/bin/aplay")
     monkeypatch.setattr("robot.runtime.subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="ALSA error"))
     runtime._play_ready_sound()

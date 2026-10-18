@@ -68,7 +68,7 @@ class PresenceInterpreter(Behavior):
         now = self._clock() if now is None else now
         if candidate and not self._logged_first_input:
             self._logged_first_input = True
-            logger.info("PRESENCE INPUT: detections=1 type=%s confidence=%s", candidate.get("type", "face"),
+            logger.debug("PRESENCE INPUT: detections=1 type=%s confidence=%s", candidate.get("type", "face"),
                         candidate.get("confidence"))
         logger.debug("PRESENCE: update called")
         logger.debug("Presence input: candidate_count=%s candidate=%s state=%s enter_started=%s last_seen=%s",
@@ -100,7 +100,6 @@ class PresenceInterpreter(Behavior):
     async def _publish(self, lifecycle_event: str) -> None:
         payload = _document(self._state)
         logger.info("Presence transition: event=%s state=%s people=%s", lifecycle_event, payload["state"], payload["people_count"])
-        logger.info("PRESENCE EVENT: %s", lifecycle_event.removeprefix("presence."))
         await self._events.publish(Event(PRESENCE_CHANGED, payload))
         await self._events.publish(Event(lifecycle_event, payload))
 

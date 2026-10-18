@@ -336,7 +336,7 @@ def test_capture_read_error_is_logged_with_read_stage(monkeypatch, caplog):
             async for _ in provider.read_frames(): pass
         finally:
             await provider.stop()
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         try: asyncio.run(run())
         except OSError: pass
         else: raise AssertionError("read failure was swallowed")
@@ -372,7 +372,7 @@ def test_chunk_geometry_keeps_native_and_processing_rate_domains_separate(monkey
         result = raw._native_frames_per_read, capture.processing_frames_per_chunk
         await capture.stop()
         return result
-    with caplog.at_level(logging.INFO): native_frames, processing_frames = asyncio.run(run())
+    with caplog.at_level(logging.DEBUG): native_frames, processing_frames = asyncio.run(run())
     assert (native_frames, processing_frames) == (1323, 480)
     assert "native_frames_per_read=1323 processing_frames_per_chunk=480" in caplog.text
 
@@ -383,7 +383,7 @@ def test_native_capture_reports_realtime_ratio_from_wall_and_audio_duration(monk
     monkeypatch.setattr(capture_module.time, "monotonic", lambda: 106.3)
     # 6.3 seconds at 44.1 kHz, mono PCM16.
     pcm = _pcm(100, 44100 * 63 // 10)
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         provider._write_native_wav(pcm)
     assert "capture_wall_ms=6300 native_audio_ms=6300 realtime_ratio=1.0" in caplog.text
 
@@ -451,7 +451,7 @@ def test_native_debug_duration_uses_all_raw_frames_not_vad_sized(monkeypatch, tm
         iterator = provider.read_frames()
         for _ in chunks: await anext(iterator)
         await provider.stop()
-    with caplog.at_level(logging.INFO): asyncio.run(run())
+    with caplog.at_level(logging.DEBUG): asyncio.run(run())
     expected = b"".join(chunks)
     with wave.open(str(native), "rb") as captured:
         assert captured.readframes(captured.getnframes()) == expected
@@ -621,7 +621,7 @@ def test_finalized_pcm_is_immutable_and_survives_capture_close_before_stt(tmp_pa
         max_utterance_ms=1000, threshold=100, debug_dump_utterance_wav=True,
         debug_utterance_wav_path=dump)
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         asyncio.run(session._finalize(source))
 
     assert source == bytearray()
@@ -644,7 +644,7 @@ def test_empty_stt_result_is_not_an_error_and_logs_empty_transcript(caplog):
     async def transition(state, reason): pass
     session = VoiceCaptureSession(Capture(), stt, EventBus(), transition, enabled=True, sample_rate=16000, channels=1,
         chunk_ms=30, speech_start_ms=60, silence_end_ms=90, min_utterance_ms=30, max_utterance_ms=1000, threshold=100)
-    with caplog.at_level(logging.INFO): asyncio.run(session._finalize(_pcm(300)))
+    with caplog.at_level(logging.DEBUG): asyncio.run(session._finalize(_pcm(300)))
     assert (session.status()["last_transcript"] is None and session.status()["language"] is None
             and session.status()["last_error"] is None)
     assert "VOICE TRANSCRIPT: <empty>" in caplog.text

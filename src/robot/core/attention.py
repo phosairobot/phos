@@ -54,7 +54,7 @@ class AttentionManager(Behavior):
         now=self._clock() if now is None else now
         if candidate and not self._logged_first_input:
             self._logged_first_input = True
-            logger.info("ATTENTION: update called")
+            logger.debug("ATTENTION: update called")
         logger.debug("Attention input: candidate=%s presence=%s current=%s", candidate, self._presence.value, self._state.state.value)
         if candidate and self._presence is not PresenceKind.NO_ONE:
             if self._state.state is AttentionKind.IDLE:
@@ -78,7 +78,7 @@ class AttentionManager(Behavior):
     async def _publish(self,event_name):
         payload={"state":self._state.state.value,"target":{"id":self._state.target_id,"x":self._state.target_x,"y":self._state.target_y,"confidence":self._state.confidence},"acquired_at":self._state.acquired_at,"last_seen":self._state.last_seen}
         await self._events.publish(Event(ATTENTION_CHANGED,payload))
-        logger.info("Attention transition: event=%s state=%s target=%s", event_name, payload["state"], payload["target"])
-        logger.info("ATTENTION OUTPUT: state=%s target_id=%s target_x=%s target_y=%s confidence=%s",
+        logger.debug("Attention transition: event=%s state=%s target=%s", event_name, payload["state"], payload["target"])
+        logger.debug("ATTENTION OUTPUT: state=%s target_id=%s target_x=%s target_y=%s confidence=%s",
                     payload["state"], payload["target"]["id"], payload["target"]["x"], payload["target"]["y"], payload["target"]["confidence"])
         if event_name != ATTENTION_CHANGED: await self._events.publish(Event(event_name,payload))

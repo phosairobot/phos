@@ -292,7 +292,7 @@ class BehaviorEngine(Behavior):
     async def _on_expression_reaction(self, event: Event) -> None:
         payload = dict(event.data)
         if self._robot_state is not RobotState.IDLE or self._motion_transient is not None:
-            logger.info("EXPRESSION REACTION SUPPRESSED: reason=priority")
+            logger.debug("EXPRESSION REACTION SUPPRESSED: reason=priority")
             await self._events.publish(Event(EXPRESSION_REACTION_SUPPRESSED, {**payload, "reason": "priority"}))
             return
         try:
@@ -354,7 +354,7 @@ class BehaviorEngine(Behavior):
             x, y = _clamp_unit(float(target["x"])), _clamp_unit(float(target["y"]))
         except (KeyError, TypeError, ValueError):
             return
-        logger.info("BEHAVIOR ATTENTION INPUT: state=tracking target_x=%.3f target_y=%.3f", x, y)
+        logger.debug("BEHAVIOR ATTENTION INPUT: state=tracking target_x=%.3f target_y=%.3f", x, y)
         self._attention_tracking = True
         self._face_is_tracked = True
         if self._robot_state is RobotState.IDLE:
@@ -364,8 +364,8 @@ class BehaviorEngine(Behavior):
             gaze = (self._state.pupil_x, self._state.pupil_y)
             if self._last_attention_gaze_log is None or max(abs(a - b) for a, b in zip(gaze, self._last_attention_gaze_log)) >= .01:
                 self._last_attention_gaze_log = gaze
-                logger.info("BEHAVIOR GAZE OUTPUT: x=%.3f y=%.3f source=attention", *gaze)
-                logger.info("FACESTATE GAZE: x=%.3f y=%.3f source=attention", *gaze)
+                logger.debug("BEHAVIOR GAZE OUTPUT: x=%.3f y=%.3f source=attention", *gaze)
+                logger.debug("FACESTATE GAZE: x=%.3f y=%.3f source=attention", *gaze)
 
     async def _on_presence_event(self, event: Event) -> None:
         effect = TransientVisualEffect.PRESENCE_ENTERED if event.name == PERSON_ENTERED else TransientVisualEffect.PRESENCE_LEFT
@@ -376,7 +376,7 @@ class BehaviorEngine(Behavior):
         self._state = replace(self._state, transient_effect=effect, transient_effect_started_at=self._clock(),
                               transient_effect_duration_seconds=duration,
                               transient_effect_direction=direction)
-        logger.info("BEHAVIOR EFFECT REQUEST: %s", effect.value)
+        logger.debug("BEHAVIOR EFFECT REQUEST: %s", effect.value)
 
     async def _on_motion_state(self, event: Event) -> None:
         try:

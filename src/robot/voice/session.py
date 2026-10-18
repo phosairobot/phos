@@ -62,7 +62,7 @@ class VoiceCaptureSession:
         logger.info("VOICE SESSION: start requested")
         stage = "config"
         try:
-            logger.info("VOICE CONFIG: enabled=%s", self._status.enabled)
+            logger.debug("VOICE CONFIG: enabled=%s", self._status.enabled)
             if not self._status.enabled: raise RuntimeError("Voice is disabled")
             if self._task and not self._task.done(): return self.status()
             self._pre_roll.clear()
@@ -120,7 +120,7 @@ class VoiceCaptureSession:
                 vad_sequence += 1
                 if vad_sequence <= 3:
                     level = self._vad.level()
-                    logger.info("PHOS VOICE VAD: vad_seq=%s rms=%s peak=%s speech_decision=%s",
+                    logger.debug("PHOS VOICE VAD: vad_seq=%s rms=%s peak=%s speech_decision=%s",
                                 vad_sequence, level["rms"], level["peak"], marker or "none")
                 now = time.monotonic()
                 if now - self._last_vad_level_log >= .5:
@@ -142,7 +142,7 @@ class VoiceCaptureSession:
                     if len(self._pre_roll) > self._pre_roll_limit_bytes:
                         del self._pre_roll[:-self._pre_roll_limit_bytes]
                 if speaking and (marker == "ended" or len(frames) * 1000 >= self._max_ms * self._sample_rate * self._channels * 2):
-                    logger.info("VOICE AUDIO: accumulated_bytes=%s", len(frames))
+                    logger.debug("VOICE AUDIO: accumulated_bytes=%s", len(frames))
                     await self._finalize(frames); return
         except asyncio.CancelledError: raise
         except Exception as error: await self._failure(error)
@@ -152,10 +152,10 @@ class VoiceCaptureSession:
         # an immutable snapshot before closing a capture implementation that
         # may reset its own mutable buffers.
         final_pcm = memoryview(pcm).tobytes()
-        logger.info("VOICE AUDIO: finalized_bytes=%s", len(final_pcm))
+        logger.debug("VOICE AUDIO: finalized_bytes=%s", len(final_pcm))
         duration = round(len(final_pcm) * 1000 / (self._sample_rate * self._channels * 2))
         frames = len(final_pcm) // (self._channels * 2)
-        logger.info("PHOS VOICE UTTERANCE: frames=%s bytes=%s duration_ms=%s",
+        logger.debug("PHOS VOICE UTTERANCE: frames=%s bytes=%s duration_ms=%s",
                     frames, len(final_pcm), duration)
         await self._emit(VOICE_SPEECH_ENDED, {"duration_ms": duration})
         logger.info("VOICE SPEECH: ended duration_ms=%s", duration)
@@ -166,7 +166,7 @@ class VoiceCaptureSession:
         # Release microphone resources before a potentially slower cloud STT
         # request. ``final_pcm`` is independent of capture-owned buffers.
         await self._capture.stop()
-        logger.info("VOICE AUDIO: finalized_bytes_after_close=%s", len(final_pcm))
+        logger.debug("VOICE AUDIO: finalized_bytes_after_close=%s", len(final_pcm))
         logger.debug("VOICE UTTERANCE: duration_ms=%s bytes=%s sample_rate=%s channels=%s rms=%s peak=%s",
                     duration, len(final_pcm), self._sample_rate, self._channels,
                     audioop.rms(final_pcm, 2) if final_pcm else 0, audioop.max(final_pcm, 2) if final_pcm else 0)
@@ -176,14 +176,14 @@ class VoiceCaptureSession:
                 logger.exception("VOICE DEBUG WAV ERROR: exception_type=%s exception_message=%s",
                                  type(error).__name__, error)
         started_at = time.monotonic()
-        logger.info("VOICE AUDIO: submitted_bytes=%s", len(final_pcm))
+        logger.debug("VOICE AUDIO: submitted_bytes=%s", len(final_pcm))
         try: result = await (self._active_stt or self._stt).transcribe(final_pcm, sample_rate=self._sample_rate, channels=self._channels)
         except Exception as error: await self._failure(error); return
         elapsed = round((time.monotonic() - started_at) * 1000)
-        logger.info("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)
+        logger.debug("VOICE STT: completed provider=%s duration_ms=%s", self._status.stt_provider, elapsed)
         logger.info("VOICE TRANSCRIPT: text=%r", result.text) if result.text else logger.info("VOICE TRANSCRIPT: <empty>")
         if result.confidence is not None or result.language is not None:
-            logger.info("VOICE STT RESULT: confidence=%s language=%s", result.confidence, result.language)
+            logger.debug("VOICE STT RESULT: confidence=%s language=%s", result.confidence, result.language)
         self._status = replace(self._status, last_transcript=result.text or None, last_confidence=result.confidence,
                                language=result.language, last_transcription_at=result.completed_at or datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                                last_transcription_duration_ms=elapsed)
@@ -201,7 +201,7 @@ class VoiceCaptureSession:
         logger.debug("VOICE DEBUG WAV: path=%s bytes=%s duration_ms=%s",
                     self._debug_utterance_wav_path, len(pcm), duration)
         samples = len(pcm) // 2
-        logger.info("PHOS VOICE: final_utterance rate=%s channels=%s sample_width=2 peak=%s rms=%s clipping=%s nonzero_ratio=%.4f",
+        logger.debug("PHOS VOICE: final_utterance rate=%s channels=%s sample_width=2 peak=%s rms=%s clipping=%s nonzero_ratio=%.4f",
                     self._sample_rate, self._channels, audioop.max(pcm, 2) if pcm else 0,
                     audioop.rms(pcm, 2) if pcm else 0,
                     sum(abs(value) >= 32767 for value in memoryview(pcm).cast("h")) if pcm else 0,

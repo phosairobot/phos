@@ -137,7 +137,7 @@ def test_query_routes_emit_a_bounded_semantic_outcome():
 
 
 def test_query_response_is_silent_by_default_but_retains_rendered_response(caplog):
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     class QueryExecutor(RecordingExecutor):
         def execute(self, route, authorization, *, source_language=None):
             return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent,
@@ -157,7 +157,7 @@ def test_query_response_is_silent_by_default_but_retains_rendered_response(caplo
 
 
 def test_enabled_query_response_uses_localized_text_and_records_completion(caplog):
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     class QueryExecutor(RecordingExecutor):
         def execute(self, route, authorization, *, source_language=None):
             return InteractionOutcome(InteractionOutcomeStatus.UNAVAILABLE, route.intent,

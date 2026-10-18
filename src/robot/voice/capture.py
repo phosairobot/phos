@@ -122,7 +122,7 @@ class PyAudioCaptureProvider:
             info = audio.get_device_info_by_index(index)
             if info.get("maxInputChannels", 0):
                 devices.append((index, info.get("name", ""), round(info.get("defaultSampleRate", 0)), info["maxInputChannels"]))
-        logger.info("PHOS VOICE: input_devices=%s", devices)
+        logger.debug("PHOS VOICE: input_devices=%s", devices)
     async def start(self):
         logger.debug("VOICE AUDIO: start requested")
         if self._audio is not None or self._stream is not None or self._capture_thread is not None:
@@ -164,7 +164,7 @@ class PyAudioCaptureProvider:
         host_api = info.get("hostApi")
         try: host_api = self._audio.get_host_api_info_by_index(host_api).get("name", host_api)
         except Exception: pass
-        logger.info("PHOS VOICE: capture_device configured=%r index=%s name=%r host_api=%r default_rate=%s "
+        logger.debug("PHOS VOICE: capture_device configured=%r index=%s name=%r host_api=%r default_rate=%s "
                     "max_input_channels=%s opened_rate=%s opened_channels=%s sample_width=2",
                     self.device_name, index, info["name"], host_api, default_rate,
                     info.get("maxInputChannels"), self.capture_rate, self.channels)
@@ -190,7 +190,7 @@ class PyAudioCaptureProvider:
             self.queue_high_watermark = self.dropped_chunks = 0
             self._capture_thread = threading.Thread(target=self._capture_worker,
                                                     name="phos-capture", daemon=True)
-            logger.info("VOICE AUDIO: stream opened")
+            logger.debug("VOICE AUDIO: stream opened")
             self._capture_thread.start()
         except Exception as error:
             logger.exception("VOICE SESSION ERROR: stage=audio_open exception_type=%s exception_message=%s",
@@ -295,12 +295,12 @@ class PyAudioCaptureProvider:
         duration_ms = round(frames * 1000 / self.capture_rate)
         capture_wall_ms = round((time.monotonic() - self._capture_started_at) * 1000) if self._capture_started_at else 0
         realtime_ratio = round(duration_ms / capture_wall_ms, 3) if capture_wall_ms else 0.0
-        logger.info("PHOS VOICE NATIVE: frames=%s bytes=%s duration_ms=%s", frames, len(pcm), duration_ms)
-        logger.info("PHOS VOICE: capture_wall_ms=%s native_audio_ms=%s realtime_ratio=%s input_overflows=%s",
+        logger.debug("PHOS VOICE NATIVE: frames=%s bytes=%s duration_ms=%s", frames, len(pcm), duration_ms)
+        logger.debug("PHOS VOICE: capture_wall_ms=%s native_audio_ms=%s realtime_ratio=%s input_overflows=%s",
                     capture_wall_ms, duration_ms, realtime_ratio, self._input_overflow_count)
-        logger.info("PHOS VOICE: capture_queue captured_chunks=%s processed_chunks=%s queue_high_watermark=%s dropped_chunks=%s",
+        logger.debug("PHOS VOICE: capture_queue captured_chunks=%s processed_chunks=%s queue_high_watermark=%s dropped_chunks=%s",
                     self.native_chunks_read, self.processed_chunks, self.queue_high_watermark, self.dropped_chunks)
-        logger.info("PHOS VOICE: native_capture rate=%s channels=%s sample_width=2 truncated=%s %s",
+        logger.debug("PHOS VOICE: native_capture rate=%s channels=%s sample_width=2 truncated=%s %s",
                     self.capture_rate, self.channels, truncated, _pcm_stats(pcm))
 
     @staticmethod
@@ -316,7 +316,7 @@ class PyAudioCaptureProvider:
             while not self._capture_stop.is_set() and stream is not None:
                 started_at = time.monotonic()
                 if previous_read_end is not None and self.native_chunks_read < 3:
-                    logger.info("PHOS VOICE CAPTURE TIMING: read_end_to_next_read_start_ms=%s",
+                    logger.debug("PHOS VOICE CAPTURE TIMING: read_end_to_next_read_start_ms=%s",
                                 round((started_at - previous_read_end) * 1000, 3))
                 self._record_input_backlog(stream, self._native_frames_per_read)
                 pcm = stream.read(self._native_frames_per_read, exception_on_overflow=False)
@@ -327,7 +327,7 @@ class PyAudioCaptureProvider:
                     self.native_chunks_read += 1
                     sequence = self.native_chunks_read
                 if sequence <= 3:
-                    logger.info("PHOS VOICE CAPTURE: native_read_seq=%s native_frames=%s native_bytes=%s capture_timestamp_ms=%s",
+                    logger.debug("PHOS VOICE CAPTURE: native_read_seq=%s native_frames=%s native_bytes=%s capture_timestamp_ms=%s",
                                 sequence, len(pcm) // (self.channels * 2), len(pcm),
                                 round((ended_at - self._capture_started_at) * 1000))
                 self._offer_native_chunk(pcm)
@@ -342,7 +342,7 @@ class PyAudioCaptureProvider:
             self._schedule_on_loop(self._signal_capture_stopped)
 
     def _native_log(self, action: str) -> None:
-        logger.info("VOICE NATIVE: session_id=%s action=%s thread=%s",
+        logger.debug("VOICE NATIVE: session_id=%s action=%s thread=%s",
                     self._native_session_id, action, threading.current_thread().name)
 
     def _offer_native_chunk(self, pcm: bytes) -> None:
@@ -411,7 +411,7 @@ class PyAudioCaptureProvider:
         capture_wall_ms = round((now - self._capture_started_at) * 1000)
         realtime_ratio = round(native_audio_ms / capture_wall_ms, 3) if capture_wall_ms else 0.0
         queue_depth = self._native_queue.qsize() if self._native_queue is not None else 0
-        logger.info("PHOS VOICE FLOW: capture_wall_ms=%s native_audio_ms=%s realtime_ratio=%s native_chunks_read=%s processed_chunks=%s queue_depth=%s queue_high_watermark=%s dropped_chunks=%s input_overflows=%s",
+        logger.debug("PHOS VOICE FLOW: capture_wall_ms=%s native_audio_ms=%s realtime_ratio=%s native_chunks_read=%s processed_chunks=%s queue_depth=%s queue_high_watermark=%s dropped_chunks=%s input_overflows=%s",
                     capture_wall_ms, native_audio_ms, realtime_ratio, self.native_chunks_read,
                     self.processed_chunks, queue_depth, self.queue_high_watermark, self.dropped_chunks,
                     self._input_overflow_count)
@@ -432,11 +432,11 @@ class ResamplingAudioCaptureProvider:
             max(1, round(self.processing_rate * chunk_ms / 1000)) if chunk_ms is not None else None
         )
         logger.debug("VOICE AUDIO: device=%r device_index=%s capture_rate=%s processing_rate=%s channels=%s format=PCM16", self._capture.resolved_device_name, self._capture.resolved_device_index, self._capture.capture_rate, self.processing_rate, self._capture.channels)
-        logger.info("PHOS VOICE: chunk_geometry native_rate=%s processing_rate=%s nominal_chunk_ms=%s native_frames_per_read=%s processing_frames_per_chunk=%s",
+        logger.debug("PHOS VOICE: chunk_geometry native_rate=%s processing_rate=%s nominal_chunk_ms=%s native_frames_per_read=%s processing_frames_per_chunk=%s",
                     self._capture.capture_rate, self.processing_rate, chunk_ms,
                     getattr(self._capture, "_native_frames_per_read", None), self.processing_frames_per_chunk)
         if self._capture.capture_rate != self.processing_rate:
-            logger.info("VOICE AUDIO RESAMPLING: input_rate=%s output_rate=%s",
+            logger.debug("VOICE AUDIO RESAMPLING: input_rate=%s output_rate=%s",
                         self._capture.capture_rate, self.processing_rate)
     async def read_frames(self):
         async for pcm in self._capture.read_frames():
@@ -453,7 +453,7 @@ class ResamplingAudioCaptureProvider:
                     marker()
                 sequence = self._processing_sequence
                 if sequence <= 3:
-                    logger.info("PHOS VOICE PROCESSING: processing_seq=%s input_native_bytes=%s resampled_bytes=%s processing_frames=%s",
+                    logger.debug("PHOS VOICE PROCESSING: processing_seq=%s input_native_bytes=%s resampled_bytes=%s processing_frames=%s",
                                 sequence, native_bytes, len(pcm), len(pcm) // 2)
                 now = time.monotonic()
                 if now - self._last_frame_log >= .5:

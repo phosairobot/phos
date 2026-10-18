@@ -114,7 +114,7 @@ class EyeRenderLoop(Behavior):
             state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
             effect = resolver.resolve(state)
             self._schedule_state_effect_prewarm(effect)
-        logger.info("PHOS VISUAL: state effects configured enabled=%s preset=%s", resolver.enabled, resolver.preset)
+        logger.debug("PHOS VISUAL: state effects configured enabled=%s preset=%s", resolver.enabled, resolver.preset)
 
     def _schedule_state_effect_prewarm(self, effect: StateEffectParams) -> None:
         """Keep texture preparation downstream of semantic runtime commands."""
@@ -138,7 +138,7 @@ class EyeRenderLoop(Behavior):
         self._background_resolver = resolver
         self._background_state = object()
         self._background_revision += 1
-        logger.info("PHOS VISUAL: backgrounds configured enabled=%s", resolver.enabled)
+        logger.debug("PHOS VISUAL: backgrounds configured enabled=%s", resolver.enabled)
 
     def background_status(self) -> dict:
         with self._appearance_lock:
