@@ -33,9 +33,9 @@ INTERACTION_RESPONSE_FAILED = "interaction_response_failed"
 INTERACTION_RESPONSE_SPEECH_COMPLETED = "interaction_response_speech_completed"
 INTERACTION_RESPONSE_SPEECH_FAILED = "interaction_response_speech_failed"
 
-_VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "face.set_expression",
-                                        "environment.get_temperature", "environment.get_air_quality"})
-_SPEAKABLE_RESPONSE_INTENTS = frozenset({"get_temperature", "get_air_quality"})
+_VOICE_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "robot.set_state", "face.set_expression",
+                                        "environment.get_temperature", "environment.get_air_quality", "environment.get_sensor_value"})
+_SPEAKABLE_RESPONSE_INTENTS = frozenset({"get_temperature", "get_air_quality", "get_sensor_value"})
 
 
 class InteractionCoordinator:

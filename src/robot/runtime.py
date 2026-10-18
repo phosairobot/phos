@@ -609,6 +609,8 @@ class PhosRuntime:
         self._stopping = True
         if self._interaction_coordinator is not None:
             self._interaction_coordinator.close()
+        if self._voice_session is not None and self._voice_session.status().get("listening"):
+            await self._voice_session.stop(cancelled=True)
         speech_task = self._speech_task
         if speech_task is not None and not speech_task.done():
             speech_task.cancel()

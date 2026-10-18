@@ -104,6 +104,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                     stop_event.set()
                     raise
             if lifecycle is not None and lifecycle.restart_due:
+                logger.info("PHOS MAIN: restart_due detected")
                 stop_event.set()
                 return
             await asyncio.sleep(.1)
@@ -149,6 +150,8 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             if application_status is not None:
                 lifecycle.register_application_status(application_status)
         await runtime.run(stop_event)
+        if stop_event.is_set():
+            logger.info("PHOS MAIN: stop_event received")
         if watcher is not None and watcher.done():
             watcher.result()
     finally:
@@ -264,6 +267,7 @@ def main() -> None:
     with WebServer(repository, config) as web:
         asyncio.run(async_main(config=config, lifecycle=web.lifecycle, web_server=web))
     if web.lifecycle.restart_at is not None:
+        logger.info("PHOS MAIN: exiting for managed restart exit_code=%s", RESTART_EXIT_CODE)
         raise SystemExit(RESTART_EXIT_CODE)
 
 

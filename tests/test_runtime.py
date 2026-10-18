@@ -77,6 +77,19 @@ class FailingInitialDrawDisplay(MemoryEyeDisplay):
         self.closed = True
 
 
+def test_runtime_shutdown_stops_the_voice_session_before_teardown():
+    class VoiceSession:
+        def __init__(self): self.cancelled = None
+        def status(self): return {"listening": True}
+        async def stop(self, *, cancelled=False): self.cancelled = cancelled
+
+    runtime = build_runtime(eye_display=MemoryEyeDisplay())
+    voice = VoiceSession()
+    runtime._voice_session = voice
+    asyncio.run(runtime.stop())
+    assert voice.cancelled is True
+
+
 def _runtime_with_sound_config(tmp_path, *, sound_file=None):
     from robot.config import load_document
 

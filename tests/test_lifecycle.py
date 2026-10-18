@@ -477,9 +477,10 @@ def test_lifecycle_channel_acknowledges_sequential_speak_commands(runtime):
         assert not thread.is_alive()
 
 
-def test_restart_request_stops_runtime_through_existing_stop_event(runtime, monkeypatch):
+def test_restart_request_stops_runtime_through_existing_stop_event(runtime, monkeypatch, caplog):
     from robot import main
     _, service, _, now = runtime
+    caplog.set_level(logging.INFO)
     service.execute("restart")
     now[0] = 2.0
     stopped = []
@@ -493,11 +494,15 @@ def test_restart_request_stops_runtime_through_existing_stop_event(runtime, monk
     monkeypatch.setattr(main, "_install_shutdown_handlers", lambda *args: None)
     asyncio.run(main.async_main(lifecycle=service))
     assert stopped == [True]
+    assert "PHOS LIFECYCLE: restart requested" in caplog.messages
+    assert "PHOS MAIN: restart_due detected" in caplog.messages
+    assert "PHOS MAIN: stop_event received" in caplog.messages
 
 
-def test_main_exits_with_restart_code_after_worker_cleanup(runtime, monkeypatch):
+def test_main_exits_with_restart_code_after_worker_cleanup(runtime, monkeypatch, caplog):
     from robot import main
     path, service, _, _ = runtime
+    caplog.set_level(logging.INFO)
     calls = []
     class Worker:
         lifecycle = service
@@ -516,6 +521,8 @@ def test_main_exits_with_restart_code_after_worker_cleanup(runtime, monkeypatch)
     with pytest.raises(SystemExit) as error:
         main.main()
     assert error.value.code == 75 and calls == ["cleanup"]
+    assert "PHOS LIFECYCLE: restart requested" in caplog.messages
+    assert "PHOS MAIN: exiting for managed restart exit_code=75" in caplog.messages
 
 
 def test_deployment_contract_and_restart_capability(runtime, monkeypatch):

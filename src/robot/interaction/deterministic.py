@@ -1,81 +1,92 @@
-"""Small exact-match multilingual resolver with no command-execution access."""
+"""Deterministic multilingual intent resolver using bounded templates and aliases."""
 from __future__ import annotations
 
 import re
 import unicodedata
 
-from robot.ui.state import FaceExpression
-
 from .language import normalize_language_tag
 from .models import CanonicalIntent, InteractionInput, ResolvedIntent, UnresolvedIntent
-
 
 _WHITESPACE = re.compile(r"\s+")
 _TERMINAL_PUNCTUATION = ".!?"
 
 
 def normalize_interaction_text(text: str) -> str:
-    """Normalize only presentation variation, never language or word meaning."""
-    return _WHITESPACE.sub(" ", unicodedata.normalize("NFC", text).strip()).casefold().rstrip(_TERMINAL_PUNCTUATION).rstrip()
+    """Normalize presentation only; matching remains exact and deterministic."""
+    return _WHITESPACE.sub(" ", unicodedata.normalize("NFC", text).strip()).casefold().rstrip(
+        _TERMINAL_PUNCTUATION).rstrip()
 
-
-_EXPRESSIONS = {
+_EXPRESSION_ALIASES = {
     "en": {
-        "be happy": FaceExpression.HAPPY.value, "happy": FaceExpression.HAPPY.value,
-        "look happy": FaceExpression.HAPPY.value,
-        "be curious": FaceExpression.CURIOUS.value, "curious": FaceExpression.CURIOUS.value,
-        "look curious": FaceExpression.CURIOUS.value,
-        "be surprised": FaceExpression.SURPRISED.value, "surprised": FaceExpression.SURPRISED.value,
-        "look surprised": FaceExpression.SURPRISED.value,
-        "be neutral": FaceExpression.NEUTRAL.value, "neutral": FaceExpression.NEUTRAL.value,
-        "look neutral": FaceExpression.NEUTRAL.value, "normal face": FaceExpression.NEUTRAL.value,
-        "reset expression": FaceExpression.NEUTRAL.value,
+        "happy": ("happy",), "curious": ("curious",),
+        "surprised": ("surprised",), "neutral": ("neutral", "normal"),
     },
     "it": {
-        "sii felice": FaceExpression.HAPPY.value, "si felice": FaceExpression.HAPPY.value,
-        "felice": FaceExpression.HAPPY.value, "sii allegro": FaceExpression.HAPPY.value,
-        "si allegro": FaceExpression.HAPPY.value, "allegro": FaceExpression.HAPPY.value,
-        "fammi felice": FaceExpression.HAPPY.value, "fammi allegro": FaceExpression.HAPPY.value,
-        "mostrati felice": FaceExpression.HAPPY.value, "mostrati allegro": FaceExpression.HAPPY.value,
-        "fai una faccia felice": FaceExpression.HAPPY.value,
-        "sii curioso": FaceExpression.CURIOUS.value, "si curioso": FaceExpression.CURIOUS.value,
-        "curioso": FaceExpression.CURIOUS.value, "fammi curioso": FaceExpression.CURIOUS.value,
-        "mostrati curioso": FaceExpression.CURIOUS.value,
-        "fai una faccia curiosa": FaceExpression.CURIOUS.value,
-        "sii sorpreso": FaceExpression.SURPRISED.value, "si sorpreso": FaceExpression.SURPRISED.value,
-        "sorpreso": FaceExpression.SURPRISED.value, "fammi sorpreso": FaceExpression.SURPRISED.value,
-        "mostrati sorpreso": FaceExpression.SURPRISED.value,
-        "sii neutro": FaceExpression.NEUTRAL.value, "si neutro": FaceExpression.NEUTRAL.value,
-        "neutro": FaceExpression.NEUTRAL.value, "torna neutro": FaceExpression.NEUTRAL.value,
-        "torna normale": FaceExpression.NEUTRAL.value, "espressione neutra": FaceExpression.NEUTRAL.value,
-        "faccia neutra": FaceExpression.NEUTRAL.value,
+        "happy": ("felice", "allegro"), "curious": ("curioso", "curiosa"),
+        "surprised": ("sorpreso", "sorpresa"), "neutral": ("neutro", "neutra", "normale"),
     },
 }
-
-_PHRASES = {
+_EXPRESSION_TEMPLATES = {
+    "en": ("{value}", "be {value}", "look {value}", "face {value}",
+           "make a {value} face", "show a {value} face"),
+    "it": ("{value}", "diventa {value}", "sii {value}", "si {value}", "mostrati {value}",
+           "faccia {value}", "fai una faccia {value}", "mostra una faccia {value}",
+           "fammi {value}", "torna {value}", "espressione {value}"),
+}
+_EXPRESSION_SPECIAL = {
+    "en": {"normal face": "neutral", "reset expression": "neutral"},
+    "it": {},
+}
+_STATE_ALIASES = {
     "en": {
-        "go to sleep": CanonicalIntent.SLEEP, "sleep": CanonicalIntent.SLEEP,
-        "go to sleep mode": CanonicalIntent.SLEEP, "wake up": CanonicalIntent.WAKE,
-        "wake": CanonicalIntent.WAKE, "what is the temperature": CanonicalIntent.GET_TEMPERATURE,
-        "what's the temperature": CanonicalIntent.GET_TEMPERATURE,
-        "tell me the temperature": CanonicalIntent.GET_TEMPERATURE,
-        "what is the air quality": CanonicalIntent.GET_AIR_QUALITY,
-        "how is the air quality": CanonicalIntent.GET_AIR_QUALITY,
+        "sleeping": ("sleep",),
+        "idle": ("idle",),
     },
     "it": {
-        "vai a dormire": CanonicalIntent.SLEEP, "dormi": CanonicalIntent.SLEEP,
-        "svegliati": CanonicalIntent.WAKE, "svegliati phos": CanonicalIntent.WAKE,
-        "che temperatura c'è": CanonicalIntent.GET_TEMPERATURE,
-        "qual è la temperatura": CanonicalIntent.GET_TEMPERATURE,
-        "dimmi la temperatura": CanonicalIntent.GET_TEMPERATURE,
-        "com'è la qualità dell'aria": CanonicalIntent.GET_AIR_QUALITY,
-        "qual è la qualità dell'aria": CanonicalIntent.GET_AIR_QUALITY,
+        "sleeping": ("dormire",),
+        "idle": ("attivo",),
     },
+}
+_STATE_TEMPLATES = {
+    "en": {
+        "sleeping": ("{value}", "go to {value}", "go to {value} mode", "enter {value} mode"),
+        "idle": ("enter {value} mode", "go {value}"),
+    },
+    "it": {
+        "sleeping": ("vai a {value}", "mettiti a {value}"),
+        "idle": ("torna {value}",),
+    },
+}
+# Imperative forms cannot be derived from the canonical infinitive/stem without
+# language morphology.  Keep only these deliberate, already-supported forms.
+_STATE_SPECIAL = {
+    "en": {"wake": "idle", "wake up": "idle"},
+    "it": {"dormi": "sleeping", "entra in modalità sonno": "sleeping",
+           "svegliati": "idle", "svegliati phos": "idle"},
+}
+_SENSOR_ALIASES = {
+    "en": {
+        "temperature": ("temperature",), "pressure": ("pressure", "atmospheric pressure"),
+        "air_quality": ("air quality",),
+    },
+    "it": {
+        "temperature": ("temperatura",), "pressure": ("pressione", "pressione atmosferica"),
+        "air_quality": ("qualità dell'aria",),
+    },
+}
+_SENSOR_TEMPLATES = {
+    "en": ("what is the {value}", "what's the {value}", "tell me the {value}", "read the {value}", "show me the {value}"),
+    "it": ("qual è la {value}", "dimmi la {value}", "dammi la {value}",
+           "leggi la {value}", "mostrami la {value}", "controlla la {value}"),
+}
+_SENSOR_SPECIAL = {
+    "en": {"how is the air quality": "air_quality"},
+    "it": {"che temperatura c'è": "temperature", "com'è la qualità dell'aria": "air_quality"},
 }
 
 
 class DeterministicIntentResolver:
-    """Resolve a deliberately small exact phrase catalog into canonical intents."""
+    """Resolve explicit language templates without probabilistic interpretation."""
 
     name = "deterministic"
 
@@ -89,11 +100,40 @@ class DeterministicIntentResolver:
         if language not in self._supported_languages:
             return UnresolvedIntent(source_language=source_language, resolver=self.name)
         text = normalize_interaction_text(interaction.text)
-        expression = _EXPRESSIONS.get(language, {}).get(text)
+        expression = self._match(
+            text, language, _EXPRESSION_ALIASES, _EXPRESSION_TEMPLATES, _EXPRESSION_SPECIAL)
         if expression is not None:
             return ResolvedIntent(CanonicalIntent.SET_EXPRESSION.value, {"expression": expression},
                                   source_language, resolver=self.name)
-        intent = _PHRASES.get(language, {}).get(text)
-        if intent is None:
-            return UnresolvedIntent(source_language=source_language, resolver=self.name)
-        return ResolvedIntent(intent.value, source_language=source_language, resolver=self.name)
+        state = self._match_state(text, language)
+        if state is not None:
+            return ResolvedIntent(CanonicalIntent.SET_STATE.value, {"state": state},
+                                  source_language, resolver=self.name)
+        sensor = self._match(
+            text, language, _SENSOR_ALIASES, _SENSOR_TEMPLATES, _SENSOR_SPECIAL)
+        if sensor is not None:
+            return ResolvedIntent(CanonicalIntent.GET_SENSOR_VALUE.value, {"sensor": sensor},
+                                  source_language, resolver=self.name)
+        return UnresolvedIntent(source_language=source_language, resolver=self.name)
+
+    @staticmethod
+    def _match(
+            text: str, language: str, aliases: dict, templates: dict, special: dict) -> str | None:
+        if text in special.get(language, {}):
+            return special[language][text]
+        for canonical, values in aliases.get(language, {}).items():
+            if any(text == template.format(value=value)
+                   for template in templates.get(language, ()) for value in values):
+                return canonical
+        return None
+
+    @staticmethod
+    def _match_state(text: str, language: str) -> str | None:
+        if text in _STATE_SPECIAL.get(language, {}):
+            return _STATE_SPECIAL[language][text]
+        for state, aliases in _STATE_ALIASES.get(language, {}).items():
+            templates = _STATE_TEMPLATES.get(language, {}).get(state, ())
+            if any(text == template.format(value=alias)
+                   for template in templates for alias in aliases):
+                return state
+        return None

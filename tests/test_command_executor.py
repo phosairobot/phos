@@ -45,6 +45,8 @@ def test_authorized_commands_execute_only_via_application_service():
     cases = (
         (CommandRoute("sleep", "robot.sleep"), "robot.sleep", ("set_state", "sleeping")),
         (CommandRoute("wake", "robot.wake"), "robot.wake", ("set_state", "idle")),
+        (CommandRoute("set_state", "robot.set_state", {"state": "sleeping"}),
+         "robot.set_state", ("set_state", "sleeping")),
         (CommandRoute("set_expression", "face.set_expression", {"expression": "happy"}),
          "face.set_expression", ("set_expression", "happy")),
         (CommandRoute("set_expression", "face.set_expression", {"expression": "neutral"}),
@@ -76,6 +78,23 @@ def test_temperature_query_returns_a_structured_semantic_outcome():
     assert result.document() == {"status": "completed", "intent": "get_temperature", "source": "api",
                                  "source_language": "it", "result": {"temperature_c": 26.8}, "reason": None}
     assert service.calls == [("environment",)]
+
+
+def test_parameterized_sensor_routes_use_the_application_read_models():
+    service = ApplicationServiceSpy(
+        environment={"available": True, "measurements": {"pressure_hpa": 1012.6}},
+        sensors={"ccs811": {"available": True, "measurements": {"eco2_ppm": 520, "tvoc_ppb": 12}}},
+    )
+    executor = CommandExecutor(service)
+    pressure = executor.execute(
+        CommandRoute("get_sensor_value", "environment.get_sensor_value", {"sensor": "pressure"}),
+        _authorization("environment.get_sensor_value"), source_language="en")
+    air = executor.execute(
+        CommandRoute("get_sensor_value", "environment.get_sensor_value", {"sensor": "air_quality"}),
+        _authorization("environment.get_sensor_value"), source_language="it")
+    assert pressure.document()["result"] == {"sensor": "pressure", "pressure_hpa": 1012.6}
+    assert air.document()["result"] == {"sensor": "air_quality", "eco2_ppm": 520, "tvoc_ppb": 12}
+    assert service.calls == [("environment",), ("sensors",)]
 
 
 def test_unavailable_temperature_has_no_invented_value():
@@ -126,6 +145,18 @@ def test_executor_refuses_malformed_routes_before_authorization_or_execution():
     malformed = CommandRoute("sleep", "robot.sleep", {"unexpected": True})
     result = CommandExecutor(service).execute(malformed, _authorization("robot.sleep"))
     assert (result.status, result.reason) == (CommandExecutionStatus.REJECTED, "invalid_route")
+    assert service.calls == []
+
+
+def test_parameterized_route_rejects_unknown_sensor_and_state():
+    service = ApplicationServiceSpy()
+    executor = CommandExecutor(service)
+    for route in (
+        CommandRoute("get_sensor_value", "environment.get_sensor_value", {"sensor": "humidity"}),
+        CommandRoute("set_state", "robot.set_state", {"state": "thinking"}),
+    ):
+        result = executor.execute(route, _authorization(route.command))
+        assert (result.status, result.reason) == (CommandExecutionStatus.REJECTED, "invalid_route")
     assert service.calls == []
 
 

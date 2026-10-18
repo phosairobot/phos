@@ -80,9 +80,10 @@ class CommandExecutionResult:
                 "parameters": dict(self.parameters), "reason": self.reason}
 
 
-_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "face.set_expression"})
-_QUERY_COMMANDS = frozenset({"environment.get_temperature", "environment.get_air_quality"})
+_EXECUTABLE_COMMANDS = frozenset({"robot.sleep", "robot.wake", "robot.set_state", "face.set_expression"})
+_QUERY_COMMANDS = frozenset({"environment.get_temperature", "environment.get_air_quality", "environment.get_sensor_value"})
 _ROUTE_INTENTS = {
+    "robot.set_state": "set_state", "environment.get_sensor_value": "get_sensor_value",
     "robot.sleep": "sleep",
     "robot.wake": "wake",
     "face.set_expression": "set_expression",
@@ -118,6 +119,8 @@ class CommandExecutor:
                 self._application_service.set_state("sleeping")
             elif route.command == "robot.wake":
                 self._application_service.set_state("idle")
+            elif route.command == "robot.set_state":
+                self._application_service.set_state(route.parameters["state"])
             else:
                 self._application_service.set_expression(route.parameters["expression"])
         except Exception:
@@ -129,14 +132,22 @@ class CommandExecutor:
     def _query(self, route: CommandRoute, source: InteractionSource,
                source_language: str | None) -> InteractionOutcome:
         try:
-            if route.command == "environment.get_temperature":
+            sensor = route.parameters.get("sensor") if route.command == "environment.get_sensor_value" else None
+            if route.command == "environment.get_temperature" or sensor in {"temperature", "pressure"}:
                 snapshot = self._application_service.environment()
-                value = self._measurement(snapshot, "temperature_c")
+                field = "pressure_hpa" if sensor == "pressure" else "temperature_c"
+                value = self._measurement(snapshot, field)
                 if value is None:
                     return InteractionOutcome(InteractionOutcomeStatus.UNAVAILABLE, route.intent, source,
-                                              source_language, reason="temperature_unavailable")
+                                              source_language, reason=f"{sensor or 'temperature'}_unavailable")
+                result = {field: value}
+                # The established one-purpose routes retain their public result
+                # document.  The parameterized route carries its sensor so a
+                # response renderer can select the corresponding template.
+                if sensor is not None:
+                    result = {"sensor": sensor, **result}
                 return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent, source,
-                                          source_language, {"temperature_c": value})
+                                          source_language, result)
             snapshot = self._application_service.sensors().get("ccs811")
             eco2 = self._measurement(snapshot, "eco2_ppm")
             tvoc = self._measurement(snapshot, "tvoc_ppb")
@@ -145,8 +156,11 @@ class CommandExecutor:
             if eco2 is None or tvoc is None:
                 return InteractionOutcome(InteractionOutcomeStatus.UNAVAILABLE, route.intent, source,
                                           source_language, reason="air_quality_unavailable")
+            result = {"eco2_ppm": eco2, "tvoc_ppb": tvoc}
+            if sensor is not None:
+                result = {"sensor": "air_quality", **result}
             return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent, source,
-                                      source_language, {"eco2_ppm": eco2, "tvoc_ppb": tvoc})
+                                      source_language, result)
         except Exception:
             return InteractionOutcome(InteractionOutcomeStatus.FAILED, route.intent, source,
                                       source_language, reason="application_error")
@@ -165,5 +179,9 @@ class CommandExecutor:
             return False
         if route.command in {"robot.sleep", "robot.wake", "environment.get_temperature", "environment.get_air_quality"}:
             return not route.parameters
+        if route.command == "robot.set_state":
+            return set(route.parameters) == {"state"} and route.parameters["state"] in {"idle", "sleeping"}
+        if route.command == "environment.get_sensor_value":
+            return set(route.parameters) == {"sensor"} and route.parameters["sensor"] in {"temperature", "pressure", "air_quality"}
         return (route.command == "face.set_expression" and set(route.parameters) == {"expression"}
                 and isinstance(route.parameters["expression"], str))

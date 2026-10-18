@@ -84,16 +84,30 @@ class PyAudioCaptureProvider:
         self.queue_high_watermark = 0
         self.dropped_chunks = 0
         self._last_flow_log = float("-inf")
+        self._native_session_id = 0
+        self._cached_device = None
+        self._input_devices_logged = False
     def available(self):
         try: import pyaudio  # noqa: F401
         except ImportError: return False
         return True
     def _resolve(self, audio):
         if self.device_name:
+            if self._cached_device is not None:
+                cached_index, cached_name = self._cached_device
+                try:
+                    info = audio.get_device_info_by_index(cached_index)
+                except OSError:
+                    info = None
+                if (info is not None and info.get("maxInputChannels", 0)
+                        and self.device_name.lower() in info.get("name", "").lower()
+                        and info.get("name") == cached_name):
+                    return cached_index, info
             matches = [(index, info) for index in range(audio.get_device_count())
                        if (info := audio.get_device_info_by_index(index)).get("maxInputChannels", 0)
                        and self.device_name.lower() in info.get("name", "").lower()]
             if len(matches) != 1: raise CaptureDeviceUnavailable()
+            self._cached_device = (matches[0][0], matches[0][1]["name"])
             return matches[0]
         if self.device_index is not None:
             # Numeric USB indexes are transient.  Never reinterpret a stale
@@ -111,11 +125,17 @@ class PyAudioCaptureProvider:
         logger.info("PHOS VOICE: input_devices=%s", devices)
     async def start(self):
         logger.debug("VOICE AUDIO: start requested")
+        if self._audio is not None or self._stream is not None or self._capture_thread is not None:
+            raise RuntimeError("capture_session_cleanup_incomplete")
         if not self.available(): raise RuntimeError("pyaudio_unavailable")
         import pyaudio
+        self._native_session_id += 1
         self._audio = pyaudio.PyAudio()
+        self._native_log("pyaudio_create")
         try:
-            self._log_input_devices(self._audio)
+            if not self._input_devices_logged:
+                self._log_input_devices(self._audio)
+                self._input_devices_logged = True
             logger.debug("VOICE AUDIO: resolving input device")
             index, info = self._resolve(self._audio)
         except Exception as error:
@@ -130,7 +150,8 @@ class PyAudioCaptureProvider:
             except ValueError: return False
         self.capture_rate = next((rate for rate in dict.fromkeys(candidates) if supports(rate)), None)
         if self.capture_rate is None:
-            self._audio.terminate(); self._audio = None; raise UnsupportedCaptureRate(self.requested_rate, default_rate)
+            await self.stop()
+            raise UnsupportedCaptureRate(self.requested_rate, default_rate)
         if self._debug_native_wav:
             self._native_capture_pcm.clear()
             self._native_capture_truncated = False
@@ -152,6 +173,7 @@ class PyAudioCaptureProvider:
                         index, self.channels, self.capture_rate, frames_per_buffer)
             self._stream = self._audio.open(format=pyaudio.paInt16, channels=self.channels, rate=self.capture_rate,
                                             input=True, input_device_index=index, frames_per_buffer=frames_per_buffer)
+            self._native_log("stream_open")
             # Capture must not compete with vision/STT/TTS work submitted to
             # asyncio's shared executor. The worker is a producer: it starts
             # the next native read without waiting for resampling or VAD.
@@ -190,18 +212,62 @@ class PyAudioCaptureProvider:
             self._queue_slots.release()
             yield pcm
     async def stop(self):
-        self._capture_stop.set()
-        if self._stream is not None: self._stream.stop_stream(); self._stream.close(); self._stream = None
+        cancelled = False
         if self._capture_thread is not None:
-            worker, self._capture_thread = self._capture_thread, None
-            await asyncio.to_thread(worker.join, 2)
-            if worker.is_alive():
-                logger.error("PHOS VOICE: capture_worker_shutdown_timeout")
+            worker = self._capture_thread
+            self._native_log("capture_thread_stop_requested")
+            self._capture_stop.set()
+            # A PortAudio stream is a native resource.  Do not call
+            # stop_stream/close/terminate while its sole reader can still be
+            # executing stream.read(); doing so can crash the ALSA backend.
+            join = asyncio.create_task(asyncio.to_thread(worker.join))
+            try:
+                await asyncio.shield(join)
+            except asyncio.CancelledError:
+                # Task cancellation must not abandon a live PortAudio reader.
+                # Complete join/cleanup before propagating cancellation.
+                cancelled = True
+                await asyncio.shield(join)
+            self._capture_thread = None
+        else:
+            self._capture_stop.set()
+        stream, self._stream = self._stream, None
+        cleanup_error = None
+        if stream is not None:
+            try:
+                self._native_log("stream_stop")
+                stream.stop_stream()
+            except Exception as error:
+                cleanup_error = error
+                logger.exception("VOICE AUDIO ERROR: stage=stream_stop exception_type=%s",
+                                 type(error).__name__)
+            finally:
+                try:
+                    self._native_log("stream_close")
+                    stream.close()
+                except Exception as error:
+                    if cleanup_error is None:
+                        cleanup_error = error
+                    logger.exception("VOICE AUDIO ERROR: stage=stream_close exception_type=%s",
+                                     type(error).__name__)
         if self._debug_native_wav and self._native_capture_pcm and self.capture_rate:
             pcm = bytes(self._native_capture_pcm); self._native_capture_pcm.clear()
             await asyncio.to_thread(self._write_native_wav, pcm, self._native_capture_truncated)
         self._native_queue = self._queue_slots = self._loop = None
-        if self._audio is not None: self._audio.terminate(); self._audio = None
+        audio, self._audio = self._audio, None
+        if audio is not None:
+            try:
+                self._native_log("pyaudio_terminate")
+                audio.terminate()
+            except Exception as error:
+                if cleanup_error is None:
+                    cleanup_error = error
+                logger.exception("VOICE AUDIO ERROR: stage=pyaudio_terminate exception_type=%s",
+                                 type(error).__name__)
+        if cleanup_error is not None:
+            raise cleanup_error
+        if cancelled:
+            raise asyncio.CancelledError
     async def close(self): await self.stop()
 
     def _append_native_capture(self, pcm: bytes) -> None:
@@ -244,14 +310,16 @@ class PyAudioCaptureProvider:
     def _capture_worker(self) -> None:
         """Continuously read native PCM; never wait for processing or VAD."""
         previous_read_end = None
+        stream = self._stream
+        self._native_log("capture_thread_start")
         try:
-            while not self._capture_stop.is_set() and self._stream is not None:
+            while not self._capture_stop.is_set() and stream is not None:
                 started_at = time.monotonic()
                 if previous_read_end is not None and self.native_chunks_read < 3:
                     logger.info("PHOS VOICE CAPTURE TIMING: read_end_to_next_read_start_ms=%s",
                                 round((started_at - previous_read_end) * 1000, 3))
-                self._record_input_backlog(self._stream, self._native_frames_per_read)
-                pcm = self._stream.read(self._native_frames_per_read, exception_on_overflow=False)
+                self._record_input_backlog(stream, self._native_frames_per_read)
+                pcm = stream.read(self._native_frames_per_read, exception_on_overflow=False)
                 ended_at = time.monotonic()
                 previous_read_end = ended_at
                 self._append_native_capture(pcm)
@@ -270,7 +338,12 @@ class PyAudioCaptureProvider:
                 logger.exception("VOICE AUDIO ERROR: stage=capture_worker exception_type=%s exception_message=%s",
                                  type(error).__name__, error)
         finally:
+            self._native_log("capture_thread_exit")
             self._schedule_on_loop(self._signal_capture_stopped)
+
+    def _native_log(self, action: str) -> None:
+        logger.info("VOICE NATIVE: session_id=%s action=%s thread=%s",
+                    self._native_session_id, action, threading.current_thread().name)
 
     def _offer_native_chunk(self, pcm: bytes) -> None:
         # The semaphore bounds both queued chunks and callbacks waiting to put

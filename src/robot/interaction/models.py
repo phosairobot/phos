@@ -103,6 +103,8 @@ class InteractionResponse:
 class CanonicalIntent(str, Enum):
     """Small stable intent vocabulary; routing and execution remain separate."""
 
+    SET_STATE = "set_state"
+    GET_SENSOR_VALUE = "get_sensor_value"
     SLEEP = "sleep"
     WAKE = "wake"
     GET_TEMPERATURE = "get_temperature"

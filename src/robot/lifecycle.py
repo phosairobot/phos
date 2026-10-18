@@ -10,6 +10,8 @@ import time
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 
+logger = logging.getLogger(__name__)
+
 RESTART_EXIT_CODE = 75
 PREVIEW_RELOADABLE = frozenset({
     "vision.camera_preview.enabled", "vision.camera_preview.position", "vision.camera_preview.scale",
@@ -184,6 +186,7 @@ class LifecycleService:
             if operation == "restart":
                 if not self.restart_supported:
                     return {"ok": False, "error": "Restart PHOS requires the documented user systemd service. For a terminal launch, stop PHOS and run the startup command again."}
+                logger.info("PHOS LIFECYCLE: restart requested")
                 if self.restart_at is None:
                     # Let the worker deliver its HTTP acknowledgement before exit.
                     self.restart_at = self._clock() + 1.0

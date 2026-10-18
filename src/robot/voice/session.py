@@ -92,6 +92,8 @@ class VoiceCaptureSession:
         except Exception as error:
             logger.exception("VOICE SESSION ERROR: stage=%s exception_type=%s exception_message=%s",
                              stage, type(error).__name__, error)
+            await self._capture.stop()
+            self._status = replace(self._status, state="idle", listening=False, speech_detected=False)
             raise
         return self.status()
     async def stop(self, *, cancelled=False):

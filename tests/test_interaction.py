@@ -9,6 +9,10 @@ from robot.interaction import (InteractionInput, InteractionSource, IntentResolv
 from robot.interaction import (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED,
                                INTERACTION_RESOLUTION_FAILED, InteractionCoordinator)
 from robot.interaction.resolver import IntentResolver
+from robot.interaction.deterministic import (_EXPRESSION_ALIASES, _EXPRESSION_TEMPLATES,
+                                             _SENSOR_ALIASES, _SENSOR_TEMPLATES,
+                                             _STATE_ALIASES, _STATE_SPECIAL,
+                                             _STATE_TEMPLATES)
 from robot.voice import SpeechRecognitionResult
 from robot.voice.session import VOICE_TRANSCRIPTION_COMPLETED
 from robot.config import load_document, RuntimeConfig
@@ -103,15 +107,15 @@ def test_unknown_resolver_is_rejected_without_fallback():
 
 
 @pytest.mark.parametrize(("language", "text", "name", "parameters"), [
-    ("en", "sleep", "sleep", {}), ("en", "wake up", "wake", {}),
-    ("en", "what is the temperature", "get_temperature", {}),
-    ("en", "how is the air quality", "get_air_quality", {}),
+    ("en", "sleep", "set_state", {"state": "sleeping"}), ("en", "wake up", "set_state", {"state": "idle"}),
+    ("en", "what is the temperature", "get_sensor_value", {"sensor": "temperature"}),
+    ("en", "how is the air quality", "get_sensor_value", {"sensor": "air_quality"}),
     ("en", "be happy", "set_expression", {"expression": "happy"}),
     ("en", "look curious", "set_expression", {"expression": "curious"}),
     ("en", "be surprised", "set_expression", {"expression": "surprised"}),
-    ("it", "vai a dormire", "sleep", {}), ("it", "svegliati", "wake", {}),
-    ("it", "che temperatura c'è", "get_temperature", {}),
-    ("it", "com'è la qualità dell'aria", "get_air_quality", {}),
+    ("it", "vai a dormire", "set_state", {"state": "sleeping"}), ("it", "svegliati", "set_state", {"state": "idle"}),
+    ("it", "che temperatura c'è", "get_sensor_value", {"sensor": "temperature"}),
+    ("it", "com'è la qualità dell'aria", "get_sensor_value", {"sensor": "air_quality"}),
     ("it", "sii felice", "set_expression", {"expression": "happy"}),
     ("it", "sii curioso", "set_expression", {"expression": "curious"}),
     ("it", "sii sorpreso", "set_expression", {"expression": "surprised"}),
@@ -152,12 +156,88 @@ def test_unrelated_italian_expression_phrase_remains_unresolved():
     assert isinstance(result, UnresolvedIntent)
 
 
+@pytest.mark.parametrize(("language", "text", "name", "parameters"), [
+    ("en", "make a normal face", "set_expression", {"expression": "neutral"}),
+    ("en", "show a surprised face", "set_expression", {"expression": "surprised"}),
+    ("it", "mostra una faccia curiosa", "set_expression", {"expression": "curious"}),
+    ("it", "espressione neutra", "set_expression", {"expression": "neutral"}),
+    ("en", "enter sleep mode", "set_state", {"state": "sleeping"}),
+    ("en", "go idle", "set_state", {"state": "idle"}),
+    ("it", "entra in modalità sonno", "set_state", {"state": "sleeping"}),
+    ("it", "torna attivo", "set_state", {"state": "idle"}),
+    ("en", "read the atmospheric pressure", "get_sensor_value", {"sensor": "pressure"}),
+    ("en", "show me the air quality", "get_sensor_value", {"sensor": "air_quality"}),
+    ("it", "controlla la pressione atmosferica", "get_sensor_value", {"sensor": "pressure"}),
+    ("it", "mostrami la qualità dell'aria", "get_sensor_value", {"sensor": "air_quality"}),
+])
+def test_deterministic_templates_and_lexical_aliases_resolve_to_canonical_models(
+        language, text, name, parameters):
+    result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, language)))
+    assert isinstance(result, ResolvedIntent)
+    assert (result.name, result.parameters) == (name, parameters)
+
+
+def test_every_declared_template_and_alias_maps_to_its_canonical_parameter():
+    resolver = _resolver()
+    for language, canonical_values in _EXPRESSION_ALIASES.items():
+        for canonical, aliases in canonical_values.items():
+            for template in _EXPRESSION_TEMPLATES[language]:
+                for alias in aliases:
+                    result = asyncio.run(resolver.resolve(
+                        InteractionInput(template.format(value=alias), InteractionSource.VOICE, language)))
+                    assert isinstance(result, ResolvedIntent)
+                    assert (result.name, result.parameters) == (
+                        "set_expression", {"expression": canonical})
+    for language, canonical_values in _SENSOR_ALIASES.items():
+        for canonical, aliases in canonical_values.items():
+            for template in _SENSOR_TEMPLATES[language]:
+                for alias in aliases:
+                    result = asyncio.run(resolver.resolve(
+                        InteractionInput(template.format(value=alias), InteractionSource.VOICE, language)))
+                    assert isinstance(result, ResolvedIntent)
+                    assert (result.name, result.parameters) == (
+                        "get_sensor_value", {"sensor": canonical})
+    for language, states in _STATE_ALIASES.items():
+        for state, aliases in states.items():
+            for template in _STATE_TEMPLATES[language][state]:
+                for alias in aliases:
+                    result = asyncio.run(resolver.resolve(
+                        InteractionInput(template.format(value=alias), InteractionSource.VOICE, language)))
+                    assert isinstance(result, ResolvedIntent)
+                    assert (result.name, result.parameters) == ("set_state", {"state": state})
+    for language, states in _STATE_SPECIAL.items():
+        for phrase, state in states.items():
+            result = asyncio.run(resolver.resolve(
+                InteractionInput(phrase, InteractionSource.VOICE, language)))
+            assert isinstance(result, ResolvedIntent)
+            assert (result.name, result.parameters) == ("set_state", {"state": state})
+
+
+@pytest.mark.parametrize("text", [
+    "dimmi la temperatura", "dammi la temperatura", "leggi la temperatura",
+    "mostrami la temperatura", "qual è la temperatura",
+])
+def test_italian_temperature_shared_query_templates_resolve(text):
+    result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, "it")))
+    assert isinstance(result, ResolvedIntent)
+    assert (result.name, result.parameters) == ("get_sensor_value", {"sensor": "temperature"})
+
+
+@pytest.mark.parametrize(("language", "text"), [
+    ("en", "enter thinking mode"), ("it", "dimmi l'umidità"),
+    ("en", "what is the air quality pressure"), ("it", "diventa triste"),
+])
+def test_unsupported_or_ambiguous_templates_remain_unresolved(language, text):
+    result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, language)))
+    assert isinstance(result, UnresolvedIntent)
+
+
 def test_resolution_prefers_explicit_language_and_preserves_full_tag():
     resolver = _resolver(default_language="en")
     italian = asyncio.run(resolver.resolve(InteractionInput("dormi", InteractionSource.API, "it-IT")))
     english = asyncio.run(resolver.resolve(InteractionInput("sleep", InteractionSource.API, "en-US")))
-    assert italian.source_language == "it-IT" and italian.name == "sleep"
-    assert english.source_language == "en-US" and english.name == "sleep"
+    assert italian.source_language == "it-IT" and italian.name == "set_state"
+    assert english.source_language == "en-US" and english.name == "set_state"
 
 
 def test_resolution_uses_default_language_and_exact_safe_normalization_only():
@@ -185,9 +265,9 @@ def test_disabled_interaction_leaves_voice_transcript_events_unchanged():
 
 
 @pytest.mark.parametrize(("text", "language", "intent", "source_language"), [
-    ("go to sleep", "en", "sleep", "en"),
-    ("che temperatura c'è", "it-IT", "get_temperature", "it-IT"),
-    ("dormi", None, "sleep", "it"),
+    ("go to sleep", "en", "set_state", "en"),
+    ("che temperatura c'è", "it-IT", "get_sensor_value", "it-IT"),
+    ("dormi", None, "set_state", "it"),
 ])
 def test_voice_transcripts_publish_observational_resolution_only(text, language, intent, source_language):
     bus, received, core = EventBus(), [], RobotCore()

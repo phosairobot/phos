@@ -42,6 +42,28 @@ def test_air_quality_rendering_is_factual_and_localized(language, expected):
     assert response.text == expected
 
 
+@pytest.mark.parametrize(("language", "expected"), [
+    ("en", "The pressure is 1012.6 hectopascals."),
+    ("it", "La pressione è di 1012.6 ettopascal."),
+])
+def test_parameterized_pressure_rendering_is_localized(language, expected):
+    response = InteractionResponseRenderer("en").render(
+        _outcome(InteractionOutcomeStatus.COMPLETED, "get_sensor_value", language=language,
+                 result={"sensor": "pressure", "pressure_hpa": 1012.6}))
+    assert response.text == expected
+
+
+@pytest.mark.parametrize(("language", "expected"), [
+    ("en", "Pressure data is currently unavailable."),
+    ("it", "I dati sulla pressione non sono disponibili al momento."),
+])
+def test_parameterized_unavailable_pressure_is_localized(language, expected):
+    response = InteractionResponseRenderer("en").render(
+        _outcome(InteractionOutcomeStatus.UNAVAILABLE, "get_sensor_value", language=language,
+                 reason="pressure_unavailable"))
+    assert response.text == expected
+
+
 @pytest.mark.parametrize(("intent", "language", "expected"), [
     ("get_temperature", "en", "Temperature data is currently unavailable."),
     ("get_temperature", "it", "I dati sulla temperatura non sono disponibili al momento."),

@@ -168,6 +168,10 @@ def test_capture_read_frames_yields_audio_and_logs_first_read(monkeypatch, caplo
     with caplog.at_level(logging.DEBUG): frame = asyncio.run(run())
     assert len(frame) == 1323 * 2
     assert "PHOS VOICE CAPTURE: native_read_seq=1 native_frames=1323 native_bytes=2646" in caplog.text
+    for action in ("pyaudio_create", "stream_open", "capture_thread_start",
+                   "capture_thread_stop_requested", "capture_thread_exit", "stream_stop",
+                   "stream_close", "pyaudio_terminate"):
+        assert f"VOICE NATIVE: session_id=1 action={action}" in caplog.text
 
 
 def test_dedicated_capture_executor_yields_multiple_sequential_chunks(monkeypatch):
@@ -243,14 +247,18 @@ def test_capture_producer_continues_while_consumer_is_delayed_and_queue_is_bound
     assert stream.stopped and provider._capture_thread is None
 
 
-def test_blocking_capture_read_does_not_freeze_event_loop_and_cancellation_closes_stream(monkeypatch):
-    entered, released = threading.Event(), threading.Event()
+def test_blocking_capture_read_exits_before_stream_is_closed(monkeypatch):
+    entered, events = threading.Event(), []
     class BlockingStream:
         stopped = closed = False
         def read(self, frames, exception_on_overflow=False):
-            entered.set(); released.wait(); return _pcm(200, frames)
-        def stop_stream(self): self.stopped = True; released.set()
-        def close(self): self.closed = True; released.set()
+            entered.set()
+            while not provider._capture_stop.wait(.001):
+                pass
+            events.append("read_exit")
+            return _pcm(200, frames)
+        def stop_stream(self): self.stopped = True; events.append("stream_stop")
+        def close(self): self.closed = True; events.append("stream_close")
     stream = BlockingStream()
     _fake_pyaudio(monkeypatch, {44100}, stream)
     provider = PyAudioCaptureProvider(device_name="USB PnP", sample_rate=16000)
@@ -266,23 +274,75 @@ def test_blocking_capture_read_does_not_freeze_event_loop_and_cancellation_close
         await provider.stop()
     asyncio.run(run())
     assert stream.stopped and stream.closed
+    assert events.index("read_exit") < events.index("stream_stop") < events.index("stream_close")
+
+
+def test_rapid_sequential_capture_sessions_never_overlap_native_resources(monkeypatch):
+    events, active = [], {"stream": False}
+
+    class Stream:
+        def __init__(self): self.stop_requested = False
+        def read(self, frames, exception_on_overflow=False):
+            time.sleep(.001)
+            return _pcm(100, frames)
+        def stop_stream(self):
+            events.append("stream_stop")
+            self.stop_requested = True
+        def close(self):
+            events.append("stream_close")
+            active["stream"] = False
+
+    class Audio:
+        def get_device_count(self): return 1
+        def get_device_info_by_index(self, index):
+            return {"index": index, "name": "USB PnP Sound Device", "maxInputChannels": 1,
+                    "defaultSampleRate": 44100}
+        def get_default_input_device_info(self): return self.get_device_info_by_index(0)
+        def is_format_supported(self, rate, **_kwargs): return rate == 44100
+        def open(self, **_kwargs):
+            assert not active["stream"]
+            active["stream"] = True
+            events.append("stream_open")
+            return Stream()
+        def terminate(self):
+            assert not active["stream"]
+            events.append("pyaudio_terminate")
+
+    monkeypatch.setitem(sys.modules, "pyaudio", SimpleNamespace(paInt16=8, PyAudio=Audio))
+    provider = PyAudioCaptureProvider(device_name="USB PnP")
+
+    async def run():
+        for _ in range(20):
+            await provider.start()
+            await asyncio.sleep(.002)
+            await provider.stop()
+
+    asyncio.run(run())
+    assert events.count("stream_open") == events.count("stream_close") == 20
+    assert events.count("pyaudio_terminate") == 20
 
 
 def test_capture_read_error_is_logged_with_read_stage(monkeypatch, caplog):
+    events = []
     class FailingStream:
         def read(self, frames, exception_on_overflow=False): raise OSError("device disconnected")
-        def stop_stream(self): pass
-        def close(self): pass
+        def stop_stream(self): events.append("stream_stop")
+        def close(self): events.append("stream_close")
     _fake_pyaudio(monkeypatch, {44100}, FailingStream())
     provider = PyAudioCaptureProvider(device_name="USB PnP", sample_rate=16000)
     async def run():
         await provider.start()
-        async for _ in provider.read_frames(): pass
-    with caplog.at_level(logging.ERROR):
+        try:
+            async for _ in provider.read_frames(): pass
+        finally:
+            await provider.stop()
+    with caplog.at_level(logging.INFO):
         try: asyncio.run(run())
         except OSError: pass
         else: raise AssertionError("read failure was swallowed")
     assert "VOICE AUDIO ERROR: stage=capture_worker exception_type=OSError exception_message=device disconnected" in caplog.text
+    assert "VOICE NATIVE: session_id=1 action=capture_thread_exit" in caplog.text
+    assert events == ["stream_stop", "stream_close"]
 
 
 def test_resampling_provider_yields_16k_pcm_and_logs_rates(caplog):
