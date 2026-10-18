@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import threading
 import time
@@ -18,6 +19,12 @@ from robot.core import Event
 from robot.web.openapi import _resolve, load_spec
 from robot.config import RuntimeConfig, load_document
 from robot.services.application import ApplicationError
+
+
+_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/"
+    "f8G9aAAAAABJRU5ErkJggg=="
+)
 
 
 class Runtime:
@@ -42,6 +49,33 @@ def test_status_has_semantic_environment_and_health():
     assert status["environment"]["status"] == "available"
     assert status["health"]["subsystems"]["ccs811"]["state"] == "warming_up"
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
+
+
+def test_background_uploads_are_a_directory_backed_collection(tmp_path):
+    class Repository:
+        def __init__(self, config): self.config = config
+        def load(self): return self.config
+
+    class BackgroundRuntime:
+        def application_status(self): return {"backgrounds": {}}
+
+    config = RuntimeConfig.from_dict(load_document(), base_dir=tmp_path)
+    lifecycle = SimpleNamespace(config_repository=Repository(config), path=tmp_path / "phos.yaml")
+    service = object.__new__(PhosApplicationService)
+    service._runtime, service._lifecycle = BackgroundRuntime(), lifecycle
+
+    for name in ("a.png", "b.png", "c.png"):
+        assert service.upload_background({"name": name, "content": _PNG})["name"] == name
+    assert [asset["name"] for asset in service.background_assets()] == ["a.png", "b.png", "c.png"]
+
+    # Deletion leaves other directory entries intact, and a later upload does
+    # not reuse or overwrite an unrelated name.
+    assert service.delete_background("b.png")["name"] == "b.png"
+    assert [asset["name"] for asset in service.background_assets()] == ["a.png", "c.png"]
+    service.upload_background({"name": "later.png", "content": _PNG})
+    assert [asset["name"] for asset in service.background_assets()] == ["a.png", "c.png", "later.png"]
+    with pytest.raises(ApplicationError, match="already exists"):
+        service.upload_background({"name": "a.png", "content": _PNG})
 
 
 def test_interaction_response_speech_awaits_the_runtime_speech_path(caplog):

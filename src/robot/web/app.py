@@ -59,13 +59,17 @@ class AuthenticationState:
 def create_app(config_path: Path, *, active_document=None, password_store=None, clock=time.monotonic,
                lifecycle=None, application_service=None, secrets_service=None):
     app = Flask(__name__)
-    app.config.update(SECRET_KEY=secrets.token_bytes(32), MAX_CONTENT_LENGTH=64 * 1024,
-                      MAX_FORM_MEMORY_SIZE=64 * 1024, MAX_FORM_PARTS=256,
+    config = ConfigurationService(config_path)
+    max_upload_bytes = config.read()["display"]["backgrounds"]["max_upload_bytes"]
+    # Multipart framing is bounded separately while the canonical image limit
+    # remains the service's source of truth.
+    max_request_bytes = max_upload_bytes + 8 * 1024
+    app.config.update(SECRET_KEY=secrets.token_bytes(32), MAX_CONTENT_LENGTH=max_request_bytes,
+                      MAX_FORM_MEMORY_SIZE=max_request_bytes, MAX_FORM_PARTS=256,
                       SESSION_COOKIE_NAME="phos_admin", SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE="Strict", SESSION_COOKIE_SECURE=False,
                       SESSION_REFRESH_EACH_REQUEST=False,
                       PERMANENT_SESSION_LIFETIME=timedelta(minutes=30))
-    config = ConfigurationService(config_path)
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
     web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
     auth = AuthenticationState(clock)

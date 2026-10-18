@@ -47,6 +47,37 @@ from robot.ui.state import FaceExpression
 
 logger = logging.getLogger(__name__)
 
+_MAX_BACKGROUND_DIMENSIONS = (1920, 1080)
+
+
+def _header_image_details(content: bytes) -> tuple[str, int, int] | None:
+    """Return a conservatively parsed PNG/JPEG header when OpenCV is absent."""
+    if content.startswith(b"\x89PNG\r\n\x1a\n") and len(content) >= 24 and content[12:16] == b"IHDR":
+        width, height = int.from_bytes(content[16:20], "big"), int.from_bytes(content[20:24], "big")
+        return (".png", width, height) if width and height else None
+    if not content.startswith(b"\xff\xd8"):
+        return None
+    offset = 2
+    while offset + 9 <= len(content):
+        if content[offset] != 0xFF:
+            return None
+        while offset < len(content) and content[offset] == 0xFF:
+            offset += 1
+        marker = content[offset]
+        offset += 1
+        if marker in {0xD8, 0xD9}:
+            continue
+        if offset + 2 > len(content):
+            return None
+        length = int.from_bytes(content[offset:offset + 2], "big")
+        if length < 2 or offset + length > len(content):
+            return None
+        if marker in {*range(0xC0, 0xC4), *range(0xC5, 0xC8), *range(0xC9, 0xCC), *range(0xCD, 0xD0)}:
+            height, width = int.from_bytes(content[offset + 3:offset + 5], "big"), int.from_bytes(content[offset + 5:offset + 7], "big")
+            return (".jpg", width, height) if width and height else None
+        offset += length
+    return None
+
 _speech_text_normalizer = SpeechTextNormalizer()
 
 STATE_COMMAND_TIMEOUT_SECONDS = 2.0
@@ -737,18 +768,29 @@ class PhosApplicationService:
                 or ".." in name or any(ord(char) < 32 for char in name)
                 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)", name, re.IGNORECASE)):
             raise ApplicationError("invalid_filename", "Choose a safe PNG or JPEG filename.")
-        if not isinstance(content, (bytes, bytearray)) or not 0 < len(content) <= 48 * 1024:
-            raise ApplicationError("invalid_image", "Image must be between 1 byte and 48 KiB.")
+        maximum_bytes = self._lifecycle.config_repository.load().background_max_upload_bytes
+        if not isinstance(content, (bytes, bytearray)) or not content:
+            raise ApplicationError("invalid_image", "Image must not be empty.")
+        if len(content) > maximum_bytes:
+            raise ApplicationError("file_too_large", f"Image exceeds the {maximum_bytes // (1024 * 1024)} MiB limit.", status=413)
         try:
             import cv2, numpy as np
             image = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
-            if image is None or not image.shape[0] or not image.shape[1] or max(image.shape[:2]) > 4096:
+            if (image is None or not image.shape[0] or not image.shape[1]
+                    or image.shape[1] > _MAX_BACKGROUND_DIMENSIONS[0]
+                    or image.shape[0] > _MAX_BACKGROUND_DIMENSIONS[1]):
                 raise ValueError
             extension = ".png" if content.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if content.startswith(b"\xff\xd8") else None
-        except (ImportError, ValueError):
-            import imghdr
-            kind = imghdr.what(None, h=content)
-            extension = ".png" if kind == "png" else ".jpg" if kind == "jpeg" else None
+        except ImportError:
+            details = _header_image_details(content)
+            if details is None:
+                extension = None
+            else:
+                extension, width, height = details
+                if width > _MAX_BACKGROUND_DIMENSIONS[0] or height > _MAX_BACKGROUND_DIMENSIONS[1]:
+                    extension = None
+        except ValueError:
+            extension = None
         if extension is None:
             raise ApplicationError("invalid_image", "Upload a valid PNG or JPEG image.")
         directory = (self._lifecycle.path.parent / "backgrounds").resolve()

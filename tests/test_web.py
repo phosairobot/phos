@@ -1,6 +1,7 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
 import json
 import html
+import io
 from html.parser import HTMLParser
 import re
 import socket
@@ -98,6 +99,33 @@ def test_backgrounds_page_remains_available_when_runtime_asset_service_is_unavai
     fallback = create_app(path, application_service=Unavailable())
     client = authorize(fallback)
     assert client.get("/appearance/backgrounds").status_code == 200
+
+
+def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonical_list(setup):
+    app, path, now = setup
+
+    class Assets:
+        def __init__(self): self.names = []
+        def upload_background(self, upload):
+            self.names.append(upload["name"])
+            return {"name": upload["name"]}
+        def background_assets(self):
+            return [{"name": name, "format": "png"} for name in self.names]
+        def status(self): return {"backgrounds": {}}
+
+    assets = Assets()
+    app = create_app(path, clock=lambda: now[0], application_service=assets)
+    client = authorize(app)
+    payload = b"x" * (70 * 1024)  # deliberately exceeds the retired 64 KiB HTTP cap
+    response = client.post("/appearance/backgrounds/upload", data={
+        "csrf_token": csrf(client.get("/appearance/backgrounds")),
+        "background": (io.BytesIO(payload), "second.png"),
+    })
+
+    assert response.status_code == 302
+    assert assets.names == ["second.png"]
+    assert "second.png" in client.get("/appearance/backgrounds").get_data(as_text=True)
+    assert app.config["MAX_CONTENT_LENGTH"] > len(payload)
 
 
 def test_state_effects_page_renders_canonical_values_and_appearance_navigation(setup):

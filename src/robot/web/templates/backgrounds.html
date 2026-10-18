@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>State Backgrounds</h2>
-<p>Optional PNG/JPEG assets from PHOS’s managed <code>backgrounds</code> directory. Changes apply immediately; upload and deletion are intentionally unavailable.</p>
+<p>Optional PNG/JPEG assets from PHOS’s managed <code>backgrounds</code> directory. Changes apply immediately.</p>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="{{ url_for('appearance_backgrounds') }}" id="backgrounds-panel">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -10,5 +10,5 @@
 <div class="field"><label for="background-{{ state }}">{{ state | upper }}</label><select id="background-{{ state }}" name="background-{{ state }}"><option value="">Legacy fallback</option>{% for asset in assets %}<option value="{{ asset.name }}" {{ 'selected' if document.display.backgrounds[state] == 'backgrounds/' ~ asset.name else '' }}>{{ asset.name }}</option>{% endfor %}</select></div>
 {% endfor %}</fieldset><button class="save">Save State Backgrounds</button></form>
 {% if assets %}<section class="status"><h3>Managed assets</h3>{% for asset in assets %}<form class="background-asset-row" method="post" action="{{ url_for('delete_background') }}" onsubmit="return confirm('Delete {{ asset.name }}? Assigned states will return to the default background.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="name" value="{{ asset.name }}"><span>{{ asset.name }}</span> <button class="background-delete">Delete</button></form>{% endfor %}</section>{% endif %}
-<form method="post" action="{{ url_for('upload_background') }}" enctype="multipart/form-data" id="background-upload-panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="background-upload">Upload background (PNG or JPEG, 48 KiB max)</label><input id="background-upload" name="background" type="file" accept="image/png,image/jpeg" required><button>Upload background</button></form>
+<form method="post" action="{{ url_for('upload_background') }}" enctype="multipart/form-data" id="background-upload-panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="background-upload">Upload background (PNG or JPEG, maximum {{ (document.display.backgrounds.max_upload_bytes / 1024 / 1024) | round(1) }} MiB; 1920×1080 max)</label><input id="background-upload" name="background" type="file" accept="image/png,image/jpeg" required><button>Upload background</button></form>
 {% endblock %}

@@ -317,7 +317,8 @@ _SCHEMA = {
                 "environment_overlays_enabled": "environment_overlays_enabled",
                 "backgrounds": {"enabled": "backgrounds_enabled", "idle": "background_idle",
                     "listening": "background_listening", "thinking": "background_thinking",
-                    "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error"},
+                    "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error",
+                    "max_upload_bytes": "background_max_upload_bytes"},
                 "state_effects": {"enabled": "state_effects_enabled", "preset": "state_effects_preset",
                     "palette": "state_effects_palette",
                     "reduce_motion": "state_effects_reduce_motion"}},
@@ -555,6 +556,7 @@ class RuntimeConfig:
     background_speaking: Optional[Path]
     background_sleeping: Optional[Path]
     background_error: Optional[Path]
+    background_max_upload_bytes: int
     state_effects_enabled: bool
     state_effects_preset: str
     state_effects_palette: str
@@ -687,7 +689,9 @@ class RuntimeConfig:
         if isinstance(display, dict):
             display.setdefault("backgrounds", {"enabled": False, "idle": None, "listening": None,
                                                 "thinking": None, "speaking": None, "sleeping": None,
-                                                "error": None})
+                                                "error": None, "max_upload_bytes": 4 * 1024 * 1024})
+            if isinstance(display["backgrounds"], dict):
+                display["backgrounds"].setdefault("max_upload_bytes", 4 * 1024 * 1024)
             display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
                                                   "reduce_motion": False})
             if isinstance(display["state_effects"], dict):
@@ -973,6 +977,8 @@ class RuntimeConfig:
             raise ConfigurationError("display.environment_overlays_enabled must be a boolean")
         if type(self.backgrounds_enabled) is not bool:
             raise ConfigurationError("display.backgrounds.enabled must be a boolean")
+        if type(self.background_max_upload_bytes) is not int or not 1 <= self.background_max_upload_bytes <= 16 * 1024 * 1024:
+            raise ConfigurationError("display.backgrounds.max_upload_bytes must be an integer between 1 and 16777216")
         if type(self.state_effects_enabled) is not bool or type(self.state_effects_reduce_motion) is not bool:
             raise ConfigurationError("display.state_effects values must be booleans")
         if self.state_effects_preset not in {"subtle", "balanced", "expressive"}:

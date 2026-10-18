@@ -20,13 +20,13 @@
       "thinking": null,
       "speaking": null,
       "sleeping": null,
-      "error": null
+      "error": null,
+      "max_upload_bytes": 4194304
     },
     "state_effects": {
       "enabled": false,
       "preset": "balanced",
       "palette": "phos",
-      "smooth_transitions": true,
       "reduce_motion": false
     }
   },

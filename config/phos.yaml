@@ -19,6 +19,7 @@ display:
     speaking: null
     sleeping: null
     error: null
+    max_upload_bytes: 4194304
   state_effects:
     enabled: false
     preset: balanced
