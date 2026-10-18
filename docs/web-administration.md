@@ -339,6 +339,29 @@ the selected state and expression. It is visual simulation only: previewing
 does not change PHOS behavior, state or expression. State-effect animation is
 shown as a representative static frame.
 
+**Appearance → Skins** provides named presets for the existing eyes,
+backgrounds, Eye Safe Layer and State Effects settings. Built-in PHOS Default,
+Minimal and Ambient skins are read-only. Create a custom skin from the current
+appearance, then apply, preview, rename or delete it. Applying validates and
+updates the canonical display configuration live; it never changes robot
+behavior or voice settings. Custom skins live in internal `skins.json` storage beside the active
+configuration. A skin may retain a deleted background asset reference; the
+background safely falls back until that asset is available again.
+
+Portable PHOS Skin files use YAML (`.phos-skin.yaml`, also `.yaml`/`.yml`) with
+Skin schema version `1`. Import is limited to 256 KiB and accepts only the
+name, description and validated appearance snapshot; imported skins always receive a new local custom ID.
+Skin files do not bundle background images, fetch remote assets, include
+absolute paths, or carry runtime state and secrets. Missing managed background
+references are reported and fall back safely during preview and apply.
+
+```yaml
+schema_version: 1
+name: My Skin
+description: A reusable PHOS appearance
+appearance: {}
+```
+
 **State Backgrounds** accepts validated PNG and JPEG files from the managed
 `backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the
 per-image limit (the shipped value is 4 MiB); the page shows that same limit.

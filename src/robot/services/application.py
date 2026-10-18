@@ -44,6 +44,8 @@ from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProvi
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
+from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
+                            available_appearance_snapshot, validate_appearance_snapshot)
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +188,13 @@ class RemoteApplicationService:
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
     def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
+    def skins(self): return self._call("skins")
+    def create_skin(self, value): return self._call("create_skin", value)
+    def rename_skin(self, value): return self._call("rename_skin", value)
+    def delete_skin(self, value): return self._call("delete_skin", {"id": value})
+    def apply_skin(self, value): return self._call("apply_skin", {"id": value})
+    def import_skin(self, value): return self._call("import_skin", value)
+    def export_skin(self, value): return self._call("export_skin", {"id": value})
     def appearance_preview(self, value): return self._call("appearance_preview", value)
     def configure_state_effects(self, value): return self._call("configure_state_effects", value)
     def background_assets(self): return self._call("background_assets")
@@ -774,9 +783,79 @@ class PhosApplicationService:
             raise ApplicationError("invalid_preview", "Preview options are invalid.")
         try:
             from robot.ui.appearance_preview import render_preview
-            return {"svg": render_preview(self._lifecycle.config_repository.load(), options)}
-        except (ValueError, OSError) as error:
+            current = self._lifecycle.config_repository.load()
+            skin_id = options.get("skin_id")
+            if skin_id is not None:
+                skin = SkinRepository(self._lifecycle.path).get(skin_id)
+                snapshot, _ = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+                document = apply_appearance_snapshot(current.to_dict(), snapshot)
+                current = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            return {"svg": render_preview(current, options)}
+        except (ValueError, ConfigurationError, OSError) as error:
             raise ApplicationError("preview_unavailable", "Appearance preview could not be rendered.", status=400) from error
+
+    def _skins(self) -> SkinRepository:
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Skin service is unavailable.", status=503)
+        return SkinRepository(self._lifecycle.path)
+
+    def skins(self) -> list[dict]:
+        try:
+            result = []
+            for skin in self._skins().list():
+                item = skin.document()
+                _, item["missing_backgrounds"] = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+                result.append(item)
+            return result
+        except ConfigurationError as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def create_skin(self, payload: dict) -> dict:
+        if not isinstance(payload, dict) or set(payload) - {"name", "description"}:
+            raise ApplicationError("invalid_skin", "Skin details are invalid.")
+        try:
+            skin = self._skins().create(payload.get("name", ""), payload.get("description", ""),
+                                        appearance_snapshot(self._lifecycle.config_repository.load().to_dict()))
+            return skin.document()
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def rename_skin(self, payload: dict) -> dict:
+        if not isinstance(payload, dict) or set(payload) != {"id", "name", "description"}:
+            raise ApplicationError("invalid_skin", "Skin details are invalid.")
+        try: return self._skins().rename(payload["id"], payload["name"], payload["description"]).document()
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def delete_skin(self, skin_id: str) -> dict:
+        try: self._skins().delete(skin_id); return {"deleted": skin_id}
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def apply_skin(self, skin_id: str) -> dict:
+        """Validate the entire skin before one canonical save/reload transaction."""
+        if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        previous = self._lifecycle.config_repository.load()
+        try:
+            skin = self._skins().get(skin_id)
+            snapshot, missing_backgrounds = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+            document = apply_appearance_snapshot(previous.to_dict(), snapshot)
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"): raise RuntimeError(result.get("error", "Skin could not be applied."))
+        except (ConfigurationError, OSError, RuntimeError) as error:
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("PHOS SKIN: rollback failed")
+            raise ApplicationError("skin_apply_failed", "Skin could not be applied; appearance was unchanged.", {"reason": str(error)}, status=503) from error
+        return {"skin": skin.document(), "applied": result.get("applied", []), "missing_backgrounds": missing_backgrounds}
+
+    def import_skin(self, payload: dict) -> dict:
+        if not isinstance(payload, dict) or set(payload) != {"content"}:
+            raise ApplicationError("invalid_skin", "Skin import is invalid.")
+        try: return self._skins().import_yaml(payload["content"]).document()
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def export_skin(self, skin_id: str) -> dict:
+        if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        try: return {"content": self._skins().export(skin_id)}
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
 
     def background_assets(self) -> list[dict]:
         """List only safe, existing images in the canonical asset directory."""

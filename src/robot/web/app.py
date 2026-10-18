@@ -314,7 +314,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         options = {"state": request.args.get("state", "idle"), "expression": request.args.get("expression", "neutral"),
                    "eye_safe_enabled": request.args.get("eye_safe", "1") == "1",
                    "eye_safe_mode": request.args.get("eye_safe_mode", "balanced"),
-                   "state_effects_enabled": request.args.get("effects", "1") == "1"}
+                   "state_effects_enabled": request.args.get("effects", "1") == "1",
+                   "skin_id": request.args.get("skin")}
         try:
             result = application_service.appearance_preview(options)
         except Exception as error:
@@ -328,8 +329,42 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                expression=request.args.get("expression", "neutral"),
                                eye_safe=request.args.get("eye_safe", "1") == "1",
                                eye_safe_mode=request.args.get("eye_safe_mode", "balanced"),
-                               effects=request.args.get("effects", "1") == "1",
+                               effects=request.args.get("effects", "1") == "1", skin=request.args.get("skin"),
                                expressions=[item.value for item in FaceExpression])
+
+    @app.route("/appearance/skins", methods=["GET", "POST"])
+    def appearance_skins():
+        error = None
+        if request.method == "POST":
+            if application_service is None: abort(503)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change: return redirect(url_for("login"))
+                action, skin_id = request.form.get("action"), request.form.get("skin_id", "")
+                try:
+                    if action == "create": application_service.create_skin({"name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin created from current appearance.")
+                    elif action == "import":
+                        upload = request.files.get("skin")
+                        if upload is None or not upload.filename.lower().endswith((".phos-skin.yaml", ".yaml", ".yml")): raise ConfigurationError("Choose a YAML skin file.")
+                        application_service.import_skin({"content": upload.read()}); flash("Skin imported as a custom skin.")
+                    elif action == "apply": application_service.apply_skin(skin_id); flash("Skin applied live.")
+                    elif action == "delete": application_service.delete_skin(skin_id); flash("Skin deleted.")
+                    elif action == "rename": application_service.rename_skin({"id": skin_id, "name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin renamed.")
+                    else: raise ConfigurationError("Unsupported skin action.")
+                    return redirect(url_for("appearance_skins"))
+                except Exception as exc:
+                    error = getattr(exc, "message", str(exc))
+        try: skins = application_service.skins() if application_service is not None else []
+        except Exception as exc: skins, error = [], getattr(exc, "message", "Skins are unavailable.")
+        return render_template("skins.html", skins=skins, error=error)
+
+    @app.get("/appearance/skins/<skin_id>/export")
+    def appearance_skin_export(skin_id):
+        if application_service is None: abort(503)
+        try:
+            content = application_service.export_skin(skin_id)["content"]
+        except Exception as exc:
+            return Response(getattr(exc, "message", "Skin export is unavailable."), status=400, mimetype="text/plain")
+        return Response(content, mimetype="application/x-yaml", headers={"Content-Disposition": f'attachment; filename="{skin_id}.phos-skin.yaml"'})
 
     @app.route("/appearance/state-effects", methods=["GET", "POST"])
     def appearance_state_effects():

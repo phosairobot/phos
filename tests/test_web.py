@@ -207,7 +207,7 @@ def test_state_effects_page_renders_canonical_values_and_appearance_navigation(s
     assert all(f'value="{value}"' in text for value in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"))
     assert all(f'id="state-effects-preset-{value}"' in text for value in ("subtle", "balanced", "expressive"))
     assert 'class="nav-group is-active" open' in text
-    assert all(label in text for label in ("Appearance", "Overview", "Preview", "Eyes", "Backgrounds", "Eye Safe Layer", "State Effects"))
+    assert all(label in text for label in ("Appearance", "Overview", "Preview", "Skins", "Eyes", "Backgrounds", "Eye Safe Layer", "State Effects"))
     assert 'href="/appearance/state-effects" aria-current="page"' in text
 
 
@@ -394,6 +394,7 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     [
         ("/configuration/appearance", "/configuration/appearance"),
         ("/appearance/preview", "/appearance/preview"),
+        ("/appearance/skins", "/appearance/skins"),
         ("/configuration/eyes", "/configuration/eyes"),
         ("/appearance/backgrounds", "/appearance/backgrounds"),
         ("/appearance/eye-safe-layer", "/appearance/eye-safe-layer"),
@@ -406,7 +407,7 @@ def test_appearance_navigation_groups_existing_pages_and_marks_the_active_child(
 
     assert '<details class="nav-group is-active" open>' in text
     assert all(f'href="{href}"' in text for href in (
-        "/configuration/appearance", "/appearance/preview", "/configuration/eyes",
+        "/configuration/appearance", "/appearance/preview", "/appearance/skins", "/configuration/eyes",
         "/appearance/backgrounds", "/appearance/eye-safe-layer", "/appearance/state-effects",
     ))
     assert f'href="{active_href}" aria-current="page"' in text
