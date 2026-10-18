@@ -206,7 +206,9 @@ def test_state_effects_page_renders_canonical_values_and_appearance_navigation(s
     assert 'class="state-effects-card"' in text and "Effect Color" in text
     assert all(f'value="{value}"' in text for value in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"))
     assert all(f'id="state-effects-preset-{value}"' in text for value in ("subtle", "balanced", "expressive"))
-    assert "↳ Backgrounds" in text and "↳ State Effects" in text
+    assert 'class="nav-group is-active" open' in text
+    assert all(label in text for label in ("Appearance", "Overview", "Preview", "Eyes", "Backgrounds", "Eye Safe Layer", "State Effects"))
+    assert 'href="/appearance/state-effects" aria-current="page"' in text
 
 
 @pytest.mark.parametrize("preset", ["subtle", "balanced", "expressive"])
@@ -385,6 +387,37 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     assert "Apply robot state" in controls and "Editing saved settings" not in controls
     status = client.get("/configuration/status").get_data(as_text=True)
     assert "Detailed runtime diagnostics" in status
+
+
+@pytest.mark.parametrize(
+    ("path", "active_href"),
+    [
+        ("/configuration/appearance", "/configuration/appearance"),
+        ("/appearance/preview", "/appearance/preview"),
+        ("/configuration/eyes", "/configuration/eyes"),
+        ("/appearance/backgrounds", "/appearance/backgrounds"),
+        ("/appearance/eye-safe-layer", "/appearance/eye-safe-layer"),
+        ("/appearance/state-effects", "/appearance/state-effects"),
+    ],
+)
+def test_appearance_navigation_groups_existing_pages_and_marks_the_active_child(setup, path, active_href):
+    app, _, _ = setup
+    text = authorize(app).get(path).get_data(as_text=True)
+
+    assert '<details class="nav-group is-active" open>' in text
+    assert all(f'href="{href}"' in text for href in (
+        "/configuration/appearance", "/appearance/preview", "/configuration/eyes",
+        "/appearance/backgrounds", "/appearance/eye-safe-layer", "/appearance/state-effects",
+    ))
+    assert f'href="{active_href}" aria-current="page"' in text
+    assert 'href="/configuration/network"' in text
+
+
+def test_appearance_navigation_group_spans_the_mobile_sidebar_grid():
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+
+    assert ".nav-group[open] summary::after" in stylesheet
+    assert ".nav-heading, .nav-group, .sidebar-account { grid-column: 1 / -1; }" in stylesheet
 
 
 def test_focused_settings_and_page_responsibilities(setup):
