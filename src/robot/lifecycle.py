@@ -365,6 +365,7 @@ class LifecycleService:
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
             "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
             "application.configure_eye_safe_layer": lambda: self._application_service.configure_eye_safe_layer(payload),
+            "application.appearance_preview": lambda: self._application_service.appearance_preview(payload),
             "application.configure_state_effects": lambda: self._application_service.configure_state_effects(payload),
             "application.background_assets": lambda: self._application_service.background_assets(),
             "application.upload_background": lambda: self._application_service.upload_background(payload),

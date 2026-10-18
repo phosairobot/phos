@@ -9,7 +9,7 @@ import secrets
 from threading import RLock
 import time
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
@@ -306,6 +306,30 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         except (ConfigurationError, OSError):
             return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
         return render_template("eye_safe_layer.html", document=document, error=error, config_path=config.path), status
+
+    @app.get("/appearance/preview.svg")
+    def appearance_preview():
+        if application_service is None:
+            abort(503)
+        options = {"state": request.args.get("state", "idle"), "expression": request.args.get("expression", "neutral"),
+                   "eye_safe_enabled": request.args.get("eye_safe", "1") == "1",
+                   "eye_safe_mode": request.args.get("eye_safe_mode", "balanced"),
+                   "state_effects_enabled": request.args.get("effects", "1") == "1"}
+        try:
+            result = application_service.appearance_preview(options)
+        except Exception as error:
+            return Response(getattr(error, "message", "Appearance preview is unavailable."), status=400, mimetype="text/plain")
+        return Response(result["svg"], mimetype="image/svg+xml")
+
+    @app.get("/appearance/preview")
+    def appearance_preview_page():
+        from robot.ui.state import FaceExpression
+        return render_template("appearance_preview.html", state=request.args.get("state", "idle"),
+                               expression=request.args.get("expression", "neutral"),
+                               eye_safe=request.args.get("eye_safe", "1") == "1",
+                               eye_safe_mode=request.args.get("eye_safe_mode", "balanced"),
+                               effects=request.args.get("effects", "1") == "1",
+                               expressions=[item.value for item in FaceExpression])
 
     @app.route("/appearance/state-effects", methods=["GET", "POST"])
     def appearance_state_effects():

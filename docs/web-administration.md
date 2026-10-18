@@ -334,6 +334,11 @@ default and has subtle, balanced and expressive modes. Dark, low-variation
 backgrounds receive little or no protection; the layer never modifies the
 uploaded file and can be disabled.
 
+**Appearance Preview** renders a static 800×600 (4:3) server-generated view of
+the selected state and expression. It is visual simulation only: previewing
+does not change PHOS behavior, state or expression. State-effect animation is
+shown as a representative static frame.
+
 **State Backgrounds** accepts validated PNG and JPEG files from the managed
 `backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the
 per-image limit (the shipped value is 4 MiB); the page shows that same limit.

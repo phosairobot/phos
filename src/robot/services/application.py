@@ -186,6 +186,7 @@ class RemoteApplicationService:
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
     def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
+    def appearance_preview(self, value): return self._call("appearance_preview", value)
     def configure_state_effects(self, value): return self._call("configure_state_effects", value)
     def background_assets(self): return self._call("background_assets")
     def upload_background(self, value): return self._call("upload_background", value)
@@ -767,6 +768,15 @@ class PhosApplicationService:
             except OSError: logger.exception("PHOS VISUAL: eye safe layer rollback failed")
             raise ApplicationError("runtime_unavailable", "Eye safe layer could not be applied.", status=503) from error
         return {"saved": candidate.to_dict()["display"]["eye_safe_layer"], "applied": result.get("applied", [])}
+
+    def appearance_preview(self, options: dict) -> dict:
+        if self._lifecycle is None or not isinstance(options, dict):
+            raise ApplicationError("invalid_preview", "Preview options are invalid.")
+        try:
+            from robot.ui.appearance_preview import render_preview
+            return {"svg": render_preview(self._lifecycle.config_repository.load(), options)}
+        except (ValueError, OSError) as error:
+            raise ApplicationError("preview_unavailable", "Appearance preview could not be rendered.", status=400) from error
 
     def background_assets(self) -> list[dict]:
         """List only safe, existing images in the canonical asset directory."""

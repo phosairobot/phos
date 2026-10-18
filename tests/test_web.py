@@ -144,6 +144,24 @@ def test_eye_safe_layer_toggle_and_invalid_mode_are_handled_cleanly(setup):
     assert "Choose a supported eye safe layer mode." in rejected.get_data(as_text=True)
 
 
+def test_appearance_preview_is_a_static_application_service_image(setup):
+    class PreviewService:
+        def __init__(self): self.calls = []
+        def appearance_preview(self, options):
+            self.calls.append(options)
+            return {"svg": "<svg xmlns='http://www.w3.org/2000/svg'/>"}
+
+    _, path, now = setup
+    service = PreviewService()
+    client = authorize(create_app(path, clock=lambda: now[0], application_service=service))
+    page = client.get("/appearance/preview?state=sleeping&expression=happy")
+    assert page.status_code == 200 and "Static 800" in page.get_data(as_text=True)
+    response = client.get("/appearance/preview.svg?state=sleeping&expression=happy&eye_safe=0&eye_safe_mode=expressive&effects=0")
+    assert response.status_code == 200 and response.mimetype == "image/svg+xml"
+    assert service.calls == [{"state": "sleeping", "expression": "happy", "eye_safe_enabled": False,
+                              "eye_safe_mode": "expressive", "state_effects_enabled": False}]
+
+
 def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonical_list(setup):
     app, path, now = setup
 
@@ -188,7 +206,9 @@ def test_state_effects_page_renders_canonical_values_and_appearance_navigation(s
     assert 'class="state-effects-card"' in text and "Effect Color" in text
     assert all(f'value="{value}"' in text for value in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"))
     assert all(f'id="state-effects-preset-{value}"' in text for value in ("subtle", "balanced", "expressive"))
-    assert "↳ Backgrounds" in text and "↳ State Effects" in text
+    assert 'class="nav-group is-active" open' in text
+    assert all(label in text for label in ("Appearance", "Overview", "Preview", "Eyes", "Backgrounds", "Eye Safe Layer", "State Effects"))
+    assert 'href="/appearance/state-effects" aria-current="page"' in text
 
 
 @pytest.mark.parametrize("preset", ["subtle", "balanced", "expressive"])
@@ -367,6 +387,37 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     assert "Apply robot state" in controls and "Editing saved settings" not in controls
     status = client.get("/configuration/status").get_data(as_text=True)
     assert "Detailed runtime diagnostics" in status
+
+
+@pytest.mark.parametrize(
+    ("path", "active_href"),
+    [
+        ("/configuration/appearance", "/configuration/appearance"),
+        ("/appearance/preview", "/appearance/preview"),
+        ("/configuration/eyes", "/configuration/eyes"),
+        ("/appearance/backgrounds", "/appearance/backgrounds"),
+        ("/appearance/eye-safe-layer", "/appearance/eye-safe-layer"),
+        ("/appearance/state-effects", "/appearance/state-effects"),
+    ],
+)
+def test_appearance_navigation_groups_existing_pages_and_marks_the_active_child(setup, path, active_href):
+    app, _, _ = setup
+    text = authorize(app).get(path).get_data(as_text=True)
+
+    assert '<details class="nav-group is-active" open>' in text
+    assert all(f'href="{href}"' in text for href in (
+        "/configuration/appearance", "/appearance/preview", "/configuration/eyes",
+        "/appearance/backgrounds", "/appearance/eye-safe-layer", "/appearance/state-effects",
+    ))
+    assert f'href="{active_href}" aria-current="page"' in text
+    assert 'href="/configuration/network"' in text
+
+
+def test_appearance_navigation_group_spans_the_mobile_sidebar_grid():
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+
+    assert ".nav-group[open] summary::after" in stylesheet
+    assert ".nav-heading, .nav-group, .sidebar-account { grid-column: 1 / -1; }" in stylesheet
 
 
 def test_focused_settings_and_page_responsibilities(setup):
