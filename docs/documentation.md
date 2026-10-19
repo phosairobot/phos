@@ -13,6 +13,11 @@ not duplicate.
 </article>
 
 <article class="phos-card" markdown>
+### Appearance
+[Creating a PHOS Skin](appearance/creating-skins.md) · [Web Admin appearance controls](web-administration.md#appearance)
+</article>
+
+<article class="phos-card" markdown>
 ### Design & hardware
 [Architecture](architecture.md) · [Hardware](hardware.md) · [Vision](vision.md) · [Architecture decisions](decisions.md)
 </article>

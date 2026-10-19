@@ -1,4 +1,38 @@
 "use strict";
+(() => {
+  const controls = document.querySelector("[data-iris-color-controls]");
+  if (!controls) return;
+  const preset = controls.querySelector("[data-iris-color-preset]");
+  const picker = controls.querySelector("[data-iris-color-picker]");
+  const hex = controls.querySelector("[data-iris-color-hex]");
+  const stored = controls.querySelector('input[name="display.iris_color"]');
+  const error = controls.querySelector("[data-iris-color-error]");
+  const form = controls.closest("form");
+  const valid = (value) => /^#[0-9a-fA-F]{6}$/.test(value);
+  let lastCustom = valid(stored.value) ? stored.value.toUpperCase() : "#28CEEB";
+  const setValue = (value) => {
+    const normalized = value.toUpperCase();
+    stored.value = normalized; hex.value = normalized; picker.value = normalized;
+    const okay = valid(normalized);
+    error.hidden = okay;
+    form.querySelector("button.save")?.toggleAttribute("disabled", !okay);
+  };
+  const updateMode = () => {
+    const custom = preset.value === "custom";
+    picker.disabled = !custom; hex.readOnly = !custom;
+    if (custom) setValue(lastCustom);
+    else setValue(preset.selectedOptions[0].dataset.color);
+  };
+  preset.addEventListener("change", updateMode);
+  picker.addEventListener("input", () => { lastCustom = picker.value.toUpperCase(); setValue(lastCustom); });
+  hex.addEventListener("input", () => {
+    const value = hex.value;
+    if (valid(value)) { lastCustom = value.toUpperCase(); setValue(lastCustom); }
+    else { stored.value = value; error.hidden = false; form.querySelector("button.save")?.setAttribute("disabled", ""); }
+  });
+  updateMode();
+})();
+
 const provider = document.getElementById("expression.provider");
 if (provider) {
   const update = () => {

@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, fields, field
 from pathlib import Path
 from typing import Optional, Tuple
 
+from robot.iris_colors import IrisColorResolver
 from robot.semantics import VisualSource
 
 logger = logging.getLogger(__name__)
@@ -658,12 +659,17 @@ class RuntimeConfig:
         self._assign(_decode(repository.document()), repository.active_path.parent, overrides)
 
     def _assign(self, values, base_dir, overrides=None):
+        values = dict(values)
         names = {f.name for f in fields(self) if f.init}
         if overrides:
             unknown = overrides.keys() - names
             if unknown:
                 raise ConfigurationError(f"Unknown configuration overrides: {', '.join(sorted(unknown))}")
             values.update(overrides)
+        try:
+            values["iris_color"] = IrisColorResolver.normalize(values["iris_color"])
+        except (KeyError, ValueError) as error:
+            raise ConfigurationError("display.iris_color must be a supported preset name or #RRGGBB") from error
         for name, value in values.items():
             object.__setattr__(self, name, value)
         object.__setattr__(self, "_base_dir", Path(base_dir).resolve())
@@ -971,10 +977,10 @@ class RuntimeConfig:
                 raise ConfigurationError(f"{name} must contain two positive ascending numbers")
         if not isinstance(self.expression_provider, str) or self.expression_provider not in {"local", "aws"}:
             raise ConfigurationError("expression.provider must be local or aws")
-        if not isinstance(self.iris_color, str) or self.iris_color not in {
-            "cyan", "blue", "green", "turquoise", "amber", "violet", "white"
-        }:
-            raise ConfigurationError("display.iris_color must be cyan, blue, green, turquoise, amber, violet or white")
+        try:
+            IrisColorResolver.normalize(self.iris_color)
+        except ValueError as error:
+            raise ConfigurationError("display.iris_color must be a supported preset name or #RRGGBB") from error
         if self.base_visual_source not in {item.value for item in VisualSource}:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:

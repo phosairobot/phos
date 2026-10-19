@@ -5,18 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from robot.iris_colors import IrisColorResolver
 from .state import AmbientOverlayState, BlinkPhase, FaceExpression, FaceState, VisualAccent
 
-
-_IRIS_COLORS = {
-    "cyan": (40, 206, 235),
-    "blue": (73, 133, 255),
-    "green": (65, 205, 125),
-    "turquoise": (35, 200, 175),
-    "amber": (244, 171, 61),
-    "violet": (166, 112, 245),
-    "white": (218, 236, 246),
-}
 _IRIS_ACCENTS = {
     VisualAccent.NEUTRAL: None,
     VisualAccent.WARM: (48, 226, 178),
@@ -76,16 +67,17 @@ class EyeRenderer:
             raise ValueError("Eye renderer dimensions and transition duration must be positive.")
         self._width = width
         self._height = height
-        if iris_color not in _IRIS_COLORS:
-            raise ValueError(f"Unsupported iris color: {iris_color}")
         self._transition_seconds = transition_seconds
-        self._iris_color = iris_color
+        try:
+            self._iris_color = IrisColorResolver.normalize(iris_color)
+        except ValueError as error:
+            raise ValueError(f"Unsupported iris color: {iris_color}") from error
         self._values: Optional[_AnimatedValues] = None
         self._last_timestamp: Optional[float] = None
 
     @property
     def iris_color(self) -> str:
-        """Return the selected named base theme, before semantic tinting."""
+        """Return the selected canonical base color, before semantic tinting."""
         return self._iris_color
 
     def render(self, face_state: FaceState, *, timestamp: float) -> EyeFrame:
@@ -115,9 +107,10 @@ class EyeRenderer:
 
     def update_appearance(self, *, iris_color: str) -> None:
         """Change validated renderer style; color blends in subsequent frames."""
-        if iris_color not in _IRIS_COLORS:
-            raise ValueError(f"Unsupported iris color: {iris_color}")
-        self._iris_color = iris_color
+        try:
+            self._iris_color = IrisColorResolver.normalize(iris_color)
+        except ValueError as error:
+            raise ValueError(f"Unsupported iris color: {iris_color}") from error
 
     def _make_eye(self, left: bool, blink_amount: float, values: _AnimatedValues) -> EyeGeometry:
         eye_width = self._width * 0.27
@@ -155,7 +148,7 @@ def _target_values(state: FaceState, iris_color: str = "cyan") -> _AnimatedValue
     left_open, right_open = ((base_open - asymmetry, base_open + asymmetry)
                              if state.eye_asymmetry is None else (base_open + asymmetry, base_open - asymmetry))
     eye_color, pupil_color = _accent_colors(state)
-    iris_color = _iris_target(_IRIS_COLORS[iris_color], state)
+    iris_color = _iris_target(IrisColorResolver.rgb(iris_color), state)
     return _AnimatedValues(
         eye_open_left=_clamp_open(left_open),
         eye_open_right=_clamp_open(right_open),

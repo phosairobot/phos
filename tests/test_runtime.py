@@ -248,7 +248,7 @@ def test_reloading_iris_appearance_updates_running_renderer_without_restarting_r
     result, applied, still_running, same_renderer, same_behavior, same_vision, selected_theme, selected_preview_position = asyncio.run(exercise())
     assert result["applied"] == ["display.iris_color", "vision.camera_preview.position"]
     assert applied != "#28CEEB"  # Selected violet theme with the current semantic tint.
-    assert selected_theme == "violet"
+    assert selected_theme == "#A670F5"
     assert selected_preview_position == "top_left"
     assert still_running and same_renderer and same_behavior and same_vision
 

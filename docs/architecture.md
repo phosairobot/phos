@@ -321,7 +321,7 @@ state where that snapshot is available; it does not invent a health-monitoring l
 
 ## Eye appearance
 
-The Display & Appearance configuration supplies the validated named iris theme
+The Display & Appearance configuration supplies the validated canonical iris color
 to EyeRenderer at startup. EyeRenderer still consumes only FaceState and renderer
 style configuration; expression/provider labels never reach the renderer.
 Semantic visual accents continue to pass through BehaviorEngine and FaceState.
