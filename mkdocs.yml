@@ -90,6 +90,9 @@ nav:
 
   - Web Admin: web-admin-overview.md
 
+  - Appearance:
+      - Creating a PHOS Skin: appearance/creating-skins.md
+
   - Documentation:
       - Documentation hub: documentation.md
       - Architecture reference: architecture.md

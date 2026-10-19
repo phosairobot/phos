@@ -319,6 +319,8 @@ No-op reloads report no changes. SDK logging stays at WARNING or above even when
 PHOS logging is switched to DEBUG. No credentials, tokens or request payloads
 are exposed by this feature.
 
+## Appearance
+
 The **Display & Appearance** page also offers the canonical `display.iris_color`
 choice: cyan, blue, green, turquoise, amber, violet or white. It configures the
 base iris theme; semantic accent tints still come from BehaviorEngine-produced
@@ -354,6 +356,9 @@ backgrounds. `.zip` is accepted as a compatible upload format, but
 `.phos-skin` is the canonical format. `skin.yaml` is the package-internal
 manifest, not a standalone upload format. Imported skins always receive a new
 local custom ID.
+
+For a complete package layout, manifest examples, image limits, and archive
+creation instructions, see [Creating a PHOS Skin](appearance/creating-skins.md).
 Imported and created custom Skin backgrounds are owned under
 `backgrounds/skins/<custom-id>/`; export bundles only those referenced images.
 Deleting a Skin removes its owned assets, but is rejected while its assets are
