@@ -5,4 +5,5 @@
 <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
 <button>Log in</button></form></div></section>
+<p><a href="{{ url_for('recovery_page') }}">Forgot password?</a></p>
 {% endblock %}

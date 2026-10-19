@@ -19,6 +19,7 @@ from .state_effects import StateEffectParams, StateEffectResolver
 from .eye_safe import EyeSafeParams, EyeSafeResolver
 from .state import FaceState
 from robot.core.startup import StartupState
+from robot.admin_access import AdminOverlayState
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,47 @@ class EyeRenderLoop(Behavior):
         self._appearance_ready = False
         self._pending_iris_color: Optional[str] = None
         self._pending_preview_settings: Optional[CameraPreviewSettings] = None
+        self._admin_overlay = AdminOverlayState()
+
+    @property
+    def admin_overlay_available(self) -> bool:
+        """Whether the local display loop can safely accept secret content."""
+        with self._appearance_lock:
+            return self._appearance_ready and self._loop is not None
+
+    @property
+    def admin_overlay(self) -> AdminOverlayState:
+        """Local state for runtime/display tests; never publish this remotely."""
+        return self._admin_overlay
+
+    def request_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        """Queue an administrative layer update on the existing display loop."""
+        if not isinstance(overlay, AdminOverlayState):
+            raise ValueError("Admin overlay is invalid.")
+        with self._appearance_lock:
+            if not self._appearance_ready or self._loop is None:
+                raise RuntimeError("Display is unavailable.")
+            loop = self._loop
+        loop.call_soon_threadsafe(self._set_admin_overlay, overlay)
+
+    def clear_admin_overlay(self) -> None:
+        """Drop secret overlay content even if the display has gone away."""
+        hidden = AdminOverlayState()
+        with self._appearance_lock:
+            if not self._appearance_ready or self._loop is None:
+                # No Tk operation is attempted here.  Clearing this in-memory
+                # reference is safe from a lifecycle thread and ensures a dead
+                # display cannot retain a recovery code in runtime state.
+                self._admin_overlay = hidden
+                return
+            loop = self._loop
+        loop.call_soon_threadsafe(self._set_admin_overlay, hidden)
+
+    def _set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        self._admin_overlay = overlay
+        setter = getattr(self._display, "set_admin_overlay", None)
+        if callable(setter):
+            setter(overlay)
 
     def request_appearance(self, *, iris_color: str) -> None:
         """Queue a style update onto the display loop; safe from lifecycle threads."""
@@ -258,6 +300,10 @@ class EyeRenderLoop(Behavior):
             await asyncio.sleep(max(0.0, self._frame_interval - (time.monotonic() - started_at)))
 
     def _draw(self, frame, preview=None, *, timestamp=None) -> None:
+        if self._admin_overlay.expired(timestamp if timestamp is not None else time.monotonic()):
+            # The expiration instant comes from RecoveryState; this only drops
+            # the local presentation copy once that authoritative deadline is reached.
+            self._set_admin_overlay(AdminOverlayState())
         self._effect_dimensions = (frame.width, frame.height)
         if self._startup_supplier is not None:
             startup = self._startup_supplier()

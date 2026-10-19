@@ -51,6 +51,7 @@ from robot.vision import (
 )
 
 from robot.vision.aws_expression import AWSExpressionProvider
+from robot.admin_access import AdminOverlayState
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,20 @@ class PhosRuntime:
     def apply_appearance(self, config: RuntimeConfig) -> None:
         """Apply validated appearance through the display runtime boundary."""
         self._eye_render_loop.request_appearance(iris_color=config.iris_color)
+
+    def admin_overlay_available(self) -> bool:
+        """Return whether the physical display can safely receive local secrets."""
+        return self._eye_render_loop.admin_overlay_available
+
+    def show_recovery_code(self, code: str, expires_at: float) -> None:
+        """Show a recovery code locally, through the display-loop handoff only."""
+        if not self.admin_overlay_available():
+            raise RuntimeError("Recovery display is unavailable.")
+        self._eye_render_loop.request_admin_overlay(AdminOverlayState.recovery(code, expires_at))
+
+    def clear_admin_overlay(self) -> None:
+        """Remove any local administrative layer; safe when already hidden."""
+        self._eye_render_loop.clear_admin_overlay()
 
     def apply_backgrounds(self, config: RuntimeConfig) -> None:
         """Apply an already-validated state-background configuration live."""

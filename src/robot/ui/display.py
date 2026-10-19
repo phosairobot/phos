@@ -21,6 +21,7 @@ from .state_effects import StateEffectParams
 from .state_effect_layer import StateEffectLayer
 from .eye_safe import EyeSafeLayer, EyeSafeParams
 from .touch import TouchInputAdapter
+from robot.admin_access import AdminOverlayState
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,43 @@ class CameraPreviewSettings:
     show_confidence: bool = True
 
 
+@dataclass(frozen=True)
+class RecoveryOverlayLayout:
+    """Canvas-relative geometry for the physical recovery overlay."""
+
+    card_x: float
+    card_y: float
+    card_width: float
+    card_height: float
+    title_y: float
+    message_y: float
+    code_y: float
+    countdown_y: float
+
+    @property
+    def card_right(self) -> float:
+        return self.card_x + self.card_width
+
+    @property
+    def card_bottom(self) -> float:
+        return self.card_y + self.card_height
+
+
+def recovery_overlay_layout(width: int, height: int) -> RecoveryOverlayLayout:
+    """Return a centered, safely inset recovery card for the current canvas."""
+    margin_x, margin_y = max(24.0, width * .06), max(24.0, height * .08)
+    card_width = min(width * .64, width - 2 * margin_x)
+    card_height = min(height * .56, height - 2 * margin_y)
+    card_x, card_y = (width - card_width) / 2, (height - card_height) / 2
+    return RecoveryOverlayLayout(
+        card_x, card_y, card_width, card_height,
+        card_y + card_height * .22,
+        card_y + card_height * .36,
+        card_y + card_height * .58,
+        card_y + card_height * .78,
+    )
+
+
 class EyeDisplay(ABC):
     """Display-driver boundary for precomputed eye geometry."""
 
@@ -120,6 +158,13 @@ class EyeDisplay(ABC):
     def close(self) -> None:
         raise NotImplementedError
 
+    def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        """Receive local-only administrative content on the display thread.
+
+        Displays which do not render an overlay may safely retain the default.
+        Keeping this outside ``draw`` preserves the existing adapter contract.
+        """
+
 
 class MemoryEyeDisplay(EyeDisplay):
     """Headless display adapter used by tests."""
@@ -127,6 +172,7 @@ class MemoryEyeDisplay(EyeDisplay):
     def __init__(self) -> None:
         self.frames: List[EyeFrame] = []
         self.startup_frames: List[tuple[str, str]] = []
+        self.admin_overlays: List[AdminOverlayState] = []
 
     def open(self, width: int, height: int, *, fullscreen: bool) -> None:
         return None
@@ -144,6 +190,9 @@ class MemoryEyeDisplay(EyeDisplay):
 
     def close(self) -> None:
         return None
+
+    def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        self.admin_overlays.append(overlay)
 
 
 class TkEyeDisplay(EyeDisplay):
@@ -174,6 +223,7 @@ class TkEyeDisplay(EyeDisplay):
         self._state_effect_failed = set()
         self._state_effect_photos = {}
         self._eye_safe_photos = {}
+        self._admin_overlay = AdminOverlayState()
 
     def set_touch_handler(self, handler, **settings) -> None:
         self._touch_adapter = TouchInputAdapter(handler, **settings)
@@ -230,6 +280,32 @@ class TkEyeDisplay(EyeDisplay):
             if self._preview_future is not None:
                 self._preview_future.cancel()
                 self._preview_future = None
+        self._draw_admin_overlay(frame)
+
+    def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        self._admin_overlay = overlay
+
+    def _draw_admin_overlay(self, frame: EyeFrame) -> None:
+        """Draw the final, local-only administrative layer above all content."""
+        overlay = self._admin_overlay
+        if overlay.mode != "recovery" or overlay.recovery_code is None:
+            return
+        expires_at = overlay.recovery_expires_at
+        remaining = max(0, int((expires_at or 0) - time.monotonic()))
+        minutes, seconds = divmod(remaining, 60)
+        canvas = self._canvas
+        layout = recovery_overlay_layout(frame.width, frame.height)
+        canvas.create_rectangle(0, 0, frame.width, frame.height, fill="#020B1C", outline="")
+        canvas.create_rectangle(layout.card_x, layout.card_y, layout.card_right, layout.card_bottom,
+                                fill="#071B35", outline="#00C9FF", width=2)
+        canvas.create_text(frame.width / 2, layout.title_y, text="PHOS ADMIN", fill="#00C9FF",
+                           font=("TkDefaultFont", max(18, int(frame.height * .045)), "bold"))
+        canvas.create_text(frame.width / 2, layout.message_y, text="Password recovery code", fill="#DDEEFF",
+                           font=("TkDefaultFont", max(14, int(frame.height * .030))))
+        canvas.create_text(frame.width / 2, layout.code_y, text=overlay.recovery_code, fill="#FFFFFF",
+                           font=("TkFixedFont", max(30, int(frame.height * .085)), "bold"))
+        canvas.create_text(frame.width / 2, layout.countdown_y, text=f"Expires in {minutes:02d}:{seconds:02d}",
+                           fill="#9AC9E8", font=("TkDefaultFont", max(13, int(frame.height * .028))))
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
         if self._root is None or self._canvas is None:
