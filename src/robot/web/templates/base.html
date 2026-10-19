@@ -43,5 +43,5 @@
 {% endif %}
 <div class="admin-main"><header class="topbar"><div><p class="eyebrow">LOCAL ROBOT CONSOLE</p><h1>PHOS <small>Administration</small></h1></div>{% if session.get('sid') %}<span id="phos-connection" class="connection disconnected" role="status">Live: disconnected</span>{% endif %}</header>
 <main class="content">{% for message in get_flashed_messages() %}<p class="notice" role="status">{{ message }}</p>{% endfor %}{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}{% block content %}{% endblock %}</main>
-<footer>Trusted local network only. HTTP traffic is not encrypted. AWS credentials stay outside PHOS configuration.</footer></div>
+<footer>Trusted local network only. HTTP traffic is not encrypted.</footer></div>
 </div></body></html>

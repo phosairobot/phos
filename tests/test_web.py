@@ -839,6 +839,25 @@ def test_eyes_page_selects_presets(lifecycle_setup):
     assert "Save &amp; Apply" in page
 
 
+def test_eyes_and_shared_layout_remove_obsolete_help_text(setup):
+    app, _, _ = setup
+    client = authorize(app)
+    aws_help = "AWS credentials stay outside PHOS configuration."
+    display_help = ("Display dimensions are pixels; fps controls animation cadence. Display geometry "
+                    "and fullscreen changes require restart.")
+    saved_settings_help = "Editing saved settings"
+    save_apply_help = "Validates, saves the canonical configuration"
+    iris_help = "Iris color accepts a preset or a #RRGGBB custom color"
+
+    eyes = client.get("/configuration/eyes").get_data(as_text=True)
+    assert aws_help not in eyes and display_help not in eyes
+    assert saved_settings_help not in eyes and save_apply_help not in eyes
+    assert iris_help in eyes
+    assert '<p class="notice"></p>' not in eyes and '<p></p>' not in eyes
+    appearance = client.get("/configuration/appearance").get_data(as_text=True)
+    assert aws_help not in appearance and display_help not in appearance and iris_help not in appearance
+
+
 def test_eyes_page_accepts_custom_hex_and_rejects_invalid_hex(lifecycle_setup):
     app, path, service = lifecycle_setup
     client = authorize(app)

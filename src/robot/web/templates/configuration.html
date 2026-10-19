@@ -58,9 +58,7 @@ Your edits on this page have not been saved.</p>
 {% elif area == 'status' %}
 <p class="notice">This operational overview contains semantic state and sensor health summaries. Detailed runtime diagnostics are available in Diagnostics; lifecycle actions have their own System Actions page.</p>
 {% else %}
-{% if area == 'voice' %}<p class="notice voice-live-notice">Voice &amp; Speech changes are applied live when activation succeeds. No PHOS restart is required. If activation fails, the previous working settings remain active.</p>{% else %}
-<p class="notice">Editing saved settings. Save does not apply changes. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes.</p>
-{% endif %}
+{% if area == 'voice' %}<p class="notice voice-live-notice">Voice &amp; Speech changes are applied live when activation succeeds. No PHOS restart is required. If activation fails, the previous working settings remain active.</p>{% endif %}
 {% if area == 'sensors' %}
 {% set sensor = runtime_state.get('sensors', {}).get('environmental') if runtime_state and runtime_state.ok else none %}
 {% set air = runtime_state.get('sensors', {}).get('ccs811') if runtime_state and runtime_state.ok else none %}
@@ -169,7 +167,7 @@ Your edits on this page have not been saved.</p>
 {% if area == 'voice' and section.name == 'tts' %}{% set tts = speech.get('tts', {}) %}</section><section class="voice-section voice-section--tts"><header><h3>Text to Speech</h3><p>Choose a local or cloud voice provider.</p></header><dl class="voice-section__status"><dt>Configured</dt><dd>{{ {'local':'Local / Piper','cartesia':'Cartesia','elevenlabs':'ElevenLabs'}.get(tts.get('configured_provider'), tts.get('configured_provider') or 'Unknown') }}</dd><dt>Active</dt><dd>{{ {'local':'Local / Piper','cartesia':'Cartesia','elevenlabs':'ElevenLabs'}.get(tts.get('active_provider'), tts.get('active_provider') or 'Unknown') }}</dd><dt>Available</dt><dd>{{ 'Yes' if tts.get('available') else 'Unknown' if tts.get('available') is none else 'No' }}</dd><dt>Enabled</dt><dd>{{ 'Yes' if tts.get('enabled') else 'Unknown' if tts.get('enabled') is none else 'No' }}</dd></dl>{% endif %}
 {% if area == 'voice' and section.name == 'audio' %}{% set audio = speech.get('audio_output', {}) %}</section><section class="voice-section voice-section--audio"><header><h3>Audio Output</h3><p>Choose where PHOS plays speech.</p></header><dl class="voice-section__status"><dt>Configured provider</dt><dd>{{ {'aplay':'ALSA (aplay)','pipewire':'PipeWire (pw-play)'}.get(audio.get('configured_provider'), audio.get('configured_provider') or 'Unknown') }}</dd><dt>Active provider</dt><dd>{{ {'aplay':'ALSA (aplay)','pipewire':'PipeWire (pw-play)'}.get(audio.get('active_provider'), audio.get('active_provider') or 'Unknown') }}</dd><dt>Configured device</dt><dd>{{ audio.get('configured_device') or 'Default output' }}</dd><dt>Active device</dt><dd>{{ audio.get('active_device') or 'Default output' }}</dd><dt>Available</dt><dd>{{ 'Yes' if audio.get('available') else 'Unknown' if audio.get('available') is none else 'No' }}</dd></dl>{% endif %}
 <fieldset id="{{ 'voice-' ~ section.name if area == 'voice' else section.name }}" data-section="{{ section.name }}" {% if area == 'voice' and section.name in ('vosk', 'cartesia-stt') %}data-stt-provider-panel="{{ section.provider }}"{% elif area == 'voice' and section.name in ('local', 'elevenlabs', 'cartesia') %}data-tts-provider-panel="{{ section.provider }}"{% elif section.provider %}data-provider="{{ section.provider }}"{% endif %}><legend>{{ section.title }}</legend>
-<p>{% if area == 'voice' and section.name == 'stt' %}Choose between local Vosk and optional Cartesia speech recognition.{% elif area == 'voice' and section.name == 'vosk' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia-stt' %}Cartesia uses the credential configured in Credentials.{% elif area == 'voice' and section.name == 'tts' %}Choose a local or cloud voice provider.{% elif area == 'voice' and section.name == 'local' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia' %}Cloud TTS using the Cartesia credential configured in Credentials.{% elif area == 'voice' and section.name == 'elevenlabs' %}Cloud TTS using the ElevenLabs credential configured in Credentials.{% elif area == 'voice' and section.name == 'audio' %}Choose where PHOS plays speech.{% else %}{{ section.help }}{% endif %}</p>
+{% if area == 'voice' or section.help %}<p>{% if area == 'voice' and section.name == 'stt' %}Choose between local Vosk and optional Cartesia speech recognition.{% elif area == 'voice' and section.name == 'vosk' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia-stt' %}Cartesia uses the credential configured in Credentials.{% elif area == 'voice' and section.name == 'tts' %}Choose a local or cloud voice provider.{% elif area == 'voice' and section.name == 'local' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia' %}Cloud TTS using the Cartesia credential configured in Credentials.{% elif area == 'voice' and section.name == 'elevenlabs' %}Cloud TTS using the ElevenLabs credential configured in Credentials.{% elif area == 'voice' and section.name == 'audio' %}Choose where PHOS plays speech.{% else %}{{ section.help }}{% endif %}</p>{% endif %}
 {% if error and related_area == area and error_group == section.name %}<p class="error" role="alert">{{ error }}</p>{% endif %}<div class="fields">
 {% for field in section.fields %}
 {% set value = submitted.get(field.name, '') if submitted is not none else field.value %}
@@ -181,6 +179,7 @@ Your edits on this page have not been saved.</p>
 <input id="iris-color-picker" data-iris-color-picker type="color" value="{{ value }}" aria-label="Custom iris color">
 <input id="iris-color-hex" data-iris-color-hex type="text" value="{{ value }}" pattern="#[0-9A-Fa-f]{6}" maxlength="7" spellcheck="false" aria-label="Custom iris color hex value">
 <input id="{{ field.name }}" name="{{ field.name }}" type="hidden" value="{{ value }}">
+<small>Iris color accepts a preset or a #RRGGBB custom color</small>
 <small data-iris-color-error role="alert" hidden>Enter a color as #RRGGBB.</small>
 </div>
 {% elif field.choices %}
@@ -194,7 +193,7 @@ Your edits on this page have not been saved.</p>
 {% endfor %}</div></fieldset>
 {% endfor %}
 {% if area == 'voice' %}</section>{% endif %}
-<button class="save">{{ 'Save & Apply' if area == 'eyes' else 'Save ' ~ page.title }}</button><p>{% if area == 'eyes' %}Validates, saves the canonical configuration, then applies the Eyes settings live. If the runtime cannot accept them, the saved configuration is restored.{% else %}Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.{% endif %}</p>
+<button class="save">{{ 'Save & Apply' if area == 'eyes' else 'Save ' ~ page.title }}</button>{% if area != 'eyes' %}<p>Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.</p>{% endif %}
 </form>
 {% endif %}
 {% endblock %}
