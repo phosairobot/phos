@@ -133,6 +133,43 @@ def recovery_overlay_layout(width: int, height: int) -> RecoveryOverlayLayout:
     )
 
 
+@dataclass(frozen=True)
+class AdminAccessOverlayLayout:
+    card_x: float
+    card_y: float
+    card_width: float
+    card_height: float
+    qr_x: float
+    qr_y: float
+    qr_size: int
+    title_y: float
+    url_y: float
+    ip_y: float
+    close_y: float
+
+    @property
+    def card_right(self) -> float: return self.card_x + self.card_width
+
+    @property
+    def card_bottom(self) -> float: return self.card_y + self.card_height
+
+
+def admin_access_overlay_layout(width: int, height: int, modules: int) -> AdminAccessOverlayLayout:
+    """Return a safely inset, centered layout for the QR Admin overlay."""
+    margin_x, margin_y = max(48.0, width * .08), max(48.0, height * .12)
+    card_width = min(width * .76, width - 2 * margin_x)
+    card_height = min(height * .76, height - 2 * margin_y)
+    card_x, card_y = (width - card_width) / 2, (height - card_height) / 2
+    module = max(1, int(min(card_width * .60, card_height * .54) // modules))
+    qr_size = module * modules
+    return AdminAccessOverlayLayout(
+        card_x, card_y, card_width, card_height,
+        (width - qr_size) / 2, card_y + card_height * .18, qr_size,
+        card_y + card_height * .09, card_y + card_height * .76,
+        card_y + card_height * .84, card_y + card_height * .91,
+    )
+
+
 class EyeDisplay(ABC):
     """Display-driver boundary for precomputed eye geometry."""
 
@@ -283,11 +320,35 @@ class TkEyeDisplay(EyeDisplay):
         self._draw_admin_overlay(frame)
 
     def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        previous = self._admin_overlay
         self._admin_overlay = overlay
+        if overlay.mode == "admin_access" and previous.mode != "admin_access" and overlay.qr_matrix:
+            width, height = self._admin_canvas_dimensions(None)
+            layout = admin_access_overlay_layout(width, height, len(overlay.qr_matrix))
+            logger.debug("PHOS ADMIN: overlay geometry canvas=%sx%s card=(%.0f,%.0f)-(%.0f,%.0f) qr=(%.0f,%.0f)-(%.0f,%.0f) safe_margin=(%.0f,%.0f)",
+                         width, height, layout.card_x, layout.card_y, layout.card_right, layout.card_bottom,
+                         layout.qr_x, layout.qr_y, layout.qr_x + layout.qr_size, layout.qr_y + layout.qr_size,
+                         width * .08, height * .12)
+
+    def _admin_canvas_dimensions(self, frame: EyeFrame | None) -> tuple[int, int]:
+        """Use Tk's usable canvas size; headless tests fall back to EyeFrame."""
+        canvas = self._canvas
+        try:
+            width, height = int(canvas.winfo_width()), int(canvas.winfo_height())
+            if width > 1 and height > 1:
+                return width, height
+        except (AttributeError, TypeError, ValueError):
+            pass
+        if frame is None:
+            return 800, 600
+        return frame.width, frame.height
 
     def _draw_admin_overlay(self, frame: EyeFrame) -> None:
         """Draw the final, local-only administrative layer above all content."""
         overlay = self._admin_overlay
+        if overlay.mode == "admin_access":
+            self._draw_admin_access_overlay(frame, overlay)
+            return
         if overlay.mode != "recovery" or overlay.recovery_code is None:
             return
         expires_at = overlay.recovery_expires_at
@@ -306,6 +367,35 @@ class TkEyeDisplay(EyeDisplay):
                            font=("TkFixedFont", max(30, int(frame.height * .085)), "bold"))
         canvas.create_text(frame.width / 2, layout.countdown_y, text=f"Expires in {minutes:02d}:{seconds:02d}",
                            fill="#9AC9E8", font=("TkDefaultFont", max(13, int(frame.height * .028))))
+
+    def _draw_admin_access_overlay(self, frame: EyeFrame, overlay: AdminOverlayState) -> None:
+        """Draw a crisp, matrix-based QR code without Pillow or image scaling."""
+        matrix, url = overlay.qr_matrix, overlay.admin_url
+        if not matrix or not url:
+            return
+        width, height = self._admin_canvas_dimensions(frame)
+        modules = len(matrix)
+        layout = admin_access_overlay_layout(width, height, modules)
+        module = layout.qr_size // modules
+        canvas = self._canvas
+        canvas.create_rectangle(0, 0, width, height, fill="#020B1C", outline="")
+        canvas.create_rectangle(layout.card_x, layout.card_y, layout.card_right, layout.card_bottom,
+                                fill="#071B35", outline="#00C9FF", width=2)
+        canvas.create_text(width / 2, layout.title_y, text="PHOS ADMIN", fill="#00C9FF",
+                           font=("TkDefaultFont", max(18, int(height * .042)), "bold"))
+        canvas.create_rectangle(layout.qr_x, layout.qr_y, layout.qr_x + layout.qr_size, layout.qr_y + layout.qr_size, fill="#FFFFFF", outline="")
+        for row, values in enumerate(matrix):
+            for column, enabled in enumerate(values):
+                if enabled:
+                    x, y = layout.qr_x + column * module, layout.qr_y + row * module
+                    canvas.create_rectangle(x, y, x + module, y + module, fill="#02050D", outline="")
+        ip = url.removeprefix("http://").split(":", 1)[0]
+        canvas.create_text(width / 2, layout.url_y, text=url, fill="#DDEEFF",
+                           font=("TkFixedFont", max(12, int(height * .024))))
+        canvas.create_text(width / 2, layout.ip_y, text=f"IP: {ip}", fill="#9AC9E8",
+                           font=("TkDefaultFont", max(12, int(height * .024))))
+        canvas.create_text(width / 2, layout.close_y, text="Touch to close", fill="#9AC9E8",
+                           font=("TkDefaultFont", max(12, int(height * .022))))
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
         if self._root is None or self._canvas is None:

@@ -193,6 +193,8 @@ class RemoteApplicationService:
     def request_admin_password_recovery(self): return self._call("request_admin_password_recovery")
     def verify_admin_recovery_code(self, value): return self._call("verify_admin_recovery_code", {"code": value})
     def clear_admin_overlay(self): return self._call("clear_admin_overlay")
+    def get_admin_network_info(self): return self._call("get_admin_network_info")
+    def show_admin_access_overlay(self): return self._call("show_admin_access_overlay")
     def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
     def skins(self): return self._call("skins")
     def create_skin(self, value): return self._call("create_skin", value)
@@ -665,6 +667,18 @@ class PhosApplicationService:
         clear = getattr(self._runtime, "clear_admin_overlay", None)
         if callable(clear): clear()
         return {"status": "cleared"}
+
+    def get_admin_network_info(self):
+        return self._runtime.admin_network_info()
+
+    def show_admin_access_overlay(self):
+        if not self._runtime.admin_network_info().get("admin_url"):
+            raise ApplicationError("network_unavailable", "Admin network is unavailable.", status=503)
+        try:
+            self._runtime.show_admin_access_overlay()
+        except RuntimeError as error:
+            raise ApplicationError("service_unavailable", str(error), status=503) from error
+        return {"status": "shown"}
 
     @staticmethod
     def _speech_configuration_reason(subsystem: str, provider: str | None, error: Exception) -> str:

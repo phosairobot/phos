@@ -90,6 +90,22 @@ def test_recovery_does_not_activate_when_the_display_is_unavailable():
     assert service._admin_recovery.code is None
 
 
+def test_admin_network_and_overlay_use_the_runtime_boundary():
+    class AdminRuntime(Runtime):
+        def __init__(self): super().__init__(); self.shown = 0
+        def admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1
+
+    runtime = AdminRuntime()
+    service = PhosApplicationService(runtime)
+
+    assert service.get_admin_network_info()["admin_url"] == "http://192.168.1.42:8080/"
+    assert service.show_admin_access_overlay() == {"status": "shown"}
+    assert runtime.shown == 1
+
+
 def test_background_uploads_are_a_directory_backed_collection(tmp_path):
     class Repository:
         def __init__(self, config): self.config = config

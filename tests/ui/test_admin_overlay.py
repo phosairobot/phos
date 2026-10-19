@@ -3,7 +3,8 @@ import time
 
 from robot.admin_access import AdminOverlayState, RecoveryState
 from robot.runtime import PhosRuntime
-from robot.ui.display import MemoryEyeDisplay, TkEyeDisplay, recovery_overlay_layout
+from robot.ui.display import (MemoryEyeDisplay, TkEyeDisplay, admin_access_overlay_layout,
+                              recovery_overlay_layout)
 from robot.ui.eyes import EyeRenderer
 from robot.ui.runtime import EyeRenderLoop
 from robot.ui.state import FaceState
@@ -103,6 +104,50 @@ def test_recovery_overlay_is_the_final_tk_layer_and_hidden_state_draws_nothing()
     assert ("text", "Password recovery code") in calls
     assert ("text", "483921") in calls
     assert any(entry[0] == "text" and entry[1].startswith("Expires in ") for entry in calls if len(entry) == 2)
+
+
+def test_admin_access_overlay_draws_a_matrix_url_and_close_instruction():
+    display = TkEyeDisplay()
+    calls = []
+    display._root = object()
+    display._canvas = SimpleNamespace(
+        delete=lambda *_: calls.append(("delete",)), configure=lambda **_: None,
+        create_oval=lambda *_args, **_kwargs: None, create_arc=lambda *_args, **_kwargs: None,
+        create_line=lambda *_args, **_kwargs: None,
+        create_rectangle=lambda *_args, **kwargs: calls.append(("rectangle", kwargs.get("fill"))),
+        create_text=lambda *_args, **kwargs: calls.append(("text", kwargs.get("text"))),
+    )
+    display._tk = SimpleNamespace(ARC="arc")
+    display.set_admin_overlay(AdminOverlayState.admin_access("http://192.168.1.42:8080/", (
+        (False, True, False), (True, False, True), (False, True, False))))
+
+    display.draw(EyeRenderer().render(FaceState(), timestamp=0.0))
+
+    assert ("text", "PHOS ADMIN") in calls
+    assert ("text", "http://192.168.1.42:8080/") in calls
+    assert ("text", "IP: 192.168.1.42") in calls
+    assert ("text", "Touch to close") in calls
+    assert len([entry for entry in calls if entry == ("rectangle", "#02050D")]) == 4
+
+
+def test_admin_access_card_and_content_are_safely_bounded_on_800x600():
+    layout = admin_access_overlay_layout(800, 600, 33)
+
+    assert layout.card_x >= 0 and layout.card_y >= 0
+    assert layout.card_right <= 800 and layout.card_bottom <= 600
+    assert (round(layout.card_x), round(layout.card_y), round(layout.card_right), round(layout.card_bottom)) == (96, 72, 704, 528)
+    assert abs((layout.card_y + layout.card_bottom) / 2 - 300) <= 1
+    assert layout.card_x <= layout.qr_x and layout.qr_x + layout.qr_size <= layout.card_right
+    assert layout.card_y <= layout.qr_y and layout.qr_y + layout.qr_size <= layout.card_bottom
+    assert all(layout.card_y < y < layout.card_bottom for y in (layout.url_y, layout.ip_y, layout.close_y))
+
+
+def test_admin_access_layout_scales_to_the_actual_usable_canvas():
+    layout = admin_access_overlay_layout(800, 480, 33)
+
+    assert layout.card_x >= 64 and layout.card_right <= 736
+    assert layout.card_y >= 57 and layout.card_bottom <= 423
+    assert layout.qr_y >= layout.card_y and layout.qr_y + layout.qr_size <= layout.card_bottom
 
 
 def test_overlay_state_repr_does_not_contain_the_recovery_code():

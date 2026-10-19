@@ -532,6 +532,13 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
         runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
+        admin_network = None
+        if area in {"general", "network"} and application_service is not None:
+            try:
+                admin_network = application_service.get_admin_network_info()
+            except Exception:
+                admin_network = {"hostname": "Not available", "ip_address": None, "interface": None,
+                                 "admin_url": None, "status": "unavailable"}
         if area == "backgrounds":
             assets, status_view = [], {"enabled": document["display"]["backgrounds"]["enabled"],
                                        "current_state": None, "current_asset": None,
@@ -557,12 +564,25 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                submitted=request.form if request.method == "POST" else None,
                                error=error, config_path=config.path, document=document,
                                active=current, runtime_state=runtime_state,
+                               admin_network=admin_network,
                                elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
                                                                     for slot in web_secrets.slots()),
                                cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
                                                                   for slot in web_secrets.slots()),
                                pending=current is not None and document != current,
                                iris_resolver=IrisColorResolver), status
+
+    @app.post("/admin-access/show")
+    def show_admin_access():
+        if application_service is None:
+            abort(503)
+        try:
+            application_service.show_admin_access_overlay()
+        except ApplicationError as exc:
+            flash(exc.message)
+        else:
+            flash("Admin access QR is shown on PHOS.")
+        return redirect(url_for("configuration", area="general"))
 
     @app.route("/system", methods=["GET"])
     def system():

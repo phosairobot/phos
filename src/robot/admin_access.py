@@ -6,6 +6,9 @@ import ipaddress
 import socket
 import secrets
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,12 @@ class AdminOverlayState:
         if not isinstance(expires_at, (int, float)):
             raise ValueError("Recovery expiration is invalid.")
         return cls(mode="recovery", recovery_code=code, recovery_expires_at=float(expires_at))
+
+    @classmethod
+    def admin_access(cls, admin_url: str, qr_matrix: tuple[tuple[bool, ...], ...]) -> "AdminOverlayState":
+        if not isinstance(admin_url, str) or not admin_url.startswith("http://") or not qr_matrix:
+            raise ValueError("Admin access overlay is invalid.")
+        return cls(mode="admin_access", admin_url=admin_url, qr_matrix=qr_matrix)
 
     def expired(self, now: float) -> bool:
         return self.mode == "recovery" and (
@@ -57,7 +66,8 @@ def select_lan_ipv4(addresses):
     for interface, address in addresses:
         try: value = ipaddress.ip_address(address)
         except ValueError: continue
-        if value.version == 4 and not (value.is_loopback or value.is_link_local or value.is_unspecified):
+        if (value.version == 4 and (value.is_private or value.is_global)
+                and not (value.is_loopback or value.is_link_local or value.is_unspecified)):
             return interface, str(value)
     return None, None
 
@@ -69,11 +79,40 @@ class NetworkInfoService:
     def info(self):
         now = self._clock()
         if self._cached is not None and now < self._next: return self._cached
-        items = self._addresses() if self._addresses else []
+        items = self._addresses() if self._addresses else _system_ipv4_addresses()
         interface, address = select_lan_ipv4(items)
+        previous = self._cached
         self._cached = NetworkInfo(self._hostname(), address, interface, self._port, address is not None)
         self._next = now + self._ttl
+        if previous is None or previous.connected != self._cached.connected:
+            logger.info("PHOS ADMIN: network status=%s", "connected" if self._cached.connected else "unavailable")
+        if self._cached.connected:
+            logger.debug("PHOS ADMIN: selected network interface=%s ip=%s", interface, address)
         return self._cached
+
+
+def _system_ipv4_addresses():
+    """Best-effort local IPv4 enumeration; never performs network I/O."""
+    addresses = []
+    try:
+        import fcntl
+        import struct
+        for _index, interface in socket.if_nameindex():
+            request = struct.pack("256s", interface.encode()[:15])
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                    response = fcntl.ioctl(probe.fileno(), 0x8915, request)
+            except OSError:
+                continue
+            addresses.append((interface, socket.inet_ntoa(response[20:24])))
+    except (AttributeError, ImportError, OSError):
+        pass
+    if addresses:
+        return addresses
+    try:
+        return [(None, item[4][0]) for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    except socket.gaierror:
+        return []
 
 
 class QRMatrixCache:
@@ -82,9 +121,12 @@ class QRMatrixCache:
         if not isinstance(url, str) or not url.startswith("http://"): raise ValueError("Admin URL is invalid")
         if url != self._url:
             import qrcode
-            self._matrix = tuple(tuple(bool(cell) for cell in row) for row in qrcode.QRCode(border=2).get_matrix())
-            code = qrcode.QRCode(border=2); code.add_data(url); code.make(fit=True)
-            self._matrix = tuple(tuple(bool(cell) for cell in row) for row in code.get_matrix()); self._url = url
+            code = qrcode.QRCode(border=2)
+            code.add_data(url)
+            code.make(fit=True)
+            self._matrix = tuple(tuple(bool(cell) for cell in row) for row in code.get_matrix())
+            self._url = url
+            logger.debug("PHOS ADMIN: QR matrix regenerated")
         return self._matrix
 
 

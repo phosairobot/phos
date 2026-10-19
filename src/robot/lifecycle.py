@@ -430,6 +430,8 @@ class LifecycleService:
             "application.request_admin_password_recovery": lambda: self._application_service.request_admin_password_recovery(),
             "application.verify_admin_recovery_code": lambda: self._application_service.verify_admin_recovery_code(payload.get("code")),
             "application.clear_admin_overlay": lambda: self._application_service.clear_admin_overlay(),
+            "application.get_admin_network_info": lambda: self._application_service.get_admin_network_info(),
+            "application.show_admin_access_overlay": lambda: self._application_service.show_admin_access_overlay(),
             "application.configure_eye_safe_layer": lambda: self._application_service.configure_eye_safe_layer(payload),
             "application.skins": lambda: self._application_service.skins(),
             "application.create_skin": lambda: self._application_service.create_skin(payload),
