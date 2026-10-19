@@ -87,6 +87,33 @@ def test_configure_eyes_validates_persists_and_applies_canonical_color(runtime, 
     assert applied == [expected]
 
 
+def test_configure_eyes_hot_applies_iris_source_and_environment_overlays_together(runtime):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_appearance_applier(lambda config: applied.append(("iris", config.iris_color)))
+    lifecycle.register_base_visual_source_applier(
+        lambda config: applied.append(("source", config.base_visual_source)))
+    lifecycle.register_environment_overlays_applier(
+        lambda config: applied.append(("overlays", config.environment_overlays_enabled)))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    result = application.configure_eyes({"iris_color": "violet", "base_visual_source": "state",
+                                         "environment_overlays_enabled": False})
+
+    assert result["applied"] == ["display.iris_color", "display.base_visual_source",
+                                 "display.environment_overlays_enabled"]
+    assert result["saved"] == {"iris_color": "#A670F5", "base_visual_source": "state",
+                               "environment_overlays_enabled": False}
+    assert applied == [("iris", "#A670F5"), ("source", "state"), ("overlays", False)]
+    saved = RuntimeConfig.from_file(path)
+    assert (saved.iris_color, saved.base_visual_source, saved.environment_overlays_enabled) == (
+        "#A670F5", "state", False)
+    assert (lifecycle.active["display"]["iris_color"], lifecycle.active["display"]["base_visual_source"],
+            lifecycle.active["display"]["environment_overlays_enabled"]) == ("#A670F5", "state", False)
+
+
 def test_configure_eyes_rejects_invalid_color_before_persistence(runtime):
     path, lifecycle, _, _ = runtime
     application = object.__new__(PhosApplicationService)
