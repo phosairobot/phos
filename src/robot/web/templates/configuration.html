@@ -157,6 +157,16 @@ Your edits on this page have not been saved.</p>
 {% if area == 'voice' %}
 <section class="status"><h3>Provider availability</h3><p>Local / Piper, ElevenLabs, and Cartesia are implemented. Google Cloud TTS is coming soon. ElevenLabs credential: <strong>{{ 'Configured' if elevenlabs_credential_configured else 'Not configured' }}</strong>. Cartesia credential: <strong>{{ 'Configured' if cartesia_credential_configured else 'Not configured' }}</strong>. Credentials remain write-only in <a href="{{ url_for('credentials') }}">Credentials</a>.</p></section>
 {% endif %}
+{% if area == 'network' %}
+<section class="status admin-network" aria-label="PHOS runtime network connection"><h3>Runtime / Connection</h3><dl>
+<dt>Hostname</dt><dd>{{ admin_network.hostname if admin_network else 'Not available' }}</dd>
+<dt>IP address</dt><dd>{{ admin_network.ip_address or 'Not available' if admin_network else 'Not available' }}</dd>
+<dt>Interface</dt><dd>{{ admin_network.interface or '—' if admin_network else '—' }}</dd>
+<dt>Status</dt><dd>{{ 'Connected' if admin_network and admin_network.status == 'connected' else 'Disconnected' }}</dd>
+<dt>Admin URL</dt><dd>{% if admin_network and admin_network.admin_url %}<a href="{{ admin_network.admin_url }}">{{ admin_network.admin_url }}</a>{% else %}Not available{% endif %}</dd>
+</dl>{% if admin_network and admin_network.admin_url %}<form method="post" action="{{ url_for('show_admin_access') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="secondary-action">Show QR on PHOS</button></form>{% else %}<button type="button" class="secondary-action" disabled>Show QR on PHOS</button>{% endif %}</section>
+<h3>Network Configuration</h3>
+{% endif %}
 <form method="post" action="{{ url_for('configuration', area=area) }}">
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

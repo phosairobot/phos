@@ -57,6 +57,69 @@ def authorize(app):
     return client
 
 
+def test_recovery_request_is_public_and_never_returns_the_physical_code(setup):
+    class RecoveryService:
+        def __init__(self):
+            self.requests = 0
+
+        def request_admin_password_recovery(self):
+            self.requests += 1
+            # This is deliberately a service-only value: the route must not
+            # interpolate it into its rendered response.
+            return {"status": "requested"}
+
+    _, path, now = setup
+    service = RecoveryService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    client = app.test_client()
+
+    page = client.get("/recovery")
+    response = client.post("/recovery", data={"csrf_token": csrf(page), "action": "request"})
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert service.requests == 1
+    assert "Recovery code requested. Check the PHOS display." in html
+    assert "483921" not in html
+
+
+def test_network_page_uses_runtime_network_info_and_can_show_qr(setup):
+    class AdminAccessService:
+        def __init__(self): self.shown = 0
+        def get_admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1; return {"status": "shown"}
+
+    _, path, now = setup
+    service = AdminAccessService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    client = authorize(app)
+    dashboard = client.get("/").get_data(as_text=True)
+    html = client.get("/configuration/network").get_data(as_text=True)
+
+    assert "Show QR on PHOS" not in dashboard
+    assert all(value in html for value in ("Network Configuration", "Administration address", 'name="web.host"',
+                                           'name="web.port"', "phos", "192.168.1.42", "wlan0",
+                                           "http://192.168.1.42:8080/", "Connected"))
+    assert 'href="http://192.168.1.42:8080/"' in html
+    response = client.post("/admin-access/show", data={"csrf_token": csrf(client.get("/configuration/network"))})
+    assert response.status_code == 302 and service.shown == 1
+
+
+def test_network_page_renders_a_bounded_disconnected_state(setup):
+    class Disconnected:
+        def get_admin_network_info(self):
+            return {"hostname": "phos", "ip_address": None, "interface": None,
+                    "port": 8080, "admin_url": None, "status": "unavailable"}
+
+    _, path, now = setup
+    app = create_app(path, clock=lambda: now[0], application_service=Disconnected())
+    html = authorize(app).get("/configuration/network").get_data(as_text=True)
+    assert "Disconnected" in html and "Not available" in html and "Show QR on PHOS</button>" in html
+    assert "disabled" in html
+
+
 class FormParser(HTMLParser):
     def __init__(self):
         super().__init__()

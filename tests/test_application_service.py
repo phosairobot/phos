@@ -43,12 +43,67 @@ class Runtime:
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
 
 
+class RecoveryRuntime(Runtime):
+    def __init__(self, *, available=True):
+        super().__init__()
+        self.available = available
+        self.shown = []
+        self.cleared = 0
+
+    def admin_overlay_available(self):
+        return self.available
+
+    def show_recovery_code(self, code, expires_at):
+        self.shown.append((code, expires_at))
+
+    def clear_admin_overlay(self):
+        self.cleared += 1
+
+
 def test_status_has_semantic_environment_and_health():
     service = PhosApplicationService(Runtime())
     status = service.status()
     assert status["environment"]["status"] == "available"
     assert status["health"]["subsystems"]["ccs811"]["state"] == "warming_up"
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
+
+
+def test_recovery_code_is_shown_only_locally_and_never_returned():
+    runtime = RecoveryRuntime()
+    service = PhosApplicationService(runtime)
+    service._admin_recovery.token = lambda: "483921"
+
+    result = service.request_admin_password_recovery()
+
+    assert result == {"status": "requested"}
+    assert runtime.shown and runtime.shown[0][0] == "483921"
+    assert "483921" not in repr(result)
+
+
+def test_recovery_does_not_activate_when_the_display_is_unavailable():
+    service = PhosApplicationService(RecoveryRuntime(available=False))
+
+    with pytest.raises(ApplicationError, match="Recovery display is unavailable") as error:
+        service.request_admin_password_recovery()
+
+    assert error.value.code == "service_unavailable"
+    assert service._admin_recovery.code is None
+
+
+def test_admin_network_and_overlay_use_the_runtime_boundary():
+    class AdminRuntime(Runtime):
+        def __init__(self): super().__init__(); self.shown = 0
+        def admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1
+
+    runtime = AdminRuntime()
+    service = PhosApplicationService(runtime)
+
+    assert service.get_admin_network_info()["admin_url"] == "http://192.168.1.42:8080/"
+    assert service.show_admin_access_overlay() == {"status": "shown"}
+    assert runtime.shown == 1
 
 
 def test_background_uploads_are_a_directory_backed_collection(tmp_path):

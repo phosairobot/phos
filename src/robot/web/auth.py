@@ -59,6 +59,15 @@ class PasswordStore:
                 raise ValueError("Use a different password with 12–256 characters.")
             self._write(new, must_change=False)
 
+    def reset(self, new: str, confirmation: str):
+        """Set a password after an independently verified physical recovery code."""
+        with self.lock:
+            if new != confirmation:
+                raise ValueError("New passwords do not match.")
+            if not 12 <= len(new) <= 256 or not new.strip():
+                raise ValueError("Use a password with 12–256 characters.")
+            self._write(new, must_change=False)
+
     def _write(self, password: str, *, must_change: bool):
         data = {"password_hash": generate_password_hash(password, method="pbkdf2:sha256:1000000"),
                 "must_change": must_change}

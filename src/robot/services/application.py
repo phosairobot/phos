@@ -42,6 +42,7 @@ from robot.voice.normalization import SpeechTextNormalizer
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
+from robot.admin_access import RecoveryState
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
@@ -189,6 +190,11 @@ class RemoteApplicationService:
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
     def configure_eyes(self, value): return self._call("configure_eyes", value)
+    def request_admin_password_recovery(self): return self._call("request_admin_password_recovery")
+    def verify_admin_recovery_code(self, value): return self._call("verify_admin_recovery_code", {"code": value})
+    def clear_admin_overlay(self): return self._call("clear_admin_overlay")
+    def get_admin_network_info(self): return self._call("get_admin_network_info")
+    def show_admin_access_overlay(self): return self._call("show_admin_access_overlay")
     def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
     def skins(self): return self._call("skins")
     def create_skin(self, value): return self._call("create_skin", value)
@@ -285,6 +291,7 @@ class PhosApplicationService:
         self._core = runtime.core
         self._behavior = runtime._behavior_engine  # composition-owned semantic collaborator
         self._lifecycle = lifecycle
+        self._admin_recovery = RecoveryState(clock=clock)
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -634,6 +641,44 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", result.get("error", "Configuration service is unavailable."), status=503)
         saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
+
+    def request_admin_password_recovery(self):
+        show = getattr(self._runtime, "show_recovery_code", None)
+        if not callable(show):
+            raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503)
+        available = getattr(self._runtime, "admin_overlay_available", None)
+        if not callable(available) or not available():
+            raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503)
+        code = self._admin_recovery.request()
+        try:
+            show(code, self._admin_recovery.expires)
+        except Exception as error:
+            self._admin_recovery.clear()
+            raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503) from error
+        logger.info("PHOS ADMIN: recovery requested")
+        return {"status": "requested"}
+
+    def verify_admin_recovery_code(self, code):
+        try: self._admin_recovery.verify(code)
+        except ValueError as error: raise ApplicationError(str(error), "Recovery code could not be verified.") from error
+        return {"status": "verified"}
+
+    def clear_admin_overlay(self):
+        clear = getattr(self._runtime, "clear_admin_overlay", None)
+        if callable(clear): clear()
+        return {"status": "cleared"}
+
+    def get_admin_network_info(self):
+        return self._runtime.admin_network_info()
+
+    def show_admin_access_overlay(self):
+        if not self._runtime.admin_network_info().get("admin_url"):
+            raise ApplicationError("network_unavailable", "Admin network is unavailable.", status=503)
+        try:
+            self._runtime.show_admin_access_overlay()
+        except RuntimeError as error:
+            raise ApplicationError("service_unavailable", str(error), status=503) from error
+        return {"status": "shown"}
 
     @staticmethod
     def _speech_configuration_reason(subsystem: str, provider: str | None, error: Exception) -> str:

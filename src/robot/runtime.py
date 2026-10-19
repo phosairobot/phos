@@ -51,6 +51,7 @@ from robot.vision import (
 )
 
 from robot.vision.aws_expression import AWSExpressionProvider
+from robot.admin_access import AdminOverlayState, NetworkInfoService, QRMatrixCache
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,8 @@ class PhosRuntime:
         self.core = core
         self._behavior_engine = behavior_engine
         self._eye_render_loop = eye_render_loop
+        self._admin_network = NetworkInfoService(config.web_port) if config is not None else None
+        self._admin_qr = QRMatrixCache()
         self._vision_pipeline = vision_pipeline
         self._config = config
         self._state_effects = StateEffectResolver(config) if config is not None else None
@@ -140,6 +143,54 @@ class PhosRuntime:
     def apply_appearance(self, config: RuntimeConfig) -> None:
         """Apply validated appearance through the display runtime boundary."""
         self._eye_render_loop.request_appearance(iris_color=config.iris_color)
+
+    def admin_overlay_available(self) -> bool:
+        """Return whether the physical display can safely receive local secrets."""
+        return self._eye_render_loop.admin_overlay_available
+
+    def show_recovery_code(self, code: str, expires_at: float) -> None:
+        """Show a recovery code locally, through the display-loop handoff only."""
+        if not self.admin_overlay_available():
+            raise RuntimeError("Recovery display is unavailable.")
+        self._eye_render_loop.request_admin_overlay(AdminOverlayState.recovery(code, expires_at))
+
+    def clear_admin_overlay(self) -> None:
+        """Remove any local administrative layer; safe when already hidden."""
+        self._eye_render_loop.clear_admin_overlay()
+
+    def admin_network_info(self) -> dict:
+        """Read the cached local-LAN address without exposing device internals."""
+        if self._admin_network is None:
+            return {"hostname": None, "ip_address": None, "interface": None, "port": None,
+                    "admin_url": None, "status": "unavailable"}
+        return self._admin_network.info().document()
+
+    def show_admin_access_overlay(self) -> None:
+        """Render the LAN-only Admin URL and its QR representation locally."""
+        if not self.admin_overlay_available():
+            raise RuntimeError("Admin display is unavailable.")
+        info = self._admin_network.info() if self._admin_network is not None else None
+        if info is None or not info.connected or info.admin_url is None:
+            raise RuntimeError("Admin network is unavailable.")
+        matrix = self._admin_qr.matrix(info.admin_url)
+        self._eye_render_loop.request_admin_overlay(AdminOverlayState.admin_access(info.admin_url, matrix))
+        logger.info("PHOS ADMIN: access overlay opened")
+
+    def handle_admin_touch(self, event) -> bool:
+        """Handle the local-only administrative gesture without semantic state changes."""
+        overlay = self._eye_render_loop.admin_overlay
+        if overlay.mode == "admin_access" and event.kind.value == "tap":
+            self.clear_admin_overlay()
+            logger.info("PHOS ADMIN: access overlay closed")
+            return True
+        if (event.kind.value == "long_press" and event.duration_ms >= 2500
+                and event.normalized_x >= .80 and event.normalized_y <= .20):
+            try:
+                self.show_admin_access_overlay()
+            except RuntimeError:
+                return False
+            return True
+        return False
 
     def apply_backgrounds(self, config: RuntimeConfig) -> None:
         """Apply an already-validated state-background configuration live."""
@@ -781,6 +832,8 @@ def build_runtime(
     def publish_touch(event) -> None:
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:
+            return
+        if runtime.handle_admin_touch(event):
             return
         payload = {"kind": event.kind.value, "x": event.x, "y": event.y,
                    "normalized_x": event.normalized_x, "normalized_y": event.normalized_y,

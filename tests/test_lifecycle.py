@@ -314,6 +314,37 @@ def test_lifecycle_channel_dispatches_eyes_configuration(runtime):
         assert not thread.is_alive()
 
 
+def test_lifecycle_channel_dispatches_admin_network_and_overlay_operations(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def __init__(self): self.shown = 0; self.cleared = 0
+        def get_admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1; return {"status": "shown"}
+        def clear_admin_overlay(self): self.cleared += 1; return {"status": "cleared"}
+
+    application = Application()
+    service.register_application_service(application)
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.get_admin_network_info")["result"]["ip_address"] == "192.168.1.42"
+        assert client.execute("application.show_admin_access_overlay") == {"ok": True, "result": {"status": "shown"}}
+        assert client.execute("application.clear_admin_overlay") == {"ok": True, "result": {"status": "cleared"}}
+        assert (application.shown, application.cleared) == (1, 1)
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_lifecycle_eyes_unexpected_failure_is_logged_and_bounded(caplog):
     class Application:
         def configure_eyes(self, _payload):

@@ -74,7 +74,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
     web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
     auth = AuthenticationState(clock)
-    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets)
+    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets,
+                          )
     csrf = CSRFProtect(app)
     if application_service is not None:
         from robot.web.api import create_api
@@ -105,7 +106,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
 
     @app.before_request
     def require_authentication():
-        if request.endpoint in {None, "login", "static"}:
+        if request.endpoint in {None, "login", "recovery_page", "static"}:
             return None
         with auth.lock:
             if not auth.valid(session.get("sid")):
@@ -146,6 +147,39 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     return redirect(url_for("password" if passwords.must_change else "configuration"))
             error, status = "Incorrect password.", 401
         return render_template("login.html", error=error), status
+
+    @app.route("/recovery", methods=["GET", "POST"])
+    def recovery_page():
+        error = None
+        if request.method == "POST":
+            action = request.form.get("action")
+            try:
+                if action == "request":
+                    if application_service is None:
+                        raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503)
+                    application_service.request_admin_password_recovery()
+                    flash("Recovery code requested. Check the PHOS display.")
+                elif action == "reset":
+                    if application_service is None: raise ApplicationError("service_unavailable", "Recovery service is unavailable.", status=503)
+                    application_service.verify_admin_recovery_code(request.form.get("code", ""))
+                    passwords.reset(request.form.get("new", ""), request.form.get("confirmation", ""))
+                    auth.sessions.clear(); session.clear()
+                    if application_service is not None: application_service.clear_admin_overlay()
+                    logger.info("PHOS ADMIN: password recovery completed")
+                    flash("Password updated. Sign in again.")
+                    return redirect(url_for("login"))
+                else: abort(400)
+            except ValueError as exc:
+                messages = {"recovery_code_invalid": "Invalid recovery code.", "recovery_code_expired": "Recovery code expired.",
+                            "recovery_attempts_exceeded": "Too many failed attempts.", "recovery_rate_limited": "Recovery request rate limited.",
+                            "recovery_not_active": "Invalid recovery code."}
+                error = messages.get(str(exc), str(exc))
+                status = 429 if str(exc) == "recovery_rate_limited" else 400
+            except ApplicationError as exc:
+                error, status = exc.message, exc.status
+            except OSError:
+                error, status = "Password could not be saved.", 503
+        return render_template("recovery.html", error=error), locals().get("status", 200)
 
     @app.route("/password", methods=["GET", "POST"])
     def password():
@@ -498,6 +532,13 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
         runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
+        admin_network = None
+        if area in {"general", "network"} and application_service is not None:
+            try:
+                admin_network = application_service.get_admin_network_info()
+            except Exception:
+                admin_network = {"hostname": "Not available", "ip_address": None, "interface": None,
+                                 "admin_url": None, "status": "unavailable"}
         if area == "backgrounds":
             assets, status_view = [], {"enabled": document["display"]["backgrounds"]["enabled"],
                                        "current_state": None, "current_asset": None,
@@ -523,12 +564,25 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                submitted=request.form if request.method == "POST" else None,
                                error=error, config_path=config.path, document=document,
                                active=current, runtime_state=runtime_state,
+                               admin_network=admin_network,
                                elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
                                                                     for slot in web_secrets.slots()),
                                cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
                                                                   for slot in web_secrets.slots()),
                                pending=current is not None and document != current,
                                iris_resolver=IrisColorResolver), status
+
+    @app.post("/admin-access/show")
+    def show_admin_access():
+        if application_service is None:
+            abort(503)
+        try:
+            application_service.show_admin_access_overlay()
+        except ApplicationError as exc:
+            flash(exc.message)
+        else:
+            flash("Admin access QR is shown on PHOS.")
+        return redirect(url_for("configuration", area="general"))
 
     @app.route("/system", methods=["GET"])
     def system():

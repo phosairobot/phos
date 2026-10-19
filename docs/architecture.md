@@ -435,3 +435,15 @@ of their configured duration then decay smoothly.
 motion then resumes only when Core returns to IDLE. Motion overlays take priority
 over lower-priority Vision expression reactions in IDLE, without changing the
 user-selected iris theme.
+
+### Local Admin Access
+
+`NetworkInfoService` is parent-process runtime state, not configuration: it
+selects the first non-loopback, non-link-local IPv4 address and refreshes its
+bounded cached result every 30 seconds. Web Admin obtains that read model only
+through `RemoteApplicationService` and lifecycle. The physical Admin overlay is
+a separate top display layer. It receives only the effective LAN Admin URL and
+a cached `qrcode` matrix; Tk renders individual square canvas modules, so Pillow
+and image resampling are unnecessary. A 2.5-second long press in the top-right
+20% of the display opens it, and a tap closes it. This never changes
+`FaceState`, `RobotState`, or `BehaviorEngine` state.
