@@ -348,19 +348,19 @@ behavior or voice settings. Custom skins live in internal `skins.json` storage b
 configuration. A skin may retain a deleted background asset reference; the
 background safely falls back until that asset is available again.
 
-Portable PHOS Skin files use YAML (`.phos-skin.yaml`, also `.yaml`/`.yml`) with
-Skin schema version `1`. Import is limited to 256 KiB and accepts only the
-name, description and validated appearance snapshot; imported skins always receive a new local custom ID.
-Skin files do not bundle background images, fetch remote assets, include
-absolute paths, or carry runtime state and secrets. Missing managed background
-references are reported and fall back safely during preview and apply.
-
-```yaml
-schema_version: 1
-name: My Skin
-description: A reusable PHOS appearance
-appearance: {}
-```
+Portable PHOS Skin packages use the `.phos-skin` ZIP-compatible archive format
+with a `skin.yaml` schema-version-`2` manifest and optional `assets/` PNG/JPEG
+backgrounds. `.zip` is accepted as a compatible upload format, but
+`.phos-skin` is the canonical format. `skin.yaml` is the package-internal
+manifest, not a standalone upload format. Imported skins always receive a new
+local custom ID.
+Imported and created custom Skin backgrounds are owned under
+`backgrounds/skins/<custom-id>/`; export bundles only those referenced images.
+Deleting a Skin removes its owned assets, but is rejected while its assets are
+used by the live appearance.
+Skin packages do not fetch remote assets, include absolute paths, or carry
+runtime state and secrets. Missing managed background references are reported
+and fall back safely during preview and apply.
 
 **State Backgrounds** accepts validated PNG and JPEG files from the managed
 `backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the

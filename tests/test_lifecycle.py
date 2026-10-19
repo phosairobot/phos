@@ -16,6 +16,7 @@ from robot.config import RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
 from robot.services.application import ApplicationError, PhosApplicationService
+from robot.ui.skins import SkinRepository, appearance_snapshot
 
 
 @pytest.fixture
@@ -695,3 +696,54 @@ def test_module_startup_resolves_stdlib_secrets_with_deployed_pythonpath():
         check=False,
     )
     assert probe.returncode == 0, probe.stderr
+
+
+def test_skin_delete_blocks_live_owned_assets_then_cleans_only_its_own_directory(runtime):
+    path, lifecycle, _, _ = runtime
+    source = path.parent / "backgrounds" / "idle.png"
+    source.parent.mkdir()
+    source.write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        b"\x00\x00\x00\x0cIDAT\x08\xd7c\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    appearance = appearance_snapshot(load_document())
+    appearance["backgrounds"].update({"enabled": True, "idle": "backgrounds/idle.png"})
+    repository = SkinRepository(path)
+    skin = repository.create("Owned", "", appearance)
+    owned_asset = skin.appearance["backgrounds"]["idle"]
+    unrelated = path.parent / "backgrounds" / "unrelated.png"
+    unrelated.write_bytes(b"unrelated")
+    update(path, lambda document: document["display"]["backgrounds"].update(
+        {"enabled": True, "idle": owned_asset}
+    ))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+
+    assert next(item for item in application.skins() if item["id"] == skin.id)["in_use"] is True
+    with pytest.raises(ApplicationError) as error:
+        application.delete_skin(skin.id)
+    assert error.value.code == "skin_in_use" and error.value.status == 409
+    assert "Apply another skin" in error.value.message
+
+    update(path, lambda document: document["display"]["backgrounds"].update({"enabled": False, "idle": None}))
+    assert application.delete_skin(skin.id) == {"deleted": skin.id}
+    assert not (path.parent / "backgrounds" / "skins" / skin.id).exists()
+    assert unrelated.read_bytes() == b"unrelated"
+
+
+def test_skin_in_use_is_a_semantic_appearance_match_for_builtin_and_custom_skins(runtime):
+    path, lifecycle, _, _ = runtime
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+
+    assert [item["id"] for item in application.skins() if item["in_use"]] == ["phos-default"]
+    update(path, lambda document: document["display"].update(
+        iris_color="white", eye_safe_layer={"enabled": True, "mode": "subtle"}
+    ))
+    assert [item["id"] for item in application.skins() if item["in_use"]] == ["minimal"]
+    update(path, lambda document: document["display"].update(
+        iris_color="violet", eye_safe_layer={"enabled": True, "mode": "balanced"},
+        state_effects={"enabled": True, "preset": "balanced", "palette": "aqua", "reduce_motion": False}
+    ))
+    assert [item["id"] for item in application.skins() if item["in_use"]] == ["ambient"]
+    update(path, lambda document: document["display"].update(iris_color="green"))
+    assert not [item for item in application.skins() if item["in_use"]]

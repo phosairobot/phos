@@ -367,7 +367,6 @@ class LifecycleService:
             "application.configure_eye_safe_layer": lambda: self._application_service.configure_eye_safe_layer(payload),
             "application.skins": lambda: self._application_service.skins(),
             "application.create_skin": lambda: self._application_service.create_skin(payload),
-            "application.rename_skin": lambda: self._application_service.rename_skin(payload),
             "application.delete_skin": lambda: self._application_service.delete_skin(payload.get("id")),
             "application.apply_skin": lambda: self._application_service.apply_skin(payload.get("id")),
             "application.import_skin": lambda: self._application_service.import_skin(payload),

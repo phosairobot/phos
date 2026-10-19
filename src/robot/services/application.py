@@ -45,7 +45,8 @@ from robot.config import ConfigurationError, RuntimeConfig
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
-                            available_appearance_snapshot, validate_appearance_snapshot)
+                            appearance_semantically_matches, available_appearance_snapshot,
+                            validate_appearance_snapshot)
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,6 @@ class RemoteApplicationService:
     def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
     def skins(self): return self._call("skins")
     def create_skin(self, value): return self._call("create_skin", value)
-    def rename_skin(self, value): return self._call("rename_skin", value)
     def delete_skin(self, value): return self._call("delete_skin", {"id": value})
     def apply_skin(self, value): return self._call("apply_skin", {"id": value})
     def import_skin(self, value): return self._call("import_skin", value)
@@ -799,12 +799,23 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", "Skin service is unavailable.", status=503)
         return SkinRepository(self._lifecycle.path)
 
+    @staticmethod
+    def _owns_live_backgrounds(skin_id: str, backgrounds: dict) -> bool:
+        prefix = f"backgrounds/skins/{skin_id}/"
+        return any(isinstance(backgrounds.get(state), str) and backgrounds[state].startswith(prefix)
+                   for state in ("idle", "listening", "thinking", "speaking", "sleeping", "error"))
+
     def skins(self) -> list[dict]:
         try:
+            document = self._lifecycle.config_repository.load().to_dict()
+            current_appearance = appearance_snapshot(document)
+            current_backgrounds = document["display"]["backgrounds"]
             result = []
             for skin in self._skins().list():
                 item = skin.document()
                 _, item["missing_backgrounds"] = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+                item["in_use"] = appearance_semantically_matches(current_appearance, skin.appearance, self._lifecycle.path.parent)
+                item["delete_blocked"] = not skin.built_in and self._owns_live_backgrounds(skin.id, current_backgrounds)
                 result.append(item)
             return result
         except ConfigurationError as error: raise ApplicationError("invalid_skin", str(error)) from error
@@ -818,14 +829,14 @@ class PhosApplicationService:
             return skin.document()
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
 
-    def rename_skin(self, payload: dict) -> dict:
-        if not isinstance(payload, dict) or set(payload) != {"id", "name", "description"}:
-            raise ApplicationError("invalid_skin", "Skin details are invalid.")
-        try: return self._skins().rename(payload["id"], payload["name"], payload["description"]).document()
-        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
-
     def delete_skin(self, skin_id: str) -> dict:
-        try: self._skins().delete(skin_id); return {"deleted": skin_id}
+        try:
+            current = self._lifecycle.config_repository.load().to_dict()["display"]["backgrounds"]
+            if self._owns_live_backgrounds(skin_id, current):
+                raise ApplicationError("skin_in_use", "This skin is currently used by PHOS. Apply another skin before deleting it.", status=409)
+            self._skins().delete(skin_id); return {"deleted": skin_id}
+        except ApplicationError:
+            raise
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
 
     def apply_skin(self, skin_id: str) -> dict:
@@ -847,9 +858,10 @@ class PhosApplicationService:
         return {"skin": skin.document(), "applied": result.get("applied", []), "missing_backgrounds": missing_backgrounds}
 
     def import_skin(self, payload: dict) -> dict:
-        if not isinstance(payload, dict) or set(payload) != {"content"}:
+        if (not isinstance(payload, dict) or set(payload) != {"content"}
+                or not isinstance(payload["content"], (bytes, bytearray))):
             raise ApplicationError("invalid_skin", "Skin import is invalid.")
-        try: return self._skins().import_yaml(payload["content"]).document()
+        try: return self._skins().import_package(payload["content"]).document()
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
 
     def export_skin(self, skin_id: str) -> dict:

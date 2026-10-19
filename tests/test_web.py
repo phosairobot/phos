@@ -421,6 +421,84 @@ def test_appearance_navigation_group_spans_the_mobile_sidebar_grid():
     assert ".nav-heading, .nav-group, .sidebar-account { grid-column: 1 / -1; }" in stylesheet
 
 
+def test_skin_import_picker_advertises_package_extensions_only():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/skins.html").read_text()
+
+    assert 'accept=".phos-skin,.zip"' in template
+    assert "Import Skin Package" in template and "Recommended: .phos-skin" in template
+    assert ".yaml" not in template and ".yml" not in template
+
+
+def test_skins_template_separates_panels_and_uses_consistent_card_actions():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/skins.html").read_text()
+
+    assert 'id="create-skin">Create Skin' in template
+    assert 'id="import-skin">Import Skin Package' in template
+    assert 'id="available-skins">Available Skins' in template
+    assert 'phos-skin-card-body' in template and 'phos-skin-card-footer' in template
+    assert 'skin-edit' not in template and '>Edit<' not in template and 'action" value="rename"' not in template
+    assert '<details class="phos-skin-card-delete-menu">' in template
+    assert 'Delete Skin' in template and 'This cannot be undone.' in template
+    assert 'skin.in_use' in template and 'skin.delete_blocked' in template
+    assert 'if not skin.built_in' in template
+    assert 'class="phos-skin-card-metadata"' in template and 'class="phos-skin-card-footer"' in template
+    assert 'class="phos-skin-card-header"' in template and 'class="phos-skin-card-title-row"' in template
+    assert 'class="phos-skin-card-delete"' in template and 'title="Delete skin"' in template
+    assert 'phos-skin-status-icon" title="In use" aria-label="In use">✓</span>' in template
+    assert '>In use</span>' not in template
+    assert template.index('class="phos-skin-card-delete') < template.index('<footer class="phos-skin-card-footer">')
+    assert 'class="phos-skin-card-footer"><a' in template
+
+
+def test_skin_card_classes_are_not_used_by_unrelated_web_templates():
+    templates = Path(__file__).parents[1] / "src/robot/web/templates"
+
+    assert all("phos-skin-card" not in path.read_text() for path in templates.glob("*.html") if path.name != "skins.html")
+
+
+def test_skin_card_css_keeps_status_in_header_and_actions_in_a_common_footer_row():
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+
+    assert ".phos-skin-card { display: flex;" in stylesheet and "flex-direction: column" in stylesheet
+    assert ".phos-skin-card-header { position: relative; display: flex; justify-content: space-between;" in stylesheet
+    assert ".phos-skin-card-title-row { display: flex;" in stylesheet
+    assert ".content .phos-skin-card-footer { display: flex; flex-wrap: nowrap;" in stylesheet
+    assert ".phos-skin-card-delete" in stylesheet
+    assert ".skin-form { flex-wrap:" in stylesheet and ".skin-form { display:" not in stylesheet
+    assert ".phos-skin-status-icon { width: 1.35rem;" in stylesheet
+    assert "min-height: 2.4rem; padding: .55rem .9rem;" in stylesheet
+    assert ".content .phos-skin-card-footer { display: flex; flex-wrap: nowrap; align-items: center; gap: .55rem; margin: 0;" in stylesheet
+    assert ".phos-skin-card-action { display: inline-flex; align-items: center; justify-content: center; width: auto;" in stylesheet
+
+
+def test_skins_page_renders_compact_cards_without_open_custom_edit_fields(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/appearance/skins").get_data(as_text=True)
+
+    assert 'class="skin-panel"' in page and 'class="skin-available"' in page
+    assert 'class="skin-delete" open' not in page
+
+
+@pytest.mark.parametrize(("filename", "accepted"), [("skin.phos-skin", True), ("skin.zip", True), ("skin.yaml", False), ("skin.yml", False)])
+def test_skin_upload_route_accepts_only_packages(setup, filename, accepted):
+    class Skins:
+        def __init__(self): self.imported = []
+        def import_skin(self, payload): self.imported.append(payload); return {}
+        def skins(self): return []
+
+    _, path, _ = setup
+    service = Skins()
+    app = create_app(path, application_service=service)
+    client = authorize(app)
+    token = csrf(client.get("/appearance/skins"))
+    response = client.post("/appearance/skins", data={"csrf_token": token, "action": "import",
+                           "skin": (io.BytesIO(b"package"), filename)})
+
+    assert bool(service.imported) is accepted
+    if not accepted:
+        assert b"Choose a Skin package (.phos-skin or .zip)." in response.data
+
+
 def test_focused_settings_and_page_responsibilities(setup):
     app, _, _ = setup
     client = authorize(app)

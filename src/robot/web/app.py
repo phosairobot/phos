@@ -344,11 +344,10 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     if action == "create": application_service.create_skin({"name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin created from current appearance.")
                     elif action == "import":
                         upload = request.files.get("skin")
-                        if upload is None or not upload.filename.lower().endswith((".phos-skin.yaml", ".yaml", ".yml")): raise ConfigurationError("Choose a YAML skin file.")
+                        if upload is None or not upload.filename.lower().endswith((".phos-skin", ".zip")): raise ConfigurationError("Choose a Skin package (.phos-skin or .zip).")
                         application_service.import_skin({"content": upload.read()}); flash("Skin imported as a custom skin.")
                     elif action == "apply": application_service.apply_skin(skin_id); flash("Skin applied live.")
                     elif action == "delete": application_service.delete_skin(skin_id); flash("Skin deleted.")
-                    elif action == "rename": application_service.rename_skin({"id": skin_id, "name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin renamed.")
                     else: raise ConfigurationError("Unsupported skin action.")
                     return redirect(url_for("appearance_skins"))
                 except Exception as exc:
@@ -364,7 +363,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             content = application_service.export_skin(skin_id)["content"]
         except Exception as exc:
             return Response(getattr(exc, "message", "Skin export is unavailable."), status=400, mimetype="text/plain")
-        return Response(content, mimetype="application/x-yaml", headers={"Content-Disposition": f'attachment; filename="{skin_id}.phos-skin.yaml"'})
+        return Response(content, mimetype="application/zip", headers={"Content-Disposition": f'attachment; filename="{skin_id}.phos-skin"'})
 
     @app.route("/appearance/state-effects", methods=["GET", "POST"])
     def appearance_state_effects():
