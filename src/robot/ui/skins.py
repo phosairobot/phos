@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 
 from robot.config import ConfigurationError, atomic_write_text
+from robot.iris_colors import IrisColorResolver
 
 
 _STATES = ("idle", "listening", "thinking", "speaking", "sleeping", "error")
@@ -21,7 +22,6 @@ _PACKAGE_ASSET = re.compile(r"assets/[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)$
 _EYE_SAFE_MODES = {"subtle", "balanced", "expressive"}
 _EFFECT_PRESETS = _EYE_SAFE_MODES
 _EFFECT_PALETTES = {"phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"}
-_IRIS_COLORS = {"cyan", "blue", "green", "turquoise", "amber", "violet", "white"}
 SKIN_SCHEMA_VERSION = 2
 MAX_SKIN_IMPORT_BYTES = 256 * 1024
 MAX_SKIN_PACKAGE_BYTES = 32 * 1024 * 1024
@@ -49,8 +49,12 @@ def validate_appearance_snapshot(snapshot: object, *, asset_pattern: re.Pattern 
     value = copy.deepcopy(snapshot)
     eyes, backgrounds = value["eyes"], value["backgrounds"]
     safe, effects = value["eye_safe_layer"], value["state_effects"]
-    if not isinstance(eyes, dict) or set(eyes) != {"iris_color"} or eyes["iris_color"] not in _IRIS_COLORS:
+    if not isinstance(eyes, dict) or set(eyes) != {"iris_color"}:
         raise ConfigurationError("Skin eyes.iris_color is unsupported")
+    try:
+        eyes["iris_color"] = IrisColorResolver.normalize(eyes["iris_color"])
+    except ValueError as error:
+        raise ConfigurationError("Skin eyes.iris_color is unsupported") from error
     if not isinstance(backgrounds, dict) or set(backgrounds) != {"enabled", *_STATES} or type(backgrounds["enabled"]) is not bool:
         raise ConfigurationError("Skin backgrounds must contain enabled and every supported robot state")
     for state in _STATES:
@@ -150,12 +154,12 @@ def skin_from_manifest(manifest: object) -> tuple[str, str, dict]:
 
 
 def built_in_skins() -> tuple[SkinDefinition, ...]:
-    default = {"eyes": {"iris_color": "cyan"},
+    default = {"eyes": {"iris_color": IrisColorResolver.PRESETS["cyan"]},
                "backgrounds": {"enabled": False, **{state: None for state in _STATES}},
                "eye_safe_layer": {"enabled": True, "mode": "balanced"},
                "state_effects": {"enabled": False, "preset": "balanced", "palette": "phos", "reduce_motion": False}}
-    minimal = copy.deepcopy(default); minimal["eyes"]["iris_color"] = "white"; minimal["eye_safe_layer"]["mode"] = "subtle"
-    ambient = copy.deepcopy(default); ambient["eyes"]["iris_color"] = "violet"; ambient["state_effects"] = {"enabled": True, "preset": "balanced", "palette": "aqua", "reduce_motion": False}
+    minimal = copy.deepcopy(default); minimal["eyes"]["iris_color"] = IrisColorResolver.PRESETS["white"]; minimal["eye_safe_layer"]["mode"] = "subtle"
+    ambient = copy.deepcopy(default); ambient["eyes"]["iris_color"] = IrisColorResolver.PRESETS["violet"]; ambient["state_effects"] = {"enabled": True, "preset": "balanced", "palette": "aqua", "reduce_motion": False}
     return (SkinDefinition("phos-default", "PHOS Default", "The standard PHOS appearance.", default, True),
             SkinDefinition("minimal", "Minimal", "Reduced visual complexity.", minimal, True),
             SkinDefinition("ambient", "Ambient", "A calm PHOS effect palette.", ambient, True))

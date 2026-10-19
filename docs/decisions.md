@@ -198,21 +198,22 @@ Web/API/MCP/Voice must reuse application services; OS reboot is deferred.
 **Status:** Accepted (explicit eye-system improvement request).
 
 Keep rendering within BehaviorEngine → FaceState → EyeRenderer → display.
-A canonical, named `display.iris_color` selects the base iris theme; semantic
-accent tint remains derived from FaceState. The Tk display uses inexpensive
+Canonical `display.iris_color` is `#RRGGBB`; named presets are compatibility/UI
+shortcuts resolved through one shared color resolver. Semantic accent tint
+remains derived from FaceState. The Tk display uses inexpensive
 layered Canvas primitives for eye-body depth, iris/pupil separation and
 reflections. No image pipeline, graphics dependency or provider-specific visual
 logic is introduced. Unsafe display geometry/backend changes require PHOS restart.
 
 
-## ADR-020 — Live application of named eye appearance
+## ADR-020 — Live application of eye appearance
 
 **Status:** Accepted (explicit runtime reload requirement).
 
 This decision extends ADR-018's reloadability classification: canonical
 `display.iris_color` joins logging level in the safe reloadable field allowlist.
 The lifecycle service validates the entire file and sends typed settings through
-the runtime service to the render-loop queue. The queue applies the theme on the
+the runtime service to the render-loop queue. The queue applies the color on the
 display event loop, where EyeRenderer smoothly interpolates its current iris
 color. No subsystem restarts. Mixed reloads apply logging and appearance while
 retaining pending restart-required fields. Web adapters cannot access renderer

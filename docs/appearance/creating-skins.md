@@ -42,7 +42,7 @@ name: Northern lights
 description: Cool aurora backgrounds with a violet iris.
 appearance:
   eyes:
-    iris_color: violet
+    iris_color: "#A670F5"
   backgrounds:
     enabled: true
     idle: assets/idle.png
@@ -100,8 +100,11 @@ one state.
 
 ### Eyes
 
-`eyes.iris_color` selects the iris colour. Supported values are:
-`cyan`, `blue`, `green`, `turquoise`, `amber`, `violet`, and `white`.
+`eyes.iris_color` stores a canonical colour as `#RRGGBB`, for example
+`"#7A5CFF"`. Web Admin offers the existing presets `cyan`, `blue`, `green`,
+`turquoise`, `amber`, `violet`, and `white` as shortcuts; exported Skins store
+their resolved canonical colour. Custom colours must have exactly six hex digits
+and a leading `#`; alpha, gradients, textures, and animations are not supported.
 
 ### Eye Safe Layer
 
@@ -148,7 +151,7 @@ name: Quiet cyan
 description: A background-free, low-motion appearance.
 appearance:
   eyes:
-    iris_color: cyan
+    iris_color: "#28CEEB"
   backgrounds:
     enabled: false
     idle: null
@@ -241,10 +244,10 @@ In Web Admin, open **Appearance → Skins → Import Skin Package**. PHOS accept
 `.phos-skin` (recommended) and `.zip` (compatibility) archives. `skin.yaml` is
 only the manifest inside a package; YAML files are not a public import format.
 
-**Preview** displays the Skin without changing the live PHOS appearance.
-**Apply** updates the live appearance. If a custom Skin is in use, PHOS will not
-let it be deleted while its own background assets are still referenced; apply a
-different Skin first.
+**Preview** applies the Skin to the live appearance temporarily, without saving
+the configuration. Use **Apply** to validate and save the Skin as the persistent
+appearance. If a custom Skin is in use, PHOS will not let it be deleted while
+its own background assets are still referenced; apply a different Skin first.
 
 Use **Export** to create a `.phos-skin` package. When exporting a custom Skin,
 PHOS bundles its referenced backgrounds under `assets/`, making the package

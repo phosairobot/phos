@@ -191,6 +191,12 @@ def test_configured_iris_theme_changes_stylized_iris_color():
     assert cyan.eyes[0].iris_radius > cyan.eyes[0].pupil_radius
 
 
+def test_custom_iris_color_uses_the_same_renderer_path_as_presets():
+    frame = EyeRenderer(iris_color="#7a5cff").render(FaceState(), timestamp=0)
+
+    assert frame.iris_color == "#7A5CFF"
+
+
 def test_semantic_iris_tint_interpolates_from_face_state():
     renderer = EyeRenderer(iris_color="blue", transition_seconds=.2)
     neutral = renderer.render(FaceState(), timestamp=0)

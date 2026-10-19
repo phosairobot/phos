@@ -174,7 +174,16 @@ Your edits on this page have not been saved.</p>
 {% for field in section.fields %}
 {% set value = submitted.get(field.name, '') if submitted is not none else field.value %}
 <div class="field"><label for="{{ field.name }}">{{ field.label }}</label>
-{% if field.choices %}
+{% if field.name == 'display.iris_color' %}
+{% set preset = iris_resolver.preset_for(value) %}
+<div class="iris-color-controls" data-iris-color-controls>
+<select id="iris-color-preset" data-iris-color-preset aria-label="Iris color preset">{% for name, color in iris_resolver.PRESETS.items() %}<option value="{{ name }}" data-color="{{ color }}" {{ 'selected' if preset == name else '' }}>{{ name | title }}</option>{% endfor %}<option value="custom" {{ 'selected' if preset is none else '' }}>Custom</option></select>
+<input id="iris-color-picker" data-iris-color-picker type="color" value="{{ value }}" aria-label="Custom iris color">
+<input id="iris-color-hex" data-iris-color-hex type="text" value="{{ value }}" pattern="#[0-9A-Fa-f]{6}" maxlength="7" spellcheck="false" aria-label="Custom iris color hex value">
+<input id="{{ field.name }}" name="{{ field.name }}" type="hidden" value="{{ value }}">
+<small data-iris-color-error role="alert" hidden>Enter a color as #RRGGBB.</small>
+</div>
+{% elif field.choices %}
 <select id="{{ field.name }}" name="{{ field.name }}">{% for choice in field.choices %}{% set tts_label = {'local': 'Local / Piper', 'elevenlabs': 'ElevenLabs', 'google': 'Google Cloud TTS (Coming soon)', 'cartesia': 'Cartesia'}.get(choice, choice) %}{% set audio_label = {'aplay': 'ALSA (aplay)', 'pipewire': 'PipeWire (pw-play)'}.get(choice, choice) %}<option value="{{ choice }}" {{ 'selected' if value == choice else '' }} {% if field.name == 'tts.provider' and choice == 'google' %}disabled{% endif %}>{{ choice | upper if field.name == 'sensors.environmental.type' else (tts_label if field.name == 'tts.provider' else (audio_label if field.name == 'tts.audio_output.player' else choice)) }}</option>{% endfor %}</select>
 {% elif field.kind == 'checkbox' %}
 <input id="{{ field.name }}" name="{{ field.name }}" type="checkbox" {{ 'checked' if (value == 'on' if submitted is not none else value) else '' }}>
@@ -185,7 +194,7 @@ Your edits on this page have not been saved.</p>
 {% endfor %}</div></fieldset>
 {% endfor %}
 {% if area == 'voice' %}</section>{% endif %}
-<button class="save">Save {{ page.title }}</button><p>Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.</p>
+<button class="save">{{ 'Save & Apply' if area == 'eyes' else 'Save ' ~ page.title }}</button><p>{% if area == 'eyes' %}Validates, saves the canonical configuration, then applies the Eyes settings live. If the runtime cannot accept them, the saved configuration is restored.{% else %}Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.{% endif %}</p>
 </form>
 {% endif %}
 {% endblock %}

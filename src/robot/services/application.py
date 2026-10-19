@@ -188,10 +188,12 @@ class RemoteApplicationService:
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
+    def configure_eyes(self, value): return self._call("configure_eyes", value)
     def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
     def skins(self): return self._call("skins")
     def create_skin(self, value): return self._call("create_skin", value)
     def delete_skin(self, value): return self._call("delete_skin", {"id": value})
+    def preview_skin(self, value): return self._call("preview_skin", {"id": value})
     def apply_skin(self, value): return self._call("apply_skin", {"id": value})
     def import_skin(self, value): return self._call("import_skin", value)
     def export_skin(self, value): return self._call("export_skin", {"id": value})
@@ -656,7 +658,10 @@ class PhosApplicationService:
         """
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503)
-        previous = self._lifecycle.config_repository.load()
+        try:
+            previous = self._lifecycle.config_repository.load()
+        except (ConfigurationError, OSError) as error:
+            raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503) from error
         document = previous.to_dict(); _merge(document, patch)
         provider = (document.get("voice", {}).get("stt", {}).get("provider") if subsystem == "stt"
                     else document.get("tts", {}).get("provider") if subsystem == "tts"
@@ -706,6 +711,40 @@ class PhosApplicationService:
     def configure_stt(self, patch): return self._speech_transaction({"voice": patch}, subsystem="stt")
     def configure_tts(self, patch): return self._speech_transaction({"tts": patch}, subsystem="tts")
     def configure_audio_output(self, patch): return self._speech_transaction({"tts": {"audio_output": patch}}, subsystem="audio")
+
+    def configure_eyes(self, patch: dict) -> dict:
+        """Atomically save and apply the canonical Eyes fields."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Eyes configuration is unavailable.", status=503)
+        allowed = {"iris_color", "base_visual_source", "environment_overlays_enabled"}
+        if not isinstance(patch, dict) or set(patch) != allowed:
+            raise ApplicationError("invalid_configuration", "Complete Eyes configuration is required.")
+        try:
+            previous = self._lifecycle.config_repository.load()
+        except (ConfigurationError, OSError) as error:
+            raise ApplicationError("service_unavailable", "Eyes configuration is unavailable.", status=503) from error
+        document = previous.to_dict()
+        _merge(document["display"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        except ConfigurationError as error:
+            raise ApplicationError("invalid_configuration", "Eyes configuration was rejected.", {"reason": str(error)}) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.apply_eyes(candidate)
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "Eyes configuration could not be applied."))
+        except Exception as error:
+            try:
+                self._lifecycle.config_repository.save(previous)
+            except OSError:
+                logger.exception("PHOS EYES: configuration rollback failed")
+            logger.exception("PHOS EYES: operation=appearance_eyes_update failed exception_type=%s message=%s",
+                             type(error).__name__, str(error)[:256])
+            raise ApplicationError("runtime_unavailable", "Eyes configuration could not be applied.", status=503) from error
+        logger.info("PHOS EYES: configured iris_color=%s", candidate.iris_color)
+        return {"saved": {name: candidate.to_dict()["display"][name] for name in sorted(allowed)},
+                "applied": result.get("applied", [])}
 
     def configure_backgrounds(self, patch: dict) -> dict:
         """Atomically save and publish the canonical display.backgrounds block."""
@@ -838,6 +877,21 @@ class PhosApplicationService:
         except ApplicationError:
             raise
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def preview_skin(self, skin_id: str) -> dict:
+        """Apply a Skin only to the live display; never save configuration."""
+        if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        try:
+            current = self._lifecycle.config_repository.load()
+            skin = self._skins().get(skin_id)
+            snapshot, missing = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+            candidate = RuntimeConfig.from_dict(apply_appearance_snapshot(current.to_dict(), snapshot),
+                                                base_dir=self._lifecycle.path.parent)
+            result = self._lifecycle.apply_temporary_appearance(candidate)
+            if not result.get("ok"): raise RuntimeError(result.get("error", "Skin preview could not be applied."))
+        except (ConfigurationError, OSError, RuntimeError) as error:
+            raise ApplicationError("skin_preview_failed", "Skin preview could not be applied; saved appearance was unchanged.", status=503) from error
+        return {"skin": skin.document(), "applied": result.get("applied", []), "missing_backgrounds": missing}
 
     def apply_skin(self, skin_id: str) -> dict:
         """Validate the entire skin before one canonical save/reload transaction."""

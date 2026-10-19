@@ -14,6 +14,7 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
 from robot.config import ConfigurationError
+from robot.services import ApplicationError
 from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
@@ -346,7 +347,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         upload = request.files.get("skin")
                         if upload is None or not upload.filename.lower().endswith((".phos-skin", ".zip")): raise ConfigurationError("Choose a Skin package (.phos-skin or .zip).")
                         application_service.import_skin({"content": upload.read()}); flash("Skin imported as a custom skin.")
-                    elif action == "apply": application_service.apply_skin(skin_id); flash("Skin applied live.")
+                    elif action == "preview": application_service.preview_skin(skin_id); flash("Skin preview applied live temporarily. Apply to save it.")
+                    elif action == "apply": application_service.apply_skin(skin_id); flash("Skin applied and saved.")
                     elif action == "delete": application_service.delete_skin(skin_id); flash("Skin deleted.")
                     else: raise ConfigurationError("Unsupported skin action.")
                     return redirect(url_for("appearance_skins"))
@@ -463,11 +465,28 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                 results.append(f"{label}: activation failed")
                         flash("; ".join(results) or "No Voice & Speech settings changed.")
                         return redirect(url_for("configuration", area=area))
+                    if area == "eyes":
+                        if application_service is None:
+                            raise ApplicationError("service_unavailable", "Eyes configuration service is unavailable.", status=503)
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        display = prepared.config.to_dict()["display"]
+                        application_service.configure_eyes({
+                            "iris_color": display["iris_color"],
+                            "base_visual_source": display["base_visual_source"],
+                            "environment_overlays_enabled": display["environment_overlays_enabled"],
+                        })
+                        flash("Eyes saved and applied live.")
+                        return redirect(url_for("configuration", area=area))
                     config.save_form(request.form, area=area)
                 except ConfigurationError as exc:
                     error, status = str(exc), 400
+                except ApplicationError as exc:
+                    error, status = exc.message, exc.status
                 except OSError:
-                    error, status = "Configuration could not be saved. Check local filesystem permissions.", 503
+                    error, status = "Configuration could not be saved or applied. Check that PHOS is running and local filesystem permissions.", 503
+                except Exception:
+                    logger.exception("PHOS WEB: operation=appearance_eyes_update failed")
+                    error, status = "Internal Server Error", 500
                 else:
                     flash("Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes.")
                     return redirect(url_for("configuration", area=area))
@@ -496,6 +515,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                    error=error, config_path=config.path), status
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
+        from robot.iris_colors import IrisColorResolver
         return render_template("configuration.html", sections=domain_sections(document, area),
                                area=area, page=DOMAINS[area], related_area=related_area,
                                error_group=error_group,
@@ -507,7 +527,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                                                     for slot in web_secrets.slots()),
                                cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
                                                                   for slot in web_secrets.slots()),
-                               pending=current is not None and document != current), status
+                               pending=current is not None and document != current,
+                               iris_resolver=IrisColorResolver), status
 
     @app.route("/system", methods=["GET"])
     def system():

@@ -70,6 +70,16 @@ def test_preview_uses_the_behavior_expression_accent_for_eye_color(tmp_path):
     assert render_preview(config, {**common, "expression": "surprised"}) == previews[FaceExpression.SURPRISED]
 
 
+def test_preview_uses_the_same_custom_iris_color_as_the_renderer(tmp_path):
+    document = load_document()
+    document["display"]["iris_color"] = "#7a5cff"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    frame = EyeRenderer(iris_color=config.iris_color).render(FaceState(), timestamp=0)
+
+    assert config.iris_color == "#7A5CFF"
+    assert f'fill="{frame.iris_color}"' in render_preview(config, {"state": "idle", "expression": "neutral"})
+
+
 def test_preview_effects_are_visible_and_ordered_before_eyes(tmp_path):
     config = _config(tmp_path)
     enabled = render_preview(config, {"state": "listening", "expression": "neutral",

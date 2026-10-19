@@ -2,9 +2,13 @@
 import json
 import html
 import io
+import logging
+import multiprocessing
 from html.parser import HTMLParser
 import re
 import socket
+from threading import Event, Thread
+from types import SimpleNamespace
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -65,8 +69,8 @@ class FormParser(HTMLParser):
             if a.get("type") != "checkbox" or "checked" in a:
                 self.values[a["name"]] = a.get("value", "on")
         elif tag == "select":
-            self.select = a["name"]
-        elif tag == "option" and "selected" in a:
+            self.select = a.get("name")
+        elif tag == "option" and "selected" in a and self.select is not None:
             self.values[self.select] = a["value"]
 
 
@@ -445,9 +449,10 @@ def test_skins_template_separates_panels_and_uses_consistent_card_actions():
     assert 'class="phos-skin-card-header"' in template and 'class="phos-skin-card-title-row"' in template
     assert 'class="phos-skin-card-delete"' in template and 'title="Delete skin"' in template
     assert 'phos-skin-status-icon" title="In use" aria-label="In use">✓</span>' in template
+    assert 'name="action" value="preview">Preview</button>' in template
     assert '>In use</span>' not in template
     assert template.index('class="phos-skin-card-delete') < template.index('<footer class="phos-skin-card-footer">')
-    assert 'class="phos-skin-card-footer"><a' in template
+    assert 'class="phos-skin-card-footer"><form method="post">' in template
 
 
 def test_skin_card_classes_are_not_used_by_unrelated_web_templates():
@@ -823,27 +828,42 @@ def test_invalid_form_preserves_file_and_input(setup, field, value):
     assert f'value="{entered}"' in response.get_data(as_text=True)
 
 
-def test_display_appearance_theme_is_selectable_and_saved_canonically(setup):
-    app, path, _ = setup
+def test_eyes_page_selects_presets(lifecycle_setup):
+    app, _, _ = lifecycle_setup
     client = authorize(app)
-    data = form(client, "display")
-    page = client.get("/configuration/display").get_data(as_text=True)
+    data = form(client, "eyes")
+    page = client.get("/configuration/eyes").get_data(as_text=True)
     assert 'name="display.iris_color"' in page
-    assert all(color in page for color in ("cyan", "turquoise", "amber", "violet"))
-    data["display.iris_color"] = "violet"
-    assert client.post("/configuration/display", data=data).status_code == 302
-    assert RuntimeConfig.from_file(path).iris_color == "violet"
+    assert 'data-iris-color-controls' in page
+    assert all(color in page for color in ("cyan", "turquoise", "amber", "violet", "custom"))
+    assert "Save &amp; Apply" in page
+
+
+def test_eyes_page_accepts_custom_hex_and_rejects_invalid_hex(lifecycle_setup):
+    app, path, service = lifecycle_setup
+    client = authorize(app)
+    service.register_appearance_applier(lambda config: None)
+    data = form(client, "eyes")
+    data["display.iris_color"] = "#7a5cff"
+    assert client.post("/configuration/eyes", data=data).status_code == 302
+    assert RuntimeConfig.from_file(path).iris_color == "#7A5CFF"
+
+    invalid = form(client, "eyes")
+    invalid["display.iris_color"] = "#FFF"
+    response = client.post("/configuration/eyes", data=invalid)
+    assert response.status_code == 400
+    assert b"#RRGGBB" in response.data
 
 
 def test_led_ring_palette_is_exposed_and_selected_color_round_trips_through_web_admin(setup):
     app, path, _ = setup
     client = authorize(app)
-    page = client.get("/configuration/display").get_data(as_text=True)
+    page = client.get("/configuration/appearance").get_data(as_text=True)
     expected = ("green", "red", "yellow", "blue", "violet", "white", "cyan", "turquoise", "orange", "magenta")
     assert all(f'<option value="{color}"' in page for color in expected)
-    data = form(client, "display")
+    data = form(client, "appearance")
     data["led_ring.base_color"] = "magenta"
-    assert client.post("/configuration/display", data=data).status_code == 302
+    assert client.post("/configuration/appearance", data=data).status_code == 302
     assert RuntimeConfig.from_file(path).led_ring_base_color == "magenta"
 
 
@@ -1254,10 +1274,14 @@ def test_domain_error_hints_match_fields_without_matching_unrelated_words():
 @pytest.fixture
 def lifecycle_setup(setup):
     from robot.lifecycle import LifecycleService
+    from robot.services import PhosApplicationService
     app, path, _ = setup
     service = LifecycleService(path, RuntimeConfig.from_file(path), restart_supported=True,
                                log_level_setter=lambda level: None)
-    app = create_app(path, lifecycle=service)
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = service
+    application._runtime = SimpleNamespace(application_status=lambda: {})
+    app = create_app(path, lifecycle=service, application_service=application)
     app.testing = True
     return app, path, service
 
@@ -1300,21 +1324,88 @@ def test_restart_confirmation_and_csrf(lifecycle_setup):
     assert client.post("/system/restart", data=data).status_code == 400  # Confirmation consumed.
 
 
-def test_web_saved_iris_theme_applies_only_after_reload(lifecycle_setup):
+def test_web_eyes_save_and_apply_persists_and_updates_renderer(lifecycle_setup):
     app, path, service = lifecycle_setup
     client = authorize(app)
     applied = []
     service.register_appearance_applier(lambda config: applied.append(config.iris_color))
-    data = form(client, "display")
+    data = form(client, "eyes")
     data["display.iris_color"] = "green"
-    assert client.post("/configuration/display", data=data).status_code == 302
-    assert service.active["display"]["iris_color"] == "cyan"
-    token = csrf(client.get("/system"))
-    response = client.post("/system/reload", data={"csrf_token": token})
-    assert response.status_code == 200
-    assert b"Applied: display.iris_color" in response.data
-    assert service.active["display"]["iris_color"] == "green"
-    assert applied == ["green"]
+    response = client.post("/configuration/eyes", data=data)
+    assert response.status_code == 302
+    assert RuntimeConfig.from_file(path).iris_color == "#41CD7D"
+    assert service.active["display"]["iris_color"] == "#41CD7D"
+    assert applied == ["#41CD7D"]
+
+
+def test_web_eyes_save_and_apply_restores_config_when_renderer_rejects(lifecycle_setup):
+    app, path, service = lifecycle_setup
+    client = authorize(app)
+    service.register_appearance_applier(lambda config: (_ for _ in ()).throw(RuntimeError("no display")))
+    data = form(client, "eyes")
+    data["display.iris_color"] = "green"
+    response = client.post("/configuration/eyes", data=data)
+    assert response.status_code == 503
+    assert RuntimeConfig.from_file(path).iris_color == "#28CEEB"
+    assert service.active["display"]["iris_color"] == "#28CEEB"
+
+
+def test_web_eyes_unexpected_failure_is_logged_and_returns_bounded_500(setup, caplog):
+    class FailingEyesService:
+        def configure_eyes(self, _payload):
+            raise RuntimeError("simulated renderer failure")
+
+    _, path, now = setup
+    app = create_app(path, clock=lambda: now[0], application_service=FailingEyesService())
+    client = authorize(app)
+    data = form(client, "eyes")
+    data["display.iris_color"] = "green"
+    with caplog.at_level(logging.ERROR):
+        response = client.post("/configuration/eyes", data=data)
+
+    assert response.status_code == 500
+    assert b"Internal Server Error" in response.data
+    assert "PHOS WEB: operation=appearance_eyes_update failed" in caplog.text
+    assert "simulated renderer failure" in caplog.text and "Traceback" in caplog.text
+
+
+@pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])
+def test_web_eyes_save_and_apply_uses_remote_application_lifecycle_path(setup, submitted, expected):
+    """Exercise the same Web worker → IPC → parent runtime route as deployment."""
+    from robot.lifecycle import LifecycleService
+    from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
+    from robot.services import PhosApplicationService, RemoteApplicationService
+
+    _, path, now = setup
+    parent_service = LifecycleService(path, RuntimeConfig.from_file(path), log_level_setter=lambda _level: None)
+    applied = []
+    parent_service.register_appearance_applier(lambda config: applied.append(config.iris_color))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = parent_service
+    application._runtime = SimpleNamespace(application_status=lambda: {})
+    parent_service.register_application_service(application)
+    parent_service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, parent_service, stop))
+    thread.start()
+    try:
+        lifecycle = LifecycleClient(child)
+        app = create_app(path, clock=lambda: now[0], lifecycle=lifecycle,
+                         application_service=RemoteApplicationService(lifecycle))
+        browser = authorize(app)
+        data = form(browser, "eyes")
+        data["display.iris_color"] = submitted
+        response = browser.post("/configuration/eyes", data=data)
+        assert response.status_code == 302
+        assert RuntimeConfig.from_file(path).iris_color == expected
+        assert parent_service.active["display"]["iris_color"] == expected
+        assert applied == [expected]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setup):

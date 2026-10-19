@@ -9,7 +9,7 @@ import pytest
 
 from robot.config import ConfigurationError, load_document
 from robot.ui.skins import (SkinRepository, apply_appearance_snapshot, appearance_snapshot,
-                            available_appearance_snapshot, built_in_skins, validate_appearance_snapshot,
+                            appearance_semantically_matches, available_appearance_snapshot, built_in_skins, validate_appearance_snapshot,
                             MAX_SKIN_IMPORT_BYTES, MAX_SKIN_PACKAGE_BYTES)
 
 
@@ -59,6 +59,29 @@ def test_skin_validation_rejects_malformed_assets_and_keeps_input_unchanged():
     bad = copy.deepcopy(snapshot); bad["backgrounds"]["idle"] = "../../secret.png"
     with pytest.raises(ConfigurationError): validate_appearance_snapshot(bad)
     assert snapshot["backgrounds"]["idle"] is None
+
+
+def test_skin_normalizes_legacy_presets_and_preserves_custom_iris_hex(tmp_path):
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"]["iris_color"] = "violet"
+    legacy = validate_appearance_snapshot(appearance)
+    assert legacy["eyes"]["iris_color"] == "#A670F5"
+
+    appearance["eyes"]["iris_color"] = "#7a5cff"
+    original = SkinRepository(tmp_path / "phos.yaml").create("Custom color", "", appearance)
+    imported = SkinRepository(tmp_path / "phos.yaml").import_package(
+        SkinRepository(tmp_path / "phos.yaml").export(original.id)
+    )
+    assert imported.appearance["eyes"]["iris_color"] == "#7A5CFF"
+
+
+def test_skin_semantic_matching_treats_a_preset_and_its_resolved_hex_as_equal(tmp_path):
+    current = appearance_snapshot(load_document())
+    legacy_skin = copy.deepcopy(current)
+    legacy_skin["eyes"]["iris_color"] = "violet"
+    current["eyes"]["iris_color"] = "#A670F5"
+
+    assert appearance_semantically_matches(current, legacy_skin, tmp_path)
 
 
 def test_missing_skin_background_is_retained_but_falls_back_when_applied(tmp_path):

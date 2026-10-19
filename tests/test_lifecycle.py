@@ -11,6 +11,7 @@ import sys
 from threading import Event, Thread
 
 import pytest
+import yaml
 
 from robot.config import RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
@@ -62,10 +63,77 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     result = service.execute("reload")
 
     assert result["ok"] and result["applied"] == ["display.iris_color"]
-    assert applied == ["violet"]
-    assert result["active"]["display"]["iris_color"] == "violet"
+    assert applied == ["#A670F5"]
+    assert result["active"]["display"]["iris_color"] == "#A670F5"
     assert result["reloadable"] == []
     assert result["restart_required"] == []
+
+
+@pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])
+def test_configure_eyes_validates_persists_and_applies_canonical_color(runtime, submitted, expected):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_appearance_applier(lambda config: applied.append(config.iris_color))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    result = application.configure_eyes({"iris_color": submitted, "base_visual_source": "manual",
+                                         "environment_overlays_enabled": True})
+
+    assert result["saved"]["iris_color"] == expected
+    assert RuntimeConfig.from_file(path).iris_color == expected
+    assert lifecycle.active["display"]["iris_color"] == expected
+    assert applied == [expected]
+
+
+def test_configure_eyes_rejects_invalid_color_before_persistence(runtime):
+    path, lifecycle, _, _ = runtime
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    with pytest.raises(ApplicationError) as error:
+        application.configure_eyes({"iris_color": "#FFF", "base_visual_source": "manual",
+                                    "environment_overlays_enabled": True})
+
+    assert error.value.code == "invalid_configuration"
+    assert RuntimeConfig.from_file(path).iris_color == "#28CEEB"
+
+
+def test_configure_eyes_preserves_custom_color_in_yaml(tmp_path):
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(load_document(), sort_keys=False))
+    lifecycle = LifecycleService(path, RuntimeConfig.from_file(path))
+    lifecycle.register_appearance_applier(lambda _config: None)
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    application.configure_eyes({"iris_color": "#7a5cff", "base_visual_source": "manual",
+                                "environment_overlays_enabled": True})
+
+    assert yaml.safe_load(path.read_text())["display"]["iris_color"] == "#7A5CFF"
+    assert RuntimeConfig.from_file(path).iris_color == "#7A5CFF"
+
+
+def test_skin_preview_updates_runtime_without_saving_or_changing_active_config(runtime):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_appearance_applier(lambda config: applied.append(("iris", config.iris_color)))
+    lifecycle.register_backgrounds_applier(lambda config: applied.append(("backgrounds", config.backgrounds_enabled)))
+    lifecycle.register_eye_safe_layer_applier(lambda config: applied.append(("safe", config.eye_safe_layer_mode)))
+    lifecycle.register_state_effects_applier(lambda config: applied.append(("effects", config.state_effects_enabled)))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+    before, active = path.read_bytes(), deepcopy(lifecycle.active)
+
+    result = application.preview_skin("ambient")
+
+    assert result["applied"] == ["temporary_appearance"]
+    assert ("iris", "#A670F5") in applied and ("effects", True) in applied
+    assert path.read_bytes() == before and lifecycle.active == active
 
 
 def test_eye_safe_layer_reload_uses_the_registered_runtime_boundary(runtime):
@@ -191,6 +259,54 @@ def test_lifecycle_channel_dispatches_state_effects_configuration(runtime):
         assert not thread.is_alive()
 
 
+def test_lifecycle_channel_dispatches_eyes_configuration(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def configure_eyes(self, payload):
+            received.append(payload)
+            return {"saved": payload}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"iris_color": "#7A5CFF", "base_visual_source": "manual",
+                   "environment_overlays_enabled": True}
+        assert client.execute("application.configure_eyes", payload) == {"ok": True, "result": {"saved": payload}}
+        assert received == [payload]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_eyes_unexpected_failure_is_logged_and_bounded(caplog):
+    class Application:
+        def configure_eyes(self, _payload):
+            raise RuntimeError("renderer queue unavailable")
+
+    service = object.__new__(LifecycleService)
+    service._application_service = Application()
+    service._application_ready = True
+    with caplog.at_level(logging.ERROR):
+        result = service._execute_application({"operation": "application.configure_eyes", "payload": {
+            "iris_color": "#7A5CFF", "base_visual_source": "manual", "environment_overlays_enabled": True,
+        }})
+
+    assert result == {"ok": False, "error": {"code": "internal_error",
+                      "message": "PHOS could not process the request.",
+                      "details": {"operation": "application.configure_eyes"}}, "status": 500}
+    assert "operation=application.configure_eyes failed exception_type=RuntimeError" in caplog.text
+    assert "renderer queue unavailable" in caplog.text and "Traceback" in caplog.text
+
+
 def test_lifecycle_channel_dispatches_semantic_state_command(runtime):
     _, service, _, _ = runtime
     received = []
@@ -289,8 +405,8 @@ def test_mixed_appearance_logging_and_provider_changes_keep_restart_pending(runt
 
     assert result["ok"]
     assert result["applied"] == ["display.iris_color", "logging.level"]
-    assert applied == ["amber"] and logs == ["DEBUG"]
-    assert result["active"]["display"]["iris_color"] == "amber"
+    assert applied == ["#F4AB3D"] and logs == ["DEBUG"]
+    assert result["active"]["display"]["iris_color"] == "#F4AB3D"
     assert result["active"]["expression"]["provider"] == "local"
     assert result["restart_required"] == ["expression.provider"]
 
@@ -307,7 +423,7 @@ def test_failed_runtime_appearance_update_does_not_commit_active_values(runtime)
 
     assert not result["ok"]
     assert "render loop is stopping" not in result["error"]
-    assert service.active["display"]["iris_color"] == "cyan"
+    assert service.active["display"]["iris_color"] == "#28CEEB"
     assert service.active["logging"]["level"] == "INFO"
     assert not logs
 
@@ -316,14 +432,14 @@ def test_invalid_iris_color_is_rejected_before_any_application(runtime):
     path, service, logs, _ = runtime
     applied = []
     service.register_appearance_applier(lambda config: applied.append(config.iris_color))
-    update(path, lambda d: (d["display"].update(iris_color="#00FFFF"),
+    update(path, lambda d: (d["display"].update(iris_color="#FFF"),
                             d["logging"].update(level="ERROR")))
 
     result = service.execute("reload")
 
     assert not result["ok"]
     assert not applied and not logs
-    assert service.active["display"]["iris_color"] == "cyan"
+    assert service.active["display"]["iris_color"] == "#28CEEB"
     assert service.active["logging"]["level"] == "INFO"
 
 

@@ -131,7 +131,16 @@ def test_loaded_values_reach_subsystems(document, tmp_path):
     assert runtime._vision_pipeline._face_detector._scale_factor == 1.2
     assert runtime._vision_pipeline._face_detector._min_neighbors == 7
     assert runtime._eye_render_loop._renderer._width == 640
-    assert runtime._eye_render_loop._renderer.iris_color == "violet"
+    assert runtime._eye_render_loop._renderer.iris_color == "#A670F5"
+
+
+def test_custom_iris_color_reaches_the_live_renderer(document, tmp_path):
+    document["display"]["iris_color"] = "#7a5cff"
+
+    runtime = build_runtime(config=RuntimeConfig.from_file(write_config(tmp_path, document)),
+                            eye_display=MemoryEyeDisplay())
+
+    assert runtime._eye_render_loop._renderer.iris_color == "#7A5CFF"
 
 
 def test_loaded_configuration_runs_headless(document, tmp_path):
@@ -178,7 +187,8 @@ def test_missing_required_fields_fail_with_path(document, tmp_path, route):
     ("expression.smoothing.minimum_observations", 0),
     ("expression.aws.cooldown_seconds", 0), ("expression.aws.cache_ttl_seconds", 10),
     ("expression.aws.max_requests_per_session", -1), ("logging.level", "TRACE"),
-    ("display.iris_color", "chartreuse"), ("display.iris_color", "#00FFFF"),
+    ("display.iris_color", "chartreuse"), ("display.iris_color", "#FFF"),
+    ("display.iris_color", "00FFFF"), ("display.iris_color", "#00FFFF00"),
     ("behavior.imu_shake_reaction_strength", 1.0),
     ("behavior.imu_impact_reaction_strength", .88),
     ("behavior.imu_tilt_eye_asymmetry_strength", .51),
