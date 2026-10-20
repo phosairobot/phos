@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from types import SimpleNamespace
 
@@ -6,6 +7,7 @@ import pytest
 from robot.admin_access import (AdminOverlayState, NetworkInfoService, QRMatrixCache,
                                 RecoveryState, select_lan_ipv4)
 from robot.runtime import PhosRuntime
+from robot.core import RobotState
 from robot.ui.touch import TouchKind
 
 
@@ -96,3 +98,44 @@ def test_recovery_overlay_stays_distinct_from_admin_access():
     access = AdminOverlayState.admin_access("http://192.168.1.42:8080/", ((False, True),))
     assert recovery.mode == "recovery" and recovery.admin_url is None
     assert access.mode == "admin_access" and access.recovery_code is None
+
+
+def test_top_left_tap_toggles_voice_only_in_idle_or_listening_and_respects_overlays():
+    class Loop:
+        def __init__(self): self.admin_overlay = AdminOverlayState()
+
+    async def exercise():
+        runtime = object.__new__(PhosRuntime)
+        runtime._eye_render_loop = Loop()
+        runtime._touch_voice_task = None
+        runtime.core = SimpleNamespace(state=RobotState.IDLE)
+        calls = []
+
+        async def start():
+            calls.append("start")
+            runtime.core.state = RobotState.LISTENING
+
+        async def stop(*, cancelled=False):
+            calls.append(("stop", cancelled))
+            runtime.core.state = RobotState.IDLE
+
+        runtime.start_listening, runtime.stop_listening = start, stop
+        tap = SimpleNamespace(kind=TouchKind.TAP, normalized_x=.20, normalized_y=.20)
+        assert runtime.handle_voice_touch(tap)
+        await asyncio.sleep(0)
+        assert runtime.core.state is RobotState.LISTENING
+        assert runtime.handle_voice_touch(tap)
+        await asyncio.sleep(0)
+        assert runtime.core.state is RobotState.IDLE
+        runtime.core.state = RobotState.SPEAKING
+        assert runtime.handle_voice_touch(tap)
+        await asyncio.sleep(0)
+        runtime._eye_render_loop.admin_overlay = AdminOverlayState.recovery("483921", 120)
+        runtime.core.state = RobotState.IDLE
+        assert runtime.handle_voice_touch(tap)
+        await asyncio.sleep(0)
+        assert calls == ["start", ("stop", True)]
+        assert not runtime.handle_voice_touch(SimpleNamespace(kind=TouchKind.LONG_PRESS, normalized_x=.1, normalized_y=.1))
+        assert not runtime.handle_voice_touch(SimpleNamespace(kind=TouchKind.TAP, normalized_x=.21, normalized_y=.1))
+
+    asyncio.run(exercise())

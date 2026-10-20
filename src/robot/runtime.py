@@ -106,6 +106,7 @@ class PhosRuntime:
                                           "available": False, "reason": "disabled"}
         self._tts_lock = asyncio.Lock()
         self._speech_task: asyncio.Task | None = None
+        self._touch_voice_task: asyncio.Task | None = None
         self._next_speech_request_id = 0
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
@@ -179,9 +180,10 @@ class PhosRuntime:
     def handle_admin_touch(self, event) -> bool:
         """Handle the local-only administrative gesture without semantic state changes."""
         overlay = self._eye_render_loop.admin_overlay
-        if overlay.mode == "admin_access" and event.kind.value == "tap":
-            self.clear_admin_overlay()
-            logger.info("PHOS ADMIN: access overlay closed")
+        if overlay.mode != "hidden":
+            if overlay.mode == "admin_access" and event.kind.value == "tap":
+                self.clear_admin_overlay()
+                logger.info("PHOS ADMIN: access overlay closed")
             return True
         if (event.kind.value == "long_press" and event.duration_ms >= 2500
                 and event.normalized_x >= .80 and event.normalized_y <= .20):
@@ -191,6 +193,36 @@ class PhosRuntime:
                 return False
             return True
         return False
+
+    def handle_voice_touch(self, event) -> bool:
+        """Queue the one supported physical voice toggle through VoiceCaptureSession."""
+        if event.kind.value != "tap" or event.normalized_x > .20 or event.normalized_y > .20:
+            return False
+        if self._eye_render_loop.admin_overlay.mode != "hidden":
+            return True
+        if getattr(self, "_touch_voice_task", None) is not None and not self._touch_voice_task.done():
+            logger.debug("PHOS VOICE: top-left tap ignored reason=operation_pending")
+            return True
+        state = self.core.state
+        if state is RobotState.IDLE:
+            operation = self.start_listening
+            label = "start"
+        elif state is RobotState.LISTENING:
+            operation = lambda: self.stop_listening(cancelled=True)
+            label = "stop"
+        else:
+            logger.debug("PHOS VOICE: top-left tap ignored state=%s", state.value)
+            return True
+        logger.debug("PHOS VOICE: top-left tap recognized operation=%s", label)
+        self._touch_voice_task = asyncio.create_task(self._run_touch_voice_operation(operation, label),
+                                                      name=f"touch-voice-{label}")
+        return True
+
+    async def _run_touch_voice_operation(self, operation, label: str) -> None:
+        try:
+            await operation()
+        except Exception as error:
+            logger.debug("PHOS VOICE: top-left operation=%s failed type=%s", label, type(error).__name__)
 
     def apply_backgrounds(self, config: RuntimeConfig) -> None:
         """Apply an already-validated state-background configuration live."""
@@ -834,6 +866,8 @@ def build_runtime(
         if not config.touch_enabled or runtime is None or not runtime._started:
             return
         if runtime.handle_admin_touch(event):
+            return
+        if runtime.handle_voice_touch(event):
             return
         payload = {"kind": event.kind.value, "x": event.x, "y": event.y,
                    "normalized_x": event.normalized_x, "normalized_y": event.normalized_y,
