@@ -38,6 +38,17 @@ def test_raw_pointer_motion_does_not_produce_a_touch_event():
     assert emitted == []
 
 
+def test_short_top_left_tap_uses_the_existing_tap_threshold_and_rejects_drag_or_long_press():
+    clock, emitted = [0.0], []
+    adapter = _adapter(clock=clock, emitted=emitted)
+    adapter.down(20, 20); clock[0] = .12
+    assert adapter.release(20, 20).kind is TouchKind.TAP
+    adapter.down(20, 20); clock[0] += .12
+    assert adapter.release(45, 20) is None
+    adapter.down(20, 20); clock[0] += 1
+    assert adapter.release(20, 20).kind is TouchKind.LONG_PRESS
+
+
 class _Runtime:
     def __init__(self):
         self.core = RobotCore()
