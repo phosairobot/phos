@@ -77,6 +77,13 @@ from this startup acceptance slice.
 
 ### UI / eyes
 - UI-neutral `FaceState` and expression/blink enums.
+- `FaceExpression` supports neutral, happy, curious, surprised, sleepy and
+  worried plus manually selectable sad, angry, focused, tired, confused, scared
+  and skeptical
+  expressions. Robot state and expression remain independent: for example,
+  focused can be selected while PHOS is thinking without changing that state.
+  The shared renderer profile drives both live eyes and Appearance Preview;
+  automatic BehaviorEngine selection of the manually selectable expressions is deferred.
 - Eye renderer/display runtime with smooth frame updates.
 - Standalone eye demo under `src/robot/ui/demo.py`.
 - Current README documents an 800x600/fullscreen runtime path and keyboard-driven eye demo.

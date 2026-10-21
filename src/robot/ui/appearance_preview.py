@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from robot.core.state import RobotState
 from .backgrounds import BackgroundResolver
 from .eye_safe import EyeSafeLayer, EyeSafeParams
-from .eyes import EyeRenderer
+from .eyes import EyeRenderer, upper_lid_points, valid_polygon_points
 from .state import FaceExpression, FaceState, expression_reaction_accent
 from .state_effect_layer import StateEffectLayer
 from .state_effects import StateEffectResolver
@@ -71,4 +71,9 @@ def render_preview(config, options: dict) -> str:
             f'<circle cx="{eye.pupil_x:.1f}" cy="{eye.pupil_y:.1f}" r="{eye.pupil_radius:.1f}" fill="{frame.pupil_color}" stroke="#071522" stroke-width="2"/>'
             f'<circle cx="{eye.pupil_x-eye.iris_radius*.33:.1f}" cy="{eye.pupil_y-eye.iris_radius*.33:.1f}" r="{highlight:.1f}" fill="#FFFFFF"/>'
             f'<circle cx="{eye.pupil_x+eye.iris_radius*.30:.1f}" cy="{eye.pupil_y+eye.iris_radius*.28:.1f}" r="{glint:.1f}" fill="#D9FBFF"/>')
+        if eye.upper_lid_depth:
+            points = upper_lid_points(eye, inset=inset)
+            if valid_polygon_points(points):
+                path = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+                parts.append(f'<path class="upper-lid" d="M {path} Z" fill="#8FA8B8"/>')
     return "".join(parts) + "</svg>"

@@ -1,7 +1,11 @@
+from dataclasses import replace
 from types import SimpleNamespace
+
+import pytest
 
 from robot.ui import AmbientOverlayState, BlinkPhase, EyeRenderer, FaceExpression, FaceState, TkEyeDisplay, VisualAccent
 from robot.ui.display import ambient_overlay_layout
+from robot.ui.eyes import upper_lid_points, valid_polygon_points
 
 
 def render(state, timestamp=0.0):
@@ -156,6 +160,176 @@ def test_sleepy_expression_has_significantly_smaller_aperture():
     sleepy = render(FaceState(expression=FaceExpression.SLEEPY, reaction_strength=1.0))
 
     assert sleepy.eyes[0].radius_y < neutral.eyes[0].radius_y * 0.5
+
+
+def test_phase_one_expression_profiles_are_distinct_and_bounded_with_custom_iris():
+    renderer = EyeRenderer(iris_color="#7a5cff")
+    frames = {
+        expression: renderer.render(FaceState(expression=expression, reaction_strength=1), timestamp=index)
+        for index, expression in enumerate((FaceExpression.SAD, FaceExpression.ANGRY,
+                                            FaceExpression.FOCUSED, FaceExpression.TIRED))
+    }
+
+    assert {expression.value for expression in frames} == {"sad", "angry", "focused", "tired"}
+    assert all(frame.iris_color == "#7A5CFF" for frame in frames.values())
+    assert frames[FaceExpression.SAD].eyes[0].pupil_y > render(FaceState()).eyes[0].pupil_y
+    assert frames[FaceExpression.TIRED].eyes[0].radius_y < frames[FaceExpression.SAD].eyes[0].radius_y
+    assert frames[FaceExpression.SAD].eyes[0].upper_lid_depth == .82
+    assert frames[FaceExpression.SAD].eyes[0].upper_lid_depth > frames[FaceExpression.TIRED].eyes[0].upper_lid_depth
+    assert frames[FaceExpression.SAD].eyes[0].upper_lid_slope < 0
+    assert frames[FaceExpression.TIRED].eyes[0].upper_lid_slope == 0
+    focused_eye = frames[FaceExpression.FOCUSED].eyes[0]
+    angry_eye = frames[FaceExpression.ANGRY].eyes[0]
+    assert focused_eye.upper_lid_slope == pytest.approx(.42)
+    assert focused_eye.upper_lid_depth == pytest.approx(.68)
+    assert focused_eye.upper_lid_curve == pytest.approx(.015)
+    assert angry_eye.upper_lid_slope == pytest.approx(.50)
+    assert angry_eye.upper_lid_depth == pytest.approx(.74)
+    assert angry_eye.upper_lid_curve == pytest.approx(.01)
+    # ANGRY uses the same inner-low direction as FOCUSED, but with stronger
+    # tension and upper-eye coverage.
+    assert angry_eye.upper_lid_slope > focused_eye.upper_lid_slope
+    assert angry_eye.upper_lid_depth > focused_eye.upper_lid_depth
+    assert focused_eye.radius_y > angry_eye.radius_y
+    assert focused_eye.squint < angry_eye.squint
+    for frame in frames.values():
+        for eye in frame.eyes:
+            assert 0 < eye.radius_x <= frame.width / 2 and 0 < eye.radius_y <= frame.height / 2
+            assert 0 <= eye.pupil_x <= frame.width and 0 <= eye.pupil_y <= frame.height
+
+
+def test_sad_and_tired_lid_caps_follow_the_eye_contour():
+    frames = {
+        expression: render(FaceState(expression=expression, reaction_strength=1))
+        for expression in (FaceExpression.SAD, FaceExpression.TIRED)
+    }
+    caps = {expression: upper_lid_points(frame.eyes[0]) for expression, frame in frames.items()}
+
+    assert caps[FaceExpression.SAD] != caps[FaceExpression.TIRED]
+    for expression, points in caps.items():
+        eye = frames[expression].eyes[0]
+        assert len(points) > 3
+        for x, y in points:
+            normalized_distance = ((x - eye.center_x) / (eye.radius_x - 5)) ** 2 + ((y - eye.center_y) / (eye.radius_y - 5)) ** 2
+            assert normalized_distance <= 1.000001
+
+
+def test_sad_lids_are_soft_mirrored_low_outer_to_high_inner_geometry():
+    frame = render(FaceState(expression=FaceExpression.SAD, reaction_strength=1))
+    left, right = frame.eyes
+    left_points, right_points = upper_lid_points(left), upper_lid_points(right)
+
+    assert left.upper_lid_depth == right.upper_lid_depth == pytest.approx(.82)
+    assert left.upper_lid_curve == right.upper_lid_curve == pytest.approx(-.025)
+    # The first/last arc boundary points are outer→inner for the left eye and
+    # inner→outer for the right eye.
+    assert left_points[0][1] > left_points[12][1]
+    assert right_points[0][1] < right_points[12][1]
+    # The raised interior point proves the boundary is gently curved, not flat.
+    left_chord_midpoint = (left_points[12][1] + left_points[-1][1]) / 2
+    assert left_points[18][1] < left_chord_midpoint
+    for eye, points in ((left, left_points), (right, right_points)):
+        for x, y in points:
+            distance = ((x - eye.center_x) / (eye.radius_x - 5)) ** 2 + ((y - eye.center_y) / (eye.radius_y - 5)) ** 2
+            assert distance <= 1.000001
+
+
+def test_phase_two_expression_profiles_are_distinct_symmetric_where_expected_and_bounded():
+    frames = {
+        expression: render(FaceState(expression=expression, reaction_strength=1))
+        for expression in (FaceExpression.CONFUSED, FaceExpression.TIRED,
+                           FaceExpression.SCARED, FaceExpression.SKEPTICAL)
+    }
+    neutral = render(FaceState())
+    surprised = render(FaceState(expression=FaceExpression.SURPRISED, reaction_strength=1))
+
+    confused, tired, scared, skeptical = (frames[expression] for expression in frames)
+    assert confused.eyes[0].radius_y != confused.eyes[1].radius_y
+    assert confused.eyes[0].upper_lid_depth != confused.eyes[1].upper_lid_depth
+    assert tired.eyes[0].radius_y == tired.eyes[1].radius_y < render(FaceState(expression=FaceExpression.SAD, reaction_strength=1)).eyes[0].radius_y
+    assert tired.eyes[0].upper_lid_depth == tired.eyes[1].upper_lid_depth > .7
+    assert scared.eyes[0].radius_y == scared.eyes[1].radius_y > neutral.eyes[0].radius_y
+    assert scared.eyes[0].iris_radius == scared.eyes[1].iris_radius < neutral.eyes[0].iris_radius
+    assert scared.eyes[0].iris_radius < surprised.eyes[0].iris_radius
+    assert skeptical.eyes[0].radius_y < skeptical.eyes[1].radius_y
+    assert skeptical.eyes[0].upper_lid_depth > skeptical.eyes[1].upper_lid_depth
+    assert confused.eyes != skeptical.eyes
+    for frame in frames.values():
+        for eye in frame.eyes:
+            for x, y in upper_lid_points(eye):
+                distance = ((x - eye.center_x) / (eye.radius_x - 5)) ** 2 + ((y - eye.center_y) / (eye.radius_y - 5)) ** 2
+                assert distance <= 1.000001
+
+
+def test_focused_lid_is_sloped_and_bounded_by_the_eye_contour():
+    frame = render(FaceState(expression=FaceExpression.FOCUSED, reaction_strength=1))
+    left, right = frame.eyes
+    left_points = upper_lid_points(left)
+    right_points = upper_lid_points(right)
+
+    assert left.upper_lid_slope == .42 and right.upper_lid_slope == -.42
+    assert left.upper_lid_curve == right.upper_lid_curve == .015
+    assert len(left_points) == len(right_points) == 25
+    # The left eye's inner endpoint (arc end) is lower than its outer start.
+    assert left_points[12][1] > left_points[0][1]
+    # The right eye mirrors it: its left endpoint is the inner one.
+    assert right_points[0][1] > right_points[12][1]
+    # The boundary has a deliberate, but near-straight, downward bow.
+    midpoint_y = (left_points[12][1] + left_points[-1][1]) / 2
+    assert 0 < left_points[18][1] - midpoint_y < left.radius_y * .02
+    for eye, points in ((left, left_points), (right, right_points)):
+        for x, y in points:
+            normalized_distance = ((x - eye.center_x) / (eye.radius_x - 5)) ** 2 + ((y - eye.center_y) / (eye.radius_y - 5)) ** 2
+            assert normalized_distance <= 1.000001
+
+
+def test_angry_lid_is_inward_low_mirrored_and_bounded_by_the_eye_contour():
+    frame = render(FaceState(expression=FaceExpression.ANGRY, reaction_strength=1))
+    left, right = frame.eyes
+    left_points = upper_lid_points(left)
+    right_points = upper_lid_points(right)
+
+    assert left.upper_lid_slope == .50 and right.upper_lid_slope == -.50
+    assert left.upper_lid_curve == right.upper_lid_curve == .01
+    assert len(left_points) == len(right_points) == 25
+    # Left eye: the inner endpoint is on the right and sits lower.
+    assert left_points[12][1] > left_points[0][1]
+    # Right eye: the inner endpoint is on the left and sits lower.
+    assert right_points[0][1] > right_points[12][1]
+    for eye, points in ((left, left_points), (right, right_points)):
+        for x, y in points:
+            normalized_distance = ((x - eye.center_x) / (eye.radius_x - 5)) ** 2 + ((y - eye.center_y) / (eye.radius_y - 5)) ** 2
+            assert normalized_distance <= 1.000001
+
+
+def test_sad_gaze_has_subtle_inward_bias_and_preserves_tracking_input():
+    baseline = render(FaceState(expression=FaceExpression.SAD, reaction_strength=1))
+    tracked = render(FaceState(expression=FaceExpression.SAD, reaction_strength=1, pupil_x=.5))
+    neutral = render(FaceState())
+
+    for eye, expected in zip(baseline.eyes, (.08, -.08)):
+        maximum = eye.radius_x * .52 - eye.iris_radius
+        assert abs((eye.pupil_x - eye.center_x) / maximum - expected) < 1e-9
+    for eye, expected in zip(tracked.eyes, (.58, .42)):
+        maximum = eye.radius_x * .52 - eye.iris_radius
+        assert abs((eye.pupil_x - eye.center_x) / maximum - expected) < 1e-9
+    assert all(eye.pupil_x == eye.center_x for eye in neutral.eyes)
+
+
+def test_tk_skips_an_insufficient_lid_polygon_without_crashing():
+    frame = render(FaceState(expression=FaceExpression.SAD, reaction_strength=1))
+    tiny_eye = replace(frame.eyes[0], radius_y=2.0)
+    display = object.__new__(TkEyeDisplay)
+    polygons = []
+    display._canvas = SimpleNamespace(
+        create_oval=lambda *args, **kwargs: None,
+        create_polygon=lambda *args, **kwargs: polygons.append((args, kwargs)),
+    )
+
+    assert upper_lid_points(tiny_eye) == ()
+    assert not valid_polygon_points(upper_lid_points(tiny_eye))
+    display._draw_eye(tiny_eye, frame)
+    assert polygons == []
 
 
 def test_invalid_face_state_values_are_safely_normalized():

@@ -1,7 +1,7 @@
 """Face-state rendering and display adapters for PHOS."""
 
 from .display import CameraPreviewSettings, CameraPreviewView, EyeDisplay, MemoryEyeDisplay, TkEyeDisplay
-from .eyes import EyeFrame, EyeGeometry, EyeRenderer
+from .eyes import ExpressionProfile, EyeFrame, EyeGeometry, EyeRenderer
 from .state import AmbientOverlayState, BlinkPhase, EnvironmentalLEDIntent, FaceExpression, FaceState, VisualAccent
 from .led_ring import LEDRingController, LEDRingFrame, LEDRingSettings
 from .backgrounds import BackgroundAsset, BackgroundResolver
@@ -19,6 +19,7 @@ __all__ = [
     "CameraPreviewSettings",
     "CameraPreviewView",
     "EyeDisplay",
+    "ExpressionProfile",
     "EyeFrame",
     "EyeGeometry",
     "EyeRenderer",
