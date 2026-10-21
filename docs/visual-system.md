@@ -26,6 +26,18 @@ robot states and short IMU events such as tilt, shake and impact temporarily
 override that intent. They never overwrite saved base configuration; when the
 effect ends, PHOS restores the resolved persistent state.
 
+## Eye expressions
+
+The manually selectable expressions are neutral, happy, curious, surprised,
+sad, angry, focused, tired, confused, scared and skeptical. They are semantic
+`FaceExpression` values, independent of `RobotState`; selecting one persists
+until explicitly replaced. Their canonical profiles control shared eye geometry,
+so live Tk rendering and Appearance Preview remain aligned. All profiles use the
+configured iris color, including custom `#RRGGBB` colors. HAPPY's blue and
+SURPRISED's yellow eye-body accents are intentional exceptions rather than a
+generic emotion-color mapping: eye geometry carries the expression. FURIOUS and
+expression intensity are not implemented.
+
 ## One intent, three outputs
 
 - **Eyes:** `EyeRenderer` applies `FaceState` expression, gaze, blink, semantic

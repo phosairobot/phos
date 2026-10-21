@@ -342,7 +342,17 @@ configuration, and immediately sends the validated Eyes settings through the
 runtime's display-loop update boundary. If the renderer rejects the update, the
 saved configuration is restored. The iris color blends smoothly into the next
 frames. PHOS, Vision, camera, BehaviorEngine and providers keep running.
-Expression semantics do not enter the renderer directly.
+Vision/provider expression labels do not enter the renderer directly; the
+renderer consumes the resolved provider-neutral `FaceState` expression.
+
+The Expression control lists the canonical manually selectable expressions:
+neutral, happy, curious, surprised, sad, angry, focused, tired, confused,
+scared and skeptical. Applying one is persistent semantic intent until another
+expression (normally neutral) replaces it; it does not change Robot State.
+The live display and Appearance Preview use the same expression-profile geometry.
+Custom iris colors work with every expression. HAPPY's blue and SURPRISED's
+yellow eye-body accents are specific semantic exceptions, not a generic
+emotion-to-color scheme; geometry remains the principal expression signal.
 
 The **Eye Safe Layer** optionally adds a cached transparent radial halo behind
 each eye when an uploaded background could reduce contrast. It is enabled by

@@ -1,5 +1,17 @@
 # PHOS roadmap
 
+## Current feature status — Expanded Eye Expressions
+
+- [x] Expanded Eye Expressions: canonical, manually selectable neutral, happy,
+  curious, surprised, sad, angry, focused, tired, confused, scared and
+  skeptical profiles are implemented. Live Tk rendering and Appearance Preview
+  share the same profile/geometry path; custom iris colors remain supported.
+- [x] Manual expression selection is persistent until explicitly replaced and
+  remains separate from `RobotState`.
+- [ ] Next milestone: Semantic PHOS Capabilities.
+
+FURIOUS and expression intensity are not implemented in this milestone.
+
 ## PHOS 1.6.0 — Multilingual Interaction & Command Layer
 
 - [x] Provider-neutral interaction contracts, conservative language-tag handling,

@@ -37,12 +37,22 @@ language outside that configured list remains unresolved.
 | Happy expression | `diventa felice`, `sii allegro`, `mostra una faccia felice` |
 | Curious expression | `sii curioso`, `fai una faccia curiosa`, `mostrati curiosa` |
 | Surprised expression | `sii sorpreso`, `fammi sorpresa`, `faccia sorpresa` |
+| Sad expression | `sii triste`, `espressione triste` |
+| Angry expression | `sii arrabbiato`, `faccia arrabbiata` |
+| Focused expression | `sii concentrato`, `espressione concentrata` |
+| Tired expression | `sii stanco`, `mostrati stanca` |
+| Confused expression | `imposta espressione confusa`, `sii confuso` |
+| Scared expression | `imposta espressione spaventata`, `sii spaventato` |
+| Skeptical expression | `imposta espressione scettica`, `sii scettico` |
 
 The expression aliases are: `felice`/`allegro`, `curioso`/`curiosa`,
-`sorpreso`/`sorpresa`, and `neutro`/`neutra`/`normale`. Each is accepted by the
-same expression forms: the alias on its own, `diventa …`, `sii …` or `si …`,
-`mostrati …`, `faccia …`, `fai una faccia …`, `mostra una faccia …`, `fammi …`,
-`torna …`, and `espressione …`.
+`sorpreso`/`sorpresa`, `triste`, `arrabbiato`/`arrabbiata`,
+`concentrato`/`concentrata`, `stanco`/`stanca`, `confuso`/`confusa`,
+`spaventato`/`spaventata`, `scettico`/`scettica`, and
+`neutro`/`neutra`/`normale`. Each is accepted by the same expression forms: the
+alias on its own, `diventa …`, `sii …` or `si …`, `mostrati …`, `faccia …`,
+`fai una faccia …`, `mostra una faccia …`, `fammi …`, `torna …`,
+`espressione …`, or `imposta espressione …`.
 
 ### Robot state
 
@@ -77,11 +87,19 @@ special form `com'è la qualità dell'aria`.
 | Happy expression | `be happy`, `look happy`, `show a happy face` |
 | Curious expression | `curious`, `make a curious face`, `face curious` |
 | Surprised expression | `be surprised`, `show a surprised face` |
+| Sad expression | `be sad`, `set expression sad` |
+| Angry expression | `look angry`, `show a angry face` |
+| Focused expression | `be focused`, `set expression focused` |
+| Tired expression | `be tired`, `show a tired face` |
+| Confused expression | `set expression confused`, `be confused` |
+| Scared expression | `set expression scared`, `look scared` |
+| Skeptical expression | `set expression skeptical`, `be skeptical` |
 
-The aliases are `happy`, `curious`, and `surprised`; neutral also accepts
-`neutral` and `normal`. Each alias can be spoken on its own or with `be …`,
-`look …`, `face …`, `make a … face`, or `show a … face`. `normal face` and
-`reset expression` are extra neutral-only forms.
+The aliases are `happy`, `curious`, `surprised`, `sad`, `angry`, `focused`,
+`tired`, `confused`, `scared`, and `skeptical`; neutral also accepts `neutral`
+and `normal`. Each alias can be spoken on its own or with `be …`, `look …`,
+`face …`, `make a … face`, `show a … face`, or `set expression …`. `normal
+face` and `reset expression` are extra neutral-only forms.
 
 ### Robot state
 

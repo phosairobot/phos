@@ -77,13 +77,20 @@ from this startup acceptance slice.
 
 ### UI / eyes
 - UI-neutral `FaceState` and expression/blink enums.
-- `FaceExpression` supports neutral, happy, curious, surprised, sleepy and
-  worried plus manually selectable sad, angry, focused, tired, confused, scared
-  and skeptical
-  expressions. Robot state and expression remain independent: for example,
-  focused can be selected while PHOS is thinking without changing that state.
-  The shared renderer profile drives both live eyes and Appearance Preview;
-  automatic BehaviorEngine selection of the manually selectable expressions is deferred.
+- The manually selectable expression set is neutral, happy, curious, surprised,
+  sad, angry, focused, tired, confused, scared and skeptical. `sleepy` and
+  `worried` remain renderer vocabulary for existing state/reaction behavior,
+  rather than manual commands. Robot state and expression remain independent:
+  for example, focused can be selected while PHOS is thinking without changing
+  that state. Manual selection persists until explicitly replaced. The shared
+  canonical expression profile and geometry path drives both live Tk eyes and
+  Appearance Preview; automatic BehaviorEngine selection of the manually
+  selectable expressions is deferred.
+- Every expression supports the configured/custom iris color. HAPPY's blue
+  eye-body accent and SURPRISED's yellow eye-body accent remain specific
+  semantic exceptions; expression geometry is the primary visual language, not
+  a general emotion-to-color mapping. FURIOUS and expression intensity are not
+  implemented.
 - Eye renderer/display runtime with smooth frame updates.
 - Standalone eye demo under `src/robot/ui/demo.py`.
 - Current README documents an 800x600/fullscreen runtime path and keyboard-driven eye demo.
