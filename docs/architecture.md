@@ -34,6 +34,24 @@ Hardware-specific access remains behind adapters/interfaces.
 
 ## Core principles
 
+### External Hardware Controller Protocol v1
+
+PHOS defines a hardware-agnostic USB/serial controller boundary in
+`robot.hardware.controller_protocol`; it is not an ESP32 protocol. It uses
+UTF-8 JSON Lines, one bounded object per newline, with the envelope
+`protocol: "phos-hw"`, `version: 1`, `type`, optional `id`/`reply_to` and
+object `payload`. Controllers push semantic sensor/motion events and advertise
+capabilities; PHOS does not poll them. Commands cover capability discovery,
+heartbeat and bounded LED animations (`off`, `solid`, `blink`, `pulse`,
+`breathe`, `chase`, `spin`, `wipe`). Breathe accepts color, brightness,
+period/duration and min/max intensity. Controllers execute timing, but never
+invent PHOS semantics. Heartbeats use reconnectable transports; a stale peer is
+unhealthy and controllers fall back to a local safe LED state. Unknown optional
+fields may be ignored; unknown types and versions receive bounded protocol
+errors. Sensor events must still enter existing semantic services and
+BehaviorEngine ownership. Firmware, serial device opening and an ESP32
+reference implementation are intentionally deferred.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 
