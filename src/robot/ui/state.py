@@ -15,6 +15,13 @@ class FaceExpression(str, Enum):
     SURPRISED = "surprised"
     SLEEPY = "sleepy"
     WORRIED = "worried"
+    SAD = "sad"
+    ANGRY = "angry"
+    FOCUSED = "focused"
+    TIRED = "tired"
+    CONFUSED = "confused"
+    SCARED = "scared"
+    SKEPTICAL = "skeptical"
 
 
 class VisualAccent(str, Enum):

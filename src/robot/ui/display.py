@@ -15,7 +15,7 @@ import os
 import time
 from typing import Any, Deque, List, Optional
 
-from .eyes import EyeFrame, EyeGeometry
+from .eyes import EyeFrame, EyeGeometry, upper_lid_points, valid_polygon_points
 from .backgrounds import BackgroundAsset
 from .state_effects import StateEffectParams
 from .state_effect_layer import StateEffectLayer
@@ -714,6 +714,15 @@ class TkEyeDisplay(EyeDisplay):
             fill="#D9FBFF",
             outline="",
         )
+        if eye.upper_lid_depth:
+            # The lid cap lives inside the shell, so it reads as an eyelid at
+            # Pi-display scale rather than as a separate eyebrow primitive.
+            points = upper_lid_points(eye, inset=inset)
+            if valid_polygon_points(points):
+                self._canvas.create_polygon(
+                    *(coordinate for point in points for coordinate in point),
+                    fill="#8FA8B8", outline="",
+                )
 
     def _draw_preview(self, preview, settings, display_width, display_height):
         now = time.monotonic()

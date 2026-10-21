@@ -387,7 +387,7 @@ def test_every_exported_transition_is_accepted_and_other_writable_targets_reject
                 raise AssertionError(f"{source} -> {target.value} was missing from the exported graph")
 
 
-def test_manual_expression_is_behavior_owned_bounded_intent_not_a_renderer_mutation():
+def test_manual_expression_is_behavior_owned_persistent_intent_not_a_renderer_mutation():
     now = [0.0]
     runtime = Runtime()
     runtime._behavior_engine = BehaviorEngine(runtime.core.events, clock=lambda: now[0])
@@ -395,11 +395,53 @@ def test_manual_expression_is_behavior_owned_bounded_intent_not_a_renderer_mutat
     applied = service.set_expression("curious")
     assert applied["manual_override"]["expression"] == "curious"
     assert service.visual_state()["expression"] == "curious"
-    # The override outlives ordinary environmental/source arbitration, then
-    # expires without a Web Admin or renderer callback.
+    # The override outlives ordinary environmental/source arbitration and the
+    # previous 30-second deadline; only another explicit command replaces it.
     runtime._behavior_engine.configure_base_visual_source("manual")
     assert service.visual_state()["expression"] == "curious"
     now[0] = 31.0
+    assert service.visual_state()["expression"] == "curious"
+    service.set_expression("neutral")
+    assert service.visual_state()["expression"] == "neutral"
+
+
+def test_phase_one_manual_expressions_are_writable_without_changing_robot_state():
+    now = [0.0]
+    runtime = Runtime()
+    runtime._behavior_engine = BehaviorEngine(runtime.core.events, clock=lambda: now[0])
+    service = PhosApplicationService(runtime)
+    for expression in ("sad", "angry", "focused", "tired"):
+        applied = service.set_expression(expression)
+        assert applied["expression"] == expression
+        assert applied["visual"]["expression"] == expression
+        assert runtime._behavior_engine.robot_state is RobotState.IDLE
+
+
+def test_phase_two_manual_expressions_are_writable_without_changing_robot_state():
+    runtime = Runtime()
+    runtime._behavior_engine = BehaviorEngine(runtime.core.events)
+    service = PhosApplicationService(runtime)
+    for expression in ("confused", "scared", "skeptical", "tired"):
+        assert service.set_expression(expression)["expression"] == expression
+        assert runtime._behavior_engine.robot_state is RobotState.IDLE
+
+
+def test_manual_sad_and_tired_survive_time_and_robot_state_reconstruction():
+    now = [0.0]
+    runtime = Runtime()
+    runtime._behavior_engine = BehaviorEngine(runtime.core.events, clock=lambda: now[0])
+    service = PhosApplicationService(runtime)
+
+    service.set_expression("sad")
+    now[0] = 3600.0
+    assert service.visual_state()["expression"] == "sad"
+    asyncio.run(runtime._behavior_engine._on_robot_state(Event("core.state_changed", {"current": "thinking"})))
+    assert service.visual_state()["expression"] == "sad"
+
+    service.set_expression("tired")
+    asyncio.run(runtime._behavior_engine._on_robot_state(Event("core.state_changed", {"current": "speaking"})))
+    assert service.visual_state()["expression"] == "tired"
+    service.set_expression("neutral")
     assert service.visual_state()["expression"] == "neutral"
 
 

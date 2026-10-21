@@ -95,7 +95,7 @@ _COMMAND_CATALOG = {
     "set_expression": "face.set_expression",
 }
 _NO_PARAMETER_INTENTS = frozenset(_COMMAND_CATALOG) - {"set_expression", "set_state", "get_sensor_value"}
-_ALLOWED_EXPRESSIONS = frozenset({"neutral", "happy", "curious", "surprised"})
+_ALLOWED_EXPRESSIONS = frozenset({"neutral", "happy", "curious", "surprised", "sad", "angry", "focused", "tired", "confused", "scared", "skeptical"})
 _VOICE_SETTABLE_STATES = frozenset({"idle", "sleeping"})
 _SUPPORTED_SENSORS = frozenset({"temperature", "pressure", "air_quality"})
 

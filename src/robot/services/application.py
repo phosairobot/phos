@@ -91,7 +91,10 @@ STATE_COMMAND_TIMEOUT_SECONDS = 2.0
 # the current visual-event command deliberately supports only reactions that the
 # BehaviorEngine maps from a semantic expression event.
 WRITABLE_ROBOT_STATES = writable_states()
-WRITABLE_EXPRESSIONS = (FaceExpression.NEUTRAL, FaceExpression.HAPPY, FaceExpression.CURIOUS, FaceExpression.SURPRISED)
+WRITABLE_EXPRESSIONS = (FaceExpression.NEUTRAL, FaceExpression.HAPPY, FaceExpression.CURIOUS,
+                        FaceExpression.SURPRISED, FaceExpression.SAD, FaceExpression.ANGRY,
+                        FaceExpression.FOCUSED, FaceExpression.TIRED, FaceExpression.CONFUSED,
+                        FaceExpression.SCARED, FaceExpression.SKEPTICAL)
 WRITABLE_VISUAL_SOURCES = tuple(VisualSource)
 
 
@@ -1096,7 +1099,7 @@ class PhosApplicationService:
         if target not in COMMANDS["set_expression"].allowed_members:
             raise ApplicationError("unsupported_expression_command", "Expression is not writable through this command.",
                                    {"expression": expression})
-        self._behavior.set_manual_expression(target, duration_seconds=30.0)
+        self._behavior.set_manual_expression(target)
         payload = {"expression": target.value, "manual_override": self._behavior.manual_expression_state(),
                    "visual": self.visual_state()}
         self._emit("expression_changed", payload)

@@ -5,6 +5,7 @@ import pytest
 from robot.config import RuntimeConfig, load_document
 from robot.ui.appearance_preview import render_preview
 from robot.ui.eyes import EyeRenderer
+from robot.ui.eyes import upper_lid_points
 from robot.ui.state import FaceExpression, FaceState, expression_reaction_accent
 
 
@@ -41,6 +42,81 @@ def test_preview_uses_live_eye_body_color_and_expression_geometry(tmp_path):
     surprised = render_preview(config, {**common, "expression": "surprised"})
     assert 'class="eye"' in neutral and f'fill="{EyeRenderer().render(FaceState(), timestamp=0).eye_color}"' in neutral
     assert len({neutral, happy, curious, surprised}) == 4
+
+
+@pytest.mark.parametrize("expression", ["sad", "angry", "focused", "tired", "confused", "scared", "skeptical"])
+def test_extended_expressions_render_in_the_shared_preview(tmp_path, expression):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": expression,
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+
+    assert svg.startswith("<svg") and 'class="eye"' in svg
+
+
+@pytest.mark.parametrize("expression", ["sad", "tired", "confused", "scared", "skeptical"])
+def test_lidded_expressions_preview_draw_the_shared_internal_lid_profile(tmp_path, expression):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": expression,
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+
+    assert svg.count('class="upper-lid"') == 2
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression(expression), reaction_strength=1), timestamp=0)
+    for point in upper_lid_points(frame.eyes[0]):
+        assert f"{point[0]:.1f},{point[1]:.1f}" in svg
+
+
+def test_sad_preview_uses_the_shared_inward_gaze_profile(tmp_path):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": "sad",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression.SAD, reaction_strength=1), timestamp=0)
+
+    assert frame.eyes[0].pupil_x > frame.eyes[0].center_x
+    assert frame.eyes[1].pupil_x < frame.eyes[1].center_x
+    for eye in frame.eyes:
+        assert f'cx="{eye.pupil_x:.1f}"' in svg
+
+
+def test_focused_preview_uses_the_shared_sloped_lid_profile(tmp_path):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": "focused",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression.FOCUSED, reaction_strength=1), timestamp=0)
+
+    assert svg.count('class="upper-lid"') == 2
+    for point in upper_lid_points(frame.eyes[0]):
+        assert f"{point[0]:.1f},{point[1]:.1f}" in svg
+
+
+def test_angry_preview_uses_the_shared_inward_low_lid_profile(tmp_path):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": "angry",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression.ANGRY, reaction_strength=1), timestamp=0)
+
+    assert svg.count('class="upper-lid"') == 2
+    for point in upper_lid_points(frame.eyes[0]):
+        assert f"{point[0]:.1f},{point[1]:.1f}" in svg
+
+
+def test_preview_skips_an_invalid_lid_polygon_safely(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    monkeypatch.setattr("robot.ui.appearance_preview.upper_lid_points", lambda *_args, **_kwargs: ())
+
+    svg = render_preview(config, {"state": "idle", "expression": "sad",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+
+    assert svg.startswith("<svg") and 'class="upper-lid"' not in svg
 
 
 def test_preview_uses_the_behavior_expression_accent_for_eye_color(tmp_path):
