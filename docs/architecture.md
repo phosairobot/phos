@@ -70,6 +70,14 @@ the application services. The controller is a generic provider, not a hardware
 vendor identity. The committed default remains `local` and does not enable
 optional controller hardware.
 
+Controller IMU telemetry uses two validated v1 messages. `motion_update` has
+exactly `{"state": "stationary|moving|tilt_left|tilt_right|tilt_forward|tilt_backward|shake|impact", "intensity": "low|medium|high"}`;
+intensity is semantic movement intensity, never linear velocity. `orientation_update`
+has exactly `acceleration_m_s2` and `angular_velocity_dps` vectors, each with
+finite numeric `x`, `y`, and `z` axes (m/s² and degrees/second respectively).
+Both update the existing IMU service; semantic motion and telemetry remain
+independent snapshot fields.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 

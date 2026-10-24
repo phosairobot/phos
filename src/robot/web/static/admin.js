@@ -145,7 +145,7 @@ if (ttsProvider) {
   const render = () => {
     const visual = state.visual || {};
     const environment = state.environment || {};
-    const motion = state.motion || {};
+    const motion = (state.sensors || {}).imu || state.motion || {};
     const ccs811 = state.ccs811 || (state.sensors || {}).ccs811 || {};
     const overlay = (state.overlay || {}).resolved || {};
     const presence = state.presence || {};
@@ -159,6 +159,7 @@ if (ttsProvider) {
     display("visual.expression", visual.expression);
     display("visual.source", state.active_visual_source || visual.source);
     display("motion.motion_state", motion.motion_state || visual.motion_state);
+    display("motion.intensity", motion.motion_intensity && motion.motion_intensity.replaceAll("_", " "));
     display("environment.state", environment.state || ((state.sensors || {}).environmental_behavior || {}).state);
     display("environment.status", status(environment)); display("environment.temperature", reading(environment, "temperature_c", "°C"));
     display("environment.pressure", reading(environment, "pressure_hpa", "hPa"));

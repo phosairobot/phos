@@ -6,8 +6,8 @@ from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDeco
                                                  decode_frame, validate_led_animation)
 from robot.hardware.serial_controller import ControllerService
 from robot.sensors import AirQualityReading, AirQualitySensorService, EnvironmentalSensorService
-from robot.sensors import IMUSensorService
-from robot.motion import MotionSettings
+from robot.sensors import IMUReading, IMUSensorService
+from robot.motion import MotionSettings, MotionState
 
 
 def test_json_lines_decodes_partial_and_multiple_frames():
@@ -21,6 +21,18 @@ def test_json_lines_decodes_partial_and_multiple_frames():
 @pytest.mark.parametrize("frame", [b"{", b'{"protocol":"phos-hw","version":2,"type":"ping","payload":{}}', b'{"protocol":"phos-hw","version":1,"type":"bad","payload":{}}'])
 def test_invalid_frames_are_bounded(frame):
     with pytest.raises(ProtocolError): decode_frame(frame)
+
+
+@pytest.mark.parametrize("state", ["stationary", "moving", "tilt_left", "tilt_right", "tilt_forward", "tilt_backward", "shake", "impact"])
+def test_motion_update_contract_accepts_semantic_states(state):
+    message = decode_frame((f'{{"protocol":"phos-hw","version":1,"type":"motion_update","payload":{{"state":"{state}","intensity":"high"}}}}').encode())
+    assert message.payload["state"] == state
+
+
+def test_orientation_update_contract_rejects_incomplete_vector():
+    frame = b'{"protocol":"phos-hw","version":1,"type":"orientation_update","payload":{"acceleration_m_s2":{"x":1,"y":2},"angular_velocity_dps":{"x":1,"y":2,"z":3}}}'
+    with pytest.raises(ProtocolError, match="requires x, y and z"):
+        decode_frame(frame)
 
 
 @pytest.mark.parametrize(("frame", "reason"), [
@@ -108,6 +120,83 @@ def test_controller_owned_services_do_not_construct_local_i2c_providers_and_disc
     assert environmental.snapshot()["available"]
     environmental.mark_external_unavailable()
     assert environmental.snapshot()["status"] == "unavailable"
+
+
+def test_controller_imu_telemetry_and_semantic_motion_share_one_snapshot():
+    states = []
+    imu = IMUSensorService(lambda: None, enabled=True, poll_interval_seconds=1, stale_after_seconds=30,
+                           externally_managed=True, motion_state_sink=states.append,
+                           motion_settings=MotionSettings(1.5, 4, 180, 25, .25, 1, 3, "x", "y"))
+    imu.accept_controller_orientation(IMUReading(1, 2, 3, 4, 5, 6))
+    imu.accept_controller_motion(MotionState.MOVING, "medium")
+    snapshot = imu.snapshot()
+    assert snapshot["measurements"]["acceleration_x_m_s2"] == 1
+    assert snapshot["motion_state"] == "moving"
+    assert snapshot["motion_intensity"] == "medium"
+    assert states == [MotionState.MOVING]
+
+
+def test_controller_sensor_families_keep_independent_canonical_availability_and_values():
+    environmental = EnvironmentalSensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=30, externally_managed=True)
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True)
+    imu = IMUSensorService(lambda: None, enabled=True, poll_interval_seconds=1, stale_after_seconds=30,
+                           externally_managed=True,
+                           motion_settings=MotionSettings(1.5, 4, 180, 25, .25, 1, 3, "x", "y"))
+    air.accept_controller_update("eco2", 400)
+    air.accept_controller_update("tvoc", 0)
+    imu.accept_controller_motion(MotionState.MOVING, "medium")
+    environmental.accept_controller_update("temperature", 24.8)
+    assert air.snapshot()["available"]
+    assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+    environmental.accept_controller_update("pressure", 991.6)
+    assert air.snapshot()["available"]
+    assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+    snapshot = {"environmental": environmental.snapshot(), "ccs811": air.snapshot(), "imu": imu.snapshot()}
+    assert snapshot["environmental"]["available"]
+    assert snapshot["ccs811"]["available"]
+    assert snapshot["ccs811"]["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+    assert snapshot["imu"]["available"] and snapshot["imu"]["motion_state"] == "moving"
+
+
+def test_controller_air_quality_freshness_is_refreshed_by_each_partial_push_only():
+    now = [0.0]
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=10, externally_managed=True, clock=lambda: now[0])
+    air.accept_controller_update("eco2", 400)
+    now[0] = 1
+    air.accept_controller_update("tvoc", 0)
+    now[0] = 9
+    # Unrelated environmental/IMU activity has no path into this service.
+    assert air.snapshot()["available"]
+    assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+    now[0] = 12
+    assert air.snapshot()["status"] == "stale"
+
+
+def test_controller_air_quality_disconnect_is_immediate_and_next_push_restores_availability():
+    now = [0.0]
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=90, externally_managed=True, clock=lambda: now[0])
+    air.accept_controller_update("eco2", 400)
+    air.accept_controller_update("tvoc", 0)
+    air.mark_external_unavailable()
+    assert air.snapshot()["status"] == "unavailable"
+    air.accept_controller_update("eco2", 401)
+    assert air.snapshot()["status"] == "available"
+    assert air.snapshot()["measurements"] == {"eco2_ppm": 401, "tvoc_ppb": 0}
+
+
+def test_local_air_quality_freshness_uses_its_configured_timeout_unchanged():
+    now = [0.0]
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=10, clock=lambda: now[0])
+    air._accept_external_fields({"eco2_ppm": 400, "tvoc_ppb": 0})
+    now[0] = 9
+    assert air.snapshot()["available"]
+    now[0] = 10
+    assert air.snapshot()["status"] == "stale"
 
 
 def test_controller_environmental_notification_uses_complete_merged_reading_and_survives_failure(caplog):

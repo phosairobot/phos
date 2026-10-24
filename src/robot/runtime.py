@@ -22,7 +22,7 @@ from robot.motion import MotionSettings
 from robot.motion import MotionState
 from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorService,
                            AirQualitySensorProvider, AirQualitySensorService,
-                           IMUSensorProvider, IMUSensorService)
+                           IMUSensorProvider, IMUSensorService, IMUReading)
 from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalSettings, Event, EventBus,
                         RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
@@ -894,6 +894,21 @@ def build_runtime(
         if config.imu_provider == "controller":
             controller_sensors["imu"].mark_external_unavailable()
 
+    def accept_controller_imu(message):
+        if config.imu_provider != "controller":
+            return
+        imu = controller_sensors["imu"]
+        if message.type == "motion_update":
+            states = {"stationary": MotionState.STILL, "moving": MotionState.MOVING,
+                      "tilt_left": MotionState.TILT_LEFT, "tilt_right": MotionState.TILT_RIGHT,
+                      "tilt_forward": MotionState.TILT_FORWARD, "tilt_backward": MotionState.TILT_BACK,
+                      "shake": MotionState.SHAKE, "impact": MotionState.IMPACT}
+            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"])
+        elif message.type == "orientation_update":
+            acceleration, angular = message.payload["acceleration_m_s2"], message.payload["angular_velocity_dps"]
+            imu.accept_controller_orientation(IMUReading(acceleration["x"], acceleration["y"], acceleration["z"],
+                                                         angular["x"], angular["y"], angular["z"]))
+
     controller = ControllerService(
         core, enabled=config.hardware_controller_enabled,
         device=config.hardware_controller_serial_device,
@@ -902,6 +917,7 @@ def build_runtime(
         heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
         heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
         touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
+        imu_update_sink=accept_controller_imu,
         provider_disconnected_sink=controller_provider_disconnected,
     )
 

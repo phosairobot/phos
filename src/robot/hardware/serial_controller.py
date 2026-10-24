@@ -83,12 +83,13 @@ class ControllerService(Behavior):
                  reconnect_delay_seconds: float, heartbeat_interval_seconds: float,
                  heartbeat_timeout_seconds: float, touch_sink: Callable[[TouchEvent], None],
                  sensor_update_sink: Callable[[str, int | float], None] = lambda _name, _value: None,
+                 imu_update_sink: Callable[[ControllerMessage], None] = lambda _message: None,
                  provider_disconnected_sink: Callable[[], None] = lambda: None,
                  transport_factory=SerialControllerTransport) -> None:
         self._core, self._enabled = core, enabled
         self._device, self._baud_rate = device, baud_rate
         self._reconnect_delay, self._heartbeat_interval, self._heartbeat_timeout = reconnect_delay_seconds, heartbeat_interval_seconds, heartbeat_timeout_seconds
-        self._touch_sink, self._sensor_update_sink = touch_sink, sensor_update_sink
+        self._touch_sink, self._sensor_update_sink, self._imu_update_sink = touch_sink, sensor_update_sink, imu_update_sink
         self._provider_disconnected_sink, self._factory = provider_disconnected_sink, transport_factory
         self._state = ControllerConnection.DISCONNECTED
         self._task = None
@@ -167,6 +168,11 @@ class ControllerService(Behavior):
     async def _message(self, message: ControllerMessage) -> None:
         if message.type in {"motion_update", "orientation_update"}:
             logger.debug("PHOS CONTROLLER RX IMU raw=%s", safe_frame_repr(message.raw_frame or b"", limit=8192))
+            try:
+                self._imu_update_sink(message)
+            except Exception as error:
+                logger.warning("PHOS CONTROLLER: IMU integration failure type=%s exception=%s message=%s",
+                               message.type, type(error).__name__, self._safe_error_message(error))
             return
         if message.type != "sensor_update":
             return

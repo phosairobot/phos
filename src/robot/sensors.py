@@ -14,7 +14,7 @@ from threading import Event, Lock, Thread
 import time
 from typing import Callable, Protocol
 
-from robot.motion import MotionInterpreter, MotionSettings, tilt_direction
+from robot.motion import MotionInterpreter, MotionSettings, MotionState, tilt_direction
 
 logger = logging.getLogger(__name__)
 
@@ -382,7 +382,6 @@ class AirQualitySensorService(_SensorService):
         if measurements is not None and {"eco2_ppm", "tvoc_ppb"} <= measurements.keys():
             self._reading_sink(AirQualityReading(measurements["eco2_ppm"], measurements["tvoc_ppb"]), self._clock())
 
-
 class IMUSensorService(_SensorService):
     _label = "IMU sensor"
 
@@ -398,6 +397,7 @@ class IMUSensorService(_SensorService):
                          externally_managed=externally_managed)
         self._motion = MotionInterpreter(motion_settings)
         self._motion_state = None
+        self._motion_intensity = None
         self._motion_last_event = None
         self._motion_state_sink = motion_state_sink
 
@@ -421,10 +421,29 @@ class IMUSensorService(_SensorService):
             self._motion_state_sink(state)
         return reading
 
+    def accept_controller_orientation(self, reading: IMUReading) -> None:
+        if not isinstance(reading, IMUReading):
+            raise ValueError("Controller orientation must be an IMU reading")
+        self._accept_external_fields(asdict(reading))
+
+    def accept_controller_motion(self, state: MotionState, intensity: str) -> None:
+        if not isinstance(state, MotionState) or intensity not in {"low", "medium", "high"}:
+            raise ValueError("Invalid controller semantic motion")
+        now = self._clock()
+        with self._lock:
+            changed = state is not self._motion_state
+            self._motion_state, self._motion_intensity = state, intensity
+            self._motion_last_event = {"state": state.value,
+                                       "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        self._accept_external_fields({})
+        if changed:
+            self._motion_state_sink(state)
+
     def _snapshot_details(self, status):
         active = status == "available"
         state = self._motion_state if active else None
         return {"calibration": "factory_scale_only" if status in {"available", "starting"} else None,
                 "motion_state": state.value if state is not None else None,
+                "motion_intensity": self._motion_intensity if active else None,
                 "tilt_direction": tilt_direction(state) if state is not None else None,
                 "last_motion_event": self._motion_last_event if active else None}

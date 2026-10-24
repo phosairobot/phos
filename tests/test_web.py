@@ -672,6 +672,8 @@ def test_live_dashboard_is_an_api_client_and_retains_server_rendered_sensor_fall
     assert 'Math.floor((Date.now() - timestamp) / 1000)' in source
     assert 'window.setInterval(renderFreshness, 1000)' in source
     assert 'dashboard._phosFreshnessTimer' in source
+    assert 'const motion = (state.sensors || {}).imu || state.motion || {};' in source
+    assert 'display("motion.intensity", motion.motion_intensity' in source
     for event_type in ("presence_changed", "attention_changed", "person_entered", "person_left",
                        "attention_target_acquired", "attention_target_changed", "attention_target_lost",
                        "observed_expression_changed"):

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import json
 import logging
+import math
 from typing import Any, Protocol
 
 PROTOCOL = "phos-hw"
@@ -20,6 +21,8 @@ CONTROLLER_EVENTS = frozenset({"hello", "capabilities", "sensor_update", "motion
 CONTROLLER_COMMANDS = frozenset({"request_capabilities", "ping", "configure_sensor_reporting",
                                  "set_led_animation", "stop_led_animation", "set_led_brightness", "clear_led"})
 LED_ANIMATIONS = frozenset({"off", "solid", "blink", "pulse", "breathe", "chase", "spin", "wipe"})
+MOTION_UPDATE_STATES = frozenset({"stationary", "moving", "tilt_left", "tilt_right", "tilt_forward", "tilt_backward", "shake", "impact"})
+MOTION_INTENSITIES = frozenset({"low", "medium", "high"})
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +70,31 @@ def decode_frame(frame: bytes) -> ControllerMessage:
         if value.get("type") not in CONTROLLER_EVENTS | CONTROLLER_COMMANDS: raise ProtocolError("unknown_message_type", "Unknown message type.")
         if "payload" not in value: raise ProtocolError("invalid_payload", "missing payload field.")
         if not isinstance(value["payload"], dict): raise ProtocolError("invalid_payload", "payload must be an object.")
+        validate_controller_payload(value["type"], value["payload"])
     except ProtocolError as error:
         error.message_type = message_type
         raise
     return ControllerMessage(value["type"], value.get("payload", {}), value.get("id"), value.get("timestamp_ms"), value.get("reply_to"))
+
+
+def validate_controller_payload(kind: str, payload: dict[str, Any]) -> None:
+    if kind == "motion_update":
+        if set(payload) != {"state", "intensity"}:
+            raise ProtocolError("invalid_payload", "motion_update requires only state and intensity.")
+        if not isinstance(payload["state"], str) or payload["state"] not in MOTION_UPDATE_STATES:
+            raise ProtocolError("invalid_payload", "motion_update state is unsupported.")
+        if not isinstance(payload["intensity"], str) or payload["intensity"] not in MOTION_INTENSITIES:
+            raise ProtocolError("invalid_payload", "motion_update intensity is unsupported.")
+    if kind == "orientation_update":
+        if set(payload) != {"acceleration_m_s2", "angular_velocity_dps"}:
+            raise ProtocolError("invalid_payload", "orientation_update requires acceleration_m_s2 and angular_velocity_dps.")
+        for vector in ("acceleration_m_s2", "angular_velocity_dps"):
+            values = payload[vector]
+            if not isinstance(values, dict) or set(values) != {"x", "y", "z"}:
+                raise ProtocolError("invalid_payload", f"orientation_update {vector} requires x, y and z.")
+            if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item)
+                   for item in values.values()):
+                raise ProtocolError("invalid_payload", f"orientation_update {vector} axes must be finite numbers.")
 
 
 class JsonLinesDecoder:
