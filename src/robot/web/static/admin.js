@@ -116,8 +116,32 @@ if (ttsProvider) {
     }
   };
   const status = (item) => item && (item.status || item.state) || "unavailable";
-  const age = (item) => item && Number.isFinite(item.age_seconds) ? `${item.age_seconds.toFixed(1)} seconds old` : "Unavailable";
-  const reading = (item, field, suffix) => item && item.available && item.measurements && item.measurements[field] !== null ? `${item.measurements[field]} ${suffix}` : "Unavailable";
+  const age = (item) => {
+    if (!item) return "Unavailable";
+    const timestamp = Date.parse(item.last_update);
+    const seconds = Number.isFinite(timestamp) ? Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+      : Number.isFinite(item.age_seconds) ? Math.max(0, Math.floor(item.age_seconds)) : null;
+    return seconds === null ? "Unavailable" : `${seconds}s ago`;
+  };
+  const reading = (item, field, suffix) => item && item.available && item.measurements && item.measurements[field] !== null && item.measurements[field] !== undefined ? `${item.measurements[field]} ${suffix}` : "Unavailable";
+  const mergeSensor = (current, next) => next === undefined ? current : {
+    ...(current || {}), ...next,
+    measurements: next.measurements === undefined ? (current || {}).measurements : {
+      ...((current || {}).measurements || {}), ...(next.measurements || {})
+    }
+  };
+  const mergeSensors = (current, next) => ({
+    ...(current || {}), ...(next || {}),
+    environmental: mergeSensor((current || {}).environmental, (next || {}).environmental),
+    ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811),
+    imu: mergeSensor((current || {}).imu, (next || {}).imu)
+  });
+  const renderFreshness = () => {
+    const sensors = state.sensors || {};
+    display("environment.age", age(state.environment || sensors.environmental));
+    display("ccs811.age", age(sensors.ccs811));
+    display("motion.age", age(state.motion || sensors.imu));
+  };
   const render = () => {
     const visual = state.visual || {};
     const environment = state.environment || {};
@@ -137,10 +161,11 @@ if (ttsProvider) {
     display("motion.motion_state", motion.motion_state || visual.motion_state);
     display("environment.state", environment.state || ((state.sensors || {}).environmental_behavior || {}).state);
     display("environment.status", status(environment)); display("environment.temperature", reading(environment, "temperature_c", "°C"));
-    display("environment.pressure", reading(environment, "pressure_hpa", "hPa")); display("environment.age", age(environment));
+    display("environment.pressure", reading(environment, "pressure_hpa", "hPa"));
     display("ccs811.status", status(ccs811)); display("ccs811.eco2", reading(ccs811, "eco2_ppm", "ppm"));
-    display("ccs811.tvoc", reading(ccs811, "tvoc_ppb", "ppb")); display("ccs811.age", age(ccs811));
-    display("motion.status", status(motion)); display("motion.age", age(motion));
+    display("ccs811.tvoc", reading(ccs811, "tvoc_ppb", "ppb"));
+    display("motion.status", status(motion));
+    renderFreshness();
     display("overlay.resolved", `${overlay.temperature || "none"} / ${overlay.air_quality || "none"}`);
     const manual = (state.overlay || {}).override || (state.overlay || {}).manual || {};
     display("overlay.override", Object.keys(manual).length ? `${manual.temperature || "none"} / ${manual.air_quality || "none"}` : "None");
@@ -283,6 +308,7 @@ if (ttsProvider) {
     else if (event.type === "expression_changed") state.visual = {...(state.visual || {}), ...payload};
     else if (event.type === "visual_state_changed") state.visual = {...(state.visual || {}), ...payload};
     else if (event.type === "environmental_state_changed") state.environment = payload;
+    else if (event.type === "sensors_changed") state.sensors = mergeSensors(state.sensors, payload);
     else if (event.type === "motion_state_changed") state.motion = payload;
     else if (event.type === "health_changed") state.health = payload;
     else if (event.type === "overlay_changed" || event.type === "environmental_overlay_changed") state.overlay = payload;
@@ -302,7 +328,7 @@ if (ttsProvider) {
     else if (["person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost"].includes(event.type)) {
       snapshot(); return;
     }
-    else if (!["touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
+    else if (!["sensors_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
     render(); syncControls();
   };
   const fallback = () => { if (!fallbackTimer) fallbackTimer = window.setInterval(snapshot, 30000); };
@@ -311,10 +337,11 @@ if (ttsProvider) {
     stream.onopen = async () => { const reconnect = opened; opened = true; retries = 0; setConnection("connected"); window.clearInterval(fallbackTimer); fallbackTimer = undefined; if (reconnect) await snapshot(); };
     // The SSE adapter uses named semantic events, so listen explicitly rather
     // than relying on EventSource's unnamed-message default.
-    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
+    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "sensors_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
       stream.addEventListener(type, (message) => { try { applyEvent(JSON.parse(message.data)); } catch (_) {} });
     }
     stream.onerror = () => { stream.close(); setConnection("reconnecting"); fallback(); const delay = Math.min(30000, 1000 * 2 ** Math.min(retries++, 5)); retryTimer = window.setTimeout(connect, delay); };
   };
+  if (!dashboard._phosFreshnessTimer) dashboard._phosFreshnessTimer = window.setInterval(renderFreshness, 1000);
   snapshot({refreshCapabilities: true}).then(connect); setConnection("reconnecting");
 })();

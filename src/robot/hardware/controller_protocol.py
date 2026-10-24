@@ -6,8 +6,9 @@ sensor events through the existing runtime services rather than drivers.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
+import logging
 from typing import Any, Protocol
 
 PROTOCOL = "phos-hw"
@@ -20,12 +21,22 @@ CONTROLLER_COMMANDS = frozenset({"request_capabilities", "ping", "configure_sens
                                  "set_led_animation", "stop_led_animation", "set_led_brightness", "clear_led"})
 LED_ANIMATIONS = frozenset({"off", "solid", "blink", "pulse", "breathe", "chase", "spin", "wipe"})
 
+logger = logging.getLogger(__name__)
+
 
 class ProtocolError(ValueError):
     """Bounded protocol validation failure suitable for a controller ack/error."""
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+        self.frame: bytes | None = None
+        self.message_type: str | None = None
+
+
+def safe_frame_repr(frame: bytes, *, limit: int = 512) -> str:
+    """Return a bounded, log-safe representation of untrusted serial input."""
+    clipped = frame[:limit]
+    return repr(clipped) + ("...<truncated>" if len(frame) > limit else "")
 
 
 @dataclass(frozen=True)
@@ -35,6 +46,7 @@ class ControllerMessage:
     message_id: str | None = None
     timestamp_ms: int | None = None
     reply_to: str | None = None
+    raw_frame: bytes | None = None
 
     def document(self) -> dict[str, Any]:
         result = {"protocol": PROTOCOL, "version": VERSION, "type": self.type, "payload": self.payload}
@@ -48,10 +60,16 @@ def decode_frame(frame: bytes) -> ControllerMessage:
     if len(frame) > MAX_FRAME_BYTES: raise ProtocolError("frame_too_large", "Frame exceeds protocol limit.")
     try: value = json.loads(frame.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error: raise ProtocolError("malformed_frame", "Frame is not valid UTF-8 JSON.") from error
-    if not isinstance(value, dict) or value.get("protocol") != PROTOCOL: raise ProtocolError("invalid_envelope", "Invalid protocol envelope.")
-    if value.get("version") != VERSION: raise ProtocolError("protocol_version_unsupported", "Unsupported protocol version.")
-    if value.get("type") not in CONTROLLER_EVENTS | CONTROLLER_COMMANDS: raise ProtocolError("unknown_message_type", "Unknown message type.")
-    if not isinstance(value.get("payload", {}), dict): raise ProtocolError("invalid_payload", "Payload must be an object.")
+    message_type = value.get("type") if isinstance(value, dict) and isinstance(value.get("type"), str) else None
+    try:
+        if not isinstance(value, dict) or value.get("protocol") != PROTOCOL: raise ProtocolError("invalid_envelope", "protocol must be phos-hw.")
+        if value.get("version") != VERSION: raise ProtocolError("protocol_version_unsupported", "Unsupported protocol version.")
+        if value.get("type") not in CONTROLLER_EVENTS | CONTROLLER_COMMANDS: raise ProtocolError("unknown_message_type", "Unknown message type.")
+        if "payload" not in value: raise ProtocolError("invalid_payload", "missing payload field.")
+        if not isinstance(value["payload"], dict): raise ProtocolError("invalid_payload", "payload must be an object.")
+    except ProtocolError as error:
+        error.message_type = message_type
+        raise
     return ControllerMessage(value["type"], value.get("payload", {}), value.get("id"), value.get("timestamp_ms"), value.get("reply_to"))
 
 
@@ -62,7 +80,17 @@ class JsonLinesDecoder:
         self._buffer += data
         if len(self._buffer) > MAX_FRAME_BYTES and b"\n" not in self._buffer: self._buffer = b""; raise ProtocolError("frame_too_large", "Unterminated frame exceeds protocol limit.")
         frames, self._buffer = self._buffer.split(b"\n")[:-1], self._buffer.rsplit(b"\n", 1)[-1]
-        return [decode_frame(frame) for frame in frames if frame]
+        messages = []
+        for frame in frames:
+            if not frame:
+                continue
+            try:
+                logger.debug("PHOS CONTROLLER RX RAW: %s", safe_frame_repr(frame, limit=MAX_FRAME_BYTES))
+                messages.append(replace(decode_frame(frame), raw_frame=frame))
+            except ProtocolError as error:
+                error.frame = frame
+                raise
+        return messages
 
 
 def validate_led_animation(payload: dict[str, Any]) -> None:

@@ -39,8 +39,13 @@ The APT packages are `build-essential`, `ca-certificates`, `git`, `i2c-tools`,
 `python3-picamera2`, `python3-pyaudio`, `python3-smbus`, `python3-tk`, `python3-venv`,
 `rpicam-apps`, and `wget`.
 `.[all]` includes Web Admin/Remote API, Vision, voice (Vosk, Piper, Cartesia,
-and ElevenLabs integrations), AWS, environmental, CCS811, IMU, and LED-ring
-Python support.
+and ElevenLabs integrations), AWS, environmental, CCS811, IMU, LED-ring, and
+USB/serial controller Python support.
+
+The optional controller transport uses `pyserial` (included by `.[all]`; install
+`.[hardware-controller]` for that dependency alone). It is disabled by default;
+configure a specific serial device path in `hardware_controller.serial.device`.
+PHOS does not perform USB-device discovery or poll controller sensors.
 
 ### OpenCV provider invariant
 

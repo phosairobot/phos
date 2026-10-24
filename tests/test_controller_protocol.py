@@ -1,7 +1,13 @@
 import pytest
+import asyncio
+from types import SimpleNamespace
 
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
                                                  decode_frame, validate_led_animation)
+from robot.hardware.serial_controller import ControllerService
+from robot.sensors import AirQualityReading, AirQualitySensorService, EnvironmentalSensorService
+from robot.sensors import IMUSensorService
+from robot.motion import MotionSettings
 
 
 def test_json_lines_decodes_partial_and_multiple_frames():
@@ -17,6 +23,114 @@ def test_invalid_frames_are_bounded(frame):
     with pytest.raises(ProtocolError): decode_frame(frame)
 
 
+@pytest.mark.parametrize(("frame", "reason"), [
+    (b'{"protocol":"phos-hw","version":1,"type":"heartbeat"}', "missing payload field."),
+    (b'{"protocol":"phos-hw","version":1,"type":"heartbeat","payload":[]}', "payload must be an object."),
+])
+def test_invalid_payload_reports_a_bounded_field_reason(frame, reason):
+    with pytest.raises(ProtocolError, match=reason) as raised:
+        decode_frame(frame)
+    assert raised.value.code == "invalid_payload"
+
+
+def test_line_decoder_retains_only_the_rejected_raw_frame_for_debugging():
+    decoder = JsonLinesDecoder()
+    frame = b'{"protocol":"phos-hw","version":1,"type":"heartbeat","payload":false}'
+    with pytest.raises(ProtocolError) as raised:
+        decoder.feed(frame + b"\n")
+    assert raised.value.frame == frame
+
+
 def test_led_animation_validation_includes_breathe_and_rejects_bad_parameters():
     validate_led_animation({"animation": "breathe", "color": "#6F5CFF", "brightness": .65, "period_ms": 3200, "min_intensity": .08, "max_intensity": 1, "duration_ms": 0})
     with pytest.raises(ProtocolError): validate_led_animation({"animation": "breathe", "brightness": 2})
+
+
+def test_pushed_push_sensor_enters_the_existing_touch_boundary():
+    received = []
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=received.append)
+    asyncio.run(service._message(ControllerMessage("sensor_update", {"sensor": "push", "event": "pressed"})))
+    assert len(received) == 1
+    assert received[0].kind.value == "tap"
+    assert received[0].source == "external_controller"
+
+
+def test_controller_updates_merge_into_existing_sensor_service_snapshots():
+    environmental = EnvironmentalSensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=30, externally_managed=True)
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True)
+    received = []
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=received.append,
+                                sensor_update_sink=lambda name, value: (
+                                    environmental.accept_controller_update(name, value)
+                                    if name in {"pressure", "temperature", "humidity"}
+                                    else air.accept_controller_update(name, value)))
+    async def exercise():
+        await service._message(ControllerMessage("sensor_update", {"sensor": "pressure", "value": 991.6266, "unit": "hpa"}))
+        await service._message(ControllerMessage("sensor_update", {"sensor": "eco2", "value": 400, "unit": "ppm"}))
+        await service._message(ControllerMessage("sensor_update", {"sensor": "tvoc", "value": 0, "unit": "ppb"}))
+    asyncio.run(exercise())
+    assert environmental.snapshot()["measurements"] == {"pressure_hpa": 991.6266}
+    assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+
+
+def test_controller_air_quality_notification_uses_canonical_reading_type():
+    received = []
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True,
+                                  reading_sink=lambda reading, _now: received.append(reading))
+    air.accept_controller_update("eco2", 400)
+    air.accept_controller_update("tvoc", 0)
+    assert isinstance(received[-1], AirQualityReading)
+    assert received[-1] == AirQualityReading(400, 0)
+
+
+def test_controller_owned_services_do_not_construct_local_i2c_providers_and_disconnects_are_unavailable():
+    constructed = []
+    factory = lambda: constructed.append("called")
+    environmental = EnvironmentalSensorService(factory, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=30, externally_managed=True)
+    air = AirQualitySensorService(factory, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True)
+    imu = IMUSensorService(factory, enabled=True, poll_interval_seconds=1, stale_after_seconds=30,
+                           externally_managed=True,
+                           motion_settings=MotionSettings(1.5, 4, 180, 25, .25, 1, 3, "x", "y"))
+    async def exercise():
+        await environmental.start(); await air.start(); await imu.start()
+    asyncio.run(exercise())
+    assert constructed == []
+    environmental.accept_controller_update("pressure", 991.6)
+    assert environmental.snapshot()["available"]
+    environmental.mark_external_unavailable()
+    assert environmental.snapshot()["status"] == "unavailable"
+
+
+def test_controller_environmental_notification_uses_complete_merged_reading_and_survives_failure(caplog):
+    received = []
+    environmental = EnvironmentalSensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=30, externally_managed=True,
+                                               reading_sink=lambda reading, _now: received.append(reading))
+    environmental.accept_controller_update("temperature", 24.8)
+    environmental.accept_controller_update("pressure", 991.6)
+    environmental.accept_controller_update("humidity", 40.0)
+    assert environmental.snapshot()["measurements"] == {
+        "temperature_c": 24.8, "pressure_hpa": 991.6, "humidity_percent": 40.0}
+    assert received[-1].temperature_c == 24.8
+    assert received[-1].pressure_hpa == 991.6
+    assert received[-1].humidity_percent == 40.0
+
+    def failed_notification(_value, _now):
+        raise RuntimeError("event publisher unavailable")
+    environmental = EnvironmentalSensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=30, externally_managed=True,
+                                               reading_sink=failed_notification)
+    with caplog.at_level("WARNING"):
+        environmental.accept_controller_update("temperature", 24.8)
+        environmental.accept_controller_update("pressure", 991.6)
+    assert environmental.snapshot()["measurements"] == {"temperature_c": 24.8, "pressure_hpa": 991.6}
+    assert "Environmental controller notification failure" in caplog.text

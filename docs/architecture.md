@@ -41,7 +41,10 @@ PHOS defines a hardware-agnostic USB/serial controller boundary in
 UTF-8 JSON Lines, one bounded object per newline, with the envelope
 `protocol: "phos-hw"`, `version: 1`, `type`, optional `id`/`reply_to` and
 object `payload`. Controllers push semantic sensor/motion events and advertise
-capabilities; PHOS does not poll them. Commands cover capability discovery,
+capabilities; PHOS does not poll them. The v1 source currently specifies the
+payload only for the initial push-button proof
+(`sensor_update: {"sensor":"push","event":"pressed"}`); all other event
+payloads remain unspecified until an approved payload model is added. Commands cover capability discovery,
 heartbeat and bounded LED animations (`off`, `solid`, `blink`, `pulse`,
 `breathe`, `chase`, `spin`, `wipe`). Breathe accepts color, brightness,
 period/duration and min/max intensity. Controllers execute timing, but never
@@ -49,8 +52,23 @@ invent PHOS semantics. Heartbeats use reconnectable transports; a stale peer is
 unhealthy and controllers fall back to a local safe LED state. Unknown optional
 fields may be ignored; unknown types and versions receive bounded protocol
 errors. Sensor events must still enter existing semantic services and
-BehaviorEngine ownership. Firmware, serial device opening and an ESP32
-reference implementation are intentionally deferred.
+BehaviorEngine ownership. The Raspberry Pi serial adapter is reconnectable and
+configured with a manual device path; firmware and an ESP32 reference
+implementation remain intentionally deferred.
+
+For the initial inbound proof, a controller pushes
+`sensor_update` with `{"sensor":"push","event":"pressed"}`. PHOS maps this
+to its existing completed touch/tap semantic boundary; it does not poll the
+controller or add controller-specific behavior logic.
+
+For controller-backed sensors, set `hardware_controller.enabled: true` and the
+corresponding canonical `sensors.environmental.provider`,
+`sensors.ccs811.provider`, or `sensors.imu.provider` to `controller`, while
+retaining `enabled: true`. This prevents local I2C workers from starting while
+controller `sensor_update` messages update the same semantic snapshots used by
+the application services. The controller is a generic provider, not a hardware
+vendor identity. The committed default remains `local` and does not enable
+optional controller hardware.
 
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.

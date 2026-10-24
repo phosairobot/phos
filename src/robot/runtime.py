@@ -17,6 +17,7 @@ from robot.hardware.environmental import environmental_provider_type
 from robot.hardware.ccs811 import CCS811Provider
 from robot.hardware.mpu6050 import MPU6050Provider
 from robot.hardware.ws2812b import LEDRingProvider, LEDRingSocketProvider
+from robot.hardware.serial_controller import ControllerService
 from robot.motion import MotionSettings
 from robot.motion import MotionState
 from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorService,
@@ -877,6 +878,33 @@ def build_runtime(
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT, payload)))
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 
+    controller_sensors = {}
+    def accept_controller_sensor(name, value):
+        if name in {"temperature", "pressure", "humidity"}:
+            if config.environmental_provider == "controller":
+                controller_sensors["environmental"].accept_controller_update(name, value)
+        elif name in {"eco2", "tvoc"} and config.ccs811_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value)
+
+    def controller_provider_disconnected():
+        if config.environmental_provider == "controller":
+            controller_sensors["environmental"].mark_external_unavailable()
+        if config.ccs811_provider == "controller":
+            controller_sensors["air_quality"].mark_external_unavailable()
+        if config.imu_provider == "controller":
+            controller_sensors["imu"].mark_external_unavailable()
+
+    controller = ControllerService(
+        core, enabled=config.hardware_controller_enabled,
+        device=config.hardware_controller_serial_device,
+        baud_rate=config.hardware_controller_serial_baud_rate,
+        reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
+        heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
+        heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
+        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
+        provider_disconnected_sink=controller_provider_disconnected,
+    )
+
     def startup_view() -> dict:
         view = startup.document()
         splash_image = config.resolve_startup_splash_image()
@@ -907,6 +935,7 @@ def build_runtime(
     core.add_behavior(attention)
     core.add_behavior(behavior_engine)
     core.add_behavior(eye_render_loop)
+    core.add_behavior(controller)
     runtime_holder = {}
     environmental_interpreter = EnvironmentalInterpreter(
         _environmental_settings(config),
@@ -930,8 +959,9 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_environmental(reading.temperature_c, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="environmental", status=status),
+        externally_managed=config.environmental_provider == "controller",
     )
-    if config.environmental_enabled:
+    if config.environmental_enabled and config.environmental_provider == "local":
         logger.info("%s enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.environmental_type.upper(), config.environmental_i2c_address, config.environmental_poll_interval_seconds)
     air_quality = AirQualitySensorService(
@@ -942,8 +972,9 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="air_quality", status=status),
+        externally_managed=config.ccs811_provider == "controller",
     )
-    if config.ccs811_enabled:
+    if config.ccs811_enabled and config.ccs811_provider == "local":
         logger.info("CCS811 enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.ccs811_i2c_address, config.ccs811_poll_interval_seconds)
     imu = IMUSensorService(
@@ -953,10 +984,12 @@ def build_runtime(
         stale_after_seconds=config.imu_stale_after_seconds,
         motion_settings=_motion_settings(config),
         motion_state_sink=lambda state: runtime_holder["runtime"].publish_motion_state(state),
+        externally_managed=config.imu_provider == "controller",
     )
-    if config.imu_enabled:
+    if config.imu_enabled and config.imu_provider == "local":
         logger.info("MPU-6050 enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.imu_i2c_address, config.imu_poll_interval_seconds)
+    controller_sensors.update(environmental=sensors, air_quality=air_quality, imu=imu)
     led_ring = LEDRingController(
         _led_settings(config), lambda: behavior_engine.face_state,
         led_ring_provider_factory if led_ring_provider_factory is not None else

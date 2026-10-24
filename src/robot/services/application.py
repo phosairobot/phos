@@ -245,6 +245,7 @@ class RemoteApplicationService:
                 "robot_state_changed": current.get("robot", {}),
                 "visual_state_changed": current.get("visual", {}),
                 "environmental_state_changed": current.get("environment", {}),
+                "sensors_changed": current.get("sensors", {}),
                 "motion_state_changed": current.get("motion", {}),
                 "health_changed": current.get("health", {}),
                 "overlay_changed": current.get("overlay", {}),
@@ -546,6 +547,7 @@ class PhosApplicationService:
         state-changing command or its low-rate client heartbeat.
         """
         self._emit("environmental_state_changed", self.environment())
+        self._emit("sensors_changed", self.sensors())
         self._emit("motion_state_changed", self.motion())
         self._emit("health_changed", self.health())
         self._emit("presence_changed", self.presence())

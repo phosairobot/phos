@@ -9,7 +9,7 @@ import pytest
 
 from robot.core.runtime import RobotCore
 from robot.core.behavior_engine import BehaviorEngine
-from robot.services.application import COMMANDS, OVERLAY_COMMANDS, PhosApplicationService
+from robot.services.application import COMMANDS, OVERLAY_COMMANDS, PhosApplicationService, RemoteApplicationService
 from robot.core.environmental import EnvironmentalState
 from robot.core.state import InvalidStateTransition, RobotState, RobotStateMachine, transition_graph, writable_states
 from robot.motion import MotionState
@@ -211,6 +211,23 @@ def test_fresh_observed_expression_event_is_forwarded_to_remote_subscribers():
 
     assert received[-1]["type"] == "observed_expression_changed"
     assert received[-1]["payload"] == observation.document()
+
+
+def test_remote_snapshot_bridge_emits_canonical_sensor_updates():
+    sensors = {"environmental": {"available": True, "measurements": {"temperature_c": 24.85}},
+               "ccs811": {"available": True, "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}}}
+    class Lifecycle:
+        def execute(self, operation, payload=None):
+            assert operation == "application.status"
+            return {"ok": True, "result": {"robot": {}, "visual": {}, "environment": sensors["environmental"],
+                    "sensors": sensors, "motion": {}, "health": {}, "overlay": {}, "presence": {},
+                    "attention": {}, "observed_expression": {}, "expression_reaction": {}, "voice": {}}}
+    service = RemoteApplicationService(Lifecycle())
+    events = []
+    service.subscribe(events.append)
+    service.emit_snapshot_changes()
+    sensor_event = next(event for event in events if event["type"] == "sensors_changed")
+    assert sensor_event["payload"] == sensors
 
 
 def test_visual_source_rejects_hardware_command_and_events_are_deduplicated():

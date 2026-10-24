@@ -666,6 +666,12 @@ def test_live_dashboard_is_an_api_client_and_retains_server_rendered_sensor_fall
     assert 'PHOS returned HTML instead of its API response' in source
     assert 'Your administrator session has expired' in source
     assert 'sensor_status' not in source and 'GPIO' not in source
+    assert 'event.type === "sensors_changed"' in source
+    assert 'item.measurements[field] !== undefined' in source
+    assert 'ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811)' in source
+    assert 'Math.floor((Date.now() - timestamp) / 1000)' in source
+    assert 'window.setInterval(renderFreshness, 1000)' in source
+    assert 'dashboard._phosFreshnessTimer' in source
     for event_type in ("presence_changed", "attention_changed", "person_entered", "person_left",
                        "attention_target_acquired", "attention_target_changed", "attention_target_lost",
                        "observed_expression_changed"):
