@@ -26,6 +26,7 @@ from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorServi
 from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalSettings, Event, EventBus,
                         RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
+from robot.core.semantic_led import SemanticLedService
 from robot.core.touch import TOUCH_EVENT, TOUCH_EVENT_NAMES, TouchStatus
 from robot.core.expression_reaction import ExpressionReactionPolicy
 from robot.core.startup import StartupReadiness, StartupState
@@ -78,7 +79,7 @@ class PhosRuntime:
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
         interaction_coordinator: Optional[InteractionCoordinator] = None,
-        controller: Optional[ControllerService] = None,
+        controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
@@ -102,6 +103,7 @@ class PhosRuntime:
         self._voice_session = voice_session
         self._interaction_coordinator = interaction_coordinator
         self._controller = controller
+        self._semantic_led = semantic_led
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
@@ -310,7 +312,19 @@ class PhosRuntime:
     def controller_status(self) -> dict:
         return self._controller.status() if self._controller is not None else {"state": "disabled", "configured_device": None,
                                                                                 "active_device": None, "protocol": None,
-                                                                                "last_activity": None, "last_heartbeat": None, "capabilities": None}
+                                                                                "last_activity": None, "last_heartbeat": None, "capabilities": None,
+                                                                                "active_capabilities": None,
+                                                                                "session_generation": 0}
+
+    def led_status(self) -> dict:
+        status = self._semantic_led.status() if self._semantic_led is not None else {"active_intent": None, "winning_source": None, "resolved_animation": None}
+        status["available"] = bool(self._controller and self._controller.led_output_available())
+        return status
+
+    async def signal_user(self, signal: str) -> dict:
+        if self._semantic_led is None: raise RuntimeError("Semantic LED service is unavailable")
+        await self._semantic_led.signal_user(signal)
+        return self.led_status()
 
     def controller_serial_ports(self) -> list[dict]:
         return ControllerService.serial_ports()
@@ -346,6 +360,7 @@ class PhosRuntime:
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
             "controller": self.controller_status(),
+            "semantic_led": self.led_status(),
             "startup": self._startup.document(),
             "touch": self.touch_status(),
             "voice": self.voice_status(),
@@ -950,6 +965,13 @@ def build_runtime(
             imu.accept_controller_orientation(IMUReading(acceleration["x"], acceleration["y"], acceleration["z"],
                                                          angular["x"], angular["y"], angular["z"]))
 
+    semantic_led_holder = {}
+    def controller_led_capabilities_changed():
+        service = semantic_led_holder.get("service")
+        if service is not None:
+            logger.debug("PHOS SEMANTIC LED: capability callback scheduling reapply")
+            asyncio.create_task(service.reapply(reason="controller_capabilities"))
+
     controller = ControllerService(
         core, enabled=config.hardware_controller_enabled,
         device=config.hardware_controller_serial_device,
@@ -960,7 +982,11 @@ def build_runtime(
         touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
         imu_update_sink=accept_controller_imu,
         provider_disconnected_sink=controller_provider_disconnected,
+        led_capabilities_sink=controller_led_capabilities_changed,
     )
+    semantic_led = SemanticLedService(core.events, controller.set_led_animation,
+                                      lambda: behavior_engine.robot_state)
+    semantic_led_holder["service"] = semantic_led
 
     def startup_view() -> dict:
         view = startup.document()
@@ -992,6 +1018,7 @@ def build_runtime(
     core.add_behavior(attention)
     core.add_behavior(behavior_engine)
     core.add_behavior(eye_render_loop)
+    core.add_behavior(semantic_led)
     core.add_behavior(controller)
     runtime_holder = {}
     environmental_interpreter = EnvironmentalInterpreter(
@@ -1056,7 +1083,7 @@ def build_runtime(
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
-                       interaction_coordinator=interaction, controller=controller,
+                       interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._secrets_service = secrets_service
     # Compose once after the runtime exists, since the application service owns

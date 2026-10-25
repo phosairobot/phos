@@ -475,6 +475,7 @@ class LifecycleService:
             "application.expression": lambda: self._application_service.set_expression(payload.get("expression")),
             "application.set_state": lambda: self._application_service.set_state(payload.get("state")),
             "application.visual_source": lambda: self._application_service.set_visual_source(payload.get("source")),
+            "application.signal_user": lambda: self._application_service.signal_user(payload.get("signal")),
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}

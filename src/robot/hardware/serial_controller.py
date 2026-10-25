@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import math
+import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDeco
 from robot.ui.touch import TouchEvent, TouchKind
 
 logger = logging.getLogger(__name__)
+
+OPEN_SETTLE_SECONDS = .5
 
 
 class ControllerConnection(str, Enum):
@@ -51,15 +54,12 @@ class SerialControllerTransport:
         try:
             self._serial = self._serial_factory(self.device, self.baud_rate, timeout=.25, write_timeout=1)
             # A new PHOS process can inherit incomplete bytes already queued by
-            # the USB adapter.  Discard them once at the session boundary, not
-            # while a session is running; valid frames are never discarded by
-            # the read loop itself.
+            # the USB adapter.  Discard input only once at the session boundary,
+            # not while a session is running; valid frames are never discarded.
+            # A newly opened transport has no PHOS output to discard.
             reset_input = getattr(self._serial, "reset_input_buffer", None)
-            reset_output = getattr(self._serial, "reset_output_buffer", None)
             if callable(reset_input):
                 reset_input()
-            if callable(reset_output):
-                reset_output()
         except OSError as error:
             self._serial = None
             raise SerialTransportError("open", self.device, error) from error
@@ -72,13 +72,14 @@ class SerialControllerTransport:
         except OSError as error:
             raise SerialTransportError("read", self.device, error) from error
 
-    async def write(self, data: bytes) -> None:
+    async def write(self, data: bytes) -> int | None:
         if self._serial is None:
             raise OSError("serial transport is closed")
         async with self._write_lock:
             try:
-                await asyncio.to_thread(self._serial.write, data)
+                written = await asyncio.to_thread(self._serial.write, data)
                 await asyncio.to_thread(self._serial.flush)
+                return written
             except OSError as error:
                 raise SerialTransportError("write", self.device, error) from error
 
@@ -98,12 +99,13 @@ class ControllerService(Behavior):
                  sensor_update_sink: Callable[[str, int | float], None] = lambda _name, _value: None,
                  imu_update_sink: Callable[[ControllerMessage], None] = lambda _message: None,
                  provider_disconnected_sink: Callable[[], None] = lambda: None,
+                 led_capabilities_sink: Callable[[], None] = lambda: None,
                  transport_factory=SerialControllerTransport) -> None:
         self._core, self._enabled = core, enabled
         self._device, self._baud_rate = device, baud_rate
         self._reconnect_delay, self._heartbeat_interval, self._heartbeat_timeout = reconnect_delay_seconds, heartbeat_interval_seconds, heartbeat_timeout_seconds
         self._touch_sink, self._sensor_update_sink, self._imu_update_sink = touch_sink, sensor_update_sink, imu_update_sink
-        self._provider_disconnected_sink, self._factory = provider_disconnected_sink, transport_factory
+        self._provider_disconnected_sink, self._led_capabilities_sink, self._factory = provider_disconnected_sink, led_capabilities_sink, transport_factory
         self._state = ControllerConnection.DISCONNECTED
         self._task = None
         self._transport = None
@@ -112,6 +114,12 @@ class ControllerService(Behavior):
         self._last_heartbeat = None
         self._protocol = None
         self._capabilities = None
+        self._active_capabilities = None
+        self._session_generation = 0
+        self._last_led_availability = None
+        self._capabilities_request_attempt = 0
+        self._open_settle_seconds = OPEN_SETTLE_SECONDS
+        self._sleep = asyncio.sleep
         self._messages = deque(maxlen=100)
         self._reconfigure_lock = None
 
@@ -135,10 +143,47 @@ class ControllerService(Behavior):
         return {"state": self._state.value, "configured_device": self._device,
                 "active_device": self._transport.device if self._transport is not None else None,
                 "protocol": self._protocol, "last_activity": self._last_activity,
-                "last_heartbeat": self._last_heartbeat, "capabilities": self._capabilities}
+                "last_heartbeat": self._last_heartbeat, "capabilities": self._capabilities,
+                "active_capabilities": self._active_capabilities,
+                "led_output": self.led_output_status(),
+                "session_generation": self._session_generation}
 
     def recent_messages(self) -> list[dict]: return list(self._messages)
     def clear_recent_messages(self) -> None: self._messages.clear()
+
+    def led_output_status(self) -> dict:
+        capabilities = self._active_capabilities or {}
+        led = capabilities.get("led") if isinstance(capabilities, dict) else None
+        advertised = bool(isinstance(capabilities, dict) and (
+            capabilities.get("led_count") or (isinstance(led, dict) and led.get("count"))
+            or (isinstance(capabilities.get("capabilities"), list) and "led" in capabilities["capabilities"])))
+        connected = self._state is ControllerConnection.CONNECTED
+        return {"available": connected and advertised, "connected": connected,
+                "session_generation": self._session_generation, "led_advertised": advertised,
+                "active_capabilities_present": isinstance(self._active_capabilities, dict),
+                "active_capabilities": self._active_capabilities,
+                "last_known_capabilities": self._capabilities}
+
+    def led_output_available(self) -> bool:
+        return self.led_output_status()["available"]
+
+    def _log_led_availability(self, reason: str) -> None:
+        details = self.led_output_status()
+        fingerprint = (details["available"], details["connected"], details["session_generation"],
+                       details["led_advertised"], details["active_capabilities_present"])
+        if fingerprint == self._last_led_availability:
+            return
+        self._last_led_availability = fingerprint
+        logger.info("PHOS CONTROLLER LED OUTPUT: available=%s connected=%s led_advertised=%s reason=%s",
+                    details["available"], details["connected"], details["led_advertised"], reason)
+
+    async def set_led_animation(self, payload: dict) -> bool:
+        """Transport boundary for the semantic arbiter; never exposes a UI command."""
+        if not self.led_output_available() or self._transport is None:
+            self._log_led_availability("set_led_animation_unavailable")
+            return False
+        await self._send("set_led_animation", payload)
+        return True
 
     def _record(self, direction: str, message_type: str, summary: str, raw: bytes | None = None) -> None:
         raw_text = safe_frame_repr(raw or b"", limit=8192) if raw is not None else None
@@ -158,6 +203,7 @@ class ControllerService(Behavior):
         if self._transport is not None:
             await self._close_transport(self._transport)
             self._transport = None
+        self._deactivate_session_capabilities()
         self._state = ControllerConnection.DISCONNECTED
 
     async def reconfigure(self, *, enabled: bool, device: str, baud_rate: int,
@@ -190,7 +236,11 @@ class ControllerService(Behavior):
         """Discard state that belongs to the previous physical controller."""
         self._last_peer_activity = 0.0
         self._last_activity = self._last_heartbeat = None
-        self._protocol = self._capabilities = None
+        self._protocol = self._capabilities = self._active_capabilities = None
+
+    def _deactivate_session_capabilities(self) -> None:
+        """Keep diagnostics, but never assume LED output after a disconnect."""
+        self._active_capabilities = None
 
     async def _close_transport(self, transport) -> None:
         try:
@@ -209,8 +259,21 @@ class ControllerService(Behavior):
                 self._transport, self._state = transport, ControllerConnection.CONNECTED
                 decoder, next_heartbeat = self._new_session()
                 logger.info("PHOS CONTROLLER: connected device=%s", self._device)
-                await self._send("request_capabilities", {})
-                await self._read_connected(decoder, next_heartbeat)
+                reader_ready, initial_handshake_sent = asyncio.Event(), asyncio.Event()
+                reader_task = asyncio.create_task(
+                    self._read_connected(decoder, next_heartbeat, reader_ready=reader_ready,
+                                         initial_handshake_sent=initial_handshake_sent),
+                    name="hardware-controller-reader")
+                try:
+                    await self._await_reader_and_settle(reader_ready)
+                    logger.debug("PHOS CONTROLLER: requesting capabilities generation=%s", self._session_generation)
+                    await self._request_capabilities()
+                    initial_handshake_sent.set()
+                    await reader_task
+                finally:
+                    if not reader_task.done():
+                        reader_task.cancel()
+                        await asyncio.gather(reader_task, return_exceptions=True)
             except asyncio.CancelledError:
                 raise
             except Exception as error:
@@ -221,24 +284,61 @@ class ControllerService(Behavior):
             finally:
                 if self._transport is transport:
                     self._transport = None
-                await self._close_transport(transport)
+                self._deactivate_session_capabilities()
                 self._state = ControllerConnection.DISCONNECTED
+                self._log_led_availability("disconnected")
+                await self._close_transport(transport)
             await asyncio.sleep(self._reconnect_delay)
 
     def _new_session(self) -> tuple[JsonLinesDecoder, float]:
         """Reset only connection-local protocol state after a successful open."""
+        self._session_generation += 1
+        self._protocol = None
+        self._active_capabilities = None
+        self._capabilities_request_attempt = 0
+        self._log_led_availability("session_opened")
         self._last_peer_activity = time.monotonic()
-        logger.debug("PHOS CONTROLLER: serial session opened; decoder and heartbeat window reset")
+        logger.debug("PHOS CONTROLLER: serial session opened generation=%s", self._session_generation)
         return JsonLinesDecoder(), self._last_peer_activity + self._heartbeat_interval
 
-    async def _read_connected(self, decoder: JsonLinesDecoder, next_heartbeat: float) -> None:
+    def _read_once(self, started: threading.Event) -> bytes:
+        """Mark the session reader active immediately before its blocking read."""
+        started.set()
+        return self._transport.read()
+
+    async def _await_reader_and_settle(self, reader_ready: asyncio.Event) -> None:
+        """Apply the bounded open settle once, after a session reader is active."""
+        await reader_ready.wait()
+        logger.debug("PHOS CONTROLLER: settling generation=%s duration_ms=%s",
+                     self._session_generation, int(self._open_settle_seconds * 1000))
+        await self._sleep(self._open_settle_seconds)
+
+    async def _read_connected(self, decoder: JsonLinesDecoder, next_heartbeat: float,
+                              *, reader_ready: asyncio.Event | None = None,
+                              initial_handshake_sent: asyncio.Event | None = None) -> None:
+        peer_seen = False
+        retry_interval = min(2.0, max(.25, self._heartbeat_timeout / 5))
+        next_handshake_retry = time.monotonic() + retry_interval if initial_handshake_sent is None else None
         while True:
-            if time.monotonic() - self._last_peer_activity > self._heartbeat_timeout:
+            now = time.monotonic()
+            if now - self._last_peer_activity > self._heartbeat_timeout:
                 raise OSError("controller heartbeat timed out")
-            if time.monotonic() >= next_heartbeat:
+            if initial_handshake_sent is not None and initial_handshake_sent.is_set() and next_handshake_retry is None:
+                next_handshake_retry = now + retry_interval
+            if not peer_seen and next_handshake_retry is not None and now >= next_handshake_retry:
+                logger.debug("PHOS CONTROLLER: retrying capabilities request generation=%s", self._session_generation)
+                await self._request_capabilities()
+                next_handshake_retry = now + retry_interval
+            if now >= next_heartbeat:
                 await self._send("ping", {})
-                next_heartbeat = time.monotonic() + self._heartbeat_interval
-            data = await asyncio.to_thread(self._transport.read)
+                next_heartbeat = now + self._heartbeat_interval
+            read_started = threading.Event()
+            read_task = asyncio.create_task(asyncio.to_thread(self._read_once, read_started))
+            if reader_ready is not None and not reader_ready.is_set():
+                await asyncio.to_thread(read_started.wait)
+                reader_ready.set()
+                logger.debug("PHOS CONTROLLER: reader started generation=%s", self._session_generation)
+            data = await read_task
             if not data:
                 continue
             try:
@@ -251,10 +351,17 @@ class ControllerService(Behavior):
                 continue
             for message in messages:
                 self._last_peer_activity = time.monotonic()
+                peer_seen = True
                 await self._message(message)
 
-    async def _send(self, kind: str, payload: dict) -> None:
-        message = ControllerMessage(kind, payload).document()
+    async def _request_capabilities(self) -> None:
+        """Use the v1 optional ID, matching the known-working test client."""
+        self._capabilities_request_attempt += 1
+        await self._send("request_capabilities", {},
+                         message_id=f"phos-{self._session_generation}-cap-{self._capabilities_request_attempt}")
+
+    async def _send(self, kind: str, payload: dict, *, message_id: str | None = None) -> None:
+        message = ControllerMessage(kind, payload, message_id=message_id).document()
         raw = json.dumps(message, separators=(",", ":")).encode("utf-8") + b"\n"
         self._record("TX", kind, kind.replace("_", " "), raw)
         await self._transport.write(raw)
@@ -264,7 +371,21 @@ class ControllerService(Behavior):
         received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self._protocol, self._last_activity = "phos-hw v1", received_at
         if message.type == "heartbeat": self._last_heartbeat = received_at
-        if message.type == "capabilities": self._capabilities = payload
+        if message.type == "capabilities":
+            self._capabilities = payload
+            self._active_capabilities = payload
+            led_available = self.led_output_available()
+            self._log_led_availability("capabilities_accepted")
+            logger.debug("PHOS CONTROLLER: capabilities received generation=%s led_available=%s",
+                         self._session_generation, led_available)
+            if led_available:
+                try:
+                    logger.debug("PHOS CONTROLLER: scheduling semantic LED reapply generation=%s",
+                                 self._session_generation)
+                    self._led_capabilities_sink()
+                except Exception as error:
+                    logger.warning("PHOS CONTROLLER: LED capability callback failed generation=%s exception=%s message=%s",
+                                   self._session_generation, type(error).__name__, self._safe_error_message(error))
         summary = (f"{payload.get('sensor')}={payload.get('value')} {payload.get('unit', '')}" if message.type == "sensor_update"
                    else f"{payload.get('state')} / {payload.get('intensity')}" if message.type == "motion_update"
                    else "accel + gyro" if message.type == "orientation_update" else message.type.replace("_", " "))

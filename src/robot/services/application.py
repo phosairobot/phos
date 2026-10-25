@@ -225,6 +225,7 @@ class RemoteApplicationService:
                     (time.monotonic() - started_at) * 1000)
         return result
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
+    def signal_user(self, value): return self._call("signal_user", {"signal": value})
     def overlay(self): return self._call("overlay")
     def set_overlay(self, value): return self._call("set_overlay", value)
     def clear_overlay(self): return self._call("clear_overlay")
@@ -1114,6 +1115,17 @@ class PhosApplicationService:
                    "visual": self.visual_state()}
         self._emit("visual_state_changed", payload)
         return payload
+
+    def signal_user(self, signal: str) -> dict:
+        if signal not in {"success", "warning", "error", "attention"}:
+            raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return self._plain(asyncio.run_coroutine_threadsafe(self._runtime.signal_user(signal), loop).result(timeout=2))
+        except Exception as error:
+            raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
 
     def set_expression(self, expression: str) -> dict:
         try:
