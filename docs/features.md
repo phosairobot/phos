@@ -12,7 +12,7 @@ classes:
 
 <span class="phos-kicker">CAPABILITY MAP</span>
 
-PHOS 1.4.0 is the current source version. The capabilities below are implemented
+PHOS 1.7.0 is the current source version. The capabilities below are implemented
 in the repository; optional hardware paths still require target-Pi acceptance.
 See the [current implementation handoff](current-state.md) and
 [roadmap](roadmap.md) for scope and physical-validation limits.

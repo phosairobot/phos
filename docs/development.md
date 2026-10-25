@@ -371,6 +371,10 @@ Changing the enabled state, serial device, or baud rate closes the prior session
 and starts a fresh reconnect/handshake session without restarting PHOS; timing
 changes are applied to the existing service. It discovers serial ports only
 through the parent application service; the browser never inspects device files.
+The canonical settings are `enabled`, `transport` (currently `serial` only),
+`serial.device`, `serial.baud_rate`, `reconnect.delay_seconds`, and heartbeat
+`interval_seconds`/`timeout_seconds`; timeout must exceed interval. These are
+connection settings, not controller-firmware or LED-animation settings.
 The page also exposes controller-owned read-only connection state and a bounded,
 in-memory RX/TX diagnostic buffer. Diagnostics are not persisted, heartbeat rows
 are hidden by default, and raw frames are bounded to the phos-hw frame limit.

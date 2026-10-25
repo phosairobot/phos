@@ -204,7 +204,7 @@ def test_versioned_status_and_stable_error_document():
     assert capabilities["commands"]["set_visual_source"]["allowed_values"] == ["manual", "environment", "state"]
     assert capabilities["commands"]["set_robot_state"] == {"endpoint": "/api/v1/state", "method": "POST",
                                                                "field": "state", "allowed_values": ["idle", "listening", "thinking", "speaking", "sleeping"],
-                                                               "transitions": {"idle": ["listening", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
+                                                               "transitions": {"idle": ["listening", "speaking", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
                                                                                "thinking": ["idle", "speaking"], "speaking": ["idle", "listening"], "sleeping": ["idle"]}}
     response = client.post("/api/v1/visual-source", json={"source": "GPIO18"})
     assert response.status_code == 400
