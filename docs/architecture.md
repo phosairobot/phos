@@ -178,6 +178,52 @@ replace transport authentication, OS permissions, network security, or
 sandboxing.  MCP, network identities, credentials, and persistence remain
 deferred.
 
+### MCP Semantic Adapter — Stage 1
+
+```text
+MCP Client
+   ↓
+MCP Semantic Adapter
+   ↓
+Agent Permission Boundary
+   ↓
+PhosApplicationService
+   ↓
+PHOS runtime/services
+```
+
+Stage 1 uses the official Python `mcp` SDK (the pinned 1.x line) over local
+stdio only. It exposes ten request/response tools: `phos_get_status`,
+`phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`,
+`phos_get_observed_expression`, `phos_set_expression`, `phos_speak`,
+`phos_sleep`, `phos_wake`, and `phos_signal_user`. Every one delegates through
+`AgentApplicationService`; MCP owns no permissions, runtime state, provider,
+or hardware logic.
+
+Run `python -m robot.mcp --config PATH` only instead of the normal PHOS
+process. That command starts one PHOS runtime and embeds the stdio adapter in
+that same owner process; it does not attach to a running PHOS process, create
+IPC, or start a Web worker. Closing stdio stops that owner process cleanly;
+the adapter never independently stops a runtime it does not own. MCP logging
+uses stderr so stdout remains protocol-only.
+
+This is for trusted local/integrated execution. There is no MCP authentication,
+network listener, or transport security in Stage 1; application permissions are
+not transport authentication. Do not expose this stdio process as an arbitrary
+remote shell/service. Raw hardware, controller transport, renderer, camera,
+audio device, configuration, and administrative/recovery controls are absent.
+Stage 2 is reserved for semantic events/subscriptions, filtering/deduplication,
+camera resources, and asynchronous notifications.
+
+`phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
+status document contains only `running`, `state`, semantic subsystem
+`availability`, `degraded`, and `degraded_reasons`. It contains no sensor or
+perception values (those belong to physical context), provider/device/model
+details, controller session data, LED animation resolution, display state, or
+administrative diagnostics. The projection is owned by
+`AgentApplicationService`, not the MCP adapter, so future trusted agent
+adapters share the same contract.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 

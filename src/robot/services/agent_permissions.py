@@ -144,7 +144,54 @@ class AgentApplicationService:
 
     def status(self) -> dict[str, Any]:
         self._require(AgentOperation.STATUS)
-        return self._application.status()
+        return self._semantic_status(self._application.status())
+
+    @staticmethod
+    def _semantic_status(status: dict[str, Any]) -> dict[str, Any]:
+        """Project administrative status into compact agent-facing semantics.
+
+        The underlying application status remains the operational read model for
+        REST and Web Admin.  This projection deliberately retains only broad
+        availability/state, never its diagnostic/provider implementation data.
+        """
+        robot = status.get("robot") if isinstance(status, dict) else {}
+        environment = status.get("environment") if isinstance(status, dict) else {}
+        motion = status.get("motion") if isinstance(status, dict) else {}
+        sensors = status.get("sensors") if isinstance(status, dict) else {}
+        air_quality = sensors.get("ccs811") if isinstance(sensors, dict) else {}
+        observed_expression = status.get("observed_expression") if isinstance(status, dict) else {}
+        voice = status.get("voice") if isinstance(status, dict) else {}
+        speech = status.get("speech") if isinstance(status, dict) else {}
+        tts = speech.get("tts") if isinstance(speech, dict) else {}
+        signals = status.get("semantic_led") if isinstance(status, dict) else {}
+
+        def available(snapshot: object) -> bool:
+            return bool(snapshot.get("available", False)) if isinstance(snapshot, dict) else False
+
+        availability = {
+            "physical_context": True,
+            "environment": available(environment),
+            "air_quality": available(air_quality),
+            "motion": available(motion),
+            "vision": available(observed_expression),
+            "voice": available(voice),
+            "speech": available(tts),
+            "signals": available(signals),
+        }
+        degraded_reasons = []
+        if not bool(robot.get("running", False)):
+            degraded_reasons.append("runtime_unavailable")
+        for name, snapshot in (("environment", environment), ("air_quality", air_quality), ("motion", motion)):
+            if not available(snapshot):
+                state = snapshot.get("status") if isinstance(snapshot, dict) else None
+                degraded_reasons.append(f"{name}_{state or 'unavailable'}")
+        return {
+            "running": bool(robot.get("running", False)),
+            "state": robot.get("state", "idle"),
+            "availability": availability,
+            "degraded": bool(degraded_reasons),
+            "degraded_reasons": degraded_reasons,
+        }
 
     def get_physical_context(self) -> dict[str, Any]:
         self._require(AgentOperation.GET_PHYSICAL_CONTEXT)
@@ -152,32 +199,63 @@ class AgentApplicationService:
 
     def presence(self) -> dict[str, Any]:
         self._require(AgentOperation.PRESENCE)
-        return self._application.presence()
+        value = self._application.presence()
+        return {key: value.get(key) for key in ("state", "people_count", "confidence")}
 
     def attention(self) -> dict[str, Any]:
         self._require(AgentOperation.ATTENTION)
-        return self._application.attention()
+        value = self._application.attention()
+        target = value.get("target") or {}
+        return {"state": value.get("state", "idle"),
+                "target": {key: target.get(key) for key in ("x", "y", "confidence")},
+                "acquired_at": value.get("acquired_at"), "last_seen": value.get("last_seen")}
 
     def observed_expression(self) -> dict[str, Any]:
         self._require(AgentOperation.OBSERVED_EXPRESSION)
-        return self._application.observed_expression()
+        value = self._application.observed_expression()
+        return {key: value.get(key) for key in ("available", "label", "confidence", "observed_at", "unavailable_reason")}
 
     def set_expression(self, expression: str) -> dict[str, Any]:
         self._require(AgentOperation.SET_EXPRESSION)
-        return self._application.set_expression(expression)
+        value = self._application.set_expression(expression)
+        return {"expression": value.get("expression", expression), "applied": True}
 
     def speak(self, text: str) -> dict[str, Any]:
         self._require(AgentOperation.SPEAK)
-        return self._application.speak(text)
+        self._application.speak(text)
+        return {"accepted": True}
 
     def sleep(self) -> dict[str, Any]:
         self._require(AgentOperation.SLEEP)
-        return self._application.set_state("sleeping")
+        value = self._application.set_state("sleeping")
+        return {"state": value.get("state", "sleeping"), "applied": True}
 
     def wake(self) -> dict[str, Any]:
         self._require(AgentOperation.WAKE)
-        return self._application.set_state("idle")
+        value = self._application.set_state("idle")
+        return {"state": value.get("state", "idle"), "applied": True}
 
     def signal_user(self, signal: str) -> dict[str, Any]:
         self._require(AgentOperation.SIGNAL_USER)
-        return self._application.signal_user(signal)
+        self._application.signal_user(signal)
+        return {"intent": signal, "applied": True}
+
+    async def speak_async(self, text: str) -> dict[str, Any]:
+        self._require(AgentOperation.SPEAK)
+        await self._application.speak_async(text)
+        return {"accepted": True}
+
+    async def sleep_async(self) -> dict[str, Any]:
+        self._require(AgentOperation.SLEEP)
+        value = await self._application.set_state_async("sleeping")
+        return {"state": value.get("state", "sleeping"), "applied": True}
+
+    async def wake_async(self) -> dict[str, Any]:
+        self._require(AgentOperation.WAKE)
+        value = await self._application.set_state_async("idle")
+        return {"state": value.get("state", "idle"), "applied": True}
+
+    async def signal_user_async(self, signal: str) -> dict[str, Any]:
+        self._require(AgentOperation.SIGNAL_USER)
+        await self._application.signal_user_async(signal)
+        return {"intent": signal, "applied": True}

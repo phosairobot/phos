@@ -131,6 +131,10 @@ OVERLAY_COMMANDS = {
     "clear_overlay": {"method": "DELETE", "endpoint": "/api/v1/overlay"},
 }
 
+# Canonical semantic LED signal vocabulary. Adapters must reuse this rather
+# than inferring hardware animations or maintaining a second enum.
+USER_SIGNAL_INTENTS = frozenset({"success", "warning", "error", "attention"})
+
 
 class ApplicationError(Exception):
     """A stable adapter-safe error."""
@@ -622,6 +626,28 @@ class PhosApplicationService:
             raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
         except TTSProviderError as error:
             # The provider already logged its sanitized stable code.
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except (TTSConfigurationError, TTSError) as error:
+            logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except Exception as error:
+            logger.exception("TTS: failed exception_type=%s", type(error).__name__)
+            raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
+
+    async def speak_async(self, text: str):
+        """Accept speech without blocking the runtime loop that consumes it."""
+        text = self._validated_speech_text(text)
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        if loop is not asyncio.get_running_loop():
+            return await asyncio.to_thread(self.speak, text)
+        try:
+            await self._runtime.accept_speech(text)
+            return {"status": "accepted"}
+        except TTSBusyError as error:
+            raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except TTSProviderError as error:
             raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
         except (TTSConfigurationError, TTSError) as error:
             logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
@@ -1125,13 +1151,27 @@ class PhosApplicationService:
         return payload
 
     def signal_user(self, signal: str) -> dict:
-        if signal not in {"success", "warning", "error", "attention"}:
+        if signal not in USER_SIGNAL_INTENTS:
             raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
         loop = self._runtime._loop
         if loop is None:
             raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
         try:
             return self._plain(asyncio.run_coroutine_threadsafe(self._runtime.signal_user(signal), loop).result(timeout=2))
+        except Exception as error:
+            raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
+
+    async def signal_user_async(self, signal: str) -> dict:
+        """Apply a semantic signal without synchronously blocking its runtime loop."""
+        if signal not in USER_SIGNAL_INTENTS:
+            raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        if loop is not asyncio.get_running_loop():
+            return await asyncio.to_thread(self.signal_user, signal)
+        try:
+            return self._plain(await self._runtime.signal_user(signal))
         except Exception as error:
             raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
 
@@ -1222,6 +1262,31 @@ class PhosApplicationService:
                            (time.monotonic() - submitted_at) * 1000)
             raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
         logger.info("PHOS COMMAND: state target=%s accepted", target.value)
+        return self.robot_state()
+
+    async def set_state_async(self, state: str) -> dict:
+        """Apply a state command from the runtime loop without self-deadlock."""
+        try:
+            target = RobotState(state)
+        except (TypeError, ValueError) as error:
+            raise ApplicationError("invalid_robot_state", "Unsupported robot state.", {"state": state}) from error
+        if target not in COMMANDS["set_robot_state"].allowed_members:
+            raise ApplicationError("unsupported_state_command", "Robot state is runtime-only.", {"state": state})
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        if loop is not asyncio.get_running_loop():
+            return await asyncio.to_thread(self.set_state, state)
+        if self._core.state is target:
+            return self.robot_state()
+        submitted_at = time.monotonic()
+        try:
+            await asyncio.wait_for(self._accept_state_command(target, submitted_at), STATE_COMMAND_TIMEOUT_SECONDS)
+        except InvalidStateTransition as error:
+            raise ApplicationError("invalid_state_transition", str(error),
+                                   {"current": self._core.state.value, "target": target.value}, status=409) from error
+        except asyncio.TimeoutError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
         return self.robot_state()
 
 

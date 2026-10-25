@@ -37,6 +37,15 @@ hardware/render surface. `standard` and read-only `observer` profiles are
 automated-tested. This is not a network or OS security boundary; adapter
 identity and authentication remain deferred.
 
+## MCP Semantic Adapter — Stage 1
+
+The repository implements a trusted-local stdio MCP adapter over
+`AgentApplicationService`, with the standard semantic read/action tools only.
+It runs embedded in the one PHOS runtime owner started by `python -m robot.mcp`;
+it does not attach to an existing runtime or expose a network listener. Events,
+resources/camera snapshots, subscriptions, asynchronous notifications, and MCP
+authentication remain deferred.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 The repository implements the generic `phos-hw` v1 serial controller boundary,
