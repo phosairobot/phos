@@ -24,7 +24,7 @@ class ApplicationSpy:
             "motion": {"status": "available", "available": True},
             "sensors": {"ccs811": {"status": "available", "available": True}},
             "observed_expression": {"available": True},
-            "voice": {"available": True},
+            "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
             "speech": {"tts": {"available": True}},
             "semantic_led": {"available": True},
         }
@@ -125,6 +125,21 @@ def test_agent_status_reports_semantic_degradation_without_sensor_values():
     assert result["degraded_reasons"] == [
         "runtime_unavailable", "environment_unavailable", "air_quality_warming_up", "motion_stale",
     ]
+
+
+def test_agent_voice_availability_uses_capture_session_readiness_not_stt_or_listening():
+    application = ApplicationSpy()
+    status = application.status()
+    status["voice"] = {"enabled": True, "listening": False, "stt_available": False, "last_error": None}
+    application.status = lambda: status
+
+    assert AgentApplicationService(application, AgentAccess.for_profile()).status()["availability"]["voice"] is True
+
+    status["voice"] = {"enabled": False, "listening": True, "stt_available": True, "last_error": None}
+    assert AgentApplicationService(application, AgentAccess.for_profile()).status()["availability"]["voice"] is False
+
+    status["voice"] = {"enabled": True, "listening": False, "stt_available": True, "last_error": "capture failed"}
+    assert AgentApplicationService(application, AgentAccess.for_profile()).status()["availability"]["voice"] is False
 
 
 def test_standard_profile_has_the_explicit_documented_permission_set():

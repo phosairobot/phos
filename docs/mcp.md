@@ -27,6 +27,10 @@ controller sessions, model files, audio backends, raw sensor structures, LED
 animation details, renderer/background data, or touch/startup diagnostics. Use
 `phos_get_physical_context` for current semantic perception values.
 
+Its `availability.voice` means the voice-input session is configured, enabled,
+and has no current capture-session error. It does not mean PHOS is listening,
+and it is independent of STT-provider availability and speech/TTS availability.
+
 Presence excludes tracking identifiers; attention exposes only normalized target
 coordinates/confidence, never an ID; observed expression excludes provider and
 model details. Action acknowledgements are compact semantic documents:
