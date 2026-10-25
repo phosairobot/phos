@@ -56,6 +56,16 @@ BehaviorEngine ownership. The Raspberry Pi serial adapter is reconnectable and
 configured with a manual device path; firmware and an ESP32 reference
 implementation remain intentionally deferred.
 
+Directional LED fields are protocol semantics, not physical LED indexes.
+`spin` is circular and defaults to clockwise; it accepts only clockwise or
+counterclockwise direction. `chase` and `wipe` default to circular/clockwise;
+their circular form accepts clockwise/counterclockwise direction (`wipe` may
+also name a top/bottom/left/right origin). Their symmetric form requires an
+origin plus outward or inward direction. `off`, `solid`, `blink`, `pulse` and
+`breathe` reject all directional fields. Top, bottom, left and right are logical
+positions: each controller implementation owns its physical index mapping and
+must preserve these v1 defaults for payloads that omit the new optional fields.
+
 For the initial inbound proof, a controller pushes
 `sensor_update` with `{"sensor":"push","event":"pressed"}`. PHOS maps this
 to its existing completed touch/tap semantic boundary; it does not poll the

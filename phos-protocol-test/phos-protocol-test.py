@@ -51,6 +51,8 @@ VERSION = 1
 DEFAULT_BAUD = 115200
 READ_TIMEOUT = 0.20
 MAX_FRAME_SIZE = 8 * 1024
+DEFAULT_HIDDEN_TYPES = frozenset({"orientation_update", "heartbeat"})
+QUIET_HIDDEN_TYPES = frozenset({"orientation_update", "heartbeat", "sensor_update", "motion_update", "controller_status"})
 
 
 def now_string() -> str:
@@ -115,6 +117,8 @@ class SerialSession:
         self._tx_count = 0
         self._invalid_count = 0
         self._last_rx_monotonic: float | None = None
+        self._visibility_lock = threading.Lock()
+        self._hidden_types = set(DEFAULT_HIDDEN_TYPES)
 
     @property
     def connected(self) -> bool:
@@ -267,6 +271,30 @@ class SerialSession:
 
     def status(self) -> None:
         print()
+
+    def visible_types(self) -> tuple[str, ...]:
+        with self._visibility_lock:
+            return tuple(sorted(self._hidden_types))
+
+    def show_type(self, kind: str) -> None:
+        with self._visibility_lock:
+            self._hidden_types.discard(kind)
+
+    def hide_type(self, kind: str) -> None:
+        with self._visibility_lock:
+            self._hidden_types.add(kind)
+
+    def show_all(self) -> None:
+        with self._visibility_lock:
+            self._hidden_types.clear()
+
+    def set_quiet(self, enabled: bool) -> None:
+        with self._visibility_lock:
+            self._hidden_types = set(QUIET_HIDDEN_TYPES if enabled else DEFAULT_HIDDEN_TYPES)
+
+    def is_visible(self, kind: str) -> bool:
+        with self._visibility_lock:
+            return kind not in self._hidden_types
         print(f"Connected : {self.connected}")
         print(f"Device    : {self.device or '-'}")
         print(f"Baud      : {self.baud_rate}")
@@ -374,10 +402,9 @@ class SerialSession:
         kind = document.get("type", "?")
         payload = document.get("payload")
 
-        # Heartbeats are intentionally kept internal: they still update
-        # connection statistics and remain available to `wait heartbeat`,
-        # but they are not printed in the interactive console.
-        if kind == "heartbeat":
+        # Hidden frames remain decoded, counted and available to `wait`; only
+        # their console rendering is suppressed so serial input stays drained.
+        if not self.is_visible(kind):
             return
 
         print(f"\n[{now_string()}] RX type={kind}")
@@ -468,11 +495,24 @@ Commands:
         wait heartbeat 3
         wait capabilities 5
 
+  filters / show
+      Show currently hidden RX message types.
+
+  show all | show <type>
+      Show all received message types, or one previously hidden type.
+
+  hide <type>
+      Hide one received message type from console rendering.
+
+  quiet on | quiet off
+      Quiet mode hides routine telemetry. It still shows acknowledgements,
+      errors, capabilities and other command responses.
+
   quit / exit
       Disconnect and exit.
 
 Notes:
-- Incoming frames are printed continuously.
+- orientation_update and heartbeat are hidden by default but still consumed.
 - ESP32 boot garbage is tolerated.
 - Command payloads must match the actual `controller_protocol.py` contract.
 """
@@ -536,6 +576,10 @@ class InteractiveTester:
             self.session.status()
             return False
 
+        if cmd in {"filters", "show", "hide", "quiet"}:
+            self._filters(cmd, rest)
+            return False
+
         if cmd == "ping":
             self.session.send_command("ping", {})
             return False
@@ -578,6 +622,32 @@ class InteractiveTester:
 
         print(f"Unknown command: {command!r}. Type 'help'.")
         return False
+
+    def _filters(self, cmd: str, rest: str) -> None:
+        if cmd == "filters" or (cmd == "show" and not rest):
+            hidden = self.session.visible_types()
+            print("Hidden RX types: " + (", ".join(hidden) if hidden else "none"))
+            return
+        if cmd == "show":
+            if rest == "all":
+                self.session.show_all()
+                print("All RX message types are visible.")
+            else:
+                self.session.show_type(rest)
+                print(f"Showing RX type={rest}.")
+            return
+        if cmd == "hide":
+            if not rest:
+                print("Usage: hide <type>")
+                return
+            self.session.hide_type(rest)
+            print(f"Hiding RX type={rest}.")
+            return
+        if rest not in {"on", "off"}:
+            print("Usage: quiet on | quiet off")
+            return
+        self.session.set_quiet(rest == "on")
+        print(f"Quiet mode {rest}.")
 
     def _connect(self, rest: str) -> None:
         if not rest:

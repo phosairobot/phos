@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import json
 from types import SimpleNamespace
 
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
@@ -56,6 +57,48 @@ def test_line_decoder_retains_only_the_rejected_raw_frame_for_debugging():
 def test_led_animation_validation_includes_breathe_and_rejects_bad_parameters():
     validate_led_animation({"animation": "breathe", "color": "#6F5CFF", "brightness": .65, "period_ms": 3200, "min_intensity": .08, "max_intensity": 1, "duration_ms": 0})
     with pytest.raises(ProtocolError): validate_led_animation({"animation": "breathe", "brightness": 2})
+
+
+@pytest.mark.parametrize("payload", [
+    {"animation": "spin", "direction": "clockwise"},
+    {"animation": "spin", "direction": "counterclockwise"},
+    {"animation": "chase", "mode": "circular", "direction": "clockwise"},
+    {"animation": "chase", "mode": "circular", "direction": "counterclockwise"},
+    {"animation": "chase", "mode": "symmetric", "origin": "left", "direction": "outward"},
+    {"animation": "wipe", "mode": "circular", "origin": "top", "direction": "clockwise"},
+    {"animation": "wipe", "mode": "symmetric", "origin": "top", "direction": "outward"},
+    {"animation": "wipe", "mode": "symmetric", "origin": "bottom", "direction": "inward"},
+    {"animation": "spin"}, {"animation": "chase"}, {"animation": "wipe"},
+])
+def test_led_directional_animation_contract_accepts_only_supported_combinations(payload):
+    validate_led_animation(payload)
+
+
+@pytest.mark.parametrize("payload", [
+    {"animation": "spin", "direction": "outward"},
+    {"animation": "spin", "origin": "top"},
+    {"animation": "solid", "direction": "clockwise"},
+    {"animation": "chase", "mode": "symmetric", "direction": "outward"},
+    {"animation": "wipe", "mode": "symmetric", "origin": "top", "direction": "clockwise"},
+    {"animation": "chase", "mode": "circular", "origin": "top"},
+    {"animation": "wipe", "mode": "diagonal", "direction": "clockwise"},
+    {"animation": "wipe", "mode": "symmetric", "origin": "north", "direction": "outward"},
+])
+def test_led_directional_animation_contract_rejects_incompatible_combinations(payload):
+    with pytest.raises(ProtocolError, match="LED|direction|origin|mode|symmetric"):
+        validate_led_animation(payload)
+
+
+def test_led_directional_fields_are_validated_in_the_phos_hw_envelope_and_preserved():
+    payload = {"animation": "wipe", "mode": "symmetric", "origin": "top", "direction": "outward",
+               "color": "#00AAFF", "brightness": .5, "period_ms": 2000, "duration_ms": 0}
+    message = decode_frame((json.dumps({"protocol": "phos-hw", "version": 1,
+                                        "type": "set_led_animation", "payload": payload})).encode())
+    assert message.payload == payload
+    invalid = {**payload, "direction": "clockwise"}
+    with pytest.raises(ProtocolError):
+        decode_frame((json.dumps({"protocol": "phos-hw", "version": 1,
+                                  "type": "set_led_animation", "payload": invalid})).encode())
 
 
 def test_pushed_push_sensor_enters_the_existing_touch_boundary():

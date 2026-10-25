@@ -21,6 +21,9 @@ CONTROLLER_EVENTS = frozenset({"hello", "capabilities", "sensor_update", "motion
 CONTROLLER_COMMANDS = frozenset({"request_capabilities", "ping", "configure_sensor_reporting",
                                  "set_led_animation", "stop_led_animation", "set_led_brightness", "clear_led"})
 LED_ANIMATIONS = frozenset({"off", "solid", "blink", "pulse", "breathe", "chase", "spin", "wipe"})
+LED_DIRECTIONS = frozenset({"clockwise", "counterclockwise", "outward", "inward"})
+LED_MODES = frozenset({"circular", "symmetric"})
+LED_ORIGINS = frozenset({"top", "bottom", "left", "right"})
 MOTION_UPDATE_STATES = frozenset({"stationary", "moving", "tilt_left", "tilt_right", "tilt_forward", "tilt_backward", "shake", "impact"})
 MOTION_INTENSITIES = frozenset({"low", "medium", "high"})
 
@@ -78,6 +81,9 @@ def decode_frame(frame: bytes) -> ControllerMessage:
 
 
 def validate_controller_payload(kind: str, payload: dict[str, Any]) -> None:
+    if kind == "set_led_animation":
+        validate_led_animation(payload)
+        return
     if kind == "motion_update":
         if set(payload) != {"state", "intensity"}:
             raise ProtocolError("invalid_payload", "motion_update requires only state and intensity.")
@@ -118,14 +124,51 @@ class JsonLinesDecoder:
 
 
 def validate_led_animation(payload: dict[str, Any]) -> None:
-    if payload.get("animation") not in LED_ANIMATIONS: raise ProtocolError("unsupported_animation", "Unsupported LED animation.")
+    allowed = {"animation", "color", "brightness", "period_ms", "min_intensity", "max_intensity", "duration_ms",
+               "direction", "mode", "origin"}
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ProtocolError("invalid_parameter", "Unsupported LED animation field.")
+    animation = payload.get("animation")
+    if animation not in LED_ANIMATIONS: raise ProtocolError("unsupported_animation", "Unsupported LED animation.")
     color, brightness = payload.get("color"), payload.get("brightness")
     if color is not None and (not isinstance(color, str) or len(color) != 7 or not color.startswith("#")): raise ProtocolError("invalid_parameter", "color must be #RRGGBB.")
-    if brightness is not None and (not isinstance(brightness, (int, float)) or not 0 <= brightness <= 1): raise ProtocolError("invalid_parameter", "brightness must be 0..1.")
+    if brightness is not None and (isinstance(brightness, bool) or not isinstance(brightness, (int, float)) or not 0 <= brightness <= 1): raise ProtocolError("invalid_parameter", "brightness must be 0..1.")
     for name in ("min_intensity", "max_intensity"):
         value = payload.get(name)
-        if value is not None and (not isinstance(value, (int, float)) or not 0 <= value <= 1): raise ProtocolError("invalid_parameter", f"{name} must be 0..1.")
-    if payload.get("duration_ms", 0) < 0 or payload.get("period_ms", 1) <= 0: raise ProtocolError("invalid_parameter", "Invalid duration or period.")
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1): raise ProtocolError("invalid_parameter", f"{name} must be 0..1.")
+    if ("duration_ms" in payload and (type(payload["duration_ms"]) is not int or payload["duration_ms"] < 0)
+            or ("period_ms" in payload and (type(payload["period_ms"]) is not int or payload["period_ms"] <= 0))):
+        raise ProtocolError("invalid_parameter", "Invalid duration or period.")
+    if ("min_intensity" in payload and "max_intensity" in payload
+            and payload["min_intensity"] > payload["max_intensity"]):
+        raise ProtocolError("invalid_parameter", "min_intensity must not exceed max_intensity.")
+
+    direction, mode, origin = (payload.get("direction"), payload.get("mode"), payload.get("origin"))
+    if direction is not None and direction not in LED_DIRECTIONS:
+        raise ProtocolError("invalid_parameter", "Unsupported LED direction.")
+    if mode is not None and mode not in LED_MODES:
+        raise ProtocolError("invalid_parameter", "Unsupported LED mode.")
+    if origin is not None and origin not in LED_ORIGINS:
+        raise ProtocolError("invalid_parameter", "Unsupported LED origin.")
+    if animation in {"off", "solid", "blink", "pulse", "breathe"}:
+        if any(value is not None for value in (direction, mode, origin)):
+            raise ProtocolError("invalid_parameter", f"{animation} does not support direction, mode or origin.")
+        return
+    if animation == "spin":
+        if mode not in {None, "circular"} or direction not in {None, "clockwise", "counterclockwise"} or origin is not None:
+            raise ProtocolError("invalid_parameter", "spin supports only circular clockwise/counterclockwise direction.")
+        return
+    # chase and wipe default to circular/clockwise when all three fields are omitted.
+    actual_mode = mode or "circular"
+    if actual_mode == "circular":
+        if direction not in {None, "clockwise", "counterclockwise"}:
+            raise ProtocolError("invalid_parameter", "Circular LED animations require clockwise or counterclockwise direction.")
+        if animation == "chase" and origin is not None:
+            raise ProtocolError("invalid_parameter", "Circular chase does not support an origin.")
+        return
+    if origin is None or direction not in {"outward", "inward"}:
+        raise ProtocolError("invalid_parameter", "Symmetric LED animations require origin and outward or inward direction.")
 
 
 class ControllerTransport(Protocol):
