@@ -69,6 +69,23 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     assert result["restart_required"] == []
 
 
+def test_hardware_controller_connection_settings_hot_apply_without_restart(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_hardware_controller_applier(
+        lambda config: applied.append((config.hardware_controller_serial_device,
+                                       config.hardware_controller_serial_baud_rate)))
+    update(path, lambda d: d["hardware_controller"]["serial"].update(device="/dev/ttyUSB1", baud_rate=57600))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate"]
+    assert result["restart_required"] == []
+    assert applied == [("/dev/ttyUSB1", 57600)]
+    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600}
+
+
 @pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])
 def test_configure_eyes_validates_persists_and_applies_canonical_color(runtime, submitted, expected):
     path, lifecycle, _, _ = runtime
@@ -307,6 +324,34 @@ def test_lifecycle_channel_dispatches_eyes_configuration(runtime):
                    "environment_overlays_enabled": True}
         assert client.execute("application.configure_eyes", payload) == {"ok": True, "result": {"saved": payload}}
         assert received == [payload]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_dispatches_controller_read_models(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def controller_status(self): return {"state": "connected", "configured_device": "/dev/ttyUSB0"}
+        def controller_recent_messages(self): return [{"type": "sensor_update"}]
+        def controller_serial_ports(self): return [{"device": "/dev/ttyUSB0"}]
+        def clear_controller_recent_messages(self): return {"cleared": True}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.controller_status")["result"]["state"] == "connected"
+        assert client.execute("application.controller_recent_messages")["result"] == [{"type": "sensor_update"}]
+        assert client.execute("application.controller_serial_ports")["result"] == [{"device": "/dev/ttyUSB0"}]
+        assert client.execute("application.clear_controller_recent_messages")["result"] == {"cleared": True}
     finally:
         stop.set()
         child.close()

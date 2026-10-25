@@ -625,6 +625,19 @@ def test_controls_are_separated_into_responsive_action_sections(setup):
         assert 'data-command=' not in page and 'data-overlay-submit' not in page
 
 
+def test_live_controls_preserve_unsaved_visual_source_across_background_refreshes():
+    """The browser owns an edited control until its Apply request succeeds."""
+    source = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+
+    assert 'node.addEventListener("change", () => { node.dataset.dirty = "true"; });' in source
+    assert 'if (node.dataset.dirty === "true") continue;' in source
+    assert 'const result = await commandRequest(command.endpoint' in source
+    assert 'if (!result) return;' in source
+    assert 'delete node.dataset.dirty;' in source
+    assert 'state.active_visual_source = result.source;' in source
+    assert 'catch (problem) { report(problem.message, "error"); return null; }' in source
+
+
 def test_controls_responsive_layout_and_button_groups_do_not_overflow():
     from pathlib import Path
 
@@ -666,6 +679,14 @@ def test_live_dashboard_is_an_api_client_and_retains_server_rendered_sensor_fall
     assert 'PHOS returned HTML instead of its API response' in source
     assert 'Your administrator session has expired' in source
     assert 'sensor_status' not in source and 'GPIO' not in source
+    assert 'event.type === "sensors_changed"' in source
+    assert 'item.measurements[field] !== undefined' in source
+    assert 'ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811)' in source
+    assert 'Math.floor((Date.now() - timestamp) / 1000)' in source
+    assert 'window.setInterval(renderFreshness, 1000)' in source
+    assert 'dashboard._phosFreshnessTimer' in source
+    assert 'const motion = (state.sensors || {}).imu || state.motion || {};' in source
+    assert 'display("motion.intensity", motion.motion_intensity' in source
     for event_type in ("presence_changed", "attention_changed", "person_entered", "person_left",
                        "attention_target_acquired", "attention_target_changed", "attention_target_lost",
                        "observed_expression_changed"):
@@ -1582,6 +1603,57 @@ def test_sensors_form_validates_and_preserves_other_domains(setup):
     invalid["display.fps"] = "1"
     assert client.post("/configuration/sensors", data=invalid).status_code == 400
     assert load_document(path) == expected
+
+
+def test_hardware_controller_page_uses_application_read_models_and_persists_configuration(tmp_path):
+    class ControllerAdmin:
+        def __init__(self): self.cleared = False; self.updated = None
+        def controller_status(self):
+            return {"state": "connected", "configured_device": "/dev/ttyUSB0", "active_device": "/dev/ttyUSB0",
+                    "protocol": "phos-hw", "last_heartbeat": "2026-01-01T12:00:00+00:00", "capabilities": {"sensors": ["temperature"]}}
+        def controller_serial_ports(self):
+            return [{"device": "/dev/ttyUSB0", "description": "USB Serial", "manufacturer": None,
+                     "product": None, "vid": None, "pid": None, "serial_number": None}]
+        def controller_recent_messages(self):
+            return [{"timestamp": "2026-01-01T12:00:01+00:00", "direction": "RX", "type": "sensor_update",
+                     "summary": "temperature=24.8 c", "raw": "b'<script>alert(1)</script>'"},
+                    {"timestamp": "2026-01-01T12:00:02+00:00", "direction": "RX", "type": "heartbeat",
+                     "summary": "heartbeat", "raw": None}]
+        def clear_controller_recent_messages(self): self.cleared = True; return {"cleared": True}
+        def update_config(self, patch):
+            self.updated = patch
+            document = load_document(path)
+            document["hardware_controller"] = patch["hardware_controller"]
+            path.write_text(json.dumps(document))
+            return {"applied": ["hardware_controller.serial.device"]}
+    document, path = load_document(), tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    service = ControllerAdmin()
+    app = create_app(path, active_document=document, application_service=service)
+    app.testing = True
+    client = authorize(app)
+    page = client.get("/configuration/controller").get_data(as_text=True)
+    assert "Hardware Controller" in page and "USB Serial" in page and "connected" in page
+    assert 'data-controller-status="state"' in page
+    assert 'data-controller-status="configured_device"' in page
+    assert "sensor_update" in page and ">heartbeat</td>" not in page and "&lt;script&gt;" in page
+    assert 'class="controller-message-scroll"' in page and 'data-controller-message-scroll' in page
+    assert '<select id="hardware_controller.transport"' in page and '<option value="serial"' in page
+    diagnostics = client.get("/controller/diagnostics")
+    assert diagnostics.status_code == 200
+    assert diagnostics.get_json()["messages"][0]["type"] == "sensor_update"
+    assert diagnostics.get_json()["status"]["configured_device"] == "/dev/ttyUSB0"
+    data = form(client, "controller")
+    data.update({"hardware_controller.enabled": "on", "hardware_controller.serial.device": "/dev/ttyUSB0",
+                 "hardware_controller.serial.baud_rate": "115200", "hardware_controller.reconnect.delay_seconds": "2",
+                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10"})
+    assert client.post("/configuration/controller", data=data).status_code == 302
+    assert load_document(path)["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    assert service.updated["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    assert 'renderStatus(data.status);' in Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    token = csrf(client.get("/configuration/controller"))
+    assert client.post("/controller/diagnostics/clear", data={"csrf_token": token}).status_code == 302
+    assert service.cleared
 
 
 def test_sensor_status_panel_uses_parent_service_and_hides_stale_values(setup):

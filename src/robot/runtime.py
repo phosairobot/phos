@@ -17,11 +17,12 @@ from robot.hardware.environmental import environmental_provider_type
 from robot.hardware.ccs811 import CCS811Provider
 from robot.hardware.mpu6050 import MPU6050Provider
 from robot.hardware.ws2812b import LEDRingProvider, LEDRingSocketProvider
+from robot.hardware.serial_controller import ControllerService
 from robot.motion import MotionSettings
 from robot.motion import MotionState
 from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorService,
                            AirQualitySensorProvider, AirQualitySensorService,
-                           IMUSensorProvider, IMUSensorService)
+                           IMUSensorProvider, IMUSensorService, IMUReading)
 from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalSettings, Event, EventBus,
                         RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
@@ -77,6 +78,7 @@ class PhosRuntime:
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
         interaction_coordinator: Optional[InteractionCoordinator] = None,
+        controller: Optional[ControllerService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
@@ -99,6 +101,7 @@ class PhosRuntime:
         self._ready_sound_played = False
         self._voice_session = voice_session
         self._interaction_coordinator = interaction_coordinator
+        self._controller = controller
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
@@ -265,6 +268,29 @@ class PhosRuntime:
             settings = replace(settings, led_count=active.led_ring_led_count, gpio_pin=active.led_ring_gpio_pin)
         self._led_ring_controller.configure(settings)
 
+    def apply_hardware_controller(self, config: RuntimeConfig) -> None:
+        """Hand validated connection changes to the one running controller service."""
+        if self._controller is None:
+            raise RuntimeError("Hardware controller service is not configured")
+        loop = self._loop
+        if loop is None or not self._started or self._stopping:
+            raise RuntimeError("Hardware controller service is not running")
+        try:
+            caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            caller_loop = None
+        if caller_loop is loop:
+            raise RuntimeError("Hardware controller reload must use the lifecycle thread")
+        future = asyncio.run_coroutine_threadsafe(self._controller.reconfigure(
+            enabled=config.hardware_controller_enabled,
+            device=config.hardware_controller_serial_device,
+            baud_rate=config.hardware_controller_serial_baud_rate,
+            reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
+            heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
+            heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
+        ), loop)
+        future.result()
+
     def sensor_status(self) -> dict:
         """Read-only application boundary, safe for the lifecycle thread."""
         state = {"environmental": self._sensor_service.snapshot()} if self._sensor_service is not None else {}
@@ -280,6 +306,21 @@ class PhosRuntime:
                                                 "temperature_overlay": self._environmental_interpreter.temperature_overlay.value,
                                                 "air_quality_overlay": self._environmental_interpreter.air_quality_overlay.value}
         return state
+
+    def controller_status(self) -> dict:
+        return self._controller.status() if self._controller is not None else {"state": "disabled", "configured_device": None,
+                                                                                "active_device": None, "protocol": None,
+                                                                                "last_activity": None, "last_heartbeat": None, "capabilities": None}
+
+    def controller_serial_ports(self) -> list[dict]:
+        return ControllerService.serial_ports()
+
+    def controller_recent_messages(self) -> list[dict]:
+        return self._controller.recent_messages() if self._controller is not None else []
+
+    def clear_controller_recent_messages(self) -> None:
+        if self._controller is not None:
+            self._controller.clear_recent_messages()
 
     def application_status(self) -> dict:
         """Read-only semantic status boundary for local adapters.
@@ -304,6 +345,7 @@ class PhosRuntime:
             "active_visual_source": self._behavior_engine.base_visual_source,
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
+            "controller": self.controller_status(),
             "startup": self._startup.document(),
             "touch": self.touch_status(),
             "voice": self.voice_status(),
@@ -877,6 +919,49 @@ def build_runtime(
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT, payload)))
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 
+    controller_sensors = {}
+    def accept_controller_sensor(name, value):
+        if name in {"temperature", "pressure", "humidity"}:
+            if config.environmental_provider == "controller":
+                controller_sensors["environmental"].accept_controller_update(name, value)
+        elif name in {"eco2", "tvoc"} and config.ccs811_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value)
+
+    def controller_provider_disconnected():
+        if config.environmental_provider == "controller":
+            controller_sensors["environmental"].mark_external_unavailable()
+        if config.ccs811_provider == "controller":
+            controller_sensors["air_quality"].mark_external_unavailable()
+        if config.imu_provider == "controller":
+            controller_sensors["imu"].mark_external_unavailable()
+
+    def accept_controller_imu(message):
+        if config.imu_provider != "controller":
+            return
+        imu = controller_sensors["imu"]
+        if message.type == "motion_update":
+            states = {"stationary": MotionState.STILL, "moving": MotionState.MOVING,
+                      "tilt_left": MotionState.TILT_LEFT, "tilt_right": MotionState.TILT_RIGHT,
+                      "tilt_forward": MotionState.TILT_FORWARD, "tilt_backward": MotionState.TILT_BACK,
+                      "shake": MotionState.SHAKE, "impact": MotionState.IMPACT}
+            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"])
+        elif message.type == "orientation_update":
+            acceleration, angular = message.payload["acceleration_m_s2"], message.payload["angular_velocity_dps"]
+            imu.accept_controller_orientation(IMUReading(acceleration["x"], acceleration["y"], acceleration["z"],
+                                                         angular["x"], angular["y"], angular["z"]))
+
+    controller = ControllerService(
+        core, enabled=config.hardware_controller_enabled,
+        device=config.hardware_controller_serial_device,
+        baud_rate=config.hardware_controller_serial_baud_rate,
+        reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
+        heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
+        heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
+        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
+        imu_update_sink=accept_controller_imu,
+        provider_disconnected_sink=controller_provider_disconnected,
+    )
+
     def startup_view() -> dict:
         view = startup.document()
         splash_image = config.resolve_startup_splash_image()
@@ -907,6 +992,7 @@ def build_runtime(
     core.add_behavior(attention)
     core.add_behavior(behavior_engine)
     core.add_behavior(eye_render_loop)
+    core.add_behavior(controller)
     runtime_holder = {}
     environmental_interpreter = EnvironmentalInterpreter(
         _environmental_settings(config),
@@ -930,8 +1016,9 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_environmental(reading.temperature_c, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="environmental", status=status),
+        externally_managed=config.environmental_provider == "controller",
     )
-    if config.environmental_enabled:
+    if config.environmental_enabled and config.environmental_provider == "local":
         logger.info("%s enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.environmental_type.upper(), config.environmental_i2c_address, config.environmental_poll_interval_seconds)
     air_quality = AirQualitySensorService(
@@ -942,8 +1029,9 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="air_quality", status=status),
+        externally_managed=config.ccs811_provider == "controller",
     )
-    if config.ccs811_enabled:
+    if config.ccs811_enabled and config.ccs811_provider == "local":
         logger.info("CCS811 enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.ccs811_i2c_address, config.ccs811_poll_interval_seconds)
     imu = IMUSensorService(
@@ -953,10 +1041,12 @@ def build_runtime(
         stale_after_seconds=config.imu_stale_after_seconds,
         motion_settings=_motion_settings(config),
         motion_state_sink=lambda state: runtime_holder["runtime"].publish_motion_state(state),
+        externally_managed=config.imu_provider == "controller",
     )
-    if config.imu_enabled:
+    if config.imu_enabled and config.imu_provider == "local":
         logger.info("MPU-6050 enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.imu_i2c_address, config.imu_poll_interval_seconds)
+    controller_sensors.update(environmental=sensors, air_quality=air_quality, imu=imu)
     led_ring = LEDRingController(
         _led_settings(config), lambda: behavior_engine.face_state,
         led_ring_provider_factory if led_ring_provider_factory is not None else
@@ -966,7 +1056,7 @@ def build_runtime(
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
-                       interaction_coordinator=interaction,
+                       interaction_coordinator=interaction, controller=controller,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._secrets_service = secrets_service
     # Compose once after the runtime exists, since the application service owns

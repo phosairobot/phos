@@ -41,7 +41,10 @@ PHOS defines a hardware-agnostic USB/serial controller boundary in
 UTF-8 JSON Lines, one bounded object per newline, with the envelope
 `protocol: "phos-hw"`, `version: 1`, `type`, optional `id`/`reply_to` and
 object `payload`. Controllers push semantic sensor/motion events and advertise
-capabilities; PHOS does not poll them. Commands cover capability discovery,
+capabilities; PHOS does not poll them. The v1 source currently specifies the
+payload only for the initial push-button proof
+(`sensor_update: {"sensor":"push","event":"pressed"}`); all other event
+payloads remain unspecified until an approved payload model is added. Commands cover capability discovery,
 heartbeat and bounded LED animations (`off`, `solid`, `blink`, `pulse`,
 `breathe`, `chase`, `spin`, `wipe`). Breathe accepts color, brightness,
 period/duration and min/max intensity. Controllers execute timing, but never
@@ -49,8 +52,41 @@ invent PHOS semantics. Heartbeats use reconnectable transports; a stale peer is
 unhealthy and controllers fall back to a local safe LED state. Unknown optional
 fields may be ignored; unknown types and versions receive bounded protocol
 errors. Sensor events must still enter existing semantic services and
-BehaviorEngine ownership. Firmware, serial device opening and an ESP32
-reference implementation are intentionally deferred.
+BehaviorEngine ownership. The Raspberry Pi serial adapter is reconnectable and
+configured with a manual device path; firmware and an ESP32 reference
+implementation remain intentionally deferred.
+
+Directional LED fields are protocol semantics, not physical LED indexes.
+`spin` is circular and defaults to clockwise; it accepts only clockwise or
+counterclockwise direction. `chase` and `wipe` default to circular/clockwise;
+their circular form accepts clockwise/counterclockwise direction (`wipe` may
+also name a top/bottom/left/right origin). Their symmetric form requires an
+origin plus outward or inward direction. `off`, `solid`, `blink`, `pulse` and
+`breathe` reject all directional fields. Top, bottom, left and right are logical
+positions: each controller implementation owns its physical index mapping and
+must preserve these v1 defaults for payloads that omit the new optional fields.
+
+For the initial inbound proof, a controller pushes
+`sensor_update` with `{"sensor":"push","event":"pressed"}`. PHOS maps this
+to its existing completed touch/tap semantic boundary; it does not poll the
+controller or add controller-specific behavior logic.
+
+For controller-backed sensors, set `hardware_controller.enabled: true` and the
+corresponding canonical `sensors.environmental.provider`,
+`sensors.ccs811.provider`, or `sensors.imu.provider` to `controller`, while
+retaining `enabled: true`. This prevents local I2C workers from starting while
+controller `sensor_update` messages update the same semantic snapshots used by
+the application services. The controller is a generic provider, not a hardware
+vendor identity. The committed default remains `local` and does not enable
+optional controller hardware.
+
+Controller IMU telemetry uses two validated v1 messages. `motion_update` has
+exactly `{"state": "stationary|moving|tilt_left|tilt_right|tilt_forward|tilt_backward|shake|impact", "intensity": "low|medium|high"}`;
+intensity is semantic movement intensity, never linear velocity. `orientation_update`
+has exactly `acceleration_m_s2` and `angular_velocity_dps` vectors, each with
+finite numeric `x`, `y`, and `z` axes (m/s² and degrees/second respectively).
+Both update the existing IMU service; semantic motion and telemetry remain
+independent snapshot fields.
 
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
