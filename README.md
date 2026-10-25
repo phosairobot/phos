@@ -6,7 +6,7 @@
 
 PHOS combines an animated face, camera-based perception, environmental and motion sensing, touch, voice, and LAN administration into a modular physical robot platform. It targets Raspberry Pi 3 today and is developed as a real hardware project: capabilities are designed behind explicit provider boundaries, covered by hardware-free tests where possible, and distinguished from physical Pi validation.
 
-**Current release:** PHOS 1.6.0 — Multilingual Voice Commands & Runtime Hardening · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
+**Current release:** PHOS 1.7.0 — External Hardware Controller & Semantic LED Control · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
 
 ## What is PHOS?
 

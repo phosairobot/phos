@@ -261,7 +261,7 @@ def test_capabilities_are_derived_from_canonical_semantic_enums():
         }
         if name == "set_robot_state":
             expected["transitions"] = {
-                "idle": ["listening", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
+                "idle": ["listening", "speaking", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
                 "thinking": ["idle", "speaking"], "speaking": ["idle", "listening"], "sleeping": ["idle"],
             }
         assert capabilities["commands"][name] == expected
@@ -384,7 +384,7 @@ def test_robot_state_model_and_capabilities_share_canonical_transition_graph():
     command = service.capabilities()["commands"]["set_robot_state"]
     assert state == {"state": "idle", "current": "idle", "running": False,
                      "writable": ["idle", "listening", "thinking", "speaking", "sleeping"],
-                     "allowed_next": ["listening", "sleeping"]}
+                     "allowed_next": ["listening", "speaking", "sleeping"]}
     assert command["transitions"][state["current"]] == state["allowed_next"]
 
 

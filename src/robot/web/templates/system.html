@@ -22,6 +22,6 @@
 {% if state.restart_supported %}<a href="{{ url_for('restart_phos') }}">Review and confirm restart</a>
 {% else %}<p>Unavailable for this launch. Install and start the documented user systemd service, or stop and start PHOS from the terminal.</p>{% endif %}</section>
 {% endif %}
-<p>Reboot Raspberry Pi is not supported in PHOS 1.3.0.</p>
+<p>Reboot Raspberry Pi is not supported by PHOS.</p>
 {% endif %}
 {% endblock %}

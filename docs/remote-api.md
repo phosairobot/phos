@@ -63,6 +63,16 @@ curl --cookie "$PHOS_ADMIN_COOKIE" http://127.0.0.1:8080/api/v1/environment
 Unavailable, stale, disabled, and warming-up sensor states remain explicit in
 responses; clients must not treat missing measurements as current data.
 
+## Semantic LED signal
+
+`POST /api/v1/signal` submits only a semantic user-visible signal through the
+application service: `{"signal":"success"}`, `warning`, `error`, or
+`attention`. It does not accept LED animation, color, brightness, direction,
+or other controller fields. The semantic LED arbiter resolves any hardware
+command only after the API boundary; an unavailable external LED controller
+does not expose a raw hardware-control endpoint. All four user signals are
+transient; persistent error indication belongs to `RobotState.ERROR`.
+
 ## Voice capture
 
 `POST /api/v1/voice/listen` starts one explicit capture session;

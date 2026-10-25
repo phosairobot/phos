@@ -42,19 +42,27 @@ UTF-8 JSON Lines, one bounded object per newline, with the envelope
 `protocol: "phos-hw"`, `version: 1`, `type`, optional `id`/`reply_to` and
 object `payload`. Controllers push semantic sensor/motion events and advertise
 capabilities; PHOS does not poll them. The v1 source currently specifies the
-payload only for the initial push-button proof
-(`sensor_update: {"sensor":"push","event":"pressed"}`); all other event
-payloads remain unspecified until an approved payload model is added. Commands cover capability discovery,
-heartbeat and bounded LED animations (`off`, `solid`, `blink`, `pulse`,
-`breathe`, `chase`, `spin`, `wipe`). Breathe accepts color, brightness,
-period/duration and min/max intensity. Controllers execute timing, but never
-invent PHOS semantics. Heartbeats use reconnectable transports; a stale peer is
-unhealthy and controllers fall back to a local safe LED state. Unknown optional
-fields may be ignored; unknown types and versions receive bounded protocol
-errors. Sensor events must still enter existing semantic services and
-BehaviorEngine ownership. The Raspberry Pi serial adapter is reconnectable and
-configured with a manual device path; firmware and an ESP32 reference
-implementation remain intentionally deferred.
+payload only where PHOS consumes it: `motion_update`, `orientation_update`,
+and `set_led_animation` have strict payload validation; the serial adapter also
+maps `sensor_update` temperature (`c`), pressure (`hpa`), humidity (`%`), eCO2
+(`ppm`), TVOC (`ppb`), and the push proof
+(`{"sensor":"push","event":"pressed"}`) into existing semantic services.
+`capabilities` remains controller-defined metadata; LED output is available
+only for the active serial session when that metadata advertises LED support.
+Other recognized v1 event types are retained as diagnostics but have no
+Raspberry semantic mapping yet. PHOS currently transmits only
+`request_capabilities`, `ping`, and resolved `set_led_animation` commands;
+the remaining accepted command names are reserved protocol vocabulary, not Web
+or API controls. Commands cover bounded LED animations (`off`, `solid`,
+`blink`, `pulse`, `breathe`, `chase`, `spin`, `wipe`). Breathe accepts color,
+brightness, period/duration and min/max intensity. Controllers execute timing,
+but never invent PHOS semantics. Heartbeats use reconnectable transports; a
+stale peer is unhealthy. PHOS treats LED output as unavailable for that session;
+any controller-local LED fallback is firmware-owned. Unknown top-level fields
+are ignored, while unknown types and versions receive bounded protocol errors.
+Sensor events must still enter existing semantic services and BehaviorEngine
+ownership. The Raspberry Pi serial adapter is reconnectable and configured
+with a manual device path.
 
 Directional LED fields are protocol semantics, not physical LED indexes.
 `spin` is circular and defaults to clockwise; it accepts only clockwise or

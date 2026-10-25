@@ -268,7 +268,7 @@ def main() -> None:
     logging.getLogger("botocore").setLevel(logging.WARNING)
     if arguments:
         logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", repository.active_path)
-    logger.info("PHOS %s", __version__)
+    logger.info("PHOS %s starting", __version__)
     logger.info("PHOS configuration loaded: %s", repository.active_path)
     _log_graphical_session()
     _configure_x11_display_power()

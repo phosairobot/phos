@@ -10,6 +10,23 @@ This file is an implementation handoff for coding agents. It records what is pre
 - Microphone available; exact interface remains TBD.
 - Display/eyes and Pi Camera/tracking are documented as operational in `docs/hardware.md`; exact camera model remains unspecified.
 
+## Current source version
+
+The authoritative source version is **1.7.0**. The following records retain
+earlier implementation milestones as historical context.
+
+## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
+
+The repository implements the generic `phos-hw` v1 serial controller boundary,
+capability discovery, reconnect lifecycle, and controller-backed environmental,
+air-quality, and IMU semantic providers. It also includes Hardware Controller
+Web Admin read/configuration paths, capability-aware semantic LED command
+transport, and `POST /api/v1/signal` arbitration. These are Raspberry-side
+implementation records; matching controller firmware and physical-device
+acceptance remain separate from the hardware-free regression suite. See the
+[1.7.0 release record](release-1.7.0.md) and
+[architecture reference](architecture.md#external-hardware-controller-protocol-v1).
+
 ## PHOS 1.4.0 — Voice & Interaction Foundation
 
 PHOS 1.4.0 implements startup/readiness (splash, ready sound and hidden cursor),
@@ -26,7 +43,7 @@ conversational LLM, Home Assistant and MCP/tool execution remain deferred.
 ## PHOS 1.3.0 release candidate
 
 This is a historical 1.3.0 release-candidate record. The current source version
-is **1.4.0**. Version 1.3.0 added stable Presence and Attention state,
+was **1.4.0**. Version 1.3.0 added stable Presence and Attention state,
 transient presence LED reactions, observed facial-expression telemetry, and a
 bounded expression-reaction policy to the existing Remote API and Web Admin.
 Automated regression has passed. It is **not ready to tag** until the target-Pi

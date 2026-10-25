@@ -1,5 +1,17 @@
 # Releases
 
+## PHOS 1.7.0
+
+**External Hardware Controller & Semantic LED Control.** The authoritative
+source version is **1.7.0**. It adds the generic `phos-hw` v1 serial controller
+boundary, controller-backed semantic sensors, capability-aware LED output, and
+the semantic LED API/control path. The Raspberry implementation is covered by
+hardware-free protocol, controller, lifecycle, Web Admin, and semantic-LED
+tests; matching controller firmware and physical-device acceptance remain
+separate deployment responsibilities.
+
+[Read the 1.7.0 release record](release-1.7.0.md){ .md-button .md-button--primary }
+
 ## PHOS 1.4.0 — Voice & Interaction Foundation
 
 The authoritative source version is **1.4.0**. It adds the startup and touch

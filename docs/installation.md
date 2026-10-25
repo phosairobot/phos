@@ -1,6 +1,6 @@
 # PHOS installation on Raspberry Pi
 
-## PHOS 1.4.0 reproducible installation
+## PHOS 1.7.0 reproducible installation
 
 Use Raspberry Pi OS **with a graphical desktop**, Python 3.11+ and an 800×600
 HDMI display on the Pi 3. Tk needs an active X display (XWayland on a Wayland
@@ -8,7 +8,7 @@ desktop). Raspberry Pi OS Lite alone is insufficient. The recommended production
 launch is the user systemd service below; terminal launch is for diagnostics.
 These instructions use the desktop user's `~/phos` (`/home/pi/phos` for user `pi`).
 
-This is a reproducible source/dependency procedure for the current 1.4.0 source,
+This is a reproducible source/dependency procedure for the current 1.7.0 source,
 not a frozen OS image. Record
 `cat /etc/os-release`, `uname -m`, `python3 --version` and apt package versions
 with the release acceptance results. Actual fresh-Pi acceptance remains
@@ -183,7 +183,7 @@ cd ~/phos
 PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
-Check the startup version is **1.4.0** and the logged configuration path is the
+Check the startup version is **1.7.0** and the logged configuration path is the
 file you edited. Escape leaves fullscreen; Ctrl+C stops PHOS. Stop this process
 before installing/starting the production service below.
 
