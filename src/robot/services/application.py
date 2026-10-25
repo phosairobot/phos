@@ -193,6 +193,10 @@ class RemoteApplicationService:
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
     def configure_eyes(self, value): return self._call("configure_eyes", value)
+    def controller_status(self): return self._call("controller_status")
+    def controller_serial_ports(self): return self._call("controller_serial_ports")
+    def controller_recent_messages(self): return self._call("controller_recent_messages")
+    def clear_controller_recent_messages(self): return self._call("clear_controller_recent_messages")
     def request_admin_password_recovery(self): return self._call("request_admin_password_recovery")
     def verify_admin_recovery_code(self, value): return self._call("verify_admin_recovery_code", {"code": value})
     def clear_admin_overlay(self): return self._call("clear_admin_overlay")
@@ -538,6 +542,24 @@ class PhosApplicationService:
         result.setdefault("sensors", self.sensors())
         self._emit("visual_state_changed", result["visual"])
         return result
+
+    def controller_status(self) -> dict:
+        reader = getattr(self._runtime, "controller_status", None)
+        return self._plain(reader()) if reader is not None else {"state": "unavailable"}
+
+    def controller_serial_ports(self) -> list[dict]:
+        reader = getattr(self._runtime, "controller_serial_ports", None)
+        return self._plain(reader()) if reader is not None else []
+
+    def controller_recent_messages(self) -> list[dict]:
+        reader = getattr(self._runtime, "controller_recent_messages", None)
+        return self._plain(reader()) if reader is not None else []
+
+    def clear_controller_recent_messages(self) -> dict:
+        action = getattr(self._runtime, "clear_controller_recent_messages", None)
+        if action is not None:
+            action()
+        return {"cleared": True}
 
     def emit_snapshot_changes(self) -> None:
         """Publish bounded semantic snapshots when an adapter asks for one.

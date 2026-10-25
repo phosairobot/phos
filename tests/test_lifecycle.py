@@ -314,6 +314,34 @@ def test_lifecycle_channel_dispatches_eyes_configuration(runtime):
         assert not thread.is_alive()
 
 
+def test_lifecycle_channel_dispatches_controller_read_models(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def controller_status(self): return {"state": "connected", "configured_device": "/dev/ttyUSB0"}
+        def controller_recent_messages(self): return [{"type": "sensor_update"}]
+        def controller_serial_ports(self): return [{"device": "/dev/ttyUSB0"}]
+        def clear_controller_recent_messages(self): return {"cleared": True}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.controller_status")["result"]["state"] == "connected"
+        assert client.execute("application.controller_recent_messages")["result"] == [{"type": "sensor_update"}]
+        assert client.execute("application.controller_serial_ports")["result"] == [{"device": "/dev/ttyUSB0"}]
+        assert client.execute("application.clear_controller_recent_messages")["result"] == {"cleared": True}
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_lifecycle_channel_dispatches_admin_network_and_overlay_operations(runtime):
     _, service, _, _ = runtime
 

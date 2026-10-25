@@ -78,6 +78,7 @@ class PhosRuntime:
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
         interaction_coordinator: Optional[InteractionCoordinator] = None,
+        controller: Optional[ControllerService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
@@ -100,6 +101,7 @@ class PhosRuntime:
         self._ready_sound_played = False
         self._voice_session = voice_session
         self._interaction_coordinator = interaction_coordinator
+        self._controller = controller
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
@@ -282,6 +284,21 @@ class PhosRuntime:
                                                 "air_quality_overlay": self._environmental_interpreter.air_quality_overlay.value}
         return state
 
+    def controller_status(self) -> dict:
+        return self._controller.status() if self._controller is not None else {"state": "disabled", "configured_device": None,
+                                                                                "active_device": None, "protocol": None,
+                                                                                "last_activity": None, "last_heartbeat": None, "capabilities": None}
+
+    def controller_serial_ports(self) -> list[dict]:
+        return ControllerService.serial_ports()
+
+    def controller_recent_messages(self) -> list[dict]:
+        return self._controller.recent_messages() if self._controller is not None else []
+
+    def clear_controller_recent_messages(self) -> None:
+        if self._controller is not None:
+            self._controller.clear_recent_messages()
+
     def application_status(self) -> dict:
         """Read-only semantic status boundary for local adapters.
 
@@ -305,6 +322,7 @@ class PhosRuntime:
             "active_visual_source": self._behavior_engine.base_visual_source,
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
+            "controller": self.controller_status(),
             "startup": self._startup.document(),
             "touch": self.touch_status(),
             "voice": self.voice_status(),
@@ -1015,7 +1033,7 @@ def build_runtime(
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
-                       interaction_coordinator=interaction,
+                       interaction_coordinator=interaction, controller=controller,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._secrets_service = secrets_service
     # Compose once after the runtime exists, since the application service owns

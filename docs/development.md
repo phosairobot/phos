@@ -362,3 +362,13 @@ component. Review enter/exit together. For responsive operation, adopt the
 canonical IMU poll interval and confirmation duration; polling requires restart,
 motion thresholds/mounting require only reload. See the installation guide for
 axis verification and DEBUG diagnostics.
+
+### External hardware controller administration
+
+Web Admin's **Hardware Controller** page edits the canonical
+`hardware_controller` configuration and therefore requires a PHOS restart after
+saving. It discovers serial ports only through the parent application service;
+the browser never inspects device files. The page also exposes controller-owned
+read-only connection state and a bounded, in-memory RX/TX diagnostic buffer.
+Diagnostics are not persisted, heartbeat rows are hidden by default, and raw
+frames are bounded to the phos-hw frame limit.

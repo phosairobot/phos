@@ -1,6 +1,19 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>{{ page.title }}</h2><p>{{ page.description }}</p>
+{% if area == 'controller' %}
+<p><a class="secondary-action" href="{{ url_for('configuration', area='controller') }}">Refresh Ports</a></p>
+<section class="status" aria-label="External hardware controller status"><h3>Connection status</h3><dl>
+<dt>State</dt><dd>{{ controller_status.state if controller_status else 'Unavailable' }}</dd>
+<dt>Configured device</dt><dd>{{ controller_status.configured_device if controller_status else 'Unavailable' }}</dd>
+<dt>Active device</dt><dd>{{ controller_status.active_device or 'None' if controller_status else 'Unavailable' }}</dd>
+<dt>Protocol</dt><dd>{{ controller_status.protocol or 'No valid controller message received' if controller_status else 'Unavailable' }}</dd>
+<dt>Last heartbeat</dt><dd>{{ controller_status.last_heartbeat or 'None' if controller_status else 'Unavailable' }}</dd>
+<dt>Capabilities</dt><dd>{% set capabilities = controller_status.capabilities if controller_status else none %}{% if capabilities %}<ul>{% for capability in capabilities.get('capabilities', capabilities.get('sensors', [])) %}<li>{{ capability | replace('_', ' ') | title }}</li>{% endfor %}{% if capabilities.get('led', {}).get('count') is not none %}<li>LED — {{ capabilities.get('led', {}).get('count') }} pixels</li>{% elif not capabilities.get('capabilities', capabilities.get('sensors', [])) %}<li>{{ capabilities }}</li>{% endif %}</ul>{% else %}None reported{% endif %}</dd></dl></section>
+<section class="status" aria-label="Recent controller messages" data-controller-diagnostics data-endpoint="{{ url_for('controller_diagnostics') }}"><h3>Recent messages</h3><p>Bounded in-memory diagnostics; heartbeat messages are retained but hidden below by default.</p>
+<div class="controller-diagnostic-filters" data-controller-filters><label>Type <select name="message_type"><option value="">All</option>{% for type in controller_filter.types | default([]) %}<option value="{{ type }}" {{ 'selected' if controller_filter.type == type else '' }}>{{ type }}</option>{% endfor %}</select></label><label>Direction <select name="direction"><option value="">RX and TX</option><option value="RX" {{ 'selected' if controller_filter.direction == 'RX' else '' }}>RX</option><option value="TX" {{ 'selected' if controller_filter.direction == 'TX' else '' }}>TX</option></select></label><label><input type="checkbox" name="show_heartbeat" value="1" {{ 'checked' if controller_filter.show_heartbeat else '' }}> Show heartbeat</label><div class="controller-diagnostic-actions"><button class="secondary-action" type="button" data-controller-filter>Filter</button><form method="post" action="{{ url_for('clear_controller_diagnostics') }}" data-controller-clear><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-action" type="submit">Clear diagnostics</button></form></div></div>
+<div class="controller-message-scroll" data-controller-message-scroll><table><thead><tr><th>Time</th><th>Direction</th><th>Type</th><th>Summary</th></tr></thead><tbody data-controller-message-rows>{% for message in controller_messages %}<tr><td>{{ message.timestamp }}</td><td>{{ message.direction }}</td><td>{{ message.type }}</td><td>{{ message.summary }}{% if message.raw %}<details><summary>Raw</summary><pre>{{ message.raw }}</pre></details>{% endif %}</td></tr>{% else %}<tr><td colspan="4">No controller messages matching this filter.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
 {% if area in ('general', 'status', 'sensors', 'controls') %}
 <section id="phos-operations" class="status live-dashboard" data-phos-live aria-label="Live PHOS status">
 <div class="section-heading"><div><p class="eyebrow">LIVE OPERATIONS</p><h3>Current PHOS Status</h3></div><div class="status-heading-side"><span class="status-pulse">● Semantic runtime</span>{% if area == 'general' %}<img class="dashboard-phos-image" src="{{ url_for('static', filename='images/phos-dashboard-black.webp') }}" alt="" loading="lazy">{% endif %}</div></div>
@@ -197,8 +210,12 @@ Your edits on this page have not been saved.</p>
 {% elif field.kind == 'checkbox' %}
 <input id="{{ field.name }}" name="{{ field.name }}" type="checkbox" {{ 'checked' if (value == 'on' if submitted is not none else value) else '' }}>
 {% else %}
+{% if field.name == 'hardware_controller.serial.device' %}
+<select id="{{ field.name }}" name="{{ field.name }}"><option value="{{ value }}" selected>{{ value }}{% if controller_ports and value not in controller_ports | map(attribute='device') | list %} — unavailable{% endif %}</option>{% for port in controller_ports if port.device != value %}<option value="{{ port.device }}">{{ port.device }}{% if port.description %} — {{ port.description }}{% endif %}</option>{% endfor %}</select><small>Refresh this page to discover currently attached serial ports.</small>
+{% else %}
 <input id="{{ field.name }}" name="{{ field.name }}" type="{{ 'number' if field.kind == 'number' else 'text' }}" {% if field.kind == 'number' %}step="any"{% endif %} value="{{ value if value is not none else '' }}">
 {% if field.kind == 'array' %}<small>Comma-separated values</small>{% elif field.nullable %}<small>Optional; blank means unset</small>{% endif %}
+{% endif %}
 {% endif %}</div>
 {% endfor %}</div></fieldset>
 {% endfor %}

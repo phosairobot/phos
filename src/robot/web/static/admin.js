@@ -72,6 +72,62 @@ if (ttsProvider) {
   if (!document.querySelector(".error")) update();
 }
 
+// Controller diagnostics are intentionally page-local: one bounded read every
+// five seconds while this page is open, never part of the dashboard snapshot.
+(() => {
+  const panel = document.querySelector("[data-controller-diagnostics]");
+  if (!panel) return;
+  const rows = panel.querySelector("[data-controller-message-rows]");
+  const messageScroll = panel.querySelector("[data-controller-message-scroll]");
+  const filters = panel.querySelector("[data-controller-filters]");
+  const type = filters.querySelector('[name="message_type"]');
+  const direction = filters.querySelector('[name="direction"]');
+  const heartbeat = filters.querySelector('[name="show_heartbeat"]');
+  let messages = [];
+  const selected = () => messages.filter((item) =>
+    (heartbeat.checked || item.type !== "heartbeat") &&
+    (!type.value || item.type === type.value) && (!direction.value || item.direction === direction.value));
+  const render = () => {
+    const scrollTop = messageScroll.scrollTop;
+    rows.replaceChildren();
+    const visible = selected();
+    if (!visible.length) {
+      const row = document.createElement("tr"), cell = document.createElement("td");
+      cell.colSpan = 4; cell.textContent = messages.length ? "No messages match the current filters." : "No controller messages received yet.";
+      row.append(cell); rows.append(row); messageScroll.scrollTop = scrollTop; return;
+    }
+    for (const item of [...visible].reverse()) {
+      const row = document.createElement("tr");
+      for (const value of [item.timestamp, item.direction, item.type]) {
+        const cell = document.createElement("td"); cell.textContent = value || ""; row.append(cell);
+      }
+      const summary = document.createElement("td"); summary.textContent = item.summary || "";
+      if (item.raw) { const details = document.createElement("details"), label = document.createElement("summary"), raw = document.createElement("pre"); label.textContent = "Raw"; raw.textContent = item.raw; details.append(label, raw); summary.append(details); }
+      row.append(summary); rows.append(row);
+    }
+    messageScroll.scrollTop = scrollTop;
+  };
+  const refresh = async () => {
+    try {
+      const response = await fetch(panel.dataset.endpoint, {credentials: "same-origin", headers: {Accept: "application/json"}});
+      if (!response.ok) return;
+      const data = await response.json();
+      messages = Array.isArray(data.messages) ? data.messages : [];
+      const known = new Set([...type.options].map((option) => option.value));
+      for (const item of messages) if (item.type && !known.has(item.type)) { const option = new Option(item.type, item.type); type.add(option); known.add(item.type); }
+      render();
+    } catch (_) { /* Retain the last rendered bounded snapshot on a transient failure. */ }
+  };
+  panel.querySelector("[data-controller-filter]").addEventListener("click", render);
+  filters.addEventListener("change", render);
+  panel.querySelector("[data-controller-clear]").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await fetch(event.currentTarget.action, {method: "POST", body: new FormData(event.currentTarget), credentials: "same-origin"});
+    messages = []; render();
+  });
+  refresh(); window.setInterval(refresh, 5000);
+})();
+
 (() => {
   const form = document.querySelector("[data-configuration-editor]");
   if (!form) return;

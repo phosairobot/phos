@@ -532,6 +532,21 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
         runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
+        controller_status, controller_ports, controller_messages = None, [], []
+        controller_filter = {"type": request.args.get("message_type", ""), "direction": request.args.get("direction", ""),
+                             "show_heartbeat": request.args.get("show_heartbeat") == "1"}
+        if area == "controller" and application_service is not None:
+            try:
+                controller_status = application_service.controller_status()
+                controller_ports = application_service.controller_serial_ports()
+                controller_messages = application_service.controller_recent_messages()
+                controller_filter["types"] = sorted({item.get("type") for item in controller_messages if item.get("type")})
+                controller_messages = [item for item in controller_messages if (
+                    (controller_filter["show_heartbeat"] or item.get("type") != "heartbeat")
+                    and (not controller_filter["type"] or item.get("type") == controller_filter["type"])
+                    and (not controller_filter["direction"] or item.get("direction") == controller_filter["direction"]))]
+            except ApplicationError:
+                controller_status = {"state": "unavailable"}
         admin_network = None
         if area in {"general", "network"} and application_service is not None:
             try:
@@ -570,7 +585,35 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
                                                                   for slot in web_secrets.slots()),
                                pending=current is not None and document != current,
+                               controller_status=controller_status, controller_ports=controller_ports,
+                               controller_messages=controller_messages, controller_filter=controller_filter,
                                iris_resolver=IrisColorResolver), status
+
+    @app.post("/controller/diagnostics/clear")
+    def clear_controller_diagnostics():
+        with auth.lock:
+            if not auth.valid(session.get("sid")) or passwords.must_change:
+                return redirect(url_for("login"))
+            if set(request.form) - {"csrf_token"}:
+                abort(400)
+            if application_service is None:
+                abort(503)
+            application_service.clear_controller_recent_messages()
+            flash("Controller diagnostic buffer cleared.")
+        return redirect(url_for("configuration", area="controller"))
+
+    @app.get("/controller/diagnostics")
+    def controller_diagnostics():
+        if not auth.valid(session.get("sid")) or passwords.must_change:
+            return jsonify({"error": {"code": "unauthorized", "message": "Authentication required."}}), 401
+        if application_service is None:
+            return jsonify({"error": {"code": "service_unavailable", "message": "Controller diagnostics are unavailable."}}), 503
+        try:
+            messages = application_service.controller_recent_messages()
+            status_view = application_service.controller_status()
+        except ApplicationError as exc:
+            return jsonify(exc.document()), exc.status
+        return jsonify({"status": status_view, "messages": messages})
 
     @app.post("/admin-access/show")
     def show_admin_access():

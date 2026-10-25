@@ -16,6 +16,7 @@
 <a href="{{ url_for('configuration', area='controls') }}" {% if area is defined and area == 'controls' %}aria-current="page"{% endif %}><i>⌁</i>Controls</a>
 <p class="nav-heading">Advanced</p>
 <a href="{{ url_for('configuration', area='sensors') }}" {% if area is defined and area == 'sensors' %}aria-current="page"{% endif %}><i>◫</i>Sensors</a>
+<a href="{{ url_for('configuration', area='controller') }}" {% if area is defined and area == 'controller' %}aria-current="page"{% endif %}><i>⌁</i>Hardware Controller</a>
 <a href="{{ url_for('configuration', area='api') }}" {% if area is defined and area == 'api' %}aria-current="page"{% endif %}><i>⌘</i>API</a>
 <a href="{{ url_for('configuration', area='diagnostics') }}" {% if area is defined and area == 'diagnostics' %}aria-current="page"{% endif %}><i>◇</i>Diagnostics</a>
 <a href="{{ url_for('system') }}" {% if request.endpoint == 'system' or request.endpoint == 'reload_configuration' or request.endpoint == 'restart_phos' %}aria-current="page"{% endif %}><i>⚠</i>System Actions</a>

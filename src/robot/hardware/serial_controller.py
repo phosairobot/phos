@@ -6,6 +6,8 @@ import json
 import logging
 import math
 import time
+from collections import deque
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable
 
@@ -48,7 +50,18 @@ class SerialControllerTransport:
             self._serial_factory = serial.Serial
         try:
             self._serial = self._serial_factory(self.device, self.baud_rate, timeout=.25, write_timeout=1)
+            # A new PHOS process can inherit incomplete bytes already queued by
+            # the USB adapter.  Discard them once at the session boundary, not
+            # while a session is running; valid frames are never discarded by
+            # the read loop itself.
+            reset_input = getattr(self._serial, "reset_input_buffer", None)
+            reset_output = getattr(self._serial, "reset_output_buffer", None)
+            if callable(reset_input):
+                reset_input()
+            if callable(reset_output):
+                reset_output()
         except OSError as error:
+            self._serial = None
             raise SerialTransportError("open", self.device, error) from error
 
     def read(self, size=1024) -> bytes:
@@ -95,9 +108,42 @@ class ControllerService(Behavior):
         self._task = None
         self._transport = None
         self._last_peer_activity = 0.0
+        self._last_activity = None
+        self._last_heartbeat = None
+        self._protocol = None
+        self._capabilities = None
+        self._messages = deque(maxlen=100)
 
     @property
     def state(self) -> ControllerConnection: return self._state
+
+    @staticmethod
+    def serial_ports() -> list[dict]:
+        """Return optional pyserial metadata without opening any device."""
+        try:
+            from serial.tools import list_ports
+            ports = list_ports.comports()
+        except (ImportError, OSError):
+            return []
+        return [{"device": port.device, "description": port.description or None,
+                 "manufacturer": getattr(port, "manufacturer", None), "product": getattr(port, "product", None),
+                 "vid": getattr(port, "vid", None), "pid": getattr(port, "pid", None),
+                 "serial_number": getattr(port, "serial_number", None)} for port in ports]
+
+    def status(self) -> dict:
+        return {"state": self._state.value, "configured_device": self._device,
+                "active_device": self._transport.device if self._transport is not None else None,
+                "protocol": self._protocol, "last_activity": self._last_activity,
+                "last_heartbeat": self._last_heartbeat, "capabilities": self._capabilities}
+
+    def recent_messages(self) -> list[dict]: return list(self._messages)
+    def clear_recent_messages(self) -> None: self._messages.clear()
+
+    def _record(self, direction: str, message_type: str, summary: str, raw: bytes | None = None) -> None:
+        raw_text = safe_frame_repr(raw or b"", limit=8192) if raw is not None else None
+        self._messages.append({"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                               "direction": direction, "type": message_type, "summary": summary[:240],
+                               "raw": raw_text})
 
     async def start(self) -> None:
         if self._enabled:
@@ -120,10 +166,10 @@ class ControllerService(Behavior):
             try:
                 await asyncio.to_thread(transport.open)
                 self._transport, self._state = transport, ControllerConnection.CONNECTED
-                self._last_peer_activity = time.monotonic()
+                decoder, next_heartbeat = self._new_session()
                 logger.info("PHOS CONTROLLER: connected device=%s", self._device)
                 await self._send("request_capabilities", {})
-                await self._read_connected()
+                await self._read_connected(decoder, next_heartbeat)
             except asyncio.CancelledError:
                 raise
             except Exception as error:
@@ -138,8 +184,13 @@ class ControllerService(Behavior):
                 self._state = ControllerConnection.DISCONNECTED
             await asyncio.sleep(self._reconnect_delay)
 
-    async def _read_connected(self) -> None:
-        decoder, next_heartbeat = JsonLinesDecoder(), time.monotonic() + self._heartbeat_interval
+    def _new_session(self) -> tuple[JsonLinesDecoder, float]:
+        """Reset only connection-local protocol state after a successful open."""
+        self._last_peer_activity = time.monotonic()
+        logger.debug("PHOS CONTROLLER: serial session opened; decoder and heartbeat window reset")
+        return JsonLinesDecoder(), self._last_peer_activity + self._heartbeat_interval
+
+    async def _read_connected(self, decoder: JsonLinesDecoder, next_heartbeat: float) -> None:
         while True:
             if time.monotonic() - self._last_peer_activity > self._heartbeat_timeout:
                 raise OSError("controller heartbeat timed out")
@@ -163,9 +214,20 @@ class ControllerService(Behavior):
 
     async def _send(self, kind: str, payload: dict) -> None:
         message = ControllerMessage(kind, payload).document()
-        await self._transport.write(json.dumps(message, separators=(",", ":")).encode("utf-8") + b"\n")
+        raw = json.dumps(message, separators=(",", ":")).encode("utf-8") + b"\n"
+        self._record("TX", kind, kind.replace("_", " "), raw)
+        await self._transport.write(raw)
 
     async def _message(self, message: ControllerMessage) -> None:
+        payload = message.payload
+        received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self._protocol, self._last_activity = "phos-hw v1", received_at
+        if message.type == "heartbeat": self._last_heartbeat = received_at
+        if message.type == "capabilities": self._capabilities = payload
+        summary = (f"{payload.get('sensor')}={payload.get('value')} {payload.get('unit', '')}" if message.type == "sensor_update"
+                   else f"{payload.get('state')} / {payload.get('intensity')}" if message.type == "motion_update"
+                   else "accel + gyro" if message.type == "orientation_update" else message.type.replace("_", " "))
+        self._record("RX", message.type, summary, message.raw_frame)
         if message.type in {"motion_update", "orientation_update"}:
             logger.debug("PHOS CONTROLLER RX IMU raw=%s", safe_frame_repr(message.raw_frame or b"", limit=8192))
             try:

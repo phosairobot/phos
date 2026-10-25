@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
                                                  decode_frame, validate_led_animation)
-from robot.hardware.serial_controller import ControllerService
+from robot.hardware.serial_controller import ControllerService, SerialControllerTransport
 from robot.sensors import AirQualityReading, AirQualitySensorService, EnvironmentalSensorService
 from robot.sensors import IMUReading, IMUSensorService
 from robot.motion import MotionSettings, MotionState
@@ -67,6 +67,69 @@ def test_pushed_push_sensor_enters_the_existing_touch_boundary():
     assert len(received) == 1
     assert received[0].kind.value == "tap"
     assert received[0].source == "external_controller"
+
+
+def test_controller_diagnostic_buffer_is_bounded_and_keeps_semantic_rx_entries():
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+    asyncio.run(service._message(ControllerMessage("sensor_update", {"sensor": "temperature", "value": 24.8, "unit": "c"})))
+    entry = service.recent_messages()[-1]
+    assert entry["direction"] == "RX"
+    assert entry["type"] == "sensor_update"
+    assert entry["summary"] == "temperature=24.8 c"
+    class Transport:
+        async def write(self, _data): pass
+    service._transport = Transport()
+    asyncio.run(service._send("ping", {}))
+    assert service.recent_messages()[-1]["direction"] == "TX"
+    assert service.recent_messages()[-1]["type"] == "ping"
+    assert len(service.recent_messages()) == len(service.recent_messages())
+    for index in range(101):
+        service._record("TX", "ping", str(index), b"x" * 9000)
+    entries = service.recent_messages()
+    assert len(entries) == 100
+    assert len(entries[-1]["raw"]) <= 8192 + 80
+    service.clear_recent_messages()
+    assert service.recent_messages() == []
+    asyncio.run(service._message(ControllerMessage("sensor_update", {"sensor": "temperature", "value": 25, "unit": "c"})))
+    assert service.recent_messages()[-1]["summary"] == "temperature=25 c"
+
+
+def test_controller_status_keeps_configuration_and_learns_protocol_capabilities_and_heartbeat():
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+    assert service.status()["configured_device"] == "/dev/ttyUSB0"
+    assert service.status()["protocol"] is None
+    asyncio.run(service._message(ControllerMessage("capabilities", {"sensors": ["temperature"], "led_count": 12})))
+    asyncio.run(service._message(ControllerMessage("heartbeat", {})))
+    status = service.status()
+    assert status["protocol"] == "phos-hw v1"
+    assert status["capabilities"] == {"sensors": ["temperature"], "led_count": 12}
+    assert status["last_activity"] and status["last_heartbeat"]
+
+
+def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder():
+    class Serial:
+        def __init__(self): self.input_reset = self.output_reset = False
+        def reset_input_buffer(self): self.input_reset = True
+        def reset_output_buffer(self): self.output_reset = True
+        def close(self): pass
+    serial = Serial()
+    transport = SerialControllerTransport("/dev/ttyUSB0", 115200, serial_factory=lambda *_args, **_kwargs: serial)
+    transport.open()
+    assert serial.input_reset and serial.output_reset
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+    first, first_deadline = service._new_session()
+    service._last_peer_activity = 0
+    second, second_deadline = service._new_session()
+    assert first is not second
+    assert service._last_peer_activity > 0
+    assert second_deadline > service._last_peer_activity
+    assert first_deadline > 0
 
 
 def test_controller_updates_merge_into_existing_sensor_service_snapshots():

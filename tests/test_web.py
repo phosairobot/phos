@@ -1592,6 +1592,46 @@ def test_sensors_form_validates_and_preserves_other_domains(setup):
     assert load_document(path) == expected
 
 
+def test_hardware_controller_page_uses_application_read_models_and_persists_configuration(tmp_path):
+    class ControllerAdmin:
+        def __init__(self): self.cleared = False
+        def controller_status(self):
+            return {"state": "connected", "configured_device": "/dev/ttyUSB0", "active_device": "/dev/ttyUSB0",
+                    "protocol": "phos-hw", "last_heartbeat": "2026-01-01T12:00:00+00:00", "capabilities": {"sensors": ["temperature"]}}
+        def controller_serial_ports(self):
+            return [{"device": "/dev/ttyUSB0", "description": "USB Serial", "manufacturer": None,
+                     "product": None, "vid": None, "pid": None, "serial_number": None}]
+        def controller_recent_messages(self):
+            return [{"timestamp": "2026-01-01T12:00:01+00:00", "direction": "RX", "type": "sensor_update",
+                     "summary": "temperature=24.8 c", "raw": "b'<script>alert(1)</script>'"},
+                    {"timestamp": "2026-01-01T12:00:02+00:00", "direction": "RX", "type": "heartbeat",
+                     "summary": "heartbeat", "raw": None}]
+        def clear_controller_recent_messages(self): self.cleared = True; return {"cleared": True}
+    document, path = load_document(), tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    service = ControllerAdmin()
+    app = create_app(path, active_document=document, application_service=service)
+    app.testing = True
+    client = authorize(app)
+    page = client.get("/configuration/controller").get_data(as_text=True)
+    assert "Hardware Controller" in page and "USB Serial" in page and "connected" in page
+    assert "sensor_update" in page and ">heartbeat</td>" not in page and "&lt;script&gt;" in page
+    assert 'class="controller-message-scroll"' in page and 'data-controller-message-scroll' in page
+    assert '<select id="hardware_controller.transport"' in page and '<option value="serial"' in page
+    diagnostics = client.get("/controller/diagnostics")
+    assert diagnostics.status_code == 200
+    assert diagnostics.get_json()["messages"][0]["type"] == "sensor_update"
+    data = form(client, "controller")
+    data.update({"hardware_controller.enabled": "on", "hardware_controller.serial.device": "/dev/ttyUSB0",
+                 "hardware_controller.serial.baud_rate": "115200", "hardware_controller.reconnect.delay_seconds": "2",
+                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10"})
+    assert client.post("/configuration/controller", data=data).status_code == 302
+    assert load_document(path)["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    token = csrf(client.get("/configuration/controller"))
+    assert client.post("/controller/diagnostics/clear", data={"csrf_token": token}).status_code == 302
+    assert service.cleared
+
+
 def test_sensor_status_panel_uses_parent_service_and_hides_stale_values(setup):
     from robot.lifecycle import LifecycleService
     app, path, _ = setup
