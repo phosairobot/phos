@@ -1127,6 +1127,36 @@ class PhosApplicationService:
         except Exception as error:
             raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
 
+    def request_transient_overlay(self, value: dict) -> dict:
+        """Submit semantic presentation context without exposing renderer controls."""
+        if not isinstance(value, dict) or set(value) - {"intent", "source", "message", "duration_seconds"}:
+            raise ApplicationError("invalid_overlay_request", "Overlay request has unsupported fields.")
+        intent, source = value.get("intent"), value.get("source")
+        if intent not in {"success", "info", "attention", "warning", "error", "sensor_alert"}:
+            raise ApplicationError("invalid_overlay_intent", "Unsupported overlay intent.")
+        if not isinstance(source, str) or not source:
+            raise ApplicationError("invalid_overlay_source", "Overlay source is required.")
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return self._plain(asyncio.run_coroutine_threadsafe(
+                self._runtime.request_transient_overlay(intent, source, message=value.get("message"),
+                                                        duration_seconds=value.get("duration_seconds")), loop).result(timeout=2))
+        except ValueError as error:
+            raise ApplicationError("invalid_overlay_request", str(error)) from error
+        except Exception as error:
+            raise ApplicationError("overlay_unavailable", "PHOS could not apply the semantic overlay.", status=503) from error
+
+    def clear_transient_overlay(self, source: str) -> dict:
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return self._plain(asyncio.run_coroutine_threadsafe(self._runtime.clear_transient_overlay(source), loop).result(timeout=2))
+        except Exception as error:
+            raise ApplicationError("overlay_unavailable", "PHOS could not clear the semantic overlay.", status=503) from error
+
     def set_expression(self, expression: str) -> dict:
         try:
             target = FaceExpression(expression)

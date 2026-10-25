@@ -111,10 +111,13 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
     watcher = asyncio.create_task(watch_restart()) if lifecycle is not None or web_server is not None else None
     try:
         runtime = build_application(config=config)
+        application_service = None
+        if hasattr(runtime, "core") and lifecycle is not None:
+            from robot.services import PhosApplicationService
+            application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
         if lifecycle is not None:
-            if hasattr(runtime, "core"):
-                from robot.services import PhosApplicationService
-                lifecycle.register_application_service(PhosApplicationService(runtime, lifecycle=lifecycle))
+            if application_service is not None:
+                lifecycle.register_application_service(application_service)
             register_started = getattr(runtime, "register_started_callback", None)
             if callable(register_started):
                 register_started(lifecycle.mark_application_ready)
@@ -276,7 +279,8 @@ def main() -> None:
     # even when runtime startup or execution fails.
     from robot.web.server import WebServer
     with WebServer(repository, config) as web:
-        asyncio.run(async_main(config=config, lifecycle=web.lifecycle, web_server=web))
+        run_arguments = {"config": config, "lifecycle": web.lifecycle, "web_server": web}
+        asyncio.run(async_main(**run_arguments))
     if web.lifecycle.restart_at is not None:
         logger.info("PHOS MAIN: exiting for managed restart exit_code=%s", RESTART_EXIT_CODE)
         raise SystemExit(RESTART_EXIT_CODE)

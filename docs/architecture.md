@@ -96,6 +96,25 @@ finite numeric `x`, `y`, and `z` axes (m/s² and degrees/second respectively).
 Both update the existing IMU service; semantic motion and telemetry remain
 independent snapshot fields.
 
+### Transient semantic overlays
+
+`SemanticOverlayService` owns bounded, source-scoped presentation requests:
+`success`, `info`, `attention`, `warning`, `error`, and `sensor_alert`. Each
+source owns one request; replacement affects only that source. Requests are
+plain-text (maximum 120 characters), expire on monotonic time, and resolve by
+priority `error → warning → sensor_alert → attention → success → info`; equal
+priority requests resolve to the newest request. The renderer receives only an
+immutable visible intent/message view, never caller-supplied drawing details.
+The existing interpreted air-quality warning/bad event is the only automatic
+v1 sensor source; it requests `sensor_alert` without inspecting raw providers.
+
+This system is internal to the application-service boundary in v1: it adds no
+REST endpoint. It is independent of `RobotState`, `FaceState`, environmental
+markers, and state effects. The compact semantic card renders after camera
+preview but before the final local administrative layer. Recovery and Admin QR
+overlays therefore remain secret-bearing system overlays above it, retain their
+existing touch behavior, and are not dismissible by semantic requests.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 

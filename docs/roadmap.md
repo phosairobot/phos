@@ -12,6 +12,13 @@
 
 FURIOUS and expression intensity are not implemented in this milestone.
 
+## Transient Overlay System v1
+
+- [x] Source-scoped, bounded semantic overlay arbitration, expiry, and final
+  display-layer integration below protected administrative overlays.
+- [x] Hardware-free core, renderer, and administrative-overlay regression coverage.
+- [ ] Physical Raspberry display validation.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 - [x] Generic, bounded `phos-hw` v1 JSON Lines serial transport with capability
