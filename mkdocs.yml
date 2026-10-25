@@ -102,6 +102,7 @@ nav:
       - Installation reference: installation.md
       - Web Admin manual: web-administration.md
       - Remote API: remote-api.md
+      - MCP semantic adapter: mcp.md
       - API contract notes: api.md
       - Development & configuration: development.md
       - JSON to YAML migration: configuration-migration.md

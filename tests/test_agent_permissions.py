@@ -16,7 +16,18 @@ class ApplicationSpy:
         self.calls.append((name, *args))
         return {"operation": name}
 
-    def status(self): return self._call("status")
+    def status(self):
+        self._call("status")
+        return {
+            "robot": {"running": True, "state": "idle"},
+            "environment": {"status": "available", "available": True},
+            "motion": {"status": "available", "available": True},
+            "sensors": {"ccs811": {"status": "available", "available": True}},
+            "observed_expression": {"available": True},
+            "voice": {"available": True},
+            "speech": {"tts": {"available": True}},
+            "semantic_led": {"available": True},
+        }
     def get_physical_context(self): return self._call("get_physical_context")
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
@@ -25,6 +36,9 @@ class ApplicationSpy:
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
     def signal_user(self, signal): return self._call("signal_user", signal)
+    async def speak_async(self, text): return self.speak(text)
+    async def set_state_async(self, state): return self.set_state(state)
+    async def signal_user_async(self, signal): return self.signal_user(signal)
 
 
 def test_permission_evaluator_is_explicit_and_access_is_immutable():
@@ -56,16 +70,60 @@ def test_observer_can_read_the_minimal_semantic_surface_but_cannot_act():
     application = ApplicationSpy()
     agent = AgentApplicationService(application, AgentAccess.for_profile(AgentProfile.OBSERVER))
 
-    assert agent.status() == {"operation": "status"}
+    assert agent.status()["state"] == "idle"
     assert agent.get_physical_context() == {"operation": "get_physical_context"}
-    assert agent.presence() == {"operation": "presence"}
-    assert agent.attention() == {"operation": "attention"}
-    assert agent.observed_expression() == {"operation": "observed_expression"}
+    assert agent.presence() == {"state": None, "people_count": None, "confidence": None}
+    assert agent.attention()["target"] == {"x": None, "y": None, "confidence": None}
+    assert agent.observed_expression()["available"] is None
     with pytest.raises(AgentPermissionDenied):
         agent.speak("Hello")
 
     assert [call[0] for call in application.calls] == [
         "status", "get_physical_context", "presence", "attention", "observed_expression",
+    ]
+
+
+def test_agent_status_is_a_compact_semantic_projection_without_operational_details():
+    class DetailedApplication(ApplicationSpy):
+        def status(self):
+            result = super().status()
+            result.update({
+                "controller": {"active_device": "/dev/ttyUSB0", "session_generation": 8},
+                "speech": {"tts": {"available": True, "active_provider": "cartesia"},
+                           "audio_output": {"active_device": "pipewire"}},
+                "sensors": {"ccs811": {"status": "available", "available": True,
+                                          "sensor_type": "ccs811", "provider": "controller"}},
+                "semantic_led": {"available": False, "resolved_animation": {"effect": "pulse"}},
+                "visual": {"background": "secret.png"},
+            })
+            return result
+
+    status = AgentApplicationService(DetailedApplication(), AgentAccess.for_profile()).status()
+
+    assert status == {
+        "running": True, "state": "idle",
+        "availability": {"physical_context": True, "environment": True, "air_quality": True,
+                         "motion": True, "vision": True, "voice": True, "speech": True, "signals": False},
+        "degraded": False, "degraded_reasons": [],
+    }
+    assert not ({"configured_device", "active_device", "sensor_type", "provider", "model", "resolved_animation",
+                "controller", "serial", "audio", "visual"} & set(status))
+
+
+def test_agent_status_reports_semantic_degradation_without_sensor_values():
+    application = ApplicationSpy()
+    status = application.status()
+    status["robot"] = {"running": False, "state": "sleeping"}
+    status["environment"] = {"status": "unavailable", "available": False}
+    status["motion"] = {"status": "stale", "available": False}
+    status["sensors"] = {"ccs811": {"status": "warming_up", "available": False}}
+    application.status = lambda: status
+
+    result = AgentApplicationService(application, AgentAccess.for_profile()).status()
+
+    assert result["degraded"] is True
+    assert result["degraded_reasons"] == [
+        "runtime_unavailable", "environment_unavailable", "air_quality_warming_up", "motion_stale",
     ]
 
 
@@ -88,7 +146,7 @@ def test_standard_profile_routes_semantic_actions_through_application(method, ar
     application = ApplicationSpy()
     result = getattr(AgentApplicationService(application, AgentAccess.for_profile()), method)(*arguments)
 
-    assert result["operation"] == expected[0]
+    assert result["applied"] is True if method != "speak" else result["accepted"] is True
     assert application.calls == [expected]
 
 
@@ -137,6 +195,7 @@ def test_agent_surface_has_no_raw_hardware_renderer_or_admin_operations():
 
     assert public_methods == {
         "attention", "get_physical_context", "observed_expression", "presence", "set_expression",
-        "signal_user", "sleep", "speak", "status", "wake",
+        "signal_user", "sleep", "speak", "status", "wake", "sleep_async", "speak_async",
+        "signal_user_async", "wake_async",
     }
     assert set(OPERATION_PERMISSIONS) == set(AgentOperation)
