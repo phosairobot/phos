@@ -21,6 +21,12 @@ The source implements source-scoped, bounded semantic transient overlays with
 renderer and protected-admin-layer integration. Automated core and UI coverage
 passes; physical Raspberry display validation is deferred.
 
+## Semantic Physical Context v1
+
+The repository implements a read-only, provider-independent semantic perception
+context through `PhosApplicationService`; it is automated-tested and has no
+REST or MCP adapter yet.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 The repository implements the generic `phos-hw` v1 serial controller boundary,

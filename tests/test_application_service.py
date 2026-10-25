@@ -68,6 +68,17 @@ def test_status_has_semantic_environment_and_health():
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
 
 
+def test_physical_context_uses_existing_application_read_models():
+    context = PhosApplicationService(Runtime()).get_physical_context()
+    assert context["robot"] == {"state": "idle"}
+    assert context["environment"]["temperature_c"] == 21.5
+    assert context["air_quality"]["status"] == "warming_up"
+    assert context["motion"]["status"] == "unavailable"
+    assert context["presence"]["state"] == "no_one"
+    assert context["attention"]["state"] == "idle"
+    assert context["observed_expression"]["available"] is False
+
+
 def test_recovery_code_is_shown_only_locally_and_never_returned():
     runtime = RecoveryRuntime()
     service = PhosApplicationService(runtime)

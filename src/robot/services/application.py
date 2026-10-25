@@ -43,6 +43,7 @@ from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderErro
 from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.admin_access import RecoveryState
+from robot.services.physical_context import SemanticPhysicalContextService
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
@@ -301,6 +302,7 @@ class PhosApplicationService:
         self._behavior = runtime._behavior_engine  # composition-owned semantic collaborator
         self._lifecycle = lifecycle
         self._admin_recovery = RecoveryState(clock=clock)
+        self._physical_context = SemanticPhysicalContextService()
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -416,6 +418,12 @@ class PhosApplicationService:
         return {"state": plain["state"], "target": {"id": plain["target_id"], "x": plain["target_x"],
                 "y": plain["target_y"], "confidence": plain["confidence"]}, "acquired_at": plain["acquired_at"],
                 "last_seen": plain["last_seen"]}
+
+    def get_physical_context(self) -> dict:
+        """Compact perception context; distinct from operational status/capabilities."""
+        return self._physical_context.build(robot=self.robot_state(), sensors=self.sensors(),
+                                            presence=self.presence(), attention=self.attention(),
+                                            observed_expression=self.observed_expression()).document()
 
     def touch(self) -> dict:
         reader = getattr(self._runtime, "touch_status", None)
