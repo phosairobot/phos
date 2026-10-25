@@ -69,6 +69,23 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     assert result["restart_required"] == []
 
 
+def test_hardware_controller_connection_settings_hot_apply_without_restart(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_hardware_controller_applier(
+        lambda config: applied.append((config.hardware_controller_serial_device,
+                                       config.hardware_controller_serial_baud_rate)))
+    update(path, lambda d: d["hardware_controller"]["serial"].update(device="/dev/ttyUSB1", baud_rate=57600))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate"]
+    assert result["restart_required"] == []
+    assert applied == [("/dev/ttyUSB1", 57600)]
+    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600}
+
+
 @pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])
 def test_configure_eyes_validates_persists_and_applies_canonical_color(runtime, submitted, expected):
     path, lifecycle, _, _ = runtime

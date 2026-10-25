@@ -149,6 +149,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             environmental_applier = getattr(runtime, "apply_environmental_behavior", None)
             if environmental_applier is not None:
                 lifecycle.register_environmental_behavior_applier(environmental_applier)
+            controller_applier = getattr(runtime, "apply_hardware_controller", None)
+            if controller_applier is not None:
+                lifecycle.register_hardware_controller_applier(controller_applier)
             sensor_status = getattr(runtime, "sensor_status", None)
             if sensor_status is not None:
                 lifecycle.register_sensor_status(sensor_status)

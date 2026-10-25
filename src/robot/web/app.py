@@ -511,6 +511,13 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         })
                         flash("Eyes saved and applied live.")
                         return redirect(url_for("configuration", area=area))
+                    if area == "controller":
+                        if application_service is None:
+                            raise ApplicationError("service_unavailable", "Hardware controller service is unavailable.", status=503)
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        application_service.update_config({"hardware_controller": prepared.document["hardware_controller"]})
+                        flash("Hardware Controller settings saved and applied live.")
+                        return redirect(url_for("configuration", area=area))
                     config.save_form(request.form, area=area)
                 except ConfigurationError as exc:
                     error, status = str(exc), 400

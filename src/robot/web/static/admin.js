@@ -87,6 +87,13 @@ if (ttsProvider) {
   const selected = () => messages.filter((item) =>
     (heartbeat.checked || item.type !== "heartbeat") &&
     (!type.value || item.type === type.value) && (!direction.value || item.direction === direction.value));
+  const renderStatus = (status) => {
+    const fallback = {active_device: "None", protocol: "No valid controller message received", last_heartbeat: "None"};
+    for (const node of panel.querySelectorAll("[data-controller-status]")) {
+      const value = status && status[node.dataset.controllerStatus];
+      node.textContent = value === null || value === undefined || value === "" ? (fallback[node.dataset.controllerStatus] || "Unavailable") : String(value);
+    }
+  };
   const render = () => {
     const scrollTop = messageScroll.scrollTop;
     rows.replaceChildren();
@@ -113,6 +120,7 @@ if (ttsProvider) {
       if (!response.ok) return;
       const data = await response.json();
       messages = Array.isArray(data.messages) ? data.messages : [];
+      renderStatus(data.status);
       const known = new Set([...type.options].map((option) => option.value));
       for (const item of messages) if (item.type && !known.has(item.type)) { const option = new Option(item.type, item.type); type.add(option); known.add(item.type); }
       render();
@@ -298,10 +306,19 @@ if (ttsProvider) {
     for (const node of controls.querySelectorAll("[data-command]")) {
       const command = commands[node.dataset.command]; if (!command) { node.disabled = true; continue; }
       for (const value of command.allowed_values || []) node.add(new Option(value, value));
+      node.addEventListener("change", () => { node.dataset.dirty = "true"; });
       const apply = controls.querySelector(`[data-command-apply="${node.dataset.command}"]`);
       if (!apply) { node.disabled = true; continue; }
       if (!apply.dataset.bound) {
-        apply.addEventListener("click", async () => { await commandRequest(command.endpoint, {[command.field]: node.value}, "POST", apply.textContent, apply); });
+        apply.addEventListener("click", async () => {
+          const result = await commandRequest(command.endpoint, {[command.field]: node.value}, "POST", apply.textContent, apply);
+          if (!result) return;
+          delete node.dataset.dirty;
+          // The command response is authoritative for this just-applied value;
+          // a concurrent background snapshot must not put the old value back.
+          if (node.dataset.command === "set_visual_source" && result.source) state.active_visual_source = result.source;
+          syncControls();
+        });
         apply.dataset.bound = "true";
       }
     }
@@ -326,6 +343,9 @@ if (ttsProvider) {
       set_visual_source: state.active_visual_source || (state.visual || {}).source,
     };
     for (const node of controls.querySelectorAll("[data-command]")) {
+      // Preserve a pending user edit across status snapshots and SSE renders.
+      // Once Apply succeeds the handler clears this flag and resynchronizes.
+      if (node.dataset.dirty === "true") continue;
       node.querySelector("option[data-current-only]")?.remove();
       const value = current[node.dataset.command];
       if (!value) continue;
@@ -356,8 +376,8 @@ if (ttsProvider) {
       else if (kind === "success" && success) { success.textContent = text; success.hidden = false; }
       else if (kind === "error" && error) { error.textContent = text; error.hidden = false; }
     };
-    try { const response = await fetch(apiUrl(path), {method, credentials: "same-origin", headers: {"Content-Type": "application/json", Accept: "application/json"}, body: payload ? JSON.stringify(payload) : undefined}); await readJson(response, `Command failed (${response.status})`); await snapshot(); report(message, "success"); }
-    catch (problem) { report(problem.message, "error"); }
+    try { const response = await fetch(apiUrl(path), {method, credentials: "same-origin", headers: {"Content-Type": "application/json", Accept: "application/json"}, body: payload ? JSON.stringify(payload) : undefined}); const result = await readJson(response, `Command failed (${response.status})`); await snapshot(); report(message, "success"); return result; }
+    catch (problem) { report(problem.message, "error"); return null; }
   };
   const applyEvent = (event) => {
     const payload = event.payload || {};

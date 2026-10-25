@@ -268,6 +268,29 @@ class PhosRuntime:
             settings = replace(settings, led_count=active.led_ring_led_count, gpio_pin=active.led_ring_gpio_pin)
         self._led_ring_controller.configure(settings)
 
+    def apply_hardware_controller(self, config: RuntimeConfig) -> None:
+        """Hand validated connection changes to the one running controller service."""
+        if self._controller is None:
+            raise RuntimeError("Hardware controller service is not configured")
+        loop = self._loop
+        if loop is None or not self._started or self._stopping:
+            raise RuntimeError("Hardware controller service is not running")
+        try:
+            caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            caller_loop = None
+        if caller_loop is loop:
+            raise RuntimeError("Hardware controller reload must use the lifecycle thread")
+        future = asyncio.run_coroutine_threadsafe(self._controller.reconfigure(
+            enabled=config.hardware_controller_enabled,
+            device=config.hardware_controller_serial_device,
+            baud_rate=config.hardware_controller_serial_baud_rate,
+            reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
+            heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
+            heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
+        ), loop)
+        future.result()
+
     def sensor_status(self) -> dict:
         """Read-only application boundary, safe for the lifecycle thread."""
         state = {"environmental": self._sensor_service.snapshot()} if self._sensor_service is not None else {}

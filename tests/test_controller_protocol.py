@@ -1,11 +1,12 @@
 import pytest
 import asyncio
 import json
+import time
 from types import SimpleNamespace
 
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
                                                  decode_frame, validate_led_animation)
-from robot.hardware.serial_controller import ControllerService, SerialControllerTransport
+from robot.hardware.serial_controller import ControllerConnection, ControllerService, SerialControllerTransport
 from robot.sensors import AirQualityReading, AirQualitySensorService, EnvironmentalSensorService
 from robot.sensors import IMUReading, IMUSensorService
 from robot.motion import MotionSettings, MotionState
@@ -173,6 +174,89 @@ def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder()
     assert service._last_peer_activity > 0
     assert second_deadline > service._last_peer_activity
     assert first_deadline > 0
+
+
+def test_controller_reconfigure_replaces_only_connection_level_transport_and_resets_session():
+    class Tasks:
+        def create(self, coroutine, *, name): return asyncio.create_task(coroutine, name=name)
+
+    class Transport:
+        def __init__(self, device, baud_rate):
+            self.device, self.baud_rate, self.closed, self.writes = device, baud_rate, False, []
+        def open(self): pass
+        def read(self, _size=1024): time.sleep(.01); return b""
+        async def write(self, data): self.writes.append(data)
+        def close(self): self.closed = True
+
+    transports = []
+    def factory(device, baud_rate):
+        transport = Transport(device, baud_rate); transports.append(transport); return transport
+    disconnected = []
+    service = ControllerService(SimpleNamespace(tasks=Tasks()), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=.1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None,
+                                provider_disconnected_sink=lambda: disconnected.append(True), transport_factory=factory)
+
+    async def exercise():
+        await service.start(); await asyncio.sleep(.03)
+        assert len(transports) == 1 and b'"type":"request_capabilities"' in transports[0].writes[0]
+        await service._message(ControllerMessage("capabilities", {"sensors": ["temperature"]}))
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=115200,
+                                             reconnect_delay_seconds=.2, heartbeat_interval_seconds=4,
+                                             heartbeat_timeout_seconds=6)
+        assert reopened and transports[0].closed
+        assert service.status()["configured_device"] == "/dev/ttyUSB1"
+        assert service.status()["capabilities"] is None
+        await asyncio.sleep(.03)
+        assert len(transports) == 2 and transports[1].device == "/dev/ttyUSB1"
+        assert service.status()["active_device"] == "/dev/ttyUSB1"
+        assert b'"type":"request_capabilities"' in transports[1].writes[0]
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=115200,
+                                             reconnect_delay_seconds=.4, heartbeat_interval_seconds=5,
+                                             heartbeat_timeout_seconds=7)
+        assert not reopened and len(transports) == 2
+        assert service._reconnect_delay == .4 and service._heartbeat_interval == 5 and service._heartbeat_timeout == 7
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=57600,
+                                             reconnect_delay_seconds=.4, heartbeat_interval_seconds=5,
+                                             heartbeat_timeout_seconds=7)
+        assert reopened and transports[1].closed
+        await asyncio.sleep(.03)
+        assert len(transports) == 3 and transports[2].baud_rate == 57600
+        await service.stop()
+
+    asyncio.run(exercise())
+    assert disconnected == [True, True]
+
+
+def test_controller_reconfigure_keeps_saved_failed_device_and_retries():
+    class Tasks:
+        def create(self, coroutine, *, name): return asyncio.create_task(coroutine, name=name)
+
+    class FailingTransport:
+        def __init__(self, device, _baud_rate): self.device, self.closed = device, False
+        def open(self): raise OSError("device unavailable")
+        def close(self): self.closed = True
+
+    transports = []
+    def factory(device, baud_rate):
+        transport = FailingTransport(device, baud_rate); transports.append(transport); return transport
+    service = ControllerService(SimpleNamespace(tasks=Tasks()), enabled=False, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=.01, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None, transport_factory=factory)
+
+    async def exercise():
+        assert await service.reconfigure(enabled=True, device="/dev/missing", baud_rate=57600,
+                                         reconnect_delay_seconds=.01, heartbeat_interval_seconds=2,
+                                         heartbeat_timeout_seconds=3)
+        await asyncio.sleep(.03)
+        assert service.status()["configured_device"] == "/dev/missing"
+        assert service.status()["active_device"] is None
+        assert service.state is ControllerConnection.DISCONNECTED
+        assert service._task is not None and not service._task.done()
+        assert len(transports) >= 2 and all(transport.closed for transport in transports)
+        await service.stop()
+
+    asyncio.run(exercise())
 
 
 def test_controller_updates_merge_into_existing_sensor_service_snapshots():

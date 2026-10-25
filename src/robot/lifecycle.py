@@ -49,10 +49,16 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
     "behavior.environmental.air_quality_bad_tvoc", "behavior.environmental.confirmation_seconds",
     "behavior.environmental.recovery_seconds",
 })
+HARDWARE_CONTROLLER_RELOADABLE = frozenset({
+    "hardware_controller.enabled", "hardware_controller.transport",
+    "hardware_controller.serial.device", "hardware_controller.serial.baud_rate",
+    "hardware_controller.reconnect.delay_seconds", "hardware_controller.heartbeat.interval_seconds",
+    "hardware_controller.heartbeat.timeout_seconds",
+})
 RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
                         "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
                         "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
-                        "display.backgrounds.error", "display.eye_safe_layer.enabled", "display.eye_safe_layer.mode", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
+                        "display.backgrounds.error", "display.eye_safe_layer.enabled", "display.eye_safe_layer.mode", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE, *HARDWARE_CONTROLLER_RELOADABLE})
 
 
 def changed_fields(active, saved, prefix=""):
@@ -92,6 +98,7 @@ class LifecycleService:
         self._apply_imu_behavior = None
         self._apply_led_ring = None
         self._apply_environmental_behavior = None
+        self._apply_hardware_controller = None
         self._apply_backgrounds = None
         self._apply_eye_safe_layer = None
         self._apply_state_effects = None
@@ -134,6 +141,9 @@ class LifecycleService:
     def register_environmental_behavior_applier(self, applier):
         with self._lock:
             self._apply_environmental_behavior = applier
+
+    def register_hardware_controller_applier(self, applier):
+        with self._lock: self._apply_hardware_controller = applier
 
     def register_backgrounds_applier(self, applier):
         with self._lock: self._apply_backgrounds = applier
@@ -320,6 +330,10 @@ class LifecycleService:
                     saved["behavior"]["environmental"], "behavior.environmental")
                 if environmental_paths and self._apply_environmental_behavior is None:
                     return {"ok": False, "error": "Runtime environmental behavior service is not ready. No settings were applied; retry reload shortly."}
+                controller_paths = changed_fields(self.active["hardware_controller"],
+                    saved["hardware_controller"], "hardware_controller")
+                if controller_paths and self._apply_hardware_controller is None:
+                    return {"ok": False, "error": "Runtime hardware controller service is not ready. No settings were applied; retry reload shortly."}
                 if self.active["display"]["iris_color"] != saved["display"]["iris_color"]:
                     try:
                         self._apply_appearance(config)
@@ -393,6 +407,15 @@ class LifecycleService:
                     self._apply_environmental_behavior(config)
                     self.active["behavior"]["environmental"] = deepcopy(saved["behavior"]["environmental"])
                     applied.extend(environmental_paths)
+                if controller_paths:
+                    try:
+                        self._apply_hardware_controller(config)
+                    except Exception:
+                        logging.getLogger(__name__).exception("Hardware controller reload failed")
+                        return {"ok": False, **self._snapshot(saved), "applied": applied,
+                                "error": "Hardware controller settings could not be applied. The saved configuration was retained; retry reload shortly."}
+                    self.active["hardware_controller"] = deepcopy(saved["hardware_controller"])
+                    applied.extend(controller_paths)
                 if self.active["logging"]["level"] != saved["logging"]["level"]:
                     self._set_log_level(saved["logging"]["level"])
                     self.active["logging"]["level"] = saved["logging"]["level"]

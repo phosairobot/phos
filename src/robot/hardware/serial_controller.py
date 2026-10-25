@@ -113,6 +113,7 @@ class ControllerService(Behavior):
         self._protocol = None
         self._capabilities = None
         self._messages = deque(maxlen=100)
+        self._reconfigure_lock = None
 
     @property
     def state(self) -> ControllerConnection: return self._state
@@ -146,7 +147,7 @@ class ControllerService(Behavior):
                                "raw": raw_text})
 
     async def start(self) -> None:
-        if self._enabled:
+        if self._enabled and (self._task is None or self._task.done()):
             self._task = self._core.tasks.create(self._run(), name="hardware-controller")
 
     async def stop(self) -> None:
@@ -155,9 +156,49 @@ class ControllerService(Behavior):
             await asyncio.gather(self._task, return_exceptions=True)
             self._task = None
         if self._transport is not None:
-            await asyncio.to_thread(self._transport.close)
+            await self._close_transport(self._transport)
             self._transport = None
         self._state = ControllerConnection.DISCONNECTED
+
+    async def reconfigure(self, *, enabled: bool, device: str, baud_rate: int,
+                          reconnect_delay_seconds: float, heartbeat_interval_seconds: float,
+                          heartbeat_timeout_seconds: float) -> bool:
+        """Apply controller settings without ever running two serial sessions.
+
+        Device, baud rate, and enabled state define a transport session.  A
+        change to one cancels and drains its task before the replacement task
+        is created.  Timing-only changes are read by the existing loop and do
+        not reopen a healthy serial device.
+        """
+        if self._reconfigure_lock is None:
+            self._reconfigure_lock = asyncio.Lock()
+        async with self._reconfigure_lock:
+            reopen = ((self._enabled != enabled) or self._device != device or self._baud_rate != baud_rate)
+            self._enabled, self._device, self._baud_rate = enabled, device, baud_rate
+            self._reconnect_delay = reconnect_delay_seconds
+            self._heartbeat_interval, self._heartbeat_timeout = heartbeat_interval_seconds, heartbeat_timeout_seconds
+            if not reopen:
+                return False
+            await self.stop()
+            self._reset_connection_state()
+            self._provider_disconnected_sink()
+            if self._enabled:
+                await self.start()
+            return True
+
+    def _reset_connection_state(self) -> None:
+        """Discard state that belongs to the previous physical controller."""
+        self._last_peer_activity = 0.0
+        self._last_activity = self._last_heartbeat = None
+        self._protocol = self._capabilities = None
+
+    async def _close_transport(self, transport) -> None:
+        try:
+            await asyncio.to_thread(transport.close)
+        except OSError as error:
+            logger.warning("PHOS CONTROLLER: close failed device=%s exception=%s message=%s",
+                           getattr(transport, "device", self._device), type(error).__name__,
+                           self._safe_error_message(error))
 
     async def _run(self) -> None:
         while True:
@@ -180,7 +221,7 @@ class ControllerService(Behavior):
             finally:
                 if self._transport is transport:
                     self._transport = None
-                await asyncio.to_thread(transport.close)
+                await self._close_transport(transport)
                 self._state = ControllerConnection.DISCONNECTED
             await asyncio.sleep(self._reconnect_delay)
 

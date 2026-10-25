@@ -366,9 +366,11 @@ axis verification and DEBUG diagnostics.
 ### External hardware controller administration
 
 Web Admin's **Hardware Controller** page edits the canonical
-`hardware_controller` configuration and therefore requires a PHOS restart after
-saving. It discovers serial ports only through the parent application service;
-the browser never inspects device files. The page also exposes controller-owned
-read-only connection state and a bounded, in-memory RX/TX diagnostic buffer.
-Diagnostics are not persisted, heartbeat rows are hidden by default, and raw
-frames are bounded to the phos-hw frame limit.
+`hardware_controller` configuration through the application/lifecycle boundary.
+Changing the enabled state, serial device, or baud rate closes the prior session
+and starts a fresh reconnect/handshake session without restarting PHOS; timing
+changes are applied to the existing service. It discovers serial ports only
+through the parent application service; the browser never inspects device files.
+The page also exposes controller-owned read-only connection state and a bounded,
+in-memory RX/TX diagnostic buffer. Diagnostics are not persisted, heartbeat rows
+are hidden by default, and raw frames are bounded to the phos-hw frame limit.
