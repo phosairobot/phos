@@ -11,11 +11,15 @@ import sys
 from threading import Event, Thread
 
 import pytest
+import yaml
+from flask import Flask
 
 from robot.config import RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
-from robot.services.application import ApplicationError, PhosApplicationService
+from robot.services.application import ApplicationError, PhosApplicationService, RemoteApplicationService
+from robot.ui.skins import SkinRepository, appearance_snapshot
+from robot.web.api import create_api
 
 
 @pytest.fixture
@@ -61,10 +65,135 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     result = service.execute("reload")
 
     assert result["ok"] and result["applied"] == ["display.iris_color"]
-    assert applied == ["violet"]
-    assert result["active"]["display"]["iris_color"] == "violet"
+    assert applied == ["#A670F5"]
+    assert result["active"]["display"]["iris_color"] == "#A670F5"
     assert result["reloadable"] == []
     assert result["restart_required"] == []
+
+
+def test_hardware_controller_connection_settings_hot_apply_without_restart(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_hardware_controller_applier(
+        lambda config: applied.append((config.hardware_controller_serial_device,
+                                       config.hardware_controller_serial_baud_rate)))
+    update(path, lambda d: d["hardware_controller"]["serial"].update(device="/dev/ttyUSB1", baud_rate=57600))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate"]
+    assert result["restart_required"] == []
+    assert applied == [("/dev/ttyUSB1", 57600)]
+    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600}
+
+
+@pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])
+def test_configure_eyes_validates_persists_and_applies_canonical_color(runtime, submitted, expected):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_appearance_applier(lambda config: applied.append(config.iris_color))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    result = application.configure_eyes({"iris_color": submitted, "base_visual_source": "manual",
+                                         "environment_overlays_enabled": True})
+
+    assert result["saved"]["iris_color"] == expected
+    assert RuntimeConfig.from_file(path).iris_color == expected
+    assert lifecycle.active["display"]["iris_color"] == expected
+    assert applied == [expected]
+
+
+def test_configure_eyes_hot_applies_iris_source_and_environment_overlays_together(runtime):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_appearance_applier(lambda config: applied.append(("iris", config.iris_color)))
+    lifecycle.register_base_visual_source_applier(
+        lambda config: applied.append(("source", config.base_visual_source)))
+    lifecycle.register_environment_overlays_applier(
+        lambda config: applied.append(("overlays", config.environment_overlays_enabled)))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    result = application.configure_eyes({"iris_color": "violet", "base_visual_source": "state",
+                                         "environment_overlays_enabled": False})
+
+    assert result["applied"] == ["display.iris_color", "display.base_visual_source",
+                                 "display.environment_overlays_enabled"]
+    assert result["saved"] == {"iris_color": "#A670F5", "base_visual_source": "state",
+                               "environment_overlays_enabled": False}
+    assert applied == [("iris", "#A670F5"), ("source", "state"), ("overlays", False)]
+    saved = RuntimeConfig.from_file(path)
+    assert (saved.iris_color, saved.base_visual_source, saved.environment_overlays_enabled) == (
+        "#A670F5", "state", False)
+    assert (lifecycle.active["display"]["iris_color"], lifecycle.active["display"]["base_visual_source"],
+            lifecycle.active["display"]["environment_overlays_enabled"]) == ("#A670F5", "state", False)
+
+
+def test_configure_eyes_rejects_invalid_color_before_persistence(runtime):
+    path, lifecycle, _, _ = runtime
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    with pytest.raises(ApplicationError) as error:
+        application.configure_eyes({"iris_color": "#FFF", "base_visual_source": "manual",
+                                    "environment_overlays_enabled": True})
+
+    assert error.value.code == "invalid_configuration"
+    assert RuntimeConfig.from_file(path).iris_color == "#28CEEB"
+
+
+def test_configure_eyes_preserves_custom_color_in_yaml(tmp_path):
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(load_document(), sort_keys=False))
+    lifecycle = LifecycleService(path, RuntimeConfig.from_file(path))
+    lifecycle.register_appearance_applier(lambda _config: None)
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+
+    application.configure_eyes({"iris_color": "#7a5cff", "base_visual_source": "manual",
+                                "environment_overlays_enabled": True})
+
+    assert yaml.safe_load(path.read_text())["display"]["iris_color"] == "#7A5CFF"
+    assert RuntimeConfig.from_file(path).iris_color == "#7A5CFF"
+
+
+def test_skin_preview_updates_runtime_without_saving_or_changing_active_config(runtime):
+    path, lifecycle, _, _ = runtime
+    applied = []
+    lifecycle.register_appearance_applier(lambda config: applied.append(("iris", config.iris_color)))
+    lifecycle.register_backgrounds_applier(lambda config: applied.append(("backgrounds", config.backgrounds_enabled)))
+    lifecycle.register_eye_safe_layer_applier(lambda config: applied.append(("safe", config.eye_safe_layer_mode)))
+    lifecycle.register_state_effects_applier(lambda config: applied.append(("effects", config.state_effects_enabled)))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = object()
+    before, active = path.read_bytes(), deepcopy(lifecycle.active)
+
+    result = application.preview_skin("ambient")
+
+    assert result["applied"] == ["temporary_appearance"]
+    assert ("iris", "#A670F5") in applied and ("effects", True) in applied
+    assert path.read_bytes() == before and lifecycle.active == active
+
+
+def test_eye_safe_layer_reload_uses_the_registered_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_eye_safe_layer_applier(lambda config: applied.append(
+        (config.eye_safe_layer_enabled, config.eye_safe_layer_mode)))
+    update(path, lambda d: d["display"].update(eye_safe_layer={"enabled": False, "mode": "expressive"}))
+
+    result = service.execute("reload")
+
+    assert result["ok"]
+    assert result["applied"] == ["display.eye_safe_layer.enabled", "display.eye_safe_layer.mode"]
+    assert applied == [(False, "expressive")]
 
 
 def test_backgrounds_reload_through_the_registered_runtime_boundary(runtime):
@@ -176,6 +305,155 @@ def test_lifecycle_channel_dispatches_state_effects_configuration(runtime):
         assert not thread.is_alive()
 
 
+def test_lifecycle_channel_dispatches_eyes_configuration(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def configure_eyes(self, payload):
+            received.append(payload)
+            return {"saved": payload}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"iris_color": "#7A5CFF", "base_visual_source": "manual",
+                   "environment_overlays_enabled": True}
+        assert client.execute("application.configure_eyes", payload) == {"ok": True, "result": {"saved": payload}}
+        assert received == [payload]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_dispatches_controller_read_models(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def controller_status(self): return {"state": "connected", "configured_device": "/dev/ttyUSB0"}
+        def controller_recent_messages(self): return [{"type": "sensor_update"}]
+        def controller_serial_ports(self): return [{"device": "/dev/ttyUSB0"}]
+        def clear_controller_recent_messages(self): return {"cleared": True}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.controller_status")["result"]["state"] == "connected"
+        assert client.execute("application.controller_recent_messages")["result"] == [{"type": "sensor_update"}]
+        assert client.execute("application.controller_serial_ports")["result"] == [{"device": "/dev/ttyUSB0"}]
+        assert client.execute("application.clear_controller_recent_messages")["result"] == {"cleared": True}
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_signal_api_reaches_semantic_application_service_over_lifecycle_channel(runtime):
+    """The web worker must not reject semantic signals as lifecycle commands."""
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def signal_user(self, signal):
+            if signal not in {"success", "warning", "attention", "error"}:
+                raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
+            received.append(signal)
+            return {"active_intent": signal}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    app = Flask(__name__)
+    app.register_blueprint(create_api(RemoteApplicationService(LifecycleClient(child))))
+    try:
+        client = app.test_client()
+        for signal in ("success", "warning", "attention", "error"):
+            response = client.post("/api/v1/signal", json={"signal": signal})
+            assert response.status_code == 200
+            assert response.json == {"active_intent": signal}
+        assert received == ["success", "warning", "attention", "error"]
+
+        unknown = client.post("/api/v1/signal", json={"signal": "rainbow"})
+        assert unknown.status_code == 400
+        assert unknown.json["error"]["code"] == "invalid_signal"
+        raw = client.post("/api/v1/signal", json={"signal": "success", "animation": "spin"})
+        assert raw.status_code == 400
+        assert raw.json["error"]["code"] == "invalid_signal"
+        assert received == ["success", "warning", "attention", "error"]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_dispatches_admin_network_and_overlay_operations(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def __init__(self): self.shown = 0; self.cleared = 0
+        def get_admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1; return {"status": "shown"}
+        def clear_admin_overlay(self): self.cleared += 1; return {"status": "cleared"}
+
+    application = Application()
+    service.register_application_service(application)
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert client.execute("application.get_admin_network_info")["result"]["ip_address"] == "192.168.1.42"
+        assert client.execute("application.show_admin_access_overlay") == {"ok": True, "result": {"status": "shown"}}
+        assert client.execute("application.clear_admin_overlay") == {"ok": True, "result": {"status": "cleared"}}
+        assert (application.shown, application.cleared) == (1, 1)
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_eyes_unexpected_failure_is_logged_and_bounded(caplog):
+    class Application:
+        def configure_eyes(self, _payload):
+            raise RuntimeError("renderer queue unavailable")
+
+    service = object.__new__(LifecycleService)
+    service._application_service = Application()
+    service._application_ready = True
+    with caplog.at_level(logging.ERROR):
+        result = service._execute_application({"operation": "application.configure_eyes", "payload": {
+            "iris_color": "#7A5CFF", "base_visual_source": "manual", "environment_overlays_enabled": True,
+        }})
+
+    assert result == {"ok": False, "error": {"code": "internal_error",
+                      "message": "PHOS could not process the request.",
+                      "details": {"operation": "application.configure_eyes"}}, "status": 500}
+    assert "operation=application.configure_eyes failed exception_type=RuntimeError" in caplog.text
+    assert "renderer queue unavailable" in caplog.text and "Traceback" in caplog.text
+
+
 def test_lifecycle_channel_dispatches_semantic_state_command(runtime):
     _, service, _, _ = runtime
     received = []
@@ -274,8 +552,8 @@ def test_mixed_appearance_logging_and_provider_changes_keep_restart_pending(runt
 
     assert result["ok"]
     assert result["applied"] == ["display.iris_color", "logging.level"]
-    assert applied == ["amber"] and logs == ["DEBUG"]
-    assert result["active"]["display"]["iris_color"] == "amber"
+    assert applied == ["#F4AB3D"] and logs == ["DEBUG"]
+    assert result["active"]["display"]["iris_color"] == "#F4AB3D"
     assert result["active"]["expression"]["provider"] == "local"
     assert result["restart_required"] == ["expression.provider"]
 
@@ -292,7 +570,7 @@ def test_failed_runtime_appearance_update_does_not_commit_active_values(runtime)
 
     assert not result["ok"]
     assert "render loop is stopping" not in result["error"]
-    assert service.active["display"]["iris_color"] == "cyan"
+    assert service.active["display"]["iris_color"] == "#28CEEB"
     assert service.active["logging"]["level"] == "INFO"
     assert not logs
 
@@ -301,14 +579,14 @@ def test_invalid_iris_color_is_rejected_before_any_application(runtime):
     path, service, logs, _ = runtime
     applied = []
     service.register_appearance_applier(lambda config: applied.append(config.iris_color))
-    update(path, lambda d: (d["display"].update(iris_color="#00FFFF"),
+    update(path, lambda d: (d["display"].update(iris_color="#FFF"),
                             d["logging"].update(level="ERROR")))
 
     result = service.execute("reload")
 
     assert not result["ok"]
     assert not applied and not logs
-    assert service.active["display"]["iris_color"] == "cyan"
+    assert service.active["display"]["iris_color"] == "#28CEEB"
     assert service.active["logging"]["level"] == "INFO"
 
 
@@ -459,6 +737,34 @@ def test_application_channel_recovers_after_runtime_command_boundary_becomes_rea
         service.mark_application_ready()
         assert client.execute("application.start_listening") == {
             "ok": True, "result": {"listening": True}}
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_forwards_eye_safe_layer_configuration(runtime):
+    _, service, _, _ = runtime
+
+    class Application:
+        def __init__(self): self.calls = []
+        def configure_eye_safe_layer(self, payload):
+            self.calls.append(payload)
+            return {"saved": payload}
+
+    application = Application()
+    service.register_application_service(application)
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"enabled": True, "mode": "expressive"}
+        assert client.execute("application.configure_eye_safe_layer", payload) == {"ok": True, "result": {"saved": payload}}
+        assert application.calls == [payload]
     finally:
         stop.set()
         child.close()
@@ -653,3 +959,54 @@ def test_module_startup_resolves_stdlib_secrets_with_deployed_pythonpath():
         check=False,
     )
     assert probe.returncode == 0, probe.stderr
+
+
+def test_skin_delete_blocks_live_owned_assets_then_cleans_only_its_own_directory(runtime):
+    path, lifecycle, _, _ = runtime
+    source = path.parent / "backgrounds" / "idle.png"
+    source.parent.mkdir()
+    source.write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        b"\x00\x00\x00\x0cIDAT\x08\xd7c\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    appearance = appearance_snapshot(load_document())
+    appearance["backgrounds"].update({"enabled": True, "idle": "backgrounds/idle.png"})
+    repository = SkinRepository(path)
+    skin = repository.create("Owned", "", appearance)
+    owned_asset = skin.appearance["backgrounds"]["idle"]
+    unrelated = path.parent / "backgrounds" / "unrelated.png"
+    unrelated.write_bytes(b"unrelated")
+    update(path, lambda document: document["display"]["backgrounds"].update(
+        {"enabled": True, "idle": owned_asset}
+    ))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+
+    assert next(item for item in application.skins() if item["id"] == skin.id)["in_use"] is True
+    with pytest.raises(ApplicationError) as error:
+        application.delete_skin(skin.id)
+    assert error.value.code == "skin_in_use" and error.value.status == 409
+    assert "Apply another skin" in error.value.message
+
+    update(path, lambda document: document["display"]["backgrounds"].update({"enabled": False, "idle": None}))
+    assert application.delete_skin(skin.id) == {"deleted": skin.id}
+    assert not (path.parent / "backgrounds" / "skins" / skin.id).exists()
+    assert unrelated.read_bytes() == b"unrelated"
+
+
+def test_skin_in_use_is_a_semantic_appearance_match_for_builtin_and_custom_skins(runtime):
+    path, lifecycle, _, _ = runtime
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+
+    assert [item["id"] for item in application.skins() if item["in_use"]] == ["phos-default"]
+    update(path, lambda document: document["display"].update(
+        iris_color="white", eye_safe_layer={"enabled": True, "mode": "subtle"}
+    ))
+    assert [item["id"] for item in application.skins() if item["in_use"]] == ["minimal"]
+    update(path, lambda document: document["display"].update(
+        iris_color="violet", eye_safe_layer={"enabled": True, "mode": "balanced"},
+        state_effects={"enabled": True, "preset": "balanced", "palette": "aqua", "reduce_motion": False}
+    ))
+    assert [item["id"] for item in application.skins() if item["in_use"]] == ["ambient"]
+    update(path, lambda document: document["display"].update(iris_color="green"))
+    assert not [item for item in application.skins() if item["in_use"]]

@@ -42,8 +42,12 @@ from robot.voice.normalization import SpeechTextNormalizer
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
+from robot.admin_access import RecoveryState
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
+from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
+                            appearance_semantically_matches, available_appearance_snapshot,
+                            validate_appearance_snapshot)
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +91,10 @@ STATE_COMMAND_TIMEOUT_SECONDS = 2.0
 # the current visual-event command deliberately supports only reactions that the
 # BehaviorEngine maps from a semantic expression event.
 WRITABLE_ROBOT_STATES = writable_states()
-WRITABLE_EXPRESSIONS = (FaceExpression.NEUTRAL, FaceExpression.HAPPY, FaceExpression.CURIOUS, FaceExpression.SURPRISED)
+WRITABLE_EXPRESSIONS = (FaceExpression.NEUTRAL, FaceExpression.HAPPY, FaceExpression.CURIOUS,
+                        FaceExpression.SURPRISED, FaceExpression.SAD, FaceExpression.ANGRY,
+                        FaceExpression.FOCUSED, FaceExpression.TIRED, FaceExpression.CONFUSED,
+                        FaceExpression.SCARED, FaceExpression.SKEPTICAL)
 WRITABLE_VISUAL_SOURCES = tuple(VisualSource)
 
 
@@ -185,6 +192,25 @@ class RemoteApplicationService:
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
+    def configure_eyes(self, value): return self._call("configure_eyes", value)
+    def controller_status(self): return self._call("controller_status")
+    def controller_serial_ports(self): return self._call("controller_serial_ports")
+    def controller_recent_messages(self): return self._call("controller_recent_messages")
+    def clear_controller_recent_messages(self): return self._call("clear_controller_recent_messages")
+    def request_admin_password_recovery(self): return self._call("request_admin_password_recovery")
+    def verify_admin_recovery_code(self, value): return self._call("verify_admin_recovery_code", {"code": value})
+    def clear_admin_overlay(self): return self._call("clear_admin_overlay")
+    def get_admin_network_info(self): return self._call("get_admin_network_info")
+    def show_admin_access_overlay(self): return self._call("show_admin_access_overlay")
+    def configure_eye_safe_layer(self, value): return self._call("configure_eye_safe_layer", value)
+    def skins(self): return self._call("skins")
+    def create_skin(self, value): return self._call("create_skin", value)
+    def delete_skin(self, value): return self._call("delete_skin", {"id": value})
+    def preview_skin(self, value): return self._call("preview_skin", {"id": value})
+    def apply_skin(self, value): return self._call("apply_skin", {"id": value})
+    def import_skin(self, value): return self._call("import_skin", value)
+    def export_skin(self, value): return self._call("export_skin", {"id": value})
+    def appearance_preview(self, value): return self._call("appearance_preview", value)
     def configure_state_effects(self, value): return self._call("configure_state_effects", value)
     def background_assets(self): return self._call("background_assets")
     def upload_background(self, value): return self._call("upload_background", value)
@@ -199,6 +225,7 @@ class RemoteApplicationService:
                     (time.monotonic() - started_at) * 1000)
         return result
     def set_visual_source(self, value): return self._call("visual_source", {"source": value})
+    def signal_user(self, value): return self._call("signal_user", {"signal": value})
     def overlay(self): return self._call("overlay")
     def set_overlay(self, value): return self._call("set_overlay", value)
     def clear_overlay(self): return self._call("clear_overlay")
@@ -223,6 +250,7 @@ class RemoteApplicationService:
                 "robot_state_changed": current.get("robot", {}),
                 "visual_state_changed": current.get("visual", {}),
                 "environmental_state_changed": current.get("environment", {}),
+                "sensors_changed": current.get("sensors", {}),
                 "motion_state_changed": current.get("motion", {}),
                 "health_changed": current.get("health", {}),
                 "overlay_changed": current.get("overlay", {}),
@@ -272,6 +300,7 @@ class PhosApplicationService:
         self._core = runtime.core
         self._behavior = runtime._behavior_engine  # composition-owned semantic collaborator
         self._lifecycle = lifecycle
+        self._admin_recovery = RecoveryState(clock=clock)
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -515,6 +544,24 @@ class PhosApplicationService:
         self._emit("visual_state_changed", result["visual"])
         return result
 
+    def controller_status(self) -> dict:
+        reader = getattr(self._runtime, "controller_status", None)
+        return self._plain(reader()) if reader is not None else {"state": "unavailable"}
+
+    def controller_serial_ports(self) -> list[dict]:
+        reader = getattr(self._runtime, "controller_serial_ports", None)
+        return self._plain(reader()) if reader is not None else []
+
+    def controller_recent_messages(self) -> list[dict]:
+        reader = getattr(self._runtime, "controller_recent_messages", None)
+        return self._plain(reader()) if reader is not None else []
+
+    def clear_controller_recent_messages(self) -> dict:
+        action = getattr(self._runtime, "clear_controller_recent_messages", None)
+        if action is not None:
+            action()
+        return {"cleared": True}
+
     def emit_snapshot_changes(self) -> None:
         """Publish bounded semantic snapshots when an adapter asks for one.
 
@@ -523,6 +570,7 @@ class PhosApplicationService:
         state-changing command or its low-rate client heartbeat.
         """
         self._emit("environmental_state_changed", self.environment())
+        self._emit("sensors_changed", self.sensors())
         self._emit("motion_state_changed", self.motion())
         self._emit("health_changed", self.health())
         self._emit("presence_changed", self.presence())
@@ -622,6 +670,44 @@ class PhosApplicationService:
         saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
 
+    def request_admin_password_recovery(self):
+        show = getattr(self._runtime, "show_recovery_code", None)
+        if not callable(show):
+            raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503)
+        available = getattr(self._runtime, "admin_overlay_available", None)
+        if not callable(available) or not available():
+            raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503)
+        code = self._admin_recovery.request()
+        try:
+            show(code, self._admin_recovery.expires)
+        except Exception as error:
+            self._admin_recovery.clear()
+            raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503) from error
+        logger.info("PHOS ADMIN: recovery requested")
+        return {"status": "requested"}
+
+    def verify_admin_recovery_code(self, code):
+        try: self._admin_recovery.verify(code)
+        except ValueError as error: raise ApplicationError(str(error), "Recovery code could not be verified.") from error
+        return {"status": "verified"}
+
+    def clear_admin_overlay(self):
+        clear = getattr(self._runtime, "clear_admin_overlay", None)
+        if callable(clear): clear()
+        return {"status": "cleared"}
+
+    def get_admin_network_info(self):
+        return self._runtime.admin_network_info()
+
+    def show_admin_access_overlay(self):
+        if not self._runtime.admin_network_info().get("admin_url"):
+            raise ApplicationError("network_unavailable", "Admin network is unavailable.", status=503)
+        try:
+            self._runtime.show_admin_access_overlay()
+        except RuntimeError as error:
+            raise ApplicationError("service_unavailable", str(error), status=503) from error
+        return {"status": "shown"}
+
     @staticmethod
     def _speech_configuration_reason(subsystem: str, provider: str | None, error: Exception) -> str:
         """Classify setup failures without exposing exception details or secrets."""
@@ -645,7 +731,10 @@ class PhosApplicationService:
         """
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503)
-        previous = self._lifecycle.config_repository.load()
+        try:
+            previous = self._lifecycle.config_repository.load()
+        except (ConfigurationError, OSError) as error:
+            raise ApplicationError("service_unavailable", "Speech configuration is unavailable.", status=503) from error
         document = previous.to_dict(); _merge(document, patch)
         provider = (document.get("voice", {}).get("stt", {}).get("provider") if subsystem == "stt"
                     else document.get("tts", {}).get("provider") if subsystem == "tts"
@@ -695,6 +784,40 @@ class PhosApplicationService:
     def configure_stt(self, patch): return self._speech_transaction({"voice": patch}, subsystem="stt")
     def configure_tts(self, patch): return self._speech_transaction({"tts": patch}, subsystem="tts")
     def configure_audio_output(self, patch): return self._speech_transaction({"tts": {"audio_output": patch}}, subsystem="audio")
+
+    def configure_eyes(self, patch: dict) -> dict:
+        """Atomically save and apply the canonical Eyes fields."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Eyes configuration is unavailable.", status=503)
+        allowed = {"iris_color", "base_visual_source", "environment_overlays_enabled"}
+        if not isinstance(patch, dict) or set(patch) != allowed:
+            raise ApplicationError("invalid_configuration", "Complete Eyes configuration is required.")
+        try:
+            previous = self._lifecycle.config_repository.load()
+        except (ConfigurationError, OSError) as error:
+            raise ApplicationError("service_unavailable", "Eyes configuration is unavailable.", status=503) from error
+        document = previous.to_dict()
+        _merge(document["display"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        except ConfigurationError as error:
+            raise ApplicationError("invalid_configuration", "Eyes configuration was rejected.", {"reason": str(error)}) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.apply_eyes(candidate)
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "Eyes configuration could not be applied."))
+        except Exception as error:
+            try:
+                self._lifecycle.config_repository.save(previous)
+            except OSError:
+                logger.exception("PHOS EYES: configuration rollback failed")
+            logger.exception("PHOS EYES: operation=appearance_eyes_update failed exception_type=%s message=%s",
+                             type(error).__name__, str(error)[:256])
+            raise ApplicationError("runtime_unavailable", "Eyes configuration could not be applied.", status=503) from error
+        logger.info("PHOS EYES: configured iris_color=%s", candidate.iris_color)
+        return {"saved": {name: candidate.to_dict()["display"][name] for name in sorted(allowed)},
+                "applied": result.get("applied", [])}
 
     def configure_backgrounds(self, patch: dict) -> dict:
         """Atomically save and publish the canonical display.backgrounds block."""
@@ -748,6 +871,130 @@ class PhosApplicationService:
             except OSError: logger.exception("PHOS VISUAL: state effects rollback failed")
             raise ApplicationError("runtime_unavailable", "State effects configuration could not be applied.", status=503) from error
         return {"saved": candidate.to_dict()["display"]["state_effects"], "applied": result.get("applied", [])}
+
+    def configure_eye_safe_layer(self, patch: dict) -> dict:
+        if self._lifecycle is None or not isinstance(patch, dict) or set(patch) - {"enabled", "mode"}:
+            raise ApplicationError("invalid_configuration", "Unsupported eye safe layer configuration.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        _merge(document["display"]["eye_safe_layer"], patch)
+        try:
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "Eye safe layer could not be applied."))
+        except (ConfigurationError, OSError, RuntimeError) as error:
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("PHOS VISUAL: eye safe layer rollback failed")
+            raise ApplicationError("runtime_unavailable", "Eye safe layer could not be applied.", status=503) from error
+        return {"saved": candidate.to_dict()["display"]["eye_safe_layer"], "applied": result.get("applied", [])}
+
+    def appearance_preview(self, options: dict) -> dict:
+        if self._lifecycle is None or not isinstance(options, dict):
+            raise ApplicationError("invalid_preview", "Preview options are invalid.")
+        try:
+            from robot.ui.appearance_preview import render_preview
+            current = self._lifecycle.config_repository.load()
+            skin_id = options.get("skin_id")
+            if skin_id is not None:
+                skin = SkinRepository(self._lifecycle.path).get(skin_id)
+                snapshot, _ = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+                document = apply_appearance_snapshot(current.to_dict(), snapshot)
+                current = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            return {"svg": render_preview(current, options)}
+        except (ValueError, ConfigurationError, OSError) as error:
+            raise ApplicationError("preview_unavailable", "Appearance preview could not be rendered.", status=400) from error
+
+    def _skins(self) -> SkinRepository:
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Skin service is unavailable.", status=503)
+        return SkinRepository(self._lifecycle.path)
+
+    @staticmethod
+    def _owns_live_backgrounds(skin_id: str, backgrounds: dict) -> bool:
+        prefix = f"backgrounds/skins/{skin_id}/"
+        return any(isinstance(backgrounds.get(state), str) and backgrounds[state].startswith(prefix)
+                   for state in ("idle", "listening", "thinking", "speaking", "sleeping", "error"))
+
+    def skins(self) -> list[dict]:
+        try:
+            document = self._lifecycle.config_repository.load().to_dict()
+            current_appearance = appearance_snapshot(document)
+            current_backgrounds = document["display"]["backgrounds"]
+            result = []
+            for skin in self._skins().list():
+                item = skin.document()
+                _, item["missing_backgrounds"] = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+                item["in_use"] = appearance_semantically_matches(current_appearance, skin.appearance, self._lifecycle.path.parent)
+                item["delete_blocked"] = not skin.built_in and self._owns_live_backgrounds(skin.id, current_backgrounds)
+                result.append(item)
+            return result
+        except ConfigurationError as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def create_skin(self, payload: dict) -> dict:
+        if not isinstance(payload, dict) or set(payload) - {"name", "description"}:
+            raise ApplicationError("invalid_skin", "Skin details are invalid.")
+        try:
+            skin = self._skins().create(payload.get("name", ""), payload.get("description", ""),
+                                        appearance_snapshot(self._lifecycle.config_repository.load().to_dict()))
+            return skin.document()
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def delete_skin(self, skin_id: str) -> dict:
+        try:
+            current = self._lifecycle.config_repository.load().to_dict()["display"]["backgrounds"]
+            if self._owns_live_backgrounds(skin_id, current):
+                raise ApplicationError("skin_in_use", "This skin is currently used by PHOS. Apply another skin before deleting it.", status=409)
+            self._skins().delete(skin_id); return {"deleted": skin_id}
+        except ApplicationError:
+            raise
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def preview_skin(self, skin_id: str) -> dict:
+        """Apply a Skin only to the live display; never save configuration."""
+        if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        try:
+            current = self._lifecycle.config_repository.load()
+            skin = self._skins().get(skin_id)
+            snapshot, missing = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+            candidate = RuntimeConfig.from_dict(apply_appearance_snapshot(current.to_dict(), snapshot),
+                                                base_dir=self._lifecycle.path.parent)
+            result = self._lifecycle.apply_temporary_appearance(candidate)
+            if not result.get("ok"): raise RuntimeError(result.get("error", "Skin preview could not be applied."))
+        except (ConfigurationError, OSError, RuntimeError) as error:
+            raise ApplicationError("skin_preview_failed", "Skin preview could not be applied; saved appearance was unchanged.", status=503) from error
+        return {"skin": skin.document(), "applied": result.get("applied", []), "missing_backgrounds": missing}
+
+    def apply_skin(self, skin_id: str) -> dict:
+        """Validate the entire skin before one canonical save/reload transaction."""
+        if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        previous = self._lifecycle.config_repository.load()
+        try:
+            skin = self._skins().get(skin_id)
+            snapshot, missing_backgrounds = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
+            document = apply_appearance_snapshot(previous.to_dict(), snapshot)
+            candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+            self._lifecycle.config_repository.save(candidate)
+            result = self._lifecycle.execute("reload")
+            if not result.get("ok"): raise RuntimeError(result.get("error", "Skin could not be applied."))
+        except (ConfigurationError, OSError, RuntimeError) as error:
+            try: self._lifecycle.config_repository.save(previous)
+            except OSError: logger.exception("PHOS SKIN: rollback failed")
+            raise ApplicationError("skin_apply_failed", "Skin could not be applied; appearance was unchanged.", {"reason": str(error)}, status=503) from error
+        return {"skin": skin.document(), "applied": result.get("applied", []), "missing_backgrounds": missing_backgrounds}
+
+    def import_skin(self, payload: dict) -> dict:
+        if (not isinstance(payload, dict) or set(payload) != {"content"}
+                or not isinstance(payload["content"], (bytes, bytearray))):
+            raise ApplicationError("invalid_skin", "Skin import is invalid.")
+        try: return self._skins().import_package(payload["content"]).document()
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def export_skin(self, skin_id: str) -> dict:
+        if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        try: return {"content": self._skins().export(skin_id)}
+        except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
 
     def background_assets(self) -> list[dict]:
         """List only safe, existing images in the canonical asset directory."""
@@ -869,6 +1116,17 @@ class PhosApplicationService:
         self._emit("visual_state_changed", payload)
         return payload
 
+    def signal_user(self, signal: str) -> dict:
+        if signal not in {"success", "warning", "error", "attention"}:
+            raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return self._plain(asyncio.run_coroutine_threadsafe(self._runtime.signal_user(signal), loop).result(timeout=2))
+        except Exception as error:
+            raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
+
     def set_expression(self, expression: str) -> dict:
         try:
             target = FaceExpression(expression)
@@ -877,7 +1135,7 @@ class PhosApplicationService:
         if target not in COMMANDS["set_expression"].allowed_members:
             raise ApplicationError("unsupported_expression_command", "Expression is not writable through this command.",
                                    {"expression": expression})
-        self._behavior.set_manual_expression(target, duration_seconds=30.0)
+        self._behavior.set_manual_expression(target)
         payload = {"expression": target.value, "manual_override": self._behavior.manual_expression_state(),
                    "visual": self.visual_state()}
         self._emit("expression_changed", payload)

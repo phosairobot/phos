@@ -9,10 +9,11 @@ dependencies = ["PyYAML>=6.0,<7", "cryptography>=42,<45"]
 ccs811 = ["smbus2>=0.4,<1"]
 imu = ["smbus2>=0.4,<1"]
 led-ring = ["rpi-ws281x>=5.0,<6"]
+hardware-controller = ["pyserial>=3.5,<4"]
 environmental = ["RPi.bme280>=0.2.4,<0.3", "bmp280>=1.0.0,<2", "smbus2>=0.4,<1"]
 bmp280 = ["bmp280>=1.0.0,<2", "smbus2>=0.4,<1"]
 bme280 = ["RPi.bme280>=0.2.4,<0.3", "smbus2>=0.4,<1"]
-web = ["Flask>=3.1,<4", "Flask-WTF>=1.2,<2", "Werkzeug>=3.1,<4", "waitress>=3.0.2,<4"]
+web = ["Flask>=3.1,<4", "Flask-WTF>=1.2,<2", "Werkzeug>=3.1,<4", "waitress>=3.0.2,<4", "qrcode>=7.4,<9"]
 aws = ["boto3>=1.34"]
 vision = [
     # Raspberry Pi OS supplies the sole cv2 provider (python3-opencv) so it
@@ -21,7 +22,7 @@ vision = [
 ]
 voice = ["audioop-lts>=0.2.2,<0.3; python_version >= '3.13'", "cartesia>=3.5.1,<4", "elevenlabs>=2,<3", "piper-tts>=1.3,<2", "vosk>=0.3.44,<0.4"]
 all = [
-    "phos-robot[ccs811,imu,led-ring,environmental,web,aws,vision,voice]",
+    "phos-robot[ccs811,imu,led-ring,hardware-controller,environmental,web,aws,vision,voice]",
 ]
 
 [build-system]

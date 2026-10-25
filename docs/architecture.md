@@ -34,6 +34,68 @@ Hardware-specific access remains behind adapters/interfaces.
 
 ## Core principles
 
+### External Hardware Controller Protocol v1
+
+PHOS defines a hardware-agnostic USB/serial controller boundary in
+`robot.hardware.controller_protocol`; it is not an ESP32 protocol. It uses
+UTF-8 JSON Lines, one bounded object per newline, with the envelope
+`protocol: "phos-hw"`, `version: 1`, `type`, optional `id`/`reply_to` and
+object `payload`. Controllers push semantic sensor/motion events and advertise
+capabilities; PHOS does not poll them. The v1 source currently specifies the
+payload only where PHOS consumes it: `motion_update`, `orientation_update`,
+and `set_led_animation` have strict payload validation; the serial adapter also
+maps `sensor_update` temperature (`c`), pressure (`hpa`), humidity (`%`), eCO2
+(`ppm`), TVOC (`ppb`), and the push proof
+(`{"sensor":"push","event":"pressed"}`) into existing semantic services.
+`capabilities` remains controller-defined metadata; LED output is available
+only for the active serial session when that metadata advertises LED support.
+Other recognized v1 event types are retained as diagnostics but have no
+Raspberry semantic mapping yet. PHOS currently transmits only
+`request_capabilities`, `ping`, and resolved `set_led_animation` commands;
+the remaining accepted command names are reserved protocol vocabulary, not Web
+or API controls. Commands cover bounded LED animations (`off`, `solid`,
+`blink`, `pulse`, `breathe`, `chase`, `spin`, `wipe`). Breathe accepts color,
+brightness, period/duration and min/max intensity. Controllers execute timing,
+but never invent PHOS semantics. Heartbeats use reconnectable transports; a
+stale peer is unhealthy. PHOS treats LED output as unavailable for that session;
+any controller-local LED fallback is firmware-owned. Unknown top-level fields
+are ignored, while unknown types and versions receive bounded protocol errors.
+Sensor events must still enter existing semantic services and BehaviorEngine
+ownership. The Raspberry Pi serial adapter is reconnectable and configured
+with a manual device path.
+
+Directional LED fields are protocol semantics, not physical LED indexes.
+`spin` is circular and defaults to clockwise; it accepts only clockwise or
+counterclockwise direction. `chase` and `wipe` default to circular/clockwise;
+their circular form accepts clockwise/counterclockwise direction (`wipe` may
+also name a top/bottom/left/right origin). Their symmetric form requires an
+origin plus outward or inward direction. `off`, `solid`, `blink`, `pulse` and
+`breathe` reject all directional fields. Top, bottom, left and right are logical
+positions: each controller implementation owns its physical index mapping and
+must preserve these v1 defaults for payloads that omit the new optional fields.
+
+For the initial inbound proof, a controller pushes
+`sensor_update` with `{"sensor":"push","event":"pressed"}`. PHOS maps this
+to its existing completed touch/tap semantic boundary; it does not poll the
+controller or add controller-specific behavior logic.
+
+For controller-backed sensors, set `hardware_controller.enabled: true` and the
+corresponding canonical `sensors.environmental.provider`,
+`sensors.ccs811.provider`, or `sensors.imu.provider` to `controller`, while
+retaining `enabled: true`. This prevents local I2C workers from starting while
+controller `sensor_update` messages update the same semantic snapshots used by
+the application services. The controller is a generic provider, not a hardware
+vendor identity. The committed default remains `local` and does not enable
+optional controller hardware.
+
+Controller IMU telemetry uses two validated v1 messages. `motion_update` has
+exactly `{"state": "stationary|moving|tilt_left|tilt_right|tilt_forward|tilt_backward|shake|impact", "intensity": "low|medium|high"}`;
+intensity is semantic movement intensity, never linear velocity. `orientation_update`
+has exactly `acceleration_m_s2` and `angular_velocity_dps` vectors, each with
+finite numeric `x`, `y`, and `z` axes (m/s² and degrees/second respectively).
+Both update the existing IMU service; semantic motion and telemetry remain
+independent snapshot fields.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 
@@ -123,6 +185,27 @@ does not alter `BehaviorEngine` decisions or eye rendering.
 ```text
 BehaviorEngine -> FaceState -> EyeRenderer -> display
                          \-> LEDRingController -> local socket -> root LED helper -> WS2812BProvider -> ring
+```
+
+### External-controller semantic LED arbitration
+
+External controller LEDs use a separate semantic path: `SemanticLedService`
+owns source-scoped requests, priority arbitration, expiry, and command
+deduplication; the controller executes only the resolved realtime animation.
+`RobotState` contributes one persistent intent, environmental context contributes
+a lower-priority ambient intent, and `signal_user` contributes the bounded
+semantic signals `success`, `warning`, `error`, or `attention`. All user
+signals, including `signal_user("error")`, are transient. In contrast,
+`RobotState.ERROR` contributes the persistent `robot_state/error` intent until
+the robot state changes. Error wins over warning, transient user signals,
+robot-state intents, and ambient context.
+Neither `BehaviorEngine`, Web/API adapters, nor firmware choose animation
+parameters. On a controller capability report the arbiter reapplies its current
+winner; when LED capability is absent it retains logical intent and emits no
+hardware command.
+
+```text
+RobotState / environment / signal_user -> SemanticLedService -> ControllerService -> external controller LED executor
 ```
 
 ## Runtime
@@ -321,7 +404,7 @@ state where that snapshot is available; it does not invent a health-monitoring l
 
 ## Eye appearance
 
-The Display & Appearance configuration supplies the validated named iris theme
+The Display & Appearance configuration supplies the validated canonical iris color
 to EyeRenderer at startup. EyeRenderer still consumes only FaceState and renderer
 style configuration; expression/provider labels never reach the renderer.
 Semantic visual accents continue to pass through BehaviorEngine and FaceState.
@@ -435,3 +518,15 @@ of their configured duration then decay smoothly.
 motion then resumes only when Core returns to IDLE. Motion overlays take priority
 over lower-priority Vision expression reactions in IDLE, without changing the
 user-selected iris theme.
+
+### Local Admin Access
+
+`NetworkInfoService` is parent-process runtime state, not configuration: it
+selects the first non-loopback, non-link-local IPv4 address and refreshes its
+bounded cached result every 30 seconds. Web Admin obtains that read model only
+through `RemoteApplicationService` and lifecycle. The physical Admin overlay is
+a separate top display layer. It receives only the effective LAN Admin URL and
+a cached `qrcode` matrix; Tk renders individual square canvas modules, so Pillow
+and image resampling are unnecessary. A 2.5-second long press in the top-right
+20% of the display opens it, and a tap closes it. This never changes
+`FaceState`, `RobotState`, or `BehaviorEngine` state.

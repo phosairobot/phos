@@ -8,7 +8,7 @@ display:
   fps: 30
   fullscreen: true
   transition_seconds: 0.18
-  iris_color: cyan
+  iris_color: "#28CEEB"
   base_visual_source: manual
   environment_overlays_enabled: true
   backgrounds:
@@ -20,6 +20,9 @@ display:
     sleeping: null
     error: null
     max_upload_bytes: 4194304
+  eye_safe_layer:
+    enabled: true
+    mode: balanced
   state_effects:
     enabled: false
     preset: balanced
@@ -138,6 +141,17 @@ touch:
     enabled: true
     duration_ms: 700
     cooldown_ms: 400
+hardware_controller:
+  enabled: false
+  transport: serial
+  serial:
+    device: /dev/ttyACM0
+    baud_rate: 115200
+  reconnect:
+    delay_seconds: 2
+  heartbeat:
+    interval_seconds: 5
+    timeout_seconds: 15
 startup:
   splash:
     enabled: true
@@ -253,17 +267,20 @@ expression_reactions:
 sensors:
   environmental:
     type: bme280
+    provider: local
     enabled: false
     i2c_address: '0x76'
     poll_interval_seconds: 5.0
     stale_after_seconds: 30.0
   ccs811:
     enabled: false
+    provider: local
     i2c_address: '0x5a'
     poll_interval_seconds: 5.0
     stale_after_seconds: 30.0
   imu:
     enabled: false
+    provider: local
     i2c_address: '0x68'
     poll_interval_seconds: 0.05
     stale_after_seconds: 30.0

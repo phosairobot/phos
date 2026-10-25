@@ -63,6 +63,16 @@ curl --cookie "$PHOS_ADMIN_COOKIE" http://127.0.0.1:8080/api/v1/environment
 Unavailable, stale, disabled, and warming-up sensor states remain explicit in
 responses; clients must not treat missing measurements as current data.
 
+## Semantic LED signal
+
+`POST /api/v1/signal` submits only a semantic user-visible signal through the
+application service: `{"signal":"success"}`, `warning`, `error`, or
+`attention`. It does not accept LED animation, color, brightness, direction,
+or other controller fields. The semantic LED arbiter resolves any hardware
+command only after the API boundary; an unavailable external LED controller
+does not expose a raw hardware-control endpoint. All four user signals are
+transient; persistent error indication belongs to `RobotState.ERROR`.
+
 ## Voice capture
 
 `POST /api/v1/voice/listen` starts one explicit capture session;
@@ -137,7 +147,7 @@ Current semantic command values are:
 | Command | Allowed values |
 | --- | --- |
 | `set_robot_state` | `idle`, `listening`, `thinking`, `speaking`, `sleeping` |
-| `set_expression` | `neutral`, `happy`, `curious`, `surprised` |
+| `set_expression` | `neutral`, `happy`, `curious`, `surprised`, `sad`, `angry`, `focused`, `tired`, `confused`, `scared`, `skeptical` |
 | `set_visual_source` | `manual`, `environment`, `state` |
 | `set_overlay.temperature` | `none`, `cold`, `warm` |
 | `set_overlay.air_quality` | `none`, `warning`, `bad` |
@@ -191,12 +201,12 @@ curl --cookie "$PHOS_ADMIN_COOKIE" -X POST http://127.0.0.1:8080/api/v1/expressi
   -H 'Content-Type: application/json' -d '{"expression":"happy"}'
 ```
 
-Allowed values are `neutral`, `happy`, `curious`, and `surprised`. A successful response is
-`{"expression":"happy"}`. A command is a 30-second manual semantic override
-owned by `BehaviorEngine`: it takes priority over Vision, environment and motion
-expression selection while PHOS is IDLE, but RobotState visual intent remains
-higher priority. The response includes its remaining lifetime. Other readable
-expressions, such as `worried`, are not writable and return
+Allowed values are `neutral`, `happy`, `curious`, `surprised`, `sad`, `angry`,
+`focused`, `tired`, `confused`, `scared`, and `skeptical`. A successful response
+is `{"expression":"happy"}`. A command is persistent manual semantic intent
+owned by `BehaviorEngine`; it remains active until another expression is selected
+(normally `neutral`) and does not mutate `RobotState`. `sleepy` and `worried`
+are readable runtime outcomes, not writable commands, and return
 `unsupported_expression_command`; unknown values return `invalid_expression`.
 
 ### Set visual source

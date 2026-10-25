@@ -15,11 +15,13 @@ import os
 import time
 from typing import Any, Deque, List, Optional
 
-from .eyes import EyeFrame, EyeGeometry
+from .eyes import EyeFrame, EyeGeometry, upper_lid_points, valid_polygon_points
 from .backgrounds import BackgroundAsset
 from .state_effects import StateEffectParams
 from .state_effect_layer import StateEffectLayer
+from .eye_safe import EyeSafeLayer, EyeSafeParams
 from .touch import TouchInputAdapter
+from robot.admin_access import AdminOverlayState
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,80 @@ class CameraPreviewSettings:
     show_confidence: bool = True
 
 
+@dataclass(frozen=True)
+class RecoveryOverlayLayout:
+    """Canvas-relative geometry for the physical recovery overlay."""
+
+    card_x: float
+    card_y: float
+    card_width: float
+    card_height: float
+    title_y: float
+    message_y: float
+    code_y: float
+    countdown_y: float
+
+    @property
+    def card_right(self) -> float:
+        return self.card_x + self.card_width
+
+    @property
+    def card_bottom(self) -> float:
+        return self.card_y + self.card_height
+
+
+def recovery_overlay_layout(width: int, height: int) -> RecoveryOverlayLayout:
+    """Return a centered, safely inset recovery card for the current canvas."""
+    margin_x, margin_y = max(24.0, width * .06), max(24.0, height * .08)
+    card_width = min(width * .64, width - 2 * margin_x)
+    card_height = min(height * .56, height - 2 * margin_y)
+    card_x, card_y = (width - card_width) / 2, (height - card_height) / 2
+    return RecoveryOverlayLayout(
+        card_x, card_y, card_width, card_height,
+        card_y + card_height * .22,
+        card_y + card_height * .36,
+        card_y + card_height * .58,
+        card_y + card_height * .78,
+    )
+
+
+@dataclass(frozen=True)
+class AdminAccessOverlayLayout:
+    card_x: float
+    card_y: float
+    card_width: float
+    card_height: float
+    qr_x: float
+    qr_y: float
+    qr_size: int
+    title_y: float
+    url_y: float
+    ip_y: float
+    close_y: float
+
+    @property
+    def card_right(self) -> float: return self.card_x + self.card_width
+
+    @property
+    def card_bottom(self) -> float: return self.card_y + self.card_height
+
+
+def admin_access_overlay_layout(width: int, height: int, modules: int) -> AdminAccessOverlayLayout:
+    """Return a safely inset, centered layout for the QR Admin overlay."""
+    margin_x, margin_y = max(48.0, width * .08), max(48.0, height * .12)
+    card_width = min(width * .76, width - 2 * margin_x)
+    card_height = min(height * .76, height - 2 * margin_y)
+    card_x, card_y = (width - card_width) / 2, (height - card_height) / 2
+    module = max(1, int(min(card_width * .60, card_height * .54) // modules))
+    qr_size = module * modules
+    return AdminAccessOverlayLayout(
+        card_x, card_y, card_width, card_height,
+        (width - qr_size) / 2, card_y + card_height * .18, qr_size,
+        card_y + card_height * .09, card_y + card_height * .76,
+        card_y + card_height * .84, card_y + card_height * .91,
+    )
+
+
 class EyeDisplay(ABC):
     """Display-driver boundary for precomputed eye geometry."""
 
@@ -104,7 +180,7 @@ class EyeDisplay(ABC):
     @abstractmethod
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -119,6 +195,13 @@ class EyeDisplay(ABC):
     def close(self) -> None:
         raise NotImplementedError
 
+    def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        """Receive local-only administrative content on the display thread.
+
+        Displays which do not render an overlay may safely retain the default.
+        Keeping this outside ``draw`` preserves the existing adapter contract.
+        """
+
 
 class MemoryEyeDisplay(EyeDisplay):
     """Headless display adapter used by tests."""
@@ -126,13 +209,14 @@ class MemoryEyeDisplay(EyeDisplay):
     def __init__(self) -> None:
         self.frames: List[EyeFrame] = []
         self.startup_frames: List[tuple[str, str]] = []
+        self.admin_overlays: List[AdminOverlayState] = []
 
     def open(self, width: int, height: int, *, fullscreen: bool) -> None:
         return None
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         self.frames.append(frame)
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
@@ -143,6 +227,9 @@ class MemoryEyeDisplay(EyeDisplay):
 
     def close(self) -> None:
         return None
+
+    def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        self.admin_overlays.append(overlay)
 
 
 class TkEyeDisplay(EyeDisplay):
@@ -168,8 +255,12 @@ class TkEyeDisplay(EyeDisplay):
         self._background_key = None
         self._background_failed = set()
         self._state_effect_layer = StateEffectLayer()
+        self._eye_safe_layer = EyeSafeLayer()
+        self._eye_safe_photos = {}
         self._state_effect_failed = set()
         self._state_effect_photos = {}
+        self._eye_safe_photos = {}
+        self._admin_overlay = AdminOverlayState()
 
     def set_touch_handler(self, handler, **settings) -> None:
         self._touch_adapter = TouchInputAdapter(handler, **settings)
@@ -202,7 +293,7 @@ class TkEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
         if self._root is None or self._canvas is None:
             raise RuntimeError("Display has not been opened.")
         self._canvas.delete("all")
@@ -211,6 +302,7 @@ class TkEyeDisplay(EyeDisplay):
         self._startup_photo = None
         self._canvas.configure(background=frame.background)
         self._draw_background(background, frame.width, frame.height)
+        self._draw_eye_safe_layer(eye_safe, frame, background)
         self._draw_state_effect(state_effect, frame.width, frame.height, effect_timestamp)
         for eye in frame.eyes:
             self._draw_eye(eye, frame)
@@ -225,6 +317,85 @@ class TkEyeDisplay(EyeDisplay):
             if self._preview_future is not None:
                 self._preview_future.cancel()
                 self._preview_future = None
+        self._draw_admin_overlay(frame)
+
+    def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        previous = self._admin_overlay
+        self._admin_overlay = overlay
+        if overlay.mode == "admin_access" and previous.mode != "admin_access" and overlay.qr_matrix:
+            width, height = self._admin_canvas_dimensions(None)
+            layout = admin_access_overlay_layout(width, height, len(overlay.qr_matrix))
+            logger.debug("PHOS ADMIN: overlay geometry canvas=%sx%s card=(%.0f,%.0f)-(%.0f,%.0f) qr=(%.0f,%.0f)-(%.0f,%.0f) safe_margin=(%.0f,%.0f)",
+                         width, height, layout.card_x, layout.card_y, layout.card_right, layout.card_bottom,
+                         layout.qr_x, layout.qr_y, layout.qr_x + layout.qr_size, layout.qr_y + layout.qr_size,
+                         width * .08, height * .12)
+
+    def _admin_canvas_dimensions(self, frame: EyeFrame | None) -> tuple[int, int]:
+        """Use Tk's usable canvas size; headless tests fall back to EyeFrame."""
+        canvas = self._canvas
+        try:
+            width, height = int(canvas.winfo_width()), int(canvas.winfo_height())
+            if width > 1 and height > 1:
+                return width, height
+        except (AttributeError, TypeError, ValueError):
+            pass
+        if frame is None:
+            return 800, 600
+        return frame.width, frame.height
+
+    def _draw_admin_overlay(self, frame: EyeFrame) -> None:
+        """Draw the final, local-only administrative layer above all content."""
+        overlay = self._admin_overlay
+        if overlay.mode == "admin_access":
+            self._draw_admin_access_overlay(frame, overlay)
+            return
+        if overlay.mode != "recovery" or overlay.recovery_code is None:
+            return
+        expires_at = overlay.recovery_expires_at
+        remaining = max(0, int((expires_at or 0) - time.monotonic()))
+        minutes, seconds = divmod(remaining, 60)
+        canvas = self._canvas
+        layout = recovery_overlay_layout(frame.width, frame.height)
+        canvas.create_rectangle(0, 0, frame.width, frame.height, fill="#020B1C", outline="")
+        canvas.create_rectangle(layout.card_x, layout.card_y, layout.card_right, layout.card_bottom,
+                                fill="#071B35", outline="#00C9FF", width=2)
+        canvas.create_text(frame.width / 2, layout.title_y, text="PHOS ADMIN", fill="#00C9FF",
+                           font=("TkDefaultFont", max(18, int(frame.height * .045)), "bold"))
+        canvas.create_text(frame.width / 2, layout.message_y, text="Password recovery code", fill="#DDEEFF",
+                           font=("TkDefaultFont", max(14, int(frame.height * .030))))
+        canvas.create_text(frame.width / 2, layout.code_y, text=overlay.recovery_code, fill="#FFFFFF",
+                           font=("TkFixedFont", max(30, int(frame.height * .085)), "bold"))
+        canvas.create_text(frame.width / 2, layout.countdown_y, text=f"Expires in {minutes:02d}:{seconds:02d}",
+                           fill="#9AC9E8", font=("TkDefaultFont", max(13, int(frame.height * .028))))
+
+    def _draw_admin_access_overlay(self, frame: EyeFrame, overlay: AdminOverlayState) -> None:
+        """Draw a crisp, matrix-based QR code without Pillow or image scaling."""
+        matrix, url = overlay.qr_matrix, overlay.admin_url
+        if not matrix or not url:
+            return
+        width, height = self._admin_canvas_dimensions(frame)
+        modules = len(matrix)
+        layout = admin_access_overlay_layout(width, height, modules)
+        module = layout.qr_size // modules
+        canvas = self._canvas
+        canvas.create_rectangle(0, 0, width, height, fill="#020B1C", outline="")
+        canvas.create_rectangle(layout.card_x, layout.card_y, layout.card_right, layout.card_bottom,
+                                fill="#071B35", outline="#00C9FF", width=2)
+        canvas.create_text(width / 2, layout.title_y, text="PHOS ADMIN", fill="#00C9FF",
+                           font=("TkDefaultFont", max(18, int(height * .042)), "bold"))
+        canvas.create_rectangle(layout.qr_x, layout.qr_y, layout.qr_x + layout.qr_size, layout.qr_y + layout.qr_size, fill="#FFFFFF", outline="")
+        for row, values in enumerate(matrix):
+            for column, enabled in enumerate(values):
+                if enabled:
+                    x, y = layout.qr_x + column * module, layout.qr_y + row * module
+                    canvas.create_rectangle(x, y, x + module, y + module, fill="#02050D", outline="")
+        ip = url.removeprefix("http://").split(":", 1)[0]
+        canvas.create_text(width / 2, layout.url_y, text=url, fill="#DDEEFF",
+                           font=("TkFixedFont", max(12, int(height * .024))))
+        canvas.create_text(width / 2, layout.ip_y, text=f"IP: {ip}", fill="#9AC9E8",
+                           font=("TkDefaultFont", max(12, int(height * .024))))
+        canvas.create_text(width / 2, layout.close_y, text="Touch to close", fill="#9AC9E8",
+                           font=("TkDefaultFont", max(12, int(height * .022))))
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
         if self._root is None or self._canvas is None:
@@ -315,6 +486,43 @@ class TkEyeDisplay(EyeDisplay):
             if key not in self._state_effect_failed:
                 self._state_effect_failed.add(key)
                 logger.warning("PHOS VISUAL: state effect unavailable mode=%s reason=%s", effect.mode, type(error).__name__)
+
+    def _draw_eye_safe_layer(self, params: Optional[EyeSafeParams], frame: EyeFrame, background: Optional[BackgroundAsset]) -> None:
+        if params is None:
+            return
+        try:
+            for primitive in self._eye_safe_layer.primitives(params, frame, background):
+                photo = self._eye_safe_photo(primitive)
+                if photo is not None:
+                    self._canvas.create_image(primitive.bounds[0], primitive.bounds[1], image=photo, anchor="nw")
+        except Exception:
+            logger.debug("PHOS VISUAL: eye safe layer unavailable", exc_info=True)
+
+    def _eye_safe_photo(self, primitive):
+        """Cache one transparent radial ellipse for each bounded mask shape."""
+        x1, y1, x2, y2 = primitive.bounds
+        width, height = max(2, round(x2 - x1)), max(2, round(y2 - y1))
+        opacity = round(max(0.0, min(.5, primitive.opacity)) * 32) / 32
+        key = (width, height, primitive.color, opacity)
+        photo = self._eye_safe_photos.get(key)
+        if photo is not None:
+            return photo
+        try:
+            rgba = self._glow_rgba(width, height, primitive.color, opacity)
+            scanlines = bytearray()
+            row_bytes = width * 4
+            for row in range(height):
+                scanlines.append(0)
+                scanlines.extend(rgba[row * row_bytes:(row + 1) * row_bytes])
+            def chunk(name, data):
+                return struct.pack(">I", len(data)) + name + data + struct.pack(">I", zlib.crc32(name + data) & 0xffffffff)
+            encoded = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+                       + chunk(b"IDAT", zlib.compress(bytes(scanlines), 6)) + chunk(b"IEND", b""))
+            photo = self._tk.PhotoImage(data=base64.b64encode(encoded), format="PNG")
+            self._eye_safe_photos[key] = photo
+            return photo
+        except Exception:
+            return None
 
     def prewarm_state_effect(self, effect: StateEffectParams, width: int, height: int, timestamp: float) -> None:
         """Prepare the small active-palette texture set before the next frame."""
@@ -506,6 +714,15 @@ class TkEyeDisplay(EyeDisplay):
             fill="#D9FBFF",
             outline="",
         )
+        if eye.upper_lid_depth:
+            # The lid cap lives inside the shell, so it reads as an eyelid at
+            # Pi-display scale rather than as a separate eyebrow primitive.
+            points = upper_lid_points(eye, inset=inset)
+            if valid_polygon_points(points):
+                self._canvas.create_polygon(
+                    *(coordinate for point in points for coordinate in point),
+                    fill="#8FA8B8", outline="",
+                )
 
     def _draw_preview(self, preview, settings, display_width, display_height):
         now = time.monotonic()

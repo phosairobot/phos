@@ -122,6 +122,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             backgrounds_applier = getattr(runtime, "apply_backgrounds", None)
             if backgrounds_applier is not None:
                 lifecycle.register_backgrounds_applier(backgrounds_applier)
+            eye_safe_applier = getattr(runtime, "apply_eye_safe_layer", None)
+            if eye_safe_applier is not None:
+                lifecycle.register_eye_safe_layer_applier(eye_safe_applier)
             effects_applier = getattr(runtime, "apply_state_effects", None)
             if effects_applier is not None:
                 lifecycle.register_state_effects_applier(effects_applier)
@@ -146,6 +149,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             environmental_applier = getattr(runtime, "apply_environmental_behavior", None)
             if environmental_applier is not None:
                 lifecycle.register_environmental_behavior_applier(environmental_applier)
+            controller_applier = getattr(runtime, "apply_hardware_controller", None)
+            if controller_applier is not None:
+                lifecycle.register_hardware_controller_applier(controller_applier)
             sensor_status = getattr(runtime, "sensor_status", None)
             if sensor_status is not None:
                 lifecycle.register_sensor_status(sensor_status)
@@ -262,7 +268,7 @@ def main() -> None:
     logging.getLogger("botocore").setLevel(logging.WARNING)
     if arguments:
         logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", repository.active_path)
-    logger.info("PHOS %s", __version__)
+    logger.info("PHOS %s starting", __version__)
     logger.info("PHOS configuration loaded: %s", repository.active_path)
     _log_graphical_session()
     _configure_x11_display_power()

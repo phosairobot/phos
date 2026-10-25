@@ -99,6 +99,19 @@ def test_existing_interaction_document_defaults_execution_to_disabled():
     assert config.interaction_response_tts_enabled is False
 
 
+@pytest.mark.parametrize(("language", "text", "expression"), [
+    ("en", "set expression confused", "confused"),
+    ("en", "set expression scared", "scared"),
+    ("en", "set expression skeptical", "skeptical"),
+    ("it", "imposta espressione confusa", "confused"),
+    ("it", "imposta espressione spaventata", "scared"),
+    ("it", "imposta espressione scettica", "skeptical"),
+])
+def test_phase_two_expression_voice_aliases_resolve(language, text, expression):
+    result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, language)))
+    assert result.parameters == {"expression": expression}
+
+
 def test_unknown_resolver_is_rejected_without_fallback():
     class Config:
         interaction_resolver = "unknown"
@@ -141,8 +154,12 @@ def test_italian_happy_expression_aliases_remain_exact_catalog_entries(text):
 @pytest.mark.parametrize(("language", "text", "expression"), [
     ("en", "be happy", "happy"), ("en", "be curious", "curious"),
     ("en", "be surprised", "surprised"), ("en", "be neutral", "neutral"),
+    ("en", "be sad", "sad"), ("en", "be angry", "angry"),
+    ("en", "be focused", "focused"), ("en", "be tired", "tired"),
     ("it", "sii allegro", "happy"), ("it", "sii curioso", "curious"),
     ("it", "sii sorpreso", "surprised"), ("it", "torna neutro", "neutral"),
+    ("it", "sii triste", "sad"), ("it", "sii arrabbiata", "angry"),
+    ("it", "sii concentrato", "focused"), ("it", "sii stanca", "tired"),
 ])
 def test_expression_aliases_resolve_to_the_canonical_writable_value(language, text, expression):
     result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, language)))
@@ -151,9 +168,10 @@ def test_expression_aliases_resolve_to_the_canonical_writable_value(language, te
         "set_expression", {"expression": expression}, language)
 
 
-def test_unrelated_italian_expression_phrase_remains_unresolved():
+def test_phase_one_italian_expression_template_resolves():
     result = asyncio.run(_resolver().resolve(InteractionInput("fammi triste", InteractionSource.VOICE, "it")))
-    assert isinstance(result, UnresolvedIntent)
+    assert isinstance(result, ResolvedIntent)
+    assert result.parameters == {"expression": "sad"}
 
 
 @pytest.mark.parametrize(("language", "text", "name", "parameters"), [
@@ -225,7 +243,7 @@ def test_italian_temperature_shared_query_templates_resolve(text):
 
 @pytest.mark.parametrize(("language", "text"), [
     ("en", "enter thinking mode"), ("it", "dimmi l'umidità"),
-    ("en", "what is the air quality pressure"), ("it", "diventa triste"),
+    ("en", "what is the air quality pressure"), ("it", "dimmi triste"),
 ])
 def test_unsupported_or_ambiguous_templates_remain_unresolved(language, text):
     result = asyncio.run(_resolver().resolve(InteractionInput(text, InteractionSource.VOICE, language)))

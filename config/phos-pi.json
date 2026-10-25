@@ -10,7 +10,7 @@
     "fps": 30,
     "fullscreen": true,
     "transition_seconds": 0.18,
-    "iris_color": "violet",
+    "iris_color": "#A670F5",
     "base_visual_source": "environment",
     "environment_overlays_enabled": true
   },

@@ -204,7 +204,7 @@ def test_versioned_status_and_stable_error_document():
     assert capabilities["commands"]["set_visual_source"]["allowed_values"] == ["manual", "environment", "state"]
     assert capabilities["commands"]["set_robot_state"] == {"endpoint": "/api/v1/state", "method": "POST",
                                                                "field": "state", "allowed_values": ["idle", "listening", "thinking", "speaking", "sleeping"],
-                                                               "transitions": {"idle": ["listening", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
+                                                               "transitions": {"idle": ["listening", "speaking", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
                                                                                "thinking": ["idle", "speaking"], "speaking": ["idle", "listening"], "sleeping": ["idle"]}}
     response = client.post("/api/v1/visual-source", json={"source": "GPIO18"})
     assert response.status_code == 400
@@ -227,6 +227,21 @@ def test_runtime_non_finite_sensor_values_become_json_null():
     response = app.test_client().get("/api/v1/status")
     assert response.status_code == 200
     assert response.json["environment"]["measurements"] == {"pressure_hpa": None, "temperature_c": None}
+
+
+def test_dashboard_status_preserves_controller_fed_semantic_sensor_values_including_zero_tvoc():
+    runtime = Runtime()
+    runtime.sensor_status = lambda: {
+        "environmental": {"status": "available", "available": True,
+                          "measurements": {"temperature_c": 24.85, "pressure_hpa": 991.6266}},
+        "ccs811": {"status": "available", "available": True,
+                   "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}},
+    }
+    app = Flask(__name__)
+    app.register_blueprint(create_api(PhosApplicationService(runtime)))
+    document = app.test_client().get("/api/v1/status").json
+    assert document["environment"]["measurements"] == {"temperature_c": 24.85, "pressure_hpa": 991.6266}
+    assert document["sensors"]["ccs811"]["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
 
 
 def test_observed_expression_endpoint_is_read_only_and_unavailable_is_not_a_failure():
@@ -349,3 +364,11 @@ def test_local_openapi_and_documentation_routes():
     assert response.headers["Content-Security-Policy"] == (
         "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:")
     assert app.test_client().get("/static/swagger-ui/swagger-ui-bundle.js").status_code == 200
+
+
+def test_openapi_exposes_only_semantic_signal_values():
+    from robot.web.openapi import load_spec
+    spec = load_spec()
+    schema = spec["paths"]["/api/v1/signal"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert schema == {"$ref": "#/components/schemas/SignalCommand"}
+    assert spec["components"]["schemas"]["SignalCommand"]["properties"]["signal"]["enum"] == ["success", "warning", "error", "attention"]

@@ -9,11 +9,12 @@ import secrets
 from threading import RLock
 import time
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
 from robot.config import ConfigurationError
+from robot.services import ApplicationError
 from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
@@ -73,7 +74,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
     web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
     auth = AuthenticationState(clock)
-    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets)
+    app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets,
+                          )
     csrf = CSRFProtect(app)
     if application_service is not None:
         from robot.web.api import create_api
@@ -104,7 +106,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
 
     @app.before_request
     def require_authentication():
-        if request.endpoint in {None, "login", "static"}:
+        if request.endpoint in {None, "login", "recovery_page", "static"}:
             return None
         with auth.lock:
             if not auth.valid(session.get("sid")):
@@ -145,6 +147,39 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     return redirect(url_for("password" if passwords.must_change else "configuration"))
             error, status = "Incorrect password.", 401
         return render_template("login.html", error=error), status
+
+    @app.route("/recovery", methods=["GET", "POST"])
+    def recovery_page():
+        error = None
+        if request.method == "POST":
+            action = request.form.get("action")
+            try:
+                if action == "request":
+                    if application_service is None:
+                        raise ApplicationError("service_unavailable", "Recovery display is unavailable.", status=503)
+                    application_service.request_admin_password_recovery()
+                    flash("Recovery code requested. Check the PHOS display.")
+                elif action == "reset":
+                    if application_service is None: raise ApplicationError("service_unavailable", "Recovery service is unavailable.", status=503)
+                    application_service.verify_admin_recovery_code(request.form.get("code", ""))
+                    passwords.reset(request.form.get("new", ""), request.form.get("confirmation", ""))
+                    auth.sessions.clear(); session.clear()
+                    if application_service is not None: application_service.clear_admin_overlay()
+                    logger.info("PHOS ADMIN: password recovery completed")
+                    flash("Password updated. Sign in again.")
+                    return redirect(url_for("login"))
+                else: abort(400)
+            except ValueError as exc:
+                messages = {"recovery_code_invalid": "Invalid recovery code.", "recovery_code_expired": "Recovery code expired.",
+                            "recovery_attempts_exceeded": "Too many failed attempts.", "recovery_rate_limited": "Recovery request rate limited.",
+                            "recovery_not_active": "Invalid recovery code."}
+                error = messages.get(str(exc), str(exc))
+                status = 429 if str(exc) == "recovery_rate_limited" else 400
+            except ApplicationError as exc:
+                error, status = exc.message, exc.status
+            except OSError:
+                error, status = "Password could not be saved.", 503
+        return render_template("recovery.html", error=error), locals().get("status", 200)
 
     @app.route("/password", methods=["GET", "POST"])
     def password():
@@ -281,6 +316,91 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
     def appearance_backgrounds():
         return configuration("backgrounds")
 
+    @app.route("/appearance/eye-safe-layer", methods=["GET", "POST"])
+    def appearance_eye_safe_layer():
+        error, status = None, 200
+        if request.method == "POST":
+            if application_service is None:
+                abort(503)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change:
+                    return redirect(url_for("login"))
+                mode = request.form.get("eye-safe-layer-mode", "")
+                if mode not in {"subtle", "balanced", "expressive"}:
+                    error, status = "Choose a supported eye safe layer mode.", 400
+                else:
+                    try:
+                        application_service.configure_eye_safe_layer({"enabled": request.form.get("eye-safe-layer-enabled") == "on", "mode": mode})
+                    except Exception as exc:
+                        error, status = getattr(exc, "message", "Eye safe layer could not be applied."), 400
+                    else:
+                        flash("Eye safe layer saved and applied live.")
+                        return redirect(url_for("appearance_eye_safe_layer"))
+        try:
+            document = config.read()
+        except (ConfigurationError, OSError):
+            return render_template("error.html", error="Cannot load configuration. Repair the configuration file locally and reload."), 503
+        return render_template("eye_safe_layer.html", document=document, error=error, config_path=config.path), status
+
+    @app.get("/appearance/preview.svg")
+    def appearance_preview():
+        if application_service is None:
+            abort(503)
+        options = {"state": request.args.get("state", "idle"), "expression": request.args.get("expression", "neutral"),
+                   "eye_safe_enabled": request.args.get("eye_safe", "1") == "1",
+                   "eye_safe_mode": request.args.get("eye_safe_mode", "balanced"),
+                   "state_effects_enabled": request.args.get("effects", "1") == "1",
+                   "skin_id": request.args.get("skin")}
+        try:
+            result = application_service.appearance_preview(options)
+        except Exception as error:
+            return Response(getattr(error, "message", "Appearance preview is unavailable."), status=400, mimetype="text/plain")
+        return Response(result["svg"], mimetype="image/svg+xml")
+
+    @app.get("/appearance/preview")
+    def appearance_preview_page():
+        from robot.ui.state import FaceExpression
+        return render_template("appearance_preview.html", state=request.args.get("state", "idle"),
+                               expression=request.args.get("expression", "neutral"),
+                               eye_safe=request.args.get("eye_safe", "1") == "1",
+                               eye_safe_mode=request.args.get("eye_safe_mode", "balanced"),
+                               effects=request.args.get("effects", "1") == "1", skin=request.args.get("skin"),
+                               expressions=[item.value for item in FaceExpression])
+
+    @app.route("/appearance/skins", methods=["GET", "POST"])
+    def appearance_skins():
+        error = None
+        if request.method == "POST":
+            if application_service is None: abort(503)
+            with auth.lock:
+                if not auth.valid(session.get("sid")) or passwords.must_change: return redirect(url_for("login"))
+                action, skin_id = request.form.get("action"), request.form.get("skin_id", "")
+                try:
+                    if action == "create": application_service.create_skin({"name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin created from current appearance.")
+                    elif action == "import":
+                        upload = request.files.get("skin")
+                        if upload is None or not upload.filename.lower().endswith((".phos-skin", ".zip")): raise ConfigurationError("Choose a Skin package (.phos-skin or .zip).")
+                        application_service.import_skin({"content": upload.read()}); flash("Skin imported as a custom skin.")
+                    elif action == "preview": application_service.preview_skin(skin_id); flash("Skin preview applied live temporarily. Apply to save it.")
+                    elif action == "apply": application_service.apply_skin(skin_id); flash("Skin applied and saved.")
+                    elif action == "delete": application_service.delete_skin(skin_id); flash("Skin deleted.")
+                    else: raise ConfigurationError("Unsupported skin action.")
+                    return redirect(url_for("appearance_skins"))
+                except Exception as exc:
+                    error = getattr(exc, "message", str(exc))
+        try: skins = application_service.skins() if application_service is not None else []
+        except Exception as exc: skins, error = [], getattr(exc, "message", "Skins are unavailable.")
+        return render_template("skins.html", skins=skins, error=error)
+
+    @app.get("/appearance/skins/<skin_id>/export")
+    def appearance_skin_export(skin_id):
+        if application_service is None: abort(503)
+        try:
+            content = application_service.export_skin(skin_id)["content"]
+        except Exception as exc:
+            return Response(getattr(exc, "message", "Skin export is unavailable."), status=400, mimetype="text/plain")
+        return Response(content, mimetype="application/zip", headers={"Content-Disposition": f'attachment; filename="{skin_id}.phos-skin"'})
+
     @app.route("/appearance/state-effects", methods=["GET", "POST"])
     def appearance_state_effects():
         """Configure only the canonical State Effects values via the app boundary."""
@@ -379,11 +499,35 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                 results.append(f"{label}: activation failed")
                         flash("; ".join(results) or "No Voice & Speech settings changed.")
                         return redirect(url_for("configuration", area=area))
+                    if area == "eyes":
+                        if application_service is None:
+                            raise ApplicationError("service_unavailable", "Eyes configuration service is unavailable.", status=503)
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        display = prepared.config.to_dict()["display"]
+                        application_service.configure_eyes({
+                            "iris_color": display["iris_color"],
+                            "base_visual_source": display["base_visual_source"],
+                            "environment_overlays_enabled": display["environment_overlays_enabled"],
+                        })
+                        flash("Eyes saved and applied live.")
+                        return redirect(url_for("configuration", area=area))
+                    if area == "controller":
+                        if application_service is None:
+                            raise ApplicationError("service_unavailable", "Hardware controller service is unavailable.", status=503)
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        application_service.update_config({"hardware_controller": prepared.document["hardware_controller"]})
+                        flash("Hardware Controller settings saved and applied live.")
+                        return redirect(url_for("configuration", area=area))
                     config.save_form(request.form, area=area)
                 except ConfigurationError as exc:
                     error, status = str(exc), 400
+                except ApplicationError as exc:
+                    error, status = exc.message, exc.status
                 except OSError:
-                    error, status = "Configuration could not be saved. Check local filesystem permissions.", 503
+                    error, status = "Configuration could not be saved or applied. Check that PHOS is running and local filesystem permissions.", 503
+                except Exception:
+                    logger.exception("PHOS WEB: operation=appearance_eyes_update failed")
+                    error, status = "Internal Server Error", 500
                 else:
                     flash("Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes.")
                     return redirect(url_for("configuration", area=area))
@@ -395,6 +539,28 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
         runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
+        controller_status, controller_ports, controller_messages = None, [], []
+        controller_filter = {"type": request.args.get("message_type", ""), "direction": request.args.get("direction", ""),
+                             "show_heartbeat": request.args.get("show_heartbeat") == "1"}
+        if area == "controller" and application_service is not None:
+            try:
+                controller_status = application_service.controller_status()
+                controller_ports = application_service.controller_serial_ports()
+                controller_messages = application_service.controller_recent_messages()
+                controller_filter["types"] = sorted({item.get("type") for item in controller_messages if item.get("type")})
+                controller_messages = [item for item in controller_messages if (
+                    (controller_filter["show_heartbeat"] or item.get("type") != "heartbeat")
+                    and (not controller_filter["type"] or item.get("type") == controller_filter["type"])
+                    and (not controller_filter["direction"] or item.get("direction") == controller_filter["direction"]))]
+            except ApplicationError:
+                controller_status = {"state": "unavailable"}
+        admin_network = None
+        if area in {"general", "network"} and application_service is not None:
+            try:
+                admin_network = application_service.get_admin_network_info()
+            except Exception:
+                admin_network = {"hostname": "Not available", "ip_address": None, "interface": None,
+                                 "admin_url": None, "status": "unavailable"}
         if area == "backgrounds":
             assets, status_view = [], {"enabled": document["display"]["backgrounds"]["enabled"],
                                        "current_state": None, "current_asset": None,
@@ -412,6 +578,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                    error=error, config_path=config.path), status
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
+        from robot.iris_colors import IrisColorResolver
         return render_template("configuration.html", sections=domain_sections(document, area),
                                area=area, page=DOMAINS[area], related_area=related_area,
                                error_group=error_group,
@@ -419,11 +586,53 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                submitted=request.form if request.method == "POST" else None,
                                error=error, config_path=config.path, document=document,
                                active=current, runtime_state=runtime_state,
+                               admin_network=admin_network,
                                elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
                                                                     for slot in web_secrets.slots()),
                                cartesia_credential_configured=any(slot["name"] == "tts.cartesia.api_key" and slot["configured"]
                                                                   for slot in web_secrets.slots()),
-                               pending=current is not None and document != current), status
+                               pending=current is not None and document != current,
+                               controller_status=controller_status, controller_ports=controller_ports,
+                               controller_messages=controller_messages, controller_filter=controller_filter,
+                               iris_resolver=IrisColorResolver), status
+
+    @app.post("/controller/diagnostics/clear")
+    def clear_controller_diagnostics():
+        with auth.lock:
+            if not auth.valid(session.get("sid")) or passwords.must_change:
+                return redirect(url_for("login"))
+            if set(request.form) - {"csrf_token"}:
+                abort(400)
+            if application_service is None:
+                abort(503)
+            application_service.clear_controller_recent_messages()
+            flash("Controller diagnostic buffer cleared.")
+        return redirect(url_for("configuration", area="controller"))
+
+    @app.get("/controller/diagnostics")
+    def controller_diagnostics():
+        if not auth.valid(session.get("sid")) or passwords.must_change:
+            return jsonify({"error": {"code": "unauthorized", "message": "Authentication required."}}), 401
+        if application_service is None:
+            return jsonify({"error": {"code": "service_unavailable", "message": "Controller diagnostics are unavailable."}}), 503
+        try:
+            messages = application_service.controller_recent_messages()
+            status_view = application_service.controller_status()
+        except ApplicationError as exc:
+            return jsonify(exc.document()), exc.status
+        return jsonify({"status": status_view, "messages": messages})
+
+    @app.post("/admin-access/show")
+    def show_admin_access():
+        if application_service is None:
+            abort(503)
+        try:
+            application_service.show_admin_access_overlay()
+        except ApplicationError as exc:
+            flash(exc.message)
+        else:
+            flash("Admin access QR is shown on PHOS.")
+        return redirect(url_for("configuration", area="general"))
 
     @app.route("/system", methods=["GET"])
     def system():

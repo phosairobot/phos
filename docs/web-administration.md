@@ -52,6 +52,17 @@ phos.service`) before using the newly configured address. They are not applied
 by Reload configuration.
 Do not configure router port forwarding or expose this interface to the Internet.
 
+## Local Admin Access
+
+The Dashboard Network card shows PHOS's selected LAN IPv4 address, interface and
+the effective Admin URL. On the physical display, long-press the top-right 20%
+of the screen for at least 2.5 seconds to open the Admin Access overlay. Scan
+its QR code with a phone on the **same LAN**, or enter the displayed URL
+manually. A single tap closes the overlay. PHOS uses its current LAN IPv4
+address only; it does not require `phos.local`, mDNS, Internet access, or router
+port forwarding. The QR code contains only the Admin URL and updates when the
+cached network information refreshes (at most every 30 seconds).
+
 ## First login and password changes
 
 1. Enter the bootstrap password **`phos`**; there is no username field.
@@ -309,7 +320,7 @@ state changes also require CSRF protection.
 
 | Operation | Effect |
 | --- | --- |
-| Save on a domain page | Validates and atomically persists the full active configuration source. Does not change active settings. |
+| Save on a domain page | Validates and atomically persists the full active configuration source. Does not change active settings, except **Eyes → Save & Apply**, which immediately applies the saved Eyes settings. |
 | Reload configuration | Reads that same file, validates every setting and active path with startup's model, then applies logging level, iris theme, LED ring visual settings and all `vision.camera_preview` settings through shared runtime services. Shows applied fields and remaining restart-required fields. |
 | Restart PHOS | Requires the managed service and explicit confirmation. Validates the saved file, requests graceful application shutdown, then systemd starts PHOS again from disk. |
 
@@ -319,14 +330,67 @@ No-op reloads report no changes. SDK logging stays at WARNING or above even when
 PHOS logging is switched to DEBUG. No credentials, tokens or request payloads
 are exposed by this feature.
 
-The **Display & Appearance** page also offers the canonical `display.iris_color`
-choice: cyan, blue, green, turquoise, amber, violet or white. It configures the
-base iris theme; semantic accent tints still come from BehaviorEngine-produced
-FaceState. Save it with the other Display & Appearance fields, then use Reload
-configuration. The renderer receives the validated appearance through the
-runtime's display-loop update boundary; the iris color blends smoothly into the
-next frames. PHOS, Vision, camera, BehaviorEngine and providers keep running.
-Expression semantics do not enter the renderer directly.
+## Appearance
+
+The **Appearance → Eyes** page offers presets cyan, blue, green, turquoise,
+amber, violet and white, plus a Custom colour control. `display.iris_color` is
+stored canonically as `#RRGGBB` (for example `#7A5CFF`); existing named preset
+configuration is accepted and resolved to the same value. It configures the
+base iris colour; semantic accent tints still come from BehaviorEngine-produced
+FaceState. **Save & Apply** validates the form, saves it to the canonical
+configuration, and immediately sends the validated Eyes settings through the
+runtime's display-loop update boundary. If the renderer rejects the update, the
+saved configuration is restored. The iris color blends smoothly into the next
+frames. PHOS, Vision, camera, BehaviorEngine and providers keep running.
+Vision/provider expression labels do not enter the renderer directly; the
+renderer consumes the resolved provider-neutral `FaceState` expression.
+
+The Expression control lists the canonical manually selectable expressions:
+neutral, happy, curious, surprised, sad, angry, focused, tired, confused,
+scared and skeptical. Applying one is persistent semantic intent until another
+expression (normally neutral) replaces it; it does not change Robot State.
+The live display and Appearance Preview use the same expression-profile geometry.
+Custom iris colors work with every expression. HAPPY's blue and SURPRISED's
+yellow eye-body accents are specific semantic exceptions, not a generic
+emotion-to-color scheme; geometry remains the principal expression signal.
+
+The **Eye Safe Layer** optionally adds a cached transparent radial halo behind
+each eye when an uploaded background could reduce contrast. It is enabled by
+default and has subtle, balanced and expressive modes. Dark, low-variation
+backgrounds receive little or no protection; the layer never modifies the
+uploaded file and can be disabled.
+
+**Appearance Preview** renders a static 800×600 (4:3) server-generated view of
+the selected state and expression. It is visual simulation only: previewing
+does not change PHOS behavior, state or expression. State-effect animation is
+shown as a representative static frame.
+
+**Appearance → Skins** provides named presets for the existing eyes,
+backgrounds, Eye Safe Layer and State Effects settings. Built-in PHOS Default,
+Minimal and Ambient skins are read-only. Create a custom skin from the current
+appearance, then apply, preview, rename or delete it. Preview updates only the
+live appearance temporarily and does not save configuration. Apply validates,
+saves, and updates the canonical display configuration; it never changes robot
+behavior or voice settings. Custom skins live in internal `skins.json` storage beside the active
+configuration. A skin may retain a deleted background asset reference; the
+background safely falls back until that asset is available again.
+
+Portable PHOS Skin packages use the `.phos-skin` ZIP-compatible archive format
+with a `skin.yaml` schema-version-`2` manifest and optional `assets/` PNG/JPEG
+backgrounds. `.zip` is accepted as a compatible upload format, but
+`.phos-skin` is the canonical format. `skin.yaml` is the package-internal
+manifest, not a standalone upload format. Imported skins always receive a new
+local custom ID.
+
+For a complete package layout, manifest examples, image limits, and archive
+creation instructions, see [Creating a PHOS Skin](appearance/creating-skins.md).
+Imported and created custom Skin backgrounds are owned under
+`backgrounds/skins/<custom-id>/`; export bundles only those referenced images.
+Deleting a Skin removes its owned assets, but is rejected while its assets are
+used by the live appearance.
+Skin packages do not fetch remote assets, include absolute paths, or carry
+runtime state and secrets. Missing managed background references are reported
+and fall back safely during preview and apply.
 
 **State Backgrounds** accepts validated PNG and JPEG files from the managed
 `backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the

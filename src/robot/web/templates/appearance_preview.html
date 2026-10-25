@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Appearance Preview</h2><p>Static 800×600 composition preview. It never changes PHOS’s live state or expression.</p>
+<form method="get" action="{{ url_for('appearance_preview_page') }}"><label>State <select name="state">{% for value in ('idle','listening','thinking','speaking','sleeping','error') %}<option {{ 'selected' if state == value else '' }}>{{ value }}</option>{% endfor %}</select></label>
+{% if skin %}<input type="hidden" name="skin" value="{{ skin }}">{% endif %}
+<label>Expression <select name="expression">{% for value in expressions %}<option {{ 'selected' if expression == value else '' }}>{{ value }}</option>{% endfor %}</select></label>
+<label><input type="checkbox" name="eye_safe" value="1" {{ 'checked' if eye_safe }}> Eye Safe Layer</label><label>Mode <select name="eye_safe_mode">{% for value in ('subtle','balanced','expressive') %}<option {{ 'selected' if eye_safe_mode == value else '' }}>{{ value }}</option>{% endfor %}</select></label><label><input type="checkbox" name="effects" value="1" {{ 'checked' if effects }}> State Effects</label><button>Refresh preview</button></form>
+<img class="appearance-preview" alt="Static PHOS appearance preview" src="{{ url_for('appearance_preview', state=state, expression=expression, eye_safe='1' if eye_safe else '0', eye_safe_mode=eye_safe_mode, effects='1' if effects else '0', skin=skin) }}">
+{% endblock %}

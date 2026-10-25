@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, fields, field
 from pathlib import Path
 from typing import Optional, Tuple
 
+from robot.iris_colors import IrisColorResolver
 from robot.semantics import VisualSource
 
 logger = logging.getLogger(__name__)
@@ -319,6 +320,7 @@ _SCHEMA = {
                     "listening": "background_listening", "thinking": "background_thinking",
                     "speaking": "background_speaking", "sleeping": "background_sleeping", "error": "background_error",
                     "max_upload_bytes": "background_max_upload_bytes"},
+                "eye_safe_layer": {"enabled": "eye_safe_layer_enabled", "mode": "eye_safe_layer_mode"},
                 "state_effects": {"enabled": "state_effects_enabled", "preset": "state_effects_preset",
                     "palette": "state_effects_palette",
                     "reduce_motion": "state_effects_reduce_motion"}},
@@ -341,6 +343,7 @@ _SCHEMA = {
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
     "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
+    "hardware_controller": {"enabled": "hardware_controller_enabled", "transport": "hardware_controller_transport", "serial": {"device": "hardware_controller_serial_device", "baud_rate": "hardware_controller_serial_baud_rate"}, "reconnect": {"delay_seconds": "hardware_controller_reconnect_delay_seconds"}, "heartbeat": {"interval_seconds": "hardware_controller_heartbeat_interval_seconds", "timeout_seconds": "hardware_controller_heartbeat_timeout_seconds"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
     "behavior": {"blink_interval_seconds": "blink_interval_seconds", "gaze_interval_seconds": "gaze_interval_seconds",
@@ -380,15 +383,15 @@ _SCHEMA = {
         "aws": "cloud_expression",
     },
     "expression_reactions": {"enabled": "expression_reactions_enabled", "min_confidence": "expression_reactions_min_confidence", "confirmation_ms": "expression_reactions_confirmation_ms", "cooldown_ms": "expression_reactions_cooldown_ms", "reaction_duration_ms": "expression_reactions_duration_ms"},
-    "sensors": {"environmental": {"type": "environmental_type",
+    "sensors": {"environmental": {"type": "environmental_type", "provider": "environmental_provider",
                            "enabled": "environmental_enabled",
                            "i2c_address": "environmental_i2c_address",
                            "poll_interval_seconds": "environmental_poll_interval_seconds",
                            "stale_after_seconds": "environmental_stale_after_seconds"},
-                "ccs811": {"enabled": "ccs811_enabled", "i2c_address": "ccs811_i2c_address",
+                "ccs811": {"enabled": "ccs811_enabled", "provider": "ccs811_provider", "i2c_address": "ccs811_i2c_address",
                            "poll_interval_seconds": "ccs811_poll_interval_seconds",
                            "stale_after_seconds": "ccs811_stale_after_seconds"},
-                "imu": {"enabled": "imu_enabled", "i2c_address": "imu_i2c_address",
+                "imu": {"enabled": "imu_enabled", "provider": "imu_provider", "i2c_address": "imu_i2c_address",
                         "poll_interval_seconds": "imu_poll_interval_seconds",
                         "stale_after_seconds": "imu_stale_after_seconds",
                         "motion": {"movement_threshold_m_s2": "imu_motion_movement_threshold_m_s2",
@@ -442,6 +445,7 @@ class RuntimeConfig:
     """
 
     environmental_type: str
+    environmental_provider: str
     presence_led_reactions_enabled: bool
     presence_led_entered_duration_ms: int
     presence_led_entered_direction: str
@@ -509,6 +513,13 @@ class RuntimeConfig:
     touch_reaction_enabled: bool
     touch_reaction_duration_ms: int
     touch_reaction_cooldown_ms: int
+    hardware_controller_enabled: bool
+    hardware_controller_transport: str
+    hardware_controller_serial_device: str
+    hardware_controller_serial_baud_rate: int
+    hardware_controller_reconnect_delay_seconds: float
+    hardware_controller_heartbeat_interval_seconds: float
+    hardware_controller_heartbeat_timeout_seconds: float
     startup_splash_enabled: bool
     startup_splash_image: Optional[Path]
     startup_splash_title: str
@@ -522,10 +533,12 @@ class RuntimeConfig:
     environmental_poll_interval_seconds: float
     environmental_stale_after_seconds: float
     ccs811_enabled: bool
+    ccs811_provider: str
     ccs811_i2c_address: str
     ccs811_poll_interval_seconds: float
     ccs811_stale_after_seconds: float
     imu_enabled: bool
+    imu_provider: str
     imu_i2c_address: str
     imu_poll_interval_seconds: float
     imu_stale_after_seconds: float
@@ -557,6 +570,8 @@ class RuntimeConfig:
     background_sleeping: Optional[Path]
     background_error: Optional[Path]
     background_max_upload_bytes: int
+    eye_safe_layer_enabled: bool
+    eye_safe_layer_mode: str
     state_effects_enabled: bool
     state_effects_preset: str
     state_effects_palette: str
@@ -655,12 +670,17 @@ class RuntimeConfig:
         self._assign(_decode(repository.document()), repository.active_path.parent, overrides)
 
     def _assign(self, values, base_dir, overrides=None):
+        values = dict(values)
         names = {f.name for f in fields(self) if f.init}
         if overrides:
             unknown = overrides.keys() - names
             if unknown:
                 raise ConfigurationError(f"Unknown configuration overrides: {', '.join(sorted(unknown))}")
             values.update(overrides)
+        try:
+            values["iris_color"] = IrisColorResolver.normalize(values["iris_color"])
+        except (KeyError, ValueError) as error:
+            raise ConfigurationError("display.iris_color must be a supported preset name or #RRGGBB") from error
         for name, value in values.items():
             object.__setattr__(self, name, value)
         object.__setattr__(self, "_base_dir", Path(base_dir).resolve())
@@ -692,6 +712,7 @@ class RuntimeConfig:
                                                 "error": None, "max_upload_bytes": 4 * 1024 * 1024})
             if isinstance(display["backgrounds"], dict):
                 display["backgrounds"].setdefault("max_upload_bytes", 4 * 1024 * 1024)
+            display.setdefault("eye_safe_layer", {"enabled": True, "mode": "balanced"})
             display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
                                                   "reduce_motion": False})
             if isinstance(display["state_effects"], dict):
@@ -699,6 +720,16 @@ class RuntimeConfig:
                 # Consume legacy config safely, but never persist or expose it.
                 display["state_effects"].pop("smooth_transitions", None)
                 display["state_effects"].setdefault("palette", "phos")
+        if isinstance(document, dict):
+            document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
+                "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
+                "reconnect": {"delay_seconds": 2},
+                "heartbeat": {"interval_seconds": 5, "timeout_seconds": 15}})
+            sensors = document.get("sensors")
+            if isinstance(sensors, dict):
+                for name in ("environmental", "ccs811", "imu"):
+                    if isinstance(sensors.get(name), dict):
+                        sensors[name].setdefault("provider", "local")
         result = object.__new__(cls)
         result._assign(_decode(document), base_dir, overrides)
         if check_paths:
@@ -773,6 +804,21 @@ class RuntimeConfig:
 
         if not isinstance(self.environmental_type, str) or self.environmental_type not in {"bme280", "bmp280"}:
             raise ConfigurationError("sensors.environmental.type must be bme280 or bmp280")
+        for name in ("environmental", "ccs811", "imu"):
+            provider = getattr(self, f"{name}_provider")
+            if provider not in {"local", "controller"}:
+                raise ConfigurationError(f"sensors.{name}.provider must be local or controller")
+            if provider == "controller" and not self.hardware_controller_enabled:
+                raise ConfigurationError(f"sensors.{name}.provider controller requires hardware_controller.enabled")
+        if self.hardware_controller_transport != "serial":
+            raise ConfigurationError("hardware_controller.transport must be serial")
+        if not isinstance(self.hardware_controller_serial_device, str) or not self.hardware_controller_serial_device.strip():
+            raise ConfigurationError("hardware_controller.serial.device must be a nonempty path")
+        number("hardware_controller_serial_baud_rate", minimum=1200, inclusive=True, maximum=3000000, integer=True)
+        for name in ("hardware_controller_reconnect_delay_seconds", "hardware_controller_heartbeat_interval_seconds", "hardware_controller_heartbeat_timeout_seconds"):
+            number(name, minimum=.1, inclusive=True, maximum=3600)
+        if self.hardware_controller_heartbeat_timeout_seconds <= self.hardware_controller_heartbeat_interval_seconds:
+            raise ConfigurationError("hardware_controller.heartbeat.timeout_seconds must exceed interval_seconds")
         number("environmental_poll_interval_seconds", minimum=1, inclusive=True, maximum=3600)
         number("environmental_stale_after_seconds", maximum=86400)
         if self.environmental_stale_after_seconds <= self.environmental_poll_interval_seconds:
@@ -967,10 +1013,10 @@ class RuntimeConfig:
                 raise ConfigurationError(f"{name} must contain two positive ascending numbers")
         if not isinstance(self.expression_provider, str) or self.expression_provider not in {"local", "aws"}:
             raise ConfigurationError("expression.provider must be local or aws")
-        if not isinstance(self.iris_color, str) or self.iris_color not in {
-            "cyan", "blue", "green", "turquoise", "amber", "violet", "white"
-        }:
-            raise ConfigurationError("display.iris_color must be cyan, blue, green, turquoise, amber, violet or white")
+        try:
+            IrisColorResolver.normalize(self.iris_color)
+        except ValueError as error:
+            raise ConfigurationError("display.iris_color must be a supported preset name or #RRGGBB") from error
         if self.base_visual_source not in {item.value for item in VisualSource}:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:
@@ -979,6 +1025,8 @@ class RuntimeConfig:
             raise ConfigurationError("display.backgrounds.enabled must be a boolean")
         if type(self.background_max_upload_bytes) is not int or not 1 <= self.background_max_upload_bytes <= 16 * 1024 * 1024:
             raise ConfigurationError("display.backgrounds.max_upload_bytes must be an integer between 1 and 16777216")
+        if type(self.eye_safe_layer_enabled) is not bool or self.eye_safe_layer_mode not in {"subtle", "balanced", "expressive"}:
+            raise ConfigurationError("display.eye_safe_layer requires boolean enabled and subtle, balanced or expressive mode")
         if type(self.state_effects_enabled) is not bool or type(self.state_effects_reduce_motion) is not bool:
             raise ConfigurationError("display.state_effects values must be booleans")
         if self.state_effects_preset not in {"subtle", "balanced", "expressive"}:

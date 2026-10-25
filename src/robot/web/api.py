@@ -84,6 +84,12 @@ def create_api(service):
     def state_command(): return jsonify(service.set_state(body().get("state")))
     @api.post("/visual-source")
     def visual_source(): return jsonify(service.set_visual_source(body().get("source")))
+    @api.post("/signal")
+    def signal_user():
+        value = body()
+        if set(value) != {"signal"}:
+            raise ApplicationError("invalid_signal", "A signal request must contain only a signal.")
+        return jsonify(service.signal_user(value["signal"]))
 
     @api.get("/events")
     def events():

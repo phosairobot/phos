@@ -16,16 +16,25 @@
 <a href="{{ url_for('configuration', area='controls') }}" {% if area is defined and area == 'controls' %}aria-current="page"{% endif %}><i>⌁</i>Controls</a>
 <p class="nav-heading">Advanced</p>
 <a href="{{ url_for('configuration', area='sensors') }}" {% if area is defined and area == 'sensors' %}aria-current="page"{% endif %}><i>◫</i>Sensors</a>
+<a href="{{ url_for('configuration', area='controller') }}" {% if area is defined and area == 'controller' %}aria-current="page"{% endif %}><i>⌁</i>Hardware Controller</a>
 <a href="{{ url_for('configuration', area='api') }}" {% if area is defined and area == 'api' %}aria-current="page"{% endif %}><i>⌘</i>API</a>
 <a href="{{ url_for('configuration', area='diagnostics') }}" {% if area is defined and area == 'diagnostics' %}aria-current="page"{% endif %}><i>◇</i>Diagnostics</a>
 <a href="{{ url_for('system') }}" {% if request.endpoint == 'system' or request.endpoint == 'reload_configuration' or request.endpoint == 'restart_phos' %}aria-current="page"{% endif %}><i>⚠</i>System Actions</a>
 <p class="nav-heading">Settings</p>
 <a href="{{ url_for('credentials') }}" {% if request.endpoint == 'credentials' %}aria-current="page"{% endif %}><i>◈</i>Credentials</a>
 <a href="{{ url_for('configuration_editor') }}" {% if request.endpoint == 'configuration_editor' %}aria-current="page"{% endif %}><i>⌨</i>Configuration</a>
-<a href="{{ url_for('configuration', area='appearance') }}" {% if area is defined and area == 'appearance' %}aria-current="page"{% endif %}><i>◫</i>Appearance</a>
-<a href="{{ url_for('appearance_backgrounds') }}" {% if request.endpoint == 'appearance_backgrounds' %}aria-current="page"{% endif %}><i>▧</i>↳ Backgrounds</a>
-<a href="{{ url_for('appearance_state_effects') }}" {% if request.endpoint == 'appearance_state_effects' %}aria-current="page"{% endif %}><i>✧</i>↳ State Effects</a>
+{% set appearance_active = (area is defined and area in ('appearance', 'eyes')) or request.endpoint in ('appearance_preview_page', 'appearance_skins', 'appearance_backgrounds', 'appearance_eye_safe_layer', 'appearance_state_effects') %}
+<details class="nav-group{% if appearance_active %} is-active{% endif %}"{% if appearance_active %} open{% endif %}>
+<summary><i>◫</i>Appearance</summary>
+<div class="nav-group-items">
+<a href="{{ url_for('configuration', area='appearance') }}" {% if area is defined and area == 'appearance' %}aria-current="page"{% endif %}><i>◫</i>Overview</a>
+<a href="{{ url_for('appearance_preview_page') }}" {% if request.endpoint == 'appearance_preview_page' %}aria-current="page"{% endif %}><i>◉</i>Preview</a>
+<a href="{{ url_for('appearance_skins') }}" {% if request.endpoint == 'appearance_skins' %}aria-current="page"{% endif %}><i>◈</i>Skins</a>
 <a href="{{ url_for('configuration', area='eyes') }}" {% if area is defined and area == 'eyes' %}aria-current="page"{% endif %}><i>◉</i>Eyes</a>
+<a href="{{ url_for('appearance_backgrounds') }}" {% if request.endpoint == 'appearance_backgrounds' %}aria-current="page"{% endif %}><i>▧</i>Backgrounds</a>
+<a href="{{ url_for('appearance_eye_safe_layer') }}" {% if request.endpoint == 'appearance_eye_safe_layer' %}aria-current="page"{% endif %}><i>◌</i>Eye Safe Layer</a>
+<a href="{{ url_for('appearance_state_effects') }}" {% if request.endpoint == 'appearance_state_effects' %}aria-current="page"{% endif %}><i>✧</i>State Effects</a>
+</div></details>
 <a href="{{ url_for('configuration', area='network') }}" {% if area is defined and area == 'network' %}aria-current="page"{% endif %}><i>⌁</i>Network</a>
 <a href="{{ url_for('configuration', area='runtime') }}" {% if area is defined and area == 'runtime' %}aria-current="page"{% endif %}><i>⏱</i>Runtime</a>
 <a href="{{ url_for('configuration', area='voice') }}" {% if area is defined and area == 'voice' %}aria-current="page"{% endif %}><i>♬</i>Voice &amp; speech</a>
@@ -35,5 +44,5 @@
 {% endif %}
 <div class="admin-main"><header class="topbar"><div><p class="eyebrow">LOCAL ROBOT CONSOLE</p><h1>PHOS <small>Administration</small></h1></div>{% if session.get('sid') %}<span id="phos-connection" class="connection disconnected" role="status">Live: disconnected</span>{% endif %}</header>
 <main class="content">{% for message in get_flashed_messages() %}<p class="notice" role="status">{{ message }}</p>{% endfor %}{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}{% block content %}{% endblock %}</main>
-<footer>Trusted local network only. HTTP traffic is not encrypted. AWS credentials stay outside PHOS configuration.</footer></div>
+<footer>Trusted local network only. HTTP traffic is not encrypted.</footer></div>
 </div></body></html>

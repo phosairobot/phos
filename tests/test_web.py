@@ -2,9 +2,13 @@
 import json
 import html
 import io
+import logging
+import multiprocessing
 from html.parser import HTMLParser
 import re
 import socket
+from threading import Event, Thread
+from types import SimpleNamespace
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -53,6 +57,69 @@ def authorize(app):
     return client
 
 
+def test_recovery_request_is_public_and_never_returns_the_physical_code(setup):
+    class RecoveryService:
+        def __init__(self):
+            self.requests = 0
+
+        def request_admin_password_recovery(self):
+            self.requests += 1
+            # This is deliberately a service-only value: the route must not
+            # interpolate it into its rendered response.
+            return {"status": "requested"}
+
+    _, path, now = setup
+    service = RecoveryService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    client = app.test_client()
+
+    page = client.get("/recovery")
+    response = client.post("/recovery", data={"csrf_token": csrf(page), "action": "request"})
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert service.requests == 1
+    assert "Recovery code requested. Check the PHOS display." in html
+    assert "483921" not in html
+
+
+def test_network_page_uses_runtime_network_info_and_can_show_qr(setup):
+    class AdminAccessService:
+        def __init__(self): self.shown = 0
+        def get_admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1; return {"status": "shown"}
+
+    _, path, now = setup
+    service = AdminAccessService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    client = authorize(app)
+    dashboard = client.get("/").get_data(as_text=True)
+    html = client.get("/configuration/network").get_data(as_text=True)
+
+    assert "Show QR on PHOS" not in dashboard
+    assert all(value in html for value in ("Network Configuration", "Administration address", 'name="web.host"',
+                                           'name="web.port"', "phos", "192.168.1.42", "wlan0",
+                                           "http://192.168.1.42:8080/", "Connected"))
+    assert 'href="http://192.168.1.42:8080/"' in html
+    response = client.post("/admin-access/show", data={"csrf_token": csrf(client.get("/configuration/network"))})
+    assert response.status_code == 302 and service.shown == 1
+
+
+def test_network_page_renders_a_bounded_disconnected_state(setup):
+    class Disconnected:
+        def get_admin_network_info(self):
+            return {"hostname": "phos", "ip_address": None, "interface": None,
+                    "port": 8080, "admin_url": None, "status": "unavailable"}
+
+    _, path, now = setup
+    app = create_app(path, clock=lambda: now[0], application_service=Disconnected())
+    html = authorize(app).get("/configuration/network").get_data(as_text=True)
+    assert "Disconnected" in html and "Not available" in html and "Show QR on PHOS</button>" in html
+    assert "disabled" in html
+
+
 class FormParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -65,8 +132,8 @@ class FormParser(HTMLParser):
             if a.get("type") != "checkbox" or "checked" in a:
                 self.values[a["name"]] = a.get("value", "on")
         elif tag == "select":
-            self.select = a["name"]
-        elif tag == "option" and "selected" in a:
+            self.select = a.get("name")
+        elif tag == "option" and "selected" in a and self.select is not None:
             self.values[self.select] = a["value"]
 
 
@@ -99,6 +166,70 @@ def test_backgrounds_page_remains_available_when_runtime_asset_service_is_unavai
     fallback = create_app(path, application_service=Unavailable())
     client = authorize(fallback)
     assert client.get("/appearance/backgrounds").status_code == 200
+
+
+def test_eye_safe_layer_page_renders_canonical_controls(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/appearance/eye-safe-layer")
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'id="eye-safe-layer-enabled"' in text
+    assert 'value="balanced" checked' in text
+
+
+@pytest.mark.parametrize("previous,next_mode", [("balanced", "subtle"), ("subtle", "expressive"), ("expressive", "balanced")])
+def test_eye_safe_layer_mode_posts_the_canonical_application_payload(setup, previous, next_mode):
+    class EyeSafeService:
+        def __init__(self): self.calls = []
+        def configure_eye_safe_layer(self, payload): self.calls.append(payload); return {"saved": payload}
+
+    _, path, now = setup
+    document = json.loads(path.read_text())
+    document["display"]["eye_safe_layer"]["mode"] = previous
+    path.write_text(json.dumps(document))
+    service = EyeSafeService()
+    app = create_app(path, clock=lambda: now[0], application_service=service)
+    client = authorize(app)
+    response = post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-enabled": "on", "eye-safe-layer-mode": next_mode})
+    assert response.status_code == 302
+    assert service.calls == [{"enabled": True, "mode": next_mode}]
+
+
+def test_eye_safe_layer_toggle_and_invalid_mode_are_handled_cleanly(setup):
+    class EyeSafeService:
+        def __init__(self): self.calls = []
+        def configure_eye_safe_layer(self, payload): self.calls.append(payload); return {"saved": payload}
+
+    _, path, now = setup
+    service = EyeSafeService()
+    client = authorize(create_app(path, clock=lambda: now[0], application_service=service))
+    assert post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-mode": "balanced"}).status_code == 302
+    assert post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-enabled": "on", "eye-safe-layer-mode": "balanced"}).status_code == 302
+    assert [call["enabled"] for call in service.calls] == [False, True]
+    rejected = post(client, "/appearance/eye-safe-layer", {"eye-safe-layer-mode": "invalid"})
+    assert rejected.status_code == 400
+    assert "Choose a supported eye safe layer mode." in rejected.get_data(as_text=True)
+
+
+def test_appearance_preview_is_a_static_application_service_image(setup):
+    class PreviewService:
+        def __init__(self): self.calls = []
+        def appearance_preview(self, options):
+            self.calls.append(options)
+            return {"svg": "<svg xmlns='http://www.w3.org/2000/svg'/>"}
+
+    _, path, now = setup
+    service = PreviewService()
+    client = authorize(create_app(path, clock=lambda: now[0], application_service=service))
+    page = client.get("/appearance/preview?state=sleeping&expression=happy")
+    markup = page.get_data(as_text=True)
+    assert page.status_code == 200 and "Static 800" in markup
+    for expression in ("sad", "angry", "focused", "tired", "confused", "scared", "skeptical"):
+        assert f">{expression}</option>" in markup
+    response = client.get("/appearance/preview.svg?state=sleeping&expression=happy&eye_safe=0&eye_safe_mode=expressive&effects=0")
+    assert response.status_code == 200 and response.mimetype == "image/svg+xml"
+    assert service.calls == [{"state": "sleeping", "expression": "happy", "eye_safe_enabled": False,
+                              "eye_safe_mode": "expressive", "state_effects_enabled": False, "skin_id": None}]
 
 
 def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonical_list(setup):
@@ -145,7 +276,9 @@ def test_state_effects_page_renders_canonical_values_and_appearance_navigation(s
     assert 'class="state-effects-card"' in text and "Effect Color" in text
     assert all(f'value="{value}"' in text for value in ("phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"))
     assert all(f'id="state-effects-preset-{value}"' in text for value in ("subtle", "balanced", "expressive"))
-    assert "↳ Backgrounds" in text and "↳ State Effects" in text
+    assert 'class="nav-group is-active" open' in text
+    assert all(label in text for label in ("Appearance", "Overview", "Preview", "Skins", "Eyes", "Backgrounds", "Eye Safe Layer", "State Effects"))
+    assert 'href="/appearance/state-effects" aria-current="page"' in text
 
 
 @pytest.mark.parametrize("preset", ["subtle", "balanced", "expressive"])
@@ -326,6 +459,117 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     assert "Detailed runtime diagnostics" in status
 
 
+@pytest.mark.parametrize(
+    ("path", "active_href"),
+    [
+        ("/configuration/appearance", "/configuration/appearance"),
+        ("/appearance/preview", "/appearance/preview"),
+        ("/appearance/skins", "/appearance/skins"),
+        ("/configuration/eyes", "/configuration/eyes"),
+        ("/appearance/backgrounds", "/appearance/backgrounds"),
+        ("/appearance/eye-safe-layer", "/appearance/eye-safe-layer"),
+        ("/appearance/state-effects", "/appearance/state-effects"),
+    ],
+)
+def test_appearance_navigation_groups_existing_pages_and_marks_the_active_child(setup, path, active_href):
+    app, _, _ = setup
+    text = authorize(app).get(path).get_data(as_text=True)
+
+    assert '<details class="nav-group is-active" open>' in text
+    assert all(f'href="{href}"' in text for href in (
+        "/configuration/appearance", "/appearance/preview", "/appearance/skins", "/configuration/eyes",
+        "/appearance/backgrounds", "/appearance/eye-safe-layer", "/appearance/state-effects",
+    ))
+    assert f'href="{active_href}" aria-current="page"' in text
+    assert 'href="/configuration/network"' in text
+
+
+def test_appearance_navigation_group_spans_the_mobile_sidebar_grid():
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+
+    assert ".nav-group[open] summary::after" in stylesheet
+    assert ".nav-heading, .nav-group, .sidebar-account { grid-column: 1 / -1; }" in stylesheet
+
+
+def test_skin_import_picker_advertises_package_extensions_only():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/skins.html").read_text()
+
+    assert 'accept=".phos-skin,.zip"' in template
+    assert "Import Skin Package" in template and "Recommended: .phos-skin" in template
+    assert ".yaml" not in template and ".yml" not in template
+
+
+def test_skins_template_separates_panels_and_uses_consistent_card_actions():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/skins.html").read_text()
+
+    assert 'id="create-skin">Create Skin' in template
+    assert 'id="import-skin">Import Skin Package' in template
+    assert 'id="available-skins">Available Skins' in template
+    assert 'phos-skin-card-body' in template and 'phos-skin-card-footer' in template
+    assert 'skin-edit' not in template and '>Edit<' not in template and 'action" value="rename"' not in template
+    assert '<details class="phos-skin-card-delete-menu">' in template
+    assert 'Delete Skin' in template and 'This cannot be undone.' in template
+    assert 'skin.in_use' in template and 'skin.delete_blocked' in template
+    assert 'if not skin.built_in' in template
+    assert 'class="phos-skin-card-metadata"' in template and 'class="phos-skin-card-footer"' in template
+    assert 'class="phos-skin-card-header"' in template and 'class="phos-skin-card-title-row"' in template
+    assert 'class="phos-skin-card-delete"' in template and 'title="Delete skin"' in template
+    assert 'phos-skin-status-icon" title="In use" aria-label="In use">✓</span>' in template
+    assert 'name="action" value="preview">Preview</button>' in template
+    assert '>In use</span>' not in template
+    assert template.index('class="phos-skin-card-delete') < template.index('<footer class="phos-skin-card-footer">')
+    assert 'class="phos-skin-card-footer"><form method="post">' in template
+
+
+def test_skin_card_classes_are_not_used_by_unrelated_web_templates():
+    templates = Path(__file__).parents[1] / "src/robot/web/templates"
+
+    assert all("phos-skin-card" not in path.read_text() for path in templates.glob("*.html") if path.name != "skins.html")
+
+
+def test_skin_card_css_keeps_status_in_header_and_actions_in_a_common_footer_row():
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+
+    assert ".phos-skin-card { display: flex;" in stylesheet and "flex-direction: column" in stylesheet
+    assert ".phos-skin-card-header { position: relative; display: flex; justify-content: space-between;" in stylesheet
+    assert ".phos-skin-card-title-row { display: flex;" in stylesheet
+    assert ".content .phos-skin-card-footer { display: flex; flex-wrap: nowrap;" in stylesheet
+    assert ".phos-skin-card-delete" in stylesheet
+    assert ".skin-form { flex-wrap:" in stylesheet and ".skin-form { display:" not in stylesheet
+    assert ".phos-skin-status-icon { width: 1.35rem;" in stylesheet
+    assert "min-height: 2.4rem; padding: .55rem .9rem;" in stylesheet
+    assert ".content .phos-skin-card-footer { display: flex; flex-wrap: nowrap; align-items: center; gap: .55rem; margin: 0;" in stylesheet
+    assert ".phos-skin-card-action { display: inline-flex; align-items: center; justify-content: center; width: auto;" in stylesheet
+
+
+def test_skins_page_renders_compact_cards_without_open_custom_edit_fields(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/appearance/skins").get_data(as_text=True)
+
+    assert 'class="skin-panel"' in page and 'class="skin-available"' in page
+    assert 'class="skin-delete" open' not in page
+
+
+@pytest.mark.parametrize(("filename", "accepted"), [("skin.phos-skin", True), ("skin.zip", True), ("skin.yaml", False), ("skin.yml", False)])
+def test_skin_upload_route_accepts_only_packages(setup, filename, accepted):
+    class Skins:
+        def __init__(self): self.imported = []
+        def import_skin(self, payload): self.imported.append(payload); return {}
+        def skins(self): return []
+
+    _, path, _ = setup
+    service = Skins()
+    app = create_app(path, application_service=service)
+    client = authorize(app)
+    token = csrf(client.get("/appearance/skins"))
+    response = client.post("/appearance/skins", data={"csrf_token": token, "action": "import",
+                           "skin": (io.BytesIO(b"package"), filename)})
+
+    assert bool(service.imported) is accepted
+    if not accepted:
+        assert b"Choose a Skin package (.phos-skin or .zip)." in response.data
+
+
 def test_focused_settings_and_page_responsibilities(setup):
     app, _, _ = setup
     client = authorize(app)
@@ -381,6 +625,19 @@ def test_controls_are_separated_into_responsive_action_sections(setup):
         assert 'data-command=' not in page and 'data-overlay-submit' not in page
 
 
+def test_live_controls_preserve_unsaved_visual_source_across_background_refreshes():
+    """The browser owns an edited control until its Apply request succeeds."""
+    source = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+
+    assert 'node.addEventListener("change", () => { node.dataset.dirty = "true"; });' in source
+    assert 'if (node.dataset.dirty === "true") continue;' in source
+    assert 'const result = await commandRequest(command.endpoint' in source
+    assert 'if (!result) return;' in source
+    assert 'delete node.dataset.dirty;' in source
+    assert 'state.active_visual_source = result.source;' in source
+    assert 'catch (problem) { report(problem.message, "error"); return null; }' in source
+
+
 def test_controls_responsive_layout_and_button_groups_do_not_overflow():
     from pathlib import Path
 
@@ -422,6 +679,14 @@ def test_live_dashboard_is_an_api_client_and_retains_server_rendered_sensor_fall
     assert 'PHOS returned HTML instead of its API response' in source
     assert 'Your administrator session has expired' in source
     assert 'sensor_status' not in source and 'GPIO' not in source
+    assert 'event.type === "sensors_changed"' in source
+    assert 'item.measurements[field] !== undefined' in source
+    assert 'ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811)' in source
+    assert 'Math.floor((Date.now() - timestamp) / 1000)' in source
+    assert 'window.setInterval(renderFreshness, 1000)' in source
+    assert 'dashboard._phosFreshnessTimer' in source
+    assert 'const motion = (state.sensors || {}).imu || state.motion || {};' in source
+    assert 'display("motion.intensity", motion.motion_intensity' in source
     for event_type in ("presence_changed", "attention_changed", "person_entered", "person_left",
                        "attention_target_acquired", "attention_target_changed", "attention_target_lost",
                        "observed_expression_changed"):
@@ -650,27 +915,61 @@ def test_invalid_form_preserves_file_and_input(setup, field, value):
     assert f'value="{entered}"' in response.get_data(as_text=True)
 
 
-def test_display_appearance_theme_is_selectable_and_saved_canonically(setup):
-    app, path, _ = setup
+def test_eyes_page_selects_presets(lifecycle_setup):
+    app, _, _ = lifecycle_setup
     client = authorize(app)
-    data = form(client, "display")
-    page = client.get("/configuration/display").get_data(as_text=True)
+    data = form(client, "eyes")
+    page = client.get("/configuration/eyes").get_data(as_text=True)
     assert 'name="display.iris_color"' in page
-    assert all(color in page for color in ("cyan", "turquoise", "amber", "violet"))
-    data["display.iris_color"] = "violet"
-    assert client.post("/configuration/display", data=data).status_code == 302
-    assert RuntimeConfig.from_file(path).iris_color == "violet"
+    assert 'data-iris-color-controls' in page
+    assert all(color in page for color in ("cyan", "turquoise", "amber", "violet", "custom"))
+    assert "Save &amp; Apply" in page
+
+
+def test_eyes_and_shared_layout_remove_obsolete_help_text(setup):
+    app, _, _ = setup
+    client = authorize(app)
+    aws_help = "AWS credentials stay outside PHOS configuration."
+    display_help = ("Display dimensions are pixels; fps controls animation cadence. Display geometry "
+                    "and fullscreen changes require restart.")
+    saved_settings_help = "Editing saved settings"
+    save_apply_help = "Validates, saves the canonical configuration"
+    iris_help = "Iris color accepts a preset or a #RRGGBB custom color"
+
+    eyes = client.get("/configuration/eyes").get_data(as_text=True)
+    assert aws_help not in eyes and display_help not in eyes
+    assert saved_settings_help not in eyes and save_apply_help not in eyes
+    assert iris_help in eyes
+    assert '<p class="notice"></p>' not in eyes and '<p></p>' not in eyes
+    appearance = client.get("/configuration/appearance").get_data(as_text=True)
+    assert aws_help not in appearance and display_help not in appearance and iris_help not in appearance
+
+
+def test_eyes_page_accepts_custom_hex_and_rejects_invalid_hex(lifecycle_setup):
+    app, path, service = lifecycle_setup
+    client = authorize(app)
+    service.register_appearance_applier(lambda config: None)
+    data = form(client, "eyes")
+    data["display.iris_color"] = "#7a5cff"
+    assert client.post("/configuration/eyes", data=data).status_code == 302
+    assert RuntimeConfig.from_file(path).iris_color == "#7A5CFF"
+
+    invalid = form(client, "eyes")
+    invalid["display.iris_color"] = "#FFF"
+    response = client.post("/configuration/eyes", data=invalid)
+    assert response.status_code == 400
+    assert b"#RRGGBB" in response.data
 
 
 def test_led_ring_palette_is_exposed_and_selected_color_round_trips_through_web_admin(setup):
     app, path, _ = setup
     client = authorize(app)
-    page = client.get("/configuration/display").get_data(as_text=True)
+    page = client.get("/configuration/appearance").get_data(as_text=True)
     expected = ("green", "red", "yellow", "blue", "violet", "white", "cyan", "turquoise", "orange", "magenta")
     assert all(f'<option value="{color}"' in page for color in expected)
-    data = form(client, "display")
+    data = form(client, "appearance")
     data["led_ring.base_color"] = "magenta"
-    assert client.post("/configuration/display", data=data).status_code == 302
+    assert client.post("/configuration/appearance", data=data).status_code == 302
     assert RuntimeConfig.from_file(path).led_ring_base_color == "magenta"
 
 
@@ -1081,10 +1380,14 @@ def test_domain_error_hints_match_fields_without_matching_unrelated_words():
 @pytest.fixture
 def lifecycle_setup(setup):
     from robot.lifecycle import LifecycleService
+    from robot.services import PhosApplicationService
     app, path, _ = setup
     service = LifecycleService(path, RuntimeConfig.from_file(path), restart_supported=True,
                                log_level_setter=lambda level: None)
-    app = create_app(path, lifecycle=service)
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = service
+    application._runtime = SimpleNamespace(application_status=lambda: {})
+    app = create_app(path, lifecycle=service, application_service=application)
     app.testing = True
     return app, path, service
 
@@ -1127,21 +1430,88 @@ def test_restart_confirmation_and_csrf(lifecycle_setup):
     assert client.post("/system/restart", data=data).status_code == 400  # Confirmation consumed.
 
 
-def test_web_saved_iris_theme_applies_only_after_reload(lifecycle_setup):
+def test_web_eyes_save_and_apply_persists_and_updates_renderer(lifecycle_setup):
     app, path, service = lifecycle_setup
     client = authorize(app)
     applied = []
     service.register_appearance_applier(lambda config: applied.append(config.iris_color))
-    data = form(client, "display")
+    data = form(client, "eyes")
     data["display.iris_color"] = "green"
-    assert client.post("/configuration/display", data=data).status_code == 302
-    assert service.active["display"]["iris_color"] == "cyan"
-    token = csrf(client.get("/system"))
-    response = client.post("/system/reload", data={"csrf_token": token})
-    assert response.status_code == 200
-    assert b"Applied: display.iris_color" in response.data
-    assert service.active["display"]["iris_color"] == "green"
-    assert applied == ["green"]
+    response = client.post("/configuration/eyes", data=data)
+    assert response.status_code == 302
+    assert RuntimeConfig.from_file(path).iris_color == "#41CD7D"
+    assert service.active["display"]["iris_color"] == "#41CD7D"
+    assert applied == ["#41CD7D"]
+
+
+def test_web_eyes_save_and_apply_restores_config_when_renderer_rejects(lifecycle_setup):
+    app, path, service = lifecycle_setup
+    client = authorize(app)
+    service.register_appearance_applier(lambda config: (_ for _ in ()).throw(RuntimeError("no display")))
+    data = form(client, "eyes")
+    data["display.iris_color"] = "green"
+    response = client.post("/configuration/eyes", data=data)
+    assert response.status_code == 503
+    assert RuntimeConfig.from_file(path).iris_color == "#28CEEB"
+    assert service.active["display"]["iris_color"] == "#28CEEB"
+
+
+def test_web_eyes_unexpected_failure_is_logged_and_returns_bounded_500(setup, caplog):
+    class FailingEyesService:
+        def configure_eyes(self, _payload):
+            raise RuntimeError("simulated renderer failure")
+
+    _, path, now = setup
+    app = create_app(path, clock=lambda: now[0], application_service=FailingEyesService())
+    client = authorize(app)
+    data = form(client, "eyes")
+    data["display.iris_color"] = "green"
+    with caplog.at_level(logging.ERROR):
+        response = client.post("/configuration/eyes", data=data)
+
+    assert response.status_code == 500
+    assert b"Internal Server Error" in response.data
+    assert "PHOS WEB: operation=appearance_eyes_update failed" in caplog.text
+    assert "simulated renderer failure" in caplog.text and "Traceback" in caplog.text
+
+
+@pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])
+def test_web_eyes_save_and_apply_uses_remote_application_lifecycle_path(setup, submitted, expected):
+    """Exercise the same Web worker → IPC → parent runtime route as deployment."""
+    from robot.lifecycle import LifecycleService
+    from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
+    from robot.services import PhosApplicationService, RemoteApplicationService
+
+    _, path, now = setup
+    parent_service = LifecycleService(path, RuntimeConfig.from_file(path), log_level_setter=lambda _level: None)
+    applied = []
+    parent_service.register_appearance_applier(lambda config: applied.append(config.iris_color))
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = parent_service
+    application._runtime = SimpleNamespace(application_status=lambda: {})
+    parent_service.register_application_service(application)
+    parent_service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, parent_service, stop))
+    thread.start()
+    try:
+        lifecycle = LifecycleClient(child)
+        app = create_app(path, clock=lambda: now[0], lifecycle=lifecycle,
+                         application_service=RemoteApplicationService(lifecycle))
+        browser = authorize(app)
+        data = form(browser, "eyes")
+        data["display.iris_color"] = submitted
+        response = browser.post("/configuration/eyes", data=data)
+        assert response.status_code == 302
+        assert RuntimeConfig.from_file(path).iris_color == expected
+        assert parent_service.active["display"]["iris_color"] == expected
+        assert applied == [expected]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setup):
@@ -1233,6 +1603,57 @@ def test_sensors_form_validates_and_preserves_other_domains(setup):
     invalid["display.fps"] = "1"
     assert client.post("/configuration/sensors", data=invalid).status_code == 400
     assert load_document(path) == expected
+
+
+def test_hardware_controller_page_uses_application_read_models_and_persists_configuration(tmp_path):
+    class ControllerAdmin:
+        def __init__(self): self.cleared = False; self.updated = None
+        def controller_status(self):
+            return {"state": "connected", "configured_device": "/dev/ttyUSB0", "active_device": "/dev/ttyUSB0",
+                    "protocol": "phos-hw", "last_heartbeat": "2026-01-01T12:00:00+00:00", "capabilities": {"sensors": ["temperature"]}}
+        def controller_serial_ports(self):
+            return [{"device": "/dev/ttyUSB0", "description": "USB Serial", "manufacturer": None,
+                     "product": None, "vid": None, "pid": None, "serial_number": None}]
+        def controller_recent_messages(self):
+            return [{"timestamp": "2026-01-01T12:00:01+00:00", "direction": "RX", "type": "sensor_update",
+                     "summary": "temperature=24.8 c", "raw": "b'<script>alert(1)</script>'"},
+                    {"timestamp": "2026-01-01T12:00:02+00:00", "direction": "RX", "type": "heartbeat",
+                     "summary": "heartbeat", "raw": None}]
+        def clear_controller_recent_messages(self): self.cleared = True; return {"cleared": True}
+        def update_config(self, patch):
+            self.updated = patch
+            document = load_document(path)
+            document["hardware_controller"] = patch["hardware_controller"]
+            path.write_text(json.dumps(document))
+            return {"applied": ["hardware_controller.serial.device"]}
+    document, path = load_document(), tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    service = ControllerAdmin()
+    app = create_app(path, active_document=document, application_service=service)
+    app.testing = True
+    client = authorize(app)
+    page = client.get("/configuration/controller").get_data(as_text=True)
+    assert "Hardware Controller" in page and "USB Serial" in page and "connected" in page
+    assert 'data-controller-status="state"' in page
+    assert 'data-controller-status="configured_device"' in page
+    assert "sensor_update" in page and ">heartbeat</td>" not in page and "&lt;script&gt;" in page
+    assert 'class="controller-message-scroll"' in page and 'data-controller-message-scroll' in page
+    assert '<select id="hardware_controller.transport"' in page and '<option value="serial"' in page
+    diagnostics = client.get("/controller/diagnostics")
+    assert diagnostics.status_code == 200
+    assert diagnostics.get_json()["messages"][0]["type"] == "sensor_update"
+    assert diagnostics.get_json()["status"]["configured_device"] == "/dev/ttyUSB0"
+    data = form(client, "controller")
+    data.update({"hardware_controller.enabled": "on", "hardware_controller.serial.device": "/dev/ttyUSB0",
+                 "hardware_controller.serial.baud_rate": "115200", "hardware_controller.reconnect.delay_seconds": "2",
+                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10"})
+    assert client.post("/configuration/controller", data=data).status_code == 302
+    assert load_document(path)["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    assert service.updated["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    assert 'renderStatus(data.status);' in Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    token = csrf(client.get("/configuration/controller"))
+    assert client.post("/controller/diagnostics/clear", data={"csrf_token": token}).status_code == 302
+    assert service.cleared
 
 
 def test_sensor_status_panel_uses_parent_service_and_hides_stale_values(setup):

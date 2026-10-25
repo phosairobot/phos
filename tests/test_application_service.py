@@ -9,7 +9,7 @@ import pytest
 
 from robot.core.runtime import RobotCore
 from robot.core.behavior_engine import BehaviorEngine
-from robot.services.application import COMMANDS, OVERLAY_COMMANDS, PhosApplicationService
+from robot.services.application import COMMANDS, OVERLAY_COMMANDS, PhosApplicationService, RemoteApplicationService
 from robot.core.environmental import EnvironmentalState
 from robot.core.state import InvalidStateTransition, RobotState, RobotStateMachine, transition_graph, writable_states
 from robot.motion import MotionState
@@ -43,12 +43,67 @@ class Runtime:
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
 
 
+class RecoveryRuntime(Runtime):
+    def __init__(self, *, available=True):
+        super().__init__()
+        self.available = available
+        self.shown = []
+        self.cleared = 0
+
+    def admin_overlay_available(self):
+        return self.available
+
+    def show_recovery_code(self, code, expires_at):
+        self.shown.append((code, expires_at))
+
+    def clear_admin_overlay(self):
+        self.cleared += 1
+
+
 def test_status_has_semantic_environment_and_health():
     service = PhosApplicationService(Runtime())
     status = service.status()
     assert status["environment"]["status"] == "available"
     assert status["health"]["subsystems"]["ccs811"]["state"] == "warming_up"
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
+
+
+def test_recovery_code_is_shown_only_locally_and_never_returned():
+    runtime = RecoveryRuntime()
+    service = PhosApplicationService(runtime)
+    service._admin_recovery.token = lambda: "483921"
+
+    result = service.request_admin_password_recovery()
+
+    assert result == {"status": "requested"}
+    assert runtime.shown and runtime.shown[0][0] == "483921"
+    assert "483921" not in repr(result)
+
+
+def test_recovery_does_not_activate_when_the_display_is_unavailable():
+    service = PhosApplicationService(RecoveryRuntime(available=False))
+
+    with pytest.raises(ApplicationError, match="Recovery display is unavailable") as error:
+        service.request_admin_password_recovery()
+
+    assert error.value.code == "service_unavailable"
+    assert service._admin_recovery.code is None
+
+
+def test_admin_network_and_overlay_use_the_runtime_boundary():
+    class AdminRuntime(Runtime):
+        def __init__(self): super().__init__(); self.shown = 0
+        def admin_network_info(self):
+            return {"hostname": "phos", "ip_address": "192.168.1.42", "interface": "wlan0",
+                    "port": 8080, "admin_url": "http://192.168.1.42:8080/", "status": "connected"}
+        def show_admin_access_overlay(self): self.shown += 1
+
+    runtime = AdminRuntime()
+    service = PhosApplicationService(runtime)
+
+    assert service.get_admin_network_info()["admin_url"] == "http://192.168.1.42:8080/"
+    assert service.show_admin_access_overlay() == {"status": "shown"}
+    assert runtime.shown == 1
 
 
 def test_background_uploads_are_a_directory_backed_collection(tmp_path):
@@ -158,6 +213,23 @@ def test_fresh_observed_expression_event_is_forwarded_to_remote_subscribers():
     assert received[-1]["payload"] == observation.document()
 
 
+def test_remote_snapshot_bridge_emits_canonical_sensor_updates():
+    sensors = {"environmental": {"available": True, "measurements": {"temperature_c": 24.85}},
+               "ccs811": {"available": True, "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}}}
+    class Lifecycle:
+        def execute(self, operation, payload=None):
+            assert operation == "application.status"
+            return {"ok": True, "result": {"robot": {}, "visual": {}, "environment": sensors["environmental"],
+                    "sensors": sensors, "motion": {}, "health": {}, "overlay": {}, "presence": {},
+                    "attention": {}, "observed_expression": {}, "expression_reaction": {}, "voice": {}}}
+    service = RemoteApplicationService(Lifecycle())
+    events = []
+    service.subscribe(events.append)
+    service.emit_snapshot_changes()
+    sensor_event = next(event for event in events if event["type"] == "sensors_changed")
+    assert sensor_event["payload"] == sensors
+
+
 def test_visual_source_rejects_hardware_command_and_events_are_deduplicated():
     service = PhosApplicationService(Runtime())
     events = []
@@ -189,7 +261,7 @@ def test_capabilities_are_derived_from_canonical_semantic_enums():
         }
         if name == "set_robot_state":
             expected["transitions"] = {
-                "idle": ["listening", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
+                "idle": ["listening", "speaking", "sleeping"], "listening": ["idle", "thinking", "sleeping"],
                 "thinking": ["idle", "speaking"], "speaking": ["idle", "listening"], "sleeping": ["idle"],
             }
         assert capabilities["commands"][name] == expected
@@ -312,7 +384,7 @@ def test_robot_state_model_and_capabilities_share_canonical_transition_graph():
     command = service.capabilities()["commands"]["set_robot_state"]
     assert state == {"state": "idle", "current": "idle", "running": False,
                      "writable": ["idle", "listening", "thinking", "speaking", "sleeping"],
-                     "allowed_next": ["listening", "sleeping"]}
+                     "allowed_next": ["listening", "speaking", "sleeping"]}
     assert command["transitions"][state["current"]] == state["allowed_next"]
 
 
@@ -332,7 +404,7 @@ def test_every_exported_transition_is_accepted_and_other_writable_targets_reject
                 raise AssertionError(f"{source} -> {target.value} was missing from the exported graph")
 
 
-def test_manual_expression_is_behavior_owned_bounded_intent_not_a_renderer_mutation():
+def test_manual_expression_is_behavior_owned_persistent_intent_not_a_renderer_mutation():
     now = [0.0]
     runtime = Runtime()
     runtime._behavior_engine = BehaviorEngine(runtime.core.events, clock=lambda: now[0])
@@ -340,11 +412,53 @@ def test_manual_expression_is_behavior_owned_bounded_intent_not_a_renderer_mutat
     applied = service.set_expression("curious")
     assert applied["manual_override"]["expression"] == "curious"
     assert service.visual_state()["expression"] == "curious"
-    # The override outlives ordinary environmental/source arbitration, then
-    # expires without a Web Admin or renderer callback.
+    # The override outlives ordinary environmental/source arbitration and the
+    # previous 30-second deadline; only another explicit command replaces it.
     runtime._behavior_engine.configure_base_visual_source("manual")
     assert service.visual_state()["expression"] == "curious"
     now[0] = 31.0
+    assert service.visual_state()["expression"] == "curious"
+    service.set_expression("neutral")
+    assert service.visual_state()["expression"] == "neutral"
+
+
+def test_phase_one_manual_expressions_are_writable_without_changing_robot_state():
+    now = [0.0]
+    runtime = Runtime()
+    runtime._behavior_engine = BehaviorEngine(runtime.core.events, clock=lambda: now[0])
+    service = PhosApplicationService(runtime)
+    for expression in ("sad", "angry", "focused", "tired"):
+        applied = service.set_expression(expression)
+        assert applied["expression"] == expression
+        assert applied["visual"]["expression"] == expression
+        assert runtime._behavior_engine.robot_state is RobotState.IDLE
+
+
+def test_phase_two_manual_expressions_are_writable_without_changing_robot_state():
+    runtime = Runtime()
+    runtime._behavior_engine = BehaviorEngine(runtime.core.events)
+    service = PhosApplicationService(runtime)
+    for expression in ("confused", "scared", "skeptical", "tired"):
+        assert service.set_expression(expression)["expression"] == expression
+        assert runtime._behavior_engine.robot_state is RobotState.IDLE
+
+
+def test_manual_sad_and_tired_survive_time_and_robot_state_reconstruction():
+    now = [0.0]
+    runtime = Runtime()
+    runtime._behavior_engine = BehaviorEngine(runtime.core.events, clock=lambda: now[0])
+    service = PhosApplicationService(runtime)
+
+    service.set_expression("sad")
+    now[0] = 3600.0
+    assert service.visual_state()["expression"] == "sad"
+    asyncio.run(runtime._behavior_engine._on_robot_state(Event("core.state_changed", {"current": "thinking"})))
+    assert service.visual_state()["expression"] == "sad"
+
+    service.set_expression("tired")
+    asyncio.run(runtime._behavior_engine._on_robot_state(Event("core.state_changed", {"current": "speaking"})))
+    assert service.visual_state()["expression"] == "tired"
+    service.set_expression("neutral")
     assert service.visual_state()["expression"] == "neutral"
 
 

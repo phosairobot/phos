@@ -49,10 +49,16 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
     "behavior.environmental.air_quality_bad_tvoc", "behavior.environmental.confirmation_seconds",
     "behavior.environmental.recovery_seconds",
 })
+HARDWARE_CONTROLLER_RELOADABLE = frozenset({
+    "hardware_controller.enabled", "hardware_controller.transport",
+    "hardware_controller.serial.device", "hardware_controller.serial.baud_rate",
+    "hardware_controller.reconnect.delay_seconds", "hardware_controller.heartbeat.interval_seconds",
+    "hardware_controller.heartbeat.timeout_seconds",
+})
 RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
                         "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
                         "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
-                        "display.backgrounds.error", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE})
+                        "display.backgrounds.error", "display.eye_safe_layer.enabled", "display.eye_safe_layer.mode", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE, *HARDWARE_CONTROLLER_RELOADABLE})
 
 
 def changed_fields(active, saved, prefix=""):
@@ -92,7 +98,9 @@ class LifecycleService:
         self._apply_imu_behavior = None
         self._apply_led_ring = None
         self._apply_environmental_behavior = None
+        self._apply_hardware_controller = None
         self._apply_backgrounds = None
+        self._apply_eye_safe_layer = None
         self._apply_state_effects = None
         self._sensor_status = None
         self._application_status = None
@@ -134,11 +142,79 @@ class LifecycleService:
         with self._lock:
             self._apply_environmental_behavior = applier
 
+    def register_hardware_controller_applier(self, applier):
+        with self._lock: self._apply_hardware_controller = applier
+
     def register_backgrounds_applier(self, applier):
         with self._lock: self._apply_backgrounds = applier
 
+    def register_eye_safe_layer_applier(self, applier):
+        with self._lock: self._apply_eye_safe_layer = applier
+
     def register_state_effects_applier(self, applier):
         with self._lock: self._apply_state_effects = applier
+
+    def apply_temporary_appearance(self, config: RuntimeConfig) -> dict:
+        """Apply validated visual settings without changing saved or active config."""
+        if not isinstance(config, RuntimeConfig):
+            return {"ok": False, "error": "Temporary appearance is invalid."}
+        with self._lock:
+            appliers = (("appearance", self._apply_appearance), ("backgrounds", self._apply_backgrounds),
+                        ("eye safe layer", self._apply_eye_safe_layer), ("state effects", self._apply_state_effects))
+            unavailable = next((name for name, applier in appliers if applier is None), None)
+            if unavailable is not None:
+                return {"ok": False, "error": f"Runtime {unavailable} service is not ready. Try again shortly."}
+            try:
+                for _, applier in appliers: applier(config)
+            except Exception:
+                logger.exception("Temporary appearance preview failed")
+                baseline = RuntimeConfig.from_dict(self.active, base_dir=self.path.parent)
+                for _, applier in appliers:
+                    try: applier(baseline)
+                    except Exception: logger.exception("Temporary appearance preview rollback failed")
+                return {"ok": False, "error": "The running display could not accept the temporary preview."}
+            return {"ok": True, "applied": ["temporary_appearance"]}
+
+    def apply_eyes(self, config: RuntimeConfig) -> dict:
+        """Apply validated Eyes settings without reloading unrelated changes."""
+        if not isinstance(config, RuntimeConfig):
+            return {"ok": False, "error": "Eyes settings are invalid."}
+        with self._lock:
+            saved = config.to_dict()
+            display = self.active["display"]
+            changes = (
+                ("display.iris_color", self._apply_appearance,
+                 display["iris_color"] != saved["display"]["iris_color"]),
+                ("display.base_visual_source", self._apply_base_visual_source,
+                 display["base_visual_source"] != saved["display"]["base_visual_source"]),
+                ("display.environment_overlays_enabled", self._apply_environment_overlays,
+                 display["environment_overlays_enabled"] != saved["display"]["environment_overlays_enabled"]),
+            )
+            needed = [(name, applier) for name, applier, changed in changes if changed]
+            unavailable = next((name for name, applier in needed if applier is None), None)
+            if unavailable is not None:
+                return {"ok": False, "error": f"Runtime service for {unavailable} is not ready. No settings were applied; try again shortly."}
+            baseline = RuntimeConfig.from_dict(self.active, base_dir=self.path.parent)
+            applied = []
+            try:
+                for name, applier in needed:
+                    applier(config)
+                    applied.append(name)
+            except Exception:
+                logger.exception("Eyes update failed")
+                for name, applier in needed:
+                    if name in applied:
+                        try:
+                            applier(baseline)
+                        except Exception:
+                            logger.exception("Eyes update rollback failed")
+                return {"ok": False, "error": "The running display could not accept the Eyes update. No active configuration was recorded."}
+            for name in applied:
+                key = name.rsplit(".", 1)[1]
+                display[key] = saved["display"][key]
+            if applied:
+                self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            return {"ok": True, "applied": applied}
 
     @property
     def restart_due(self):
@@ -219,6 +295,11 @@ class LifecycleService:
                 if (self.active["display"]["environment_overlays_enabled"] != saved["display"]["environment_overlays_enabled"] and self._apply_environment_overlays is None):
                     return {"ok": False, "error": "Runtime environmental overlay service is not ready. No settings were applied; retry reload shortly."}
                 backgrounds_changed = self.active["display"]["backgrounds"] != saved["display"]["backgrounds"]
+                eye_safe_changed = self.active["display"]["eye_safe_layer"] != saved["display"]["eye_safe_layer"]
+                eye_safe_paths = (changed_fields(self.active["display"]["eye_safe_layer"], saved["display"]["eye_safe_layer"],
+                                                "display.eye_safe_layer") if eye_safe_changed else [])
+                if eye_safe_changed and self._apply_eye_safe_layer is None:
+                    return {"ok": False, "error": "Runtime eye safe layer service is not ready. No settings were applied; retry reload shortly."}
                 effects_changed = self.active["display"]["state_effects"] != saved["display"]["state_effects"]
                 effect_paths = (changed_fields(self.active["display"]["state_effects"], saved["display"]["state_effects"],
                                                "display.state_effects") if effects_changed else [])
@@ -249,6 +330,10 @@ class LifecycleService:
                     saved["behavior"]["environmental"], "behavior.environmental")
                 if environmental_paths and self._apply_environmental_behavior is None:
                     return {"ok": False, "error": "Runtime environmental behavior service is not ready. No settings were applied; retry reload shortly."}
+                controller_paths = changed_fields(self.active["hardware_controller"],
+                    saved["hardware_controller"], "hardware_controller")
+                if controller_paths and self._apply_hardware_controller is None:
+                    return {"ok": False, "error": "Runtime hardware controller service is not ready. No settings were applied; retry reload shortly."}
                 if self.active["display"]["iris_color"] != saved["display"]["iris_color"]:
                     try:
                         self._apply_appearance(config)
@@ -271,6 +356,13 @@ class LifecycleService:
                         return {"ok": False, "error": "The running display could not accept the background update. No active configuration was recorded; retry reload or restart PHOS."}
                     self.active["display"]["backgrounds"] = deepcopy(saved["display"]["backgrounds"])
                     applied.extend(background_paths)
+                if eye_safe_changed:
+                    try:
+                        self._apply_eye_safe_layer(config)
+                    except Exception:
+                        return {"ok": False, "error": "The running display could not accept the eye safe layer update. No active configuration was recorded; retry reload or restart PHOS."}
+                    self.active["display"]["eye_safe_layer"] = deepcopy(saved["display"]["eye_safe_layer"])
+                    applied.extend(eye_safe_paths)
                 if effects_changed:
                     try:
                         self._apply_state_effects(config)
@@ -315,6 +407,15 @@ class LifecycleService:
                     self._apply_environmental_behavior(config)
                     self.active["behavior"]["environmental"] = deepcopy(saved["behavior"]["environmental"])
                     applied.extend(environmental_paths)
+                if controller_paths:
+                    try:
+                        self._apply_hardware_controller(config)
+                    except Exception:
+                        logging.getLogger(__name__).exception("Hardware controller reload failed")
+                        return {"ok": False, **self._snapshot(saved), "applied": applied,
+                                "error": "Hardware controller settings could not be applied. The saved configuration was retained; retry reload shortly."}
+                    self.active["hardware_controller"] = deepcopy(saved["hardware_controller"])
+                    applied.extend(controller_paths)
                 if self.active["logging"]["level"] != saved["logging"]["level"]:
                     self._set_log_level(saved["logging"]["level"])
                     self.active["logging"]["level"] = saved["logging"]["level"]
@@ -348,6 +449,25 @@ class LifecycleService:
             "application.configure_tts": lambda: self._application_service.configure_tts(payload),
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
             "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
+            "application.configure_eyes": lambda: self._application_service.configure_eyes(payload),
+            "application.controller_status": lambda: self._application_service.controller_status(),
+            "application.controller_serial_ports": lambda: self._application_service.controller_serial_ports(),
+            "application.controller_recent_messages": lambda: self._application_service.controller_recent_messages(),
+            "application.clear_controller_recent_messages": lambda: self._application_service.clear_controller_recent_messages(),
+            "application.request_admin_password_recovery": lambda: self._application_service.request_admin_password_recovery(),
+            "application.verify_admin_recovery_code": lambda: self._application_service.verify_admin_recovery_code(payload.get("code")),
+            "application.clear_admin_overlay": lambda: self._application_service.clear_admin_overlay(),
+            "application.get_admin_network_info": lambda: self._application_service.get_admin_network_info(),
+            "application.show_admin_access_overlay": lambda: self._application_service.show_admin_access_overlay(),
+            "application.configure_eye_safe_layer": lambda: self._application_service.configure_eye_safe_layer(payload),
+            "application.skins": lambda: self._application_service.skins(),
+            "application.create_skin": lambda: self._application_service.create_skin(payload),
+            "application.delete_skin": lambda: self._application_service.delete_skin(payload.get("id")),
+            "application.preview_skin": lambda: self._application_service.preview_skin(payload.get("id")),
+            "application.apply_skin": lambda: self._application_service.apply_skin(payload.get("id")),
+            "application.import_skin": lambda: self._application_service.import_skin(payload),
+            "application.export_skin": lambda: self._application_service.export_skin(payload.get("id")),
+            "application.appearance_preview": lambda: self._application_service.appearance_preview(payload),
             "application.configure_state_effects": lambda: self._application_service.configure_state_effects(payload),
             "application.background_assets": lambda: self._application_service.background_assets(),
             "application.upload_background": lambda: self._application_service.upload_background(payload),
@@ -355,6 +475,7 @@ class LifecycleService:
             "application.expression": lambda: self._application_service.set_expression(payload.get("expression")),
             "application.set_state": lambda: self._application_service.set_state(payload.get("state")),
             "application.visual_source": lambda: self._application_service.set_visual_source(payload.get("source")),
+            "application.signal_user": lambda: self._application_service.signal_user(payload.get("signal")),
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
@@ -370,5 +491,9 @@ class LifecycleService:
             document = getattr(error, "document", None)
             if document is not None:
                 return {"ok": False, **document(), "status": getattr(error, "status", 400)}
-            logging.getLogger(__name__).exception("Application service failed")
-            return {"ok": False, "error": "PHOS could not process the request.", "status": 500}
+            logging.getLogger(__name__).exception(
+                "PHOS APPLICATION: operation=%s failed exception_type=%s message=%s",
+                name, type(error).__name__, str(error)[:256])
+            return {"ok": False, "error": {"code": "internal_error",
+                    "message": "PHOS could not process the request.",
+                    "details": {"operation": name}}, "status": 500}

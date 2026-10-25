@@ -90,6 +90,9 @@ nav:
 
   - Web Admin: web-admin-overview.md
 
+  - Appearance:
+      - Creating a PHOS Skin: appearance/creating-skins.md
+
   - Documentation:
       - Documentation hub: documentation.md
       - Architecture reference: architecture.md
@@ -113,6 +116,7 @@ nav:
 
   - Releases:
       - Releases overview: releases.md
+      - PHOS 1.7.0: release-1.7.0.md
       - PHOS 1.3.0: release-1.3.0.md
       - PHOS 1.2.0: release-1.2.0.md
       - PHOS 1.1.0: release-1.1.0.md

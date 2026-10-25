@@ -20,16 +20,21 @@ _EXPRESSION_ALIASES = {
     "en": {
         "happy": ("happy",), "curious": ("curious",),
         "surprised": ("surprised",), "neutral": ("neutral", "normal"),
+        "sad": ("sad",), "angry": ("angry",), "focused": ("focused",),
+        "tired": ("tired",), "confused": ("confused",), "scared": ("scared",), "skeptical": ("skeptical",),
     },
     "it": {
         "happy": ("felice", "allegro"), "curious": ("curioso", "curiosa"),
         "surprised": ("sorpreso", "sorpresa"), "neutral": ("neutro", "neutra", "normale"),
+        "sad": ("triste",), "angry": ("arrabbiato", "arrabbiata"),
+        "focused": ("concentrato", "concentrata"), "tired": ("stanco", "stanca"),
+        "confused": ("confuso", "confusa"), "scared": ("spaventato", "spaventata"), "skeptical": ("scettico", "scettica"),
     },
 }
 _EXPRESSION_TEMPLATES = {
-    "en": ("{value}", "be {value}", "look {value}", "face {value}",
+    "en": ("{value}", "be {value}", "look {value}", "face {value}", "set expression {value}",
            "make a {value} face", "show a {value} face"),
-    "it": ("{value}", "diventa {value}", "sii {value}", "si {value}", "mostrati {value}",
+    "it": ("{value}", "diventa {value}", "sii {value}", "si {value}", "mostrati {value}", "imposta espressione {value}",
            "faccia {value}", "fai una faccia {value}", "mostra una faccia {value}",
            "fammi {value}", "torna {value}", "espressione {value}"),
 }

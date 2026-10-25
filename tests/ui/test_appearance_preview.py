@@ -1,0 +1,168 @@
+from pathlib import Path
+
+import pytest
+
+from robot.config import RuntimeConfig, load_document
+from robot.ui.appearance_preview import render_preview
+from robot.ui.eyes import EyeRenderer
+from robot.ui.eyes import upper_lid_points
+from robot.ui.state import FaceExpression, FaceState, expression_reaction_accent
+
+
+def _config(tmp_path):
+    return RuntimeConfig.from_dict(load_document(), base_dir=tmp_path, check_paths=False)
+
+
+@pytest.mark.parametrize("state", ["idle", "listening", "sleeping"])
+@pytest.mark.parametrize("expression", ["neutral", "happy", "surprised"])
+def test_preview_uses_visual_inputs_without_mutating_runtime(tmp_path, state, expression):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": state, "expression": expression,
+                                  "eye_safe_enabled": True, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": True})
+    assert svg.startswith("<svg") and "ellipse" in svg
+    assert config.to_dict()["display"]["eye_safe_layer"]["mode"] == "balanced"
+
+
+def test_preview_rejects_invalid_asset_selection_and_falls_back_when_unassigned(tmp_path):
+    config = _config(tmp_path)
+    assert "<svg" in render_preview(config, {"state": "idle", "expression": "neutral",
+                                               "eye_safe_enabled": False, "eye_safe_mode": "subtle",
+                                               "state_effects_enabled": False})
+    with pytest.raises(ValueError):
+        render_preview(config, {"state": "../../etc/passwd", "expression": "neutral"})
+
+
+def test_preview_uses_live_eye_body_color_and_expression_geometry(tmp_path):
+    config = _config(tmp_path)
+    common = {"state": "idle", "eye_safe_enabled": False, "eye_safe_mode": "balanced", "state_effects_enabled": False}
+    neutral = render_preview(config, {**common, "expression": "neutral"})
+    happy = render_preview(config, {**common, "expression": "happy"})
+    curious = render_preview(config, {**common, "expression": "curious"})
+    surprised = render_preview(config, {**common, "expression": "surprised"})
+    assert 'class="eye"' in neutral and f'fill="{EyeRenderer().render(FaceState(), timestamp=0).eye_color}"' in neutral
+    assert len({neutral, happy, curious, surprised}) == 4
+
+
+@pytest.mark.parametrize("expression", ["sad", "angry", "focused", "tired", "confused", "scared", "skeptical"])
+def test_extended_expressions_render_in_the_shared_preview(tmp_path, expression):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": expression,
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+
+    assert svg.startswith("<svg") and 'class="eye"' in svg
+
+
+@pytest.mark.parametrize("expression", ["sad", "tired", "confused", "scared", "skeptical"])
+def test_lidded_expressions_preview_draw_the_shared_internal_lid_profile(tmp_path, expression):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": expression,
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+
+    assert svg.count('class="upper-lid"') == 2
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression(expression), reaction_strength=1), timestamp=0)
+    for point in upper_lid_points(frame.eyes[0]):
+        assert f"{point[0]:.1f},{point[1]:.1f}" in svg
+
+
+def test_sad_preview_uses_the_shared_inward_gaze_profile(tmp_path):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": "sad",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression.SAD, reaction_strength=1), timestamp=0)
+
+    assert frame.eyes[0].pupil_x > frame.eyes[0].center_x
+    assert frame.eyes[1].pupil_x < frame.eyes[1].center_x
+    for eye in frame.eyes:
+        assert f'cx="{eye.pupil_x:.1f}"' in svg
+
+
+def test_focused_preview_uses_the_shared_sloped_lid_profile(tmp_path):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": "focused",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression.FOCUSED, reaction_strength=1), timestamp=0)
+
+    assert svg.count('class="upper-lid"') == 2
+    for point in upper_lid_points(frame.eyes[0]):
+        assert f"{point[0]:.1f},{point[1]:.1f}" in svg
+
+
+def test_angry_preview_uses_the_shared_inward_low_lid_profile(tmp_path):
+    config = _config(tmp_path)
+    svg = render_preview(config, {"state": "idle", "expression": "angry",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+    frame = EyeRenderer(iris_color=config.iris_color).render(
+        FaceState(expression=FaceExpression.ANGRY, reaction_strength=1), timestamp=0)
+
+    assert svg.count('class="upper-lid"') == 2
+    for point in upper_lid_points(frame.eyes[0]):
+        assert f"{point[0]:.1f},{point[1]:.1f}" in svg
+
+
+def test_preview_skips_an_invalid_lid_polygon_safely(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    monkeypatch.setattr("robot.ui.appearance_preview.upper_lid_points", lambda *_args, **_kwargs: ())
+
+    svg = render_preview(config, {"state": "idle", "expression": "sad",
+                                  "eye_safe_enabled": False, "eye_safe_mode": "balanced",
+                                  "state_effects_enabled": False})
+
+    assert svg.startswith("<svg") and 'class="upper-lid"' not in svg
+
+
+def test_preview_uses_the_behavior_expression_accent_for_eye_color(tmp_path):
+    config = _config(tmp_path)
+    common = {"state": "idle", "eye_safe_enabled": False, "eye_safe_mode": "balanced", "state_effects_enabled": False}
+
+    previews = {
+        expression: render_preview(config, {**common, "expression": expression.value})
+        for expression in (FaceExpression.NEUTRAL, FaceExpression.HAPPY,
+                           FaceExpression.CURIOUS, FaceExpression.SURPRISED)
+    }
+    live_colors = {
+        expression: EyeRenderer(iris_color=config.iris_color).render(
+            FaceState(expression=expression,
+                      accent=expression_reaction_accent(expression),
+                      reaction_strength=0 if expression is FaceExpression.NEUTRAL else 1),
+            timestamp=0,
+        ).eye_color
+        for expression in previews
+    }
+
+    for expression, svg in previews.items():
+        assert f'fill="{live_colors[expression]}"' in svg
+    assert live_colors[FaceExpression.SURPRISED] != live_colors[FaceExpression.NEUTRAL]
+    # Calls are stateless, so a new expression cannot serve stale SVG output.
+    assert previews[FaceExpression.SURPRISED] != previews[FaceExpression.NEUTRAL]
+    assert render_preview(config, {**common, "expression": "surprised"}) == previews[FaceExpression.SURPRISED]
+
+
+def test_preview_uses_the_same_custom_iris_color_as_the_renderer(tmp_path):
+    document = load_document()
+    document["display"]["iris_color"] = "#7a5cff"
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    frame = EyeRenderer(iris_color=config.iris_color).render(FaceState(), timestamp=0)
+
+    assert config.iris_color == "#7A5CFF"
+    assert f'fill="{frame.iris_color}"' in render_preview(config, {"state": "idle", "expression": "neutral"})
+
+
+def test_preview_effects_are_visible_and_ordered_before_eyes(tmp_path):
+    config = _config(tmp_path)
+    enabled = render_preview(config, {"state": "listening", "expression": "neutral",
+                                      "eye_safe_enabled": True, "eye_safe_mode": "balanced",
+                                      "state_effects_enabled": True})
+    disabled = render_preview(config, {"state": "listening", "expression": "neutral",
+                                       "eye_safe_enabled": True, "eye_safe_mode": "balanced",
+                                       "state_effects_enabled": False})
+    assert 'class="state-effect"' in enabled and 'class="state-effect"' not in disabled
+    assert enabled.index('class="state-effect"') < enabled.index('class="eye"')

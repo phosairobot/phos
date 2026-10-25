@@ -17,20 +17,23 @@ from robot.hardware.environmental import environmental_provider_type
 from robot.hardware.ccs811 import CCS811Provider
 from robot.hardware.mpu6050 import MPU6050Provider
 from robot.hardware.ws2812b import LEDRingProvider, LEDRingSocketProvider
+from robot.hardware.serial_controller import ControllerService
 from robot.motion import MotionSettings
 from robot.motion import MotionState
 from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorService,
                            AirQualitySensorProvider, AirQualitySensorService,
-                           IMUSensorProvider, IMUSensorService)
+                           IMUSensorProvider, IMUSensorService, IMUReading)
 from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalSettings, Event, EventBus,
                         RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
+from robot.core.semantic_led import SemanticLedService
 from robot.core.touch import TOUCH_EVENT, TOUCH_EVENT_NAMES, TouchStatus
 from robot.core.expression_reaction import ExpressionReactionPolicy
 from robot.core.startup import StartupReadiness, StartupState
 from robot.ui import (CameraPreviewSettings, CameraPreviewView, EyeDisplay, EyeRenderer, LEDRingController,
                       LEDRingSettings, TkEyeDisplay)
 from robot.ui.backgrounds import BackgroundResolver
+from robot.ui.eye_safe import EyeSafeResolver
 from robot.ui.state_effects import StateEffectResolver
 from robot.ui.runtime import EyeRenderLoop
 from robot.secrets import SecretsError, SecretsService
@@ -50,6 +53,7 @@ from robot.vision import (
 )
 
 from robot.vision.aws_expression import AWSExpressionProvider
+from robot.admin_access import AdminOverlayState, NetworkInfoService, QRMatrixCache
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +79,18 @@ class PhosRuntime:
         startup: Optional[StartupReadiness] = None,
         voice_session: Optional[VoiceCaptureSession] = None,
         interaction_coordinator: Optional[InteractionCoordinator] = None,
+        controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
         self._eye_render_loop = eye_render_loop
+        self._admin_network = NetworkInfoService(config.web_port) if config is not None else None
+        self._admin_qr = QRMatrixCache()
         self._vision_pipeline = vision_pipeline
         self._config = config
         self._state_effects = StateEffectResolver(config) if config is not None else None
+        self._eye_safe = EyeSafeResolver(config) if config is not None else None
         self._vision_forced = vision_forced
         self._sensor_service = sensor_service
         self._air_quality_service = air_quality_service
@@ -94,6 +102,8 @@ class PhosRuntime:
         self._ready_sound_played = False
         self._voice_session = voice_session
         self._interaction_coordinator = interaction_coordinator
+        self._controller = controller
+        self._semantic_led = semantic_led
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
@@ -101,6 +111,7 @@ class PhosRuntime:
                                           "available": False, "reason": "disabled"}
         self._tts_lock = asyncio.Lock()
         self._speech_task: asyncio.Task | None = None
+        self._touch_voice_task: asyncio.Task | None = None
         self._next_speech_request_id = 0
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
         self._environmental_interpreter = None
@@ -139,6 +150,85 @@ class PhosRuntime:
         """Apply validated appearance through the display runtime boundary."""
         self._eye_render_loop.request_appearance(iris_color=config.iris_color)
 
+    def admin_overlay_available(self) -> bool:
+        """Return whether the physical display can safely receive local secrets."""
+        return self._eye_render_loop.admin_overlay_available
+
+    def show_recovery_code(self, code: str, expires_at: float) -> None:
+        """Show a recovery code locally, through the display-loop handoff only."""
+        if not self.admin_overlay_available():
+            raise RuntimeError("Recovery display is unavailable.")
+        self._eye_render_loop.request_admin_overlay(AdminOverlayState.recovery(code, expires_at))
+
+    def clear_admin_overlay(self) -> None:
+        """Remove any local administrative layer; safe when already hidden."""
+        self._eye_render_loop.clear_admin_overlay()
+
+    def admin_network_info(self) -> dict:
+        """Read the cached local-LAN address without exposing device internals."""
+        if self._admin_network is None:
+            return {"hostname": None, "ip_address": None, "interface": None, "port": None,
+                    "admin_url": None, "status": "unavailable"}
+        return self._admin_network.info().document()
+
+    def show_admin_access_overlay(self) -> None:
+        """Render the LAN-only Admin URL and its QR representation locally."""
+        if not self.admin_overlay_available():
+            raise RuntimeError("Admin display is unavailable.")
+        info = self._admin_network.info() if self._admin_network is not None else None
+        if info is None or not info.connected or info.admin_url is None:
+            raise RuntimeError("Admin network is unavailable.")
+        matrix = self._admin_qr.matrix(info.admin_url)
+        self._eye_render_loop.request_admin_overlay(AdminOverlayState.admin_access(info.admin_url, matrix))
+        logger.info("PHOS ADMIN: access overlay opened")
+
+    def handle_admin_touch(self, event) -> bool:
+        """Handle the local-only administrative gesture without semantic state changes."""
+        overlay = self._eye_render_loop.admin_overlay
+        if overlay.mode != "hidden":
+            if overlay.mode == "admin_access" and event.kind.value == "tap":
+                self.clear_admin_overlay()
+                logger.info("PHOS ADMIN: access overlay closed")
+            return True
+        if (event.kind.value == "long_press" and event.duration_ms >= 2500
+                and event.normalized_x >= .80 and event.normalized_y <= .20):
+            try:
+                self.show_admin_access_overlay()
+            except RuntimeError:
+                return False
+            return True
+        return False
+
+    def handle_voice_touch(self, event) -> bool:
+        """Queue the one supported physical voice toggle through VoiceCaptureSession."""
+        if event.kind.value != "tap" or event.normalized_x > .20 or event.normalized_y > .20:
+            return False
+        if self._eye_render_loop.admin_overlay.mode != "hidden":
+            return True
+        if getattr(self, "_touch_voice_task", None) is not None and not self._touch_voice_task.done():
+            logger.debug("PHOS VOICE: top-left tap ignored reason=operation_pending")
+            return True
+        state = self.core.state
+        if state is RobotState.IDLE:
+            operation = self.start_listening
+            label = "start"
+        elif state is RobotState.LISTENING:
+            operation = lambda: self.stop_listening(cancelled=True)
+            label = "stop"
+        else:
+            logger.debug("PHOS VOICE: top-left tap ignored state=%s", state.value)
+            return True
+        logger.debug("PHOS VOICE: top-left tap recognized operation=%s", label)
+        self._touch_voice_task = asyncio.create_task(self._run_touch_voice_operation(operation, label),
+                                                      name=f"touch-voice-{label}")
+        return True
+
+    async def _run_touch_voice_operation(self, operation, label: str) -> None:
+        try:
+            await operation()
+        except Exception as error:
+            logger.debug("PHOS VOICE: top-left operation=%s failed type=%s", label, type(error).__name__)
+
     def apply_backgrounds(self, config: RuntimeConfig) -> None:
         """Apply an already-validated state-background configuration live."""
         self._eye_render_loop.request_backgrounds(BackgroundResolver(config))
@@ -146,6 +236,10 @@ class PhosRuntime:
     def apply_state_effects(self, config: RuntimeConfig) -> None:
         self._state_effects = StateEffectResolver(config)
         self._eye_render_loop.request_state_effects(self._state_effects)
+
+    def apply_eye_safe_layer(self, config: RuntimeConfig) -> None:
+        self._eye_safe = EyeSafeResolver(config)
+        self._eye_render_loop.request_eye_safe_layer(self._eye_safe)
 
     def apply_imu_behavior(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_imu_reactions(
@@ -176,6 +270,29 @@ class PhosRuntime:
             settings = replace(settings, led_count=active.led_ring_led_count, gpio_pin=active.led_ring_gpio_pin)
         self._led_ring_controller.configure(settings)
 
+    def apply_hardware_controller(self, config: RuntimeConfig) -> None:
+        """Hand validated connection changes to the one running controller service."""
+        if self._controller is None:
+            raise RuntimeError("Hardware controller service is not configured")
+        loop = self._loop
+        if loop is None or not self._started or self._stopping:
+            raise RuntimeError("Hardware controller service is not running")
+        try:
+            caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            caller_loop = None
+        if caller_loop is loop:
+            raise RuntimeError("Hardware controller reload must use the lifecycle thread")
+        future = asyncio.run_coroutine_threadsafe(self._controller.reconfigure(
+            enabled=config.hardware_controller_enabled,
+            device=config.hardware_controller_serial_device,
+            baud_rate=config.hardware_controller_serial_baud_rate,
+            reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
+            heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
+            heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
+        ), loop)
+        future.result()
+
     def sensor_status(self) -> dict:
         """Read-only application boundary, safe for the lifecycle thread."""
         state = {"environmental": self._sensor_service.snapshot()} if self._sensor_service is not None else {}
@@ -191,6 +308,33 @@ class PhosRuntime:
                                                 "temperature_overlay": self._environmental_interpreter.temperature_overlay.value,
                                                 "air_quality_overlay": self._environmental_interpreter.air_quality_overlay.value}
         return state
+
+    def controller_status(self) -> dict:
+        return self._controller.status() if self._controller is not None else {"state": "disabled", "configured_device": None,
+                                                                                "active_device": None, "protocol": None,
+                                                                                "last_activity": None, "last_heartbeat": None, "capabilities": None,
+                                                                                "active_capabilities": None,
+                                                                                "session_generation": 0}
+
+    def led_status(self) -> dict:
+        status = self._semantic_led.status() if self._semantic_led is not None else {"active_intent": None, "winning_source": None, "resolved_animation": None}
+        status["available"] = bool(self._controller and self._controller.led_output_available())
+        return status
+
+    async def signal_user(self, signal: str) -> dict:
+        if self._semantic_led is None: raise RuntimeError("Semantic LED service is unavailable")
+        await self._semantic_led.signal_user(signal)
+        return self.led_status()
+
+    def controller_serial_ports(self) -> list[dict]:
+        return ControllerService.serial_ports()
+
+    def controller_recent_messages(self) -> list[dict]:
+        return self._controller.recent_messages() if self._controller is not None else []
+
+    def clear_controller_recent_messages(self) -> None:
+        if self._controller is not None:
+            self._controller.clear_recent_messages()
 
     def application_status(self) -> dict:
         """Read-only semantic status boundary for local adapters.
@@ -215,6 +359,8 @@ class PhosRuntime:
             "active_visual_source": self._behavior_engine.base_visual_source,
             "environment": sensors.get("environmental", {"status": "unavailable", "available": False}),
             "motion": sensors.get("imu", {"status": "unavailable", "available": False}),
+            "controller": self.controller_status(),
+            "semantic_led": self.led_status(),
             "startup": self._startup.document(),
             "touch": self.touch_status(),
             "voice": self.voice_status(),
@@ -776,6 +922,10 @@ def build_runtime(
         runtime = runtime_holder.get("runtime")
         if not config.touch_enabled or runtime is None or not runtime._started:
             return
+        if runtime.handle_admin_touch(event):
+            return
+        if runtime.handle_voice_touch(event):
+            return
         payload = {"kind": event.kind.value, "x": event.x, "y": event.y,
                    "normalized_x": event.normalized_x, "normalized_y": event.normalized_y,
                    "duration_ms": event.duration_ms}
@@ -784,6 +934,60 @@ def build_runtime(
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT, payload)))
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 
+    controller_sensors = {}
+    def accept_controller_sensor(name, value):
+        if name in {"temperature", "pressure", "humidity"}:
+            if config.environmental_provider == "controller":
+                controller_sensors["environmental"].accept_controller_update(name, value)
+        elif name in {"eco2", "tvoc"} and config.ccs811_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value)
+
+    def controller_provider_disconnected():
+        if config.environmental_provider == "controller":
+            controller_sensors["environmental"].mark_external_unavailable()
+        if config.ccs811_provider == "controller":
+            controller_sensors["air_quality"].mark_external_unavailable()
+        if config.imu_provider == "controller":
+            controller_sensors["imu"].mark_external_unavailable()
+
+    def accept_controller_imu(message):
+        if config.imu_provider != "controller":
+            return
+        imu = controller_sensors["imu"]
+        if message.type == "motion_update":
+            states = {"stationary": MotionState.STILL, "moving": MotionState.MOVING,
+                      "tilt_left": MotionState.TILT_LEFT, "tilt_right": MotionState.TILT_RIGHT,
+                      "tilt_forward": MotionState.TILT_FORWARD, "tilt_backward": MotionState.TILT_BACK,
+                      "shake": MotionState.SHAKE, "impact": MotionState.IMPACT}
+            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"])
+        elif message.type == "orientation_update":
+            acceleration, angular = message.payload["acceleration_m_s2"], message.payload["angular_velocity_dps"]
+            imu.accept_controller_orientation(IMUReading(acceleration["x"], acceleration["y"], acceleration["z"],
+                                                         angular["x"], angular["y"], angular["z"]))
+
+    semantic_led_holder = {}
+    def controller_led_capabilities_changed():
+        service = semantic_led_holder.get("service")
+        if service is not None:
+            logger.debug("PHOS SEMANTIC LED: capability callback scheduling reapply")
+            asyncio.create_task(service.reapply(reason="controller_capabilities"))
+
+    controller = ControllerService(
+        core, enabled=config.hardware_controller_enabled,
+        device=config.hardware_controller_serial_device,
+        baud_rate=config.hardware_controller_serial_baud_rate,
+        reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
+        heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
+        heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
+        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
+        imu_update_sink=accept_controller_imu,
+        provider_disconnected_sink=controller_provider_disconnected,
+        led_capabilities_sink=controller_led_capabilities_changed,
+    )
+    semantic_led = SemanticLedService(core.events, controller.set_led_animation,
+                                      lambda: behavior_engine.robot_state)
+    semantic_led_holder["service"] = semantic_led
+
     def startup_view() -> dict:
         view = startup.document()
         splash_image = config.resolve_startup_splash_image()
@@ -791,6 +995,7 @@ def build_runtime(
                           "title": config.startup_splash_title, "subtitle": config.startup_splash_subtitle}
         return view
     background_resolver = BackgroundResolver(config)
+    eye_safe_resolver = EyeSafeResolver(config)
     state_effect_resolver = StateEffectResolver(config)
     eye_render_loop = EyeRenderLoop(
         EyeRenderer(width=config.display_width, height=config.display_height,
@@ -807,11 +1012,14 @@ def build_runtime(
         background_resolver=background_resolver,
         robot_state_supplier=lambda: behavior_engine.robot_state,
         state_effect_resolver=state_effect_resolver,
+        eye_safe_resolver=eye_safe_resolver,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)
     core.add_behavior(behavior_engine)
     core.add_behavior(eye_render_loop)
+    core.add_behavior(semantic_led)
+    core.add_behavior(controller)
     runtime_holder = {}
     environmental_interpreter = EnvironmentalInterpreter(
         _environmental_settings(config),
@@ -835,8 +1043,9 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_environmental(reading.temperature_c, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="environmental", status=status),
+        externally_managed=config.environmental_provider == "controller",
     )
-    if config.environmental_enabled:
+    if config.environmental_enabled and config.environmental_provider == "local":
         logger.info("%s enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.environmental_type.upper(), config.environmental_i2c_address, config.environmental_poll_interval_seconds)
     air_quality = AirQualitySensorService(
@@ -847,8 +1056,9 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="air_quality", status=status),
+        externally_managed=config.ccs811_provider == "controller",
     )
-    if config.ccs811_enabled:
+    if config.ccs811_enabled and config.ccs811_provider == "local":
         logger.info("CCS811 enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.ccs811_i2c_address, config.ccs811_poll_interval_seconds)
     imu = IMUSensorService(
@@ -858,10 +1068,12 @@ def build_runtime(
         stale_after_seconds=config.imu_stale_after_seconds,
         motion_settings=_motion_settings(config),
         motion_state_sink=lambda state: runtime_holder["runtime"].publish_motion_state(state),
+        externally_managed=config.imu_provider == "controller",
     )
-    if config.imu_enabled:
+    if config.imu_enabled and config.imu_provider == "local":
         logger.info("MPU-6050 enabled: I2C bus 1, address %s, polling every %s seconds",
                     config.imu_i2c_address, config.imu_poll_interval_seconds)
+    controller_sensors.update(environmental=sensors, air_quality=air_quality, imu=imu)
     led_ring = LEDRingController(
         _led_settings(config), lambda: behavior_engine.face_state,
         led_ring_provider_factory if led_ring_provider_factory is not None else
@@ -871,7 +1083,7 @@ def build_runtime(
                        config=config, vision_forced=injected_vision, sensor_service=sensors,
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
-                       interaction_coordinator=interaction,
+                       interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._secrets_service = secrets_service
     # Compose once after the runtime exists, since the application service owns

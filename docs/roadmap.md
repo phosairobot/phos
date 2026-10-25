@@ -1,5 +1,33 @@
 # PHOS roadmap
 
+## Current feature status — Expanded Eye Expressions
+
+- [x] Expanded Eye Expressions: canonical, manually selectable neutral, happy,
+  curious, surprised, sad, angry, focused, tired, confused, scared and
+  skeptical profiles are implemented. Live Tk rendering and Appearance Preview
+  share the same profile/geometry path; custom iris colors remain supported.
+- [x] Manual expression selection is persistent until explicitly replaced and
+  remains separate from `RobotState`.
+- [ ] Next milestone: Semantic PHOS Capabilities.
+
+FURIOUS and expression intensity are not implemented in this milestone.
+
+## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
+
+- [x] Generic, bounded `phos-hw` v1 JSON Lines serial transport with capability
+  discovery, heartbeats, reconnect lifecycle, and actionable protocol errors.
+- [x] Controller-backed environmental, air-quality, and IMU providers that
+  preserve the existing semantic sensor-service boundaries and avoid duplicate
+  local I2C polling when selected.
+- [x] Hardware Controller Web Admin configuration, read model, and bounded
+  diagnostics through the existing application/lifecycle boundary.
+- [x] Capability-aware LED command transport and semantic LED arbitration,
+  including controller-session reapply and transient semantic API signals.
+- [x] Validated LED animation direction/mode/origin contract semantics without
+  exposing raw hardware commands through the Remote API.
+- [ ] Complete physical acceptance with the selected external controller and
+  matching firmware for each deployed hardware configuration.
+
 ## PHOS 1.6.0 — Multilingual Interaction & Command Layer
 
 - [x] Provider-neutral interaction contracts, conservative language-tag handling,

@@ -16,8 +16,10 @@ from .display import CameraPreviewSettings, CameraPreviewView, EyeDisplay
 from .backgrounds import BackgroundAsset, BackgroundResolver
 from .eyes import EyeRenderer
 from .state_effects import StateEffectParams, StateEffectResolver
+from .eye_safe import EyeSafeParams, EyeSafeResolver
 from .state import FaceState
 from robot.core.startup import StartupState
+from robot.admin_access import AdminOverlayState
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,7 @@ class EyeRenderLoop(Behavior):
         background_resolver: Optional[BackgroundResolver] = None,
         robot_state_supplier: Optional[Callable[[], object]] = None,
         state_effect_resolver: Optional[StateEffectResolver] = None,
+        eye_safe_resolver: Optional[EyeSafeResolver] = None,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive.")
@@ -64,6 +67,8 @@ class EyeRenderLoop(Behavior):
         self._pending_background_resolver: Optional[BackgroundResolver] = None
         self._state_effect_resolver = state_effect_resolver
         self._pending_state_effect_resolver: Optional[StateEffectResolver] = None
+        self._eye_safe_resolver = eye_safe_resolver
+        self._pending_eye_safe_resolver: Optional[EyeSafeResolver] = None
         self._effect_dimensions = None
         self._state_effect_prewarm_handle = None
         self._task: Optional[asyncio.Task[None]] = None
@@ -72,6 +77,47 @@ class EyeRenderLoop(Behavior):
         self._appearance_ready = False
         self._pending_iris_color: Optional[str] = None
         self._pending_preview_settings: Optional[CameraPreviewSettings] = None
+        self._admin_overlay = AdminOverlayState()
+
+    @property
+    def admin_overlay_available(self) -> bool:
+        """Whether the local display loop can safely accept secret content."""
+        with self._appearance_lock:
+            return self._appearance_ready and self._loop is not None
+
+    @property
+    def admin_overlay(self) -> AdminOverlayState:
+        """Local state for runtime/display tests; never publish this remotely."""
+        return self._admin_overlay
+
+    def request_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        """Queue an administrative layer update on the existing display loop."""
+        if not isinstance(overlay, AdminOverlayState):
+            raise ValueError("Admin overlay is invalid.")
+        with self._appearance_lock:
+            if not self._appearance_ready or self._loop is None:
+                raise RuntimeError("Display is unavailable.")
+            loop = self._loop
+        loop.call_soon_threadsafe(self._set_admin_overlay, overlay)
+
+    def clear_admin_overlay(self) -> None:
+        """Drop secret overlay content even if the display has gone away."""
+        hidden = AdminOverlayState()
+        with self._appearance_lock:
+            if not self._appearance_ready or self._loop is None:
+                # No Tk operation is attempted here.  Clearing this in-memory
+                # reference is safe from a lifecycle thread and ensures a dead
+                # display cannot retain a recovery code in runtime state.
+                self._admin_overlay = hidden
+                return
+            loop = self._loop
+        loop.call_soon_threadsafe(self._set_admin_overlay, hidden)
+
+    def _set_admin_overlay(self, overlay: AdminOverlayState) -> None:
+        self._admin_overlay = overlay
+        setter = getattr(self._display, "set_admin_overlay", None)
+        if callable(setter):
+            setter(overlay)
 
     def request_appearance(self, *, iris_color: str) -> None:
         """Queue a style update onto the display loop; safe from lifecycle threads."""
@@ -107,6 +153,14 @@ class EyeRenderLoop(Behavior):
                 return
             loop = self._loop
         loop.call_soon_threadsafe(self._replace_state_effect_resolver, resolver)
+
+    def request_eye_safe_layer(self, resolver: EyeSafeResolver) -> None:
+        with self._appearance_lock:
+            if not self._appearance_ready or self._loop is None:
+                self._pending_eye_safe_resolver = resolver
+                return
+            loop = self._loop
+        loop.call_soon_threadsafe(setattr, self, "_eye_safe_resolver", resolver)
 
     def _replace_state_effect_resolver(self, resolver: StateEffectResolver) -> None:
         self._state_effect_resolver = resolver
@@ -173,6 +227,11 @@ class EyeRenderLoop(Behavior):
                 self._pending_state_effect_resolver = None
             if pending_effects is not None:
                 self._replace_state_effect_resolver(pending_effects)
+            with self._appearance_lock:
+                pending_eye_safe = self._pending_eye_safe_resolver
+                self._pending_eye_safe_resolver = None
+            if pending_eye_safe is not None:
+                self._eye_safe_resolver = pending_eye_safe
             initial = self._renderer.render(self._state_supplier(), timestamp=time.monotonic())
             self._display.open(initial.width, initial.height, fullscreen=self._fullscreen)
             if self._touch_handler is not None and hasattr(self._display, "set_touch_handler"):
@@ -241,6 +300,10 @@ class EyeRenderLoop(Behavior):
             await asyncio.sleep(max(0.0, self._frame_interval - (time.monotonic() - started_at)))
 
     def _draw(self, frame, preview=None, *, timestamp=None) -> None:
+        if self._admin_overlay.expired(timestamp if timestamp is not None else time.monotonic()):
+            # The expiration instant comes from RecoveryState; this only drops
+            # the local presentation copy once that authoritative deadline is reached.
+            self._set_admin_overlay(AdminOverlayState())
         self._effect_dimensions = (frame.width, frame.height)
         if self._startup_supplier is not None:
             startup = self._startup_supplier()
@@ -251,18 +314,20 @@ class EyeRenderLoop(Behavior):
                                            image_path=splash.get("image"), title=splash.get("title", "PHOS"), subtitle=splash.get("subtitle", "Starting..."))
                 return
         effect = self._state_effect()
+        eye_safe = self._eye_safe()
+        safe_kwargs = {"eye_safe": eye_safe} if eye_safe.enabled else {}
         effect_kwargs = ({"state_effect": effect, "effect_timestamp": timestamp or 0.0}
                          if effect.intensity > 0 else {})
         if self._preview_settings.enabled:
             background = self._background()
             if background.available:
-                self._display.draw(frame, preview, self._preview_settings, background=background, **effect_kwargs)
+                self._display.draw(frame, preview, self._preview_settings, background=background, **safe_kwargs, **effect_kwargs)
             else:
                 self._display.draw(frame, preview, self._preview_settings, **effect_kwargs)
         else:
             background = self._background()
             if background.available:
-                self._display.draw(frame, background=background, **effect_kwargs)
+                self._display.draw(frame, background=background, **safe_kwargs, **effect_kwargs)
             else:
                 # Preserve the legacy call exactly while backgrounds are disabled
                 # or no state image is usable.
@@ -273,6 +338,9 @@ class EyeRenderLoop(Behavior):
             return StateEffectParams("idle")
         state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
         return self._state_effect_resolver.resolve(state)
+
+    def _eye_safe(self) -> EyeSafeParams:
+        return self._eye_safe_resolver.resolve() if self._eye_safe_resolver is not None else EyeSafeParams()
 
     def _background(self) -> BackgroundAsset:
         """Resolve only on semantic state changes, never in EyeRenderer."""

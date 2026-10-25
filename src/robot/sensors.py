@@ -14,7 +14,7 @@ from threading import Event, Lock, Thread
 import time
 from typing import Callable, Protocol
 
-from robot.motion import MotionInterpreter, MotionSettings, tilt_direction
+from robot.motion import MotionInterpreter, MotionSettings, MotionState, tilt_direction
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,8 @@ class _SensorService:
                  enabled: bool, poll_interval_seconds: float, stale_after_seconds: float,
                  sensor_type="bme280",
                  available_measurements=("temperature_c", "humidity_percent", "pressure_hpa"),
-                 reading_sink=lambda reading, now: None, unavailable_sink=lambda status: None, clock=time.monotonic):
+                 reading_sink=lambda reading, now: None, unavailable_sink=lambda status: None, clock=time.monotonic,
+                 externally_managed=False):
         self._sensor_type = sensor_type
         self._measurements = tuple(available_measurements)
         self._factory = provider_factory
@@ -132,6 +133,7 @@ class _SensorService:
         self._clock = clock
         self._reading_sink = reading_sink
         self._unavailable_sink = unavailable_sink
+        self._externally_managed = externally_managed
         self._lock = Lock()
         self._stop = Event()
         self._thread = None
@@ -145,6 +147,11 @@ class _SensorService:
 
     async def start(self):
         if not self._enabled:
+            return
+        if self._externally_managed:
+            with self._lock:
+                self._started_at = self._clock()
+                self._status = "starting"
             return
         if self._thread is not None and self._thread.is_alive():
             raise RuntimeError("Sensor service is already running or still stopping")
@@ -182,14 +189,34 @@ class _SensorService:
             elif status == "warming_up" and self._last_poll is not None and self._clock() - self._last_poll >= self._stale_after:
                 status, error = "unavailable", "Sensor readiness polling stopped"
             available = status == "available"
+            measurements = (dict(self._reading) if isinstance(self._reading, dict)
+                            else asdict(self._reading) if available else None)
             return {"sensor_type": self._sensor_type,
                     "available_measurements": list(self._measurements), "status": status, "available": available,
-                    "measurements": asdict(self._reading) if available else None,
+                    "measurements": measurements,
                     "last_update": self._updated_at, "age_seconds": age, "error": error,
                     **self._snapshot_details(status)}
 
     def _snapshot_details(self, status):
         return {}
+
+    def _accept_external_fields(self, values: dict[str, object]) -> None:
+        """Merge a controller push into this service's existing snapshot state."""
+        with self._lock:
+            current = dict(self._reading) if isinstance(self._reading, dict) else {}
+            current.update(values)
+            self._reading = current
+            self._sample_time = self._clock()
+            self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._status, self._error = "available", None
+
+    def mark_external_unavailable(self) -> None:
+        """Reflect controller loss through the normal sensor availability boundary."""
+        with self._lock:
+            if not self._externally_managed or not self._enabled:
+                return
+            self._status, self._error = "unavailable", "External sensor provider disconnected"
+        self._unavailable_sink("unavailable")
 
     @staticmethod
     def _close(provider):
@@ -281,6 +308,26 @@ class EnvironmentalSensorService(_SensorService):
             raise ValueError("Provider humidity does not match configured capabilities")
         return reading
 
+    def accept_controller_update(self, name: str, value: float) -> None:
+        field = {"temperature": "temperature_c", "pressure": "pressure_hpa", "humidity": "humidity_percent"}[name]
+        self._accept_external_fields({field: value})
+        measurements = self.snapshot()["measurements"]
+        if measurements is None or not {"temperature_c", "pressure_hpa"} <= measurements.keys():
+            return
+        reading = EnvironmentalReading(measurements["temperature_c"],
+                                      measurements.get("humidity_percent"),
+                                      measurements["pressure_hpa"])
+        try:
+            # Match the local-provider callback contract: a complete typed
+            # environmental reading, never an individual controller scalar.
+            self._reading_sink(reading, self._clock())
+        except Exception as error:
+            # The semantic snapshot is already valid. Do not turn a UI/event
+            # notification failure into a rejected controller sample.
+            logger.warning("Environmental controller notification failure field=%s exception=%s message=%s",
+                           field, type(error).__name__, str(error)[:240])
+            logger.debug("Environmental controller notification traceback", exc_info=True)
+
     def compensation(self) -> EnvironmentalCompensation | None:
         """Only fresh, available temperature AND humidity may cross services."""
         state = self.snapshot()
@@ -299,12 +346,12 @@ class AirQualitySensorService(_SensorService):
     def __init__(self, provider_factory: Callable[[], AirQualitySensorProvider], *,
                  enabled, poll_interval_seconds, stale_after_seconds,
                  compensation_supplier=lambda: None, reading_sink=lambda reading, now: None,
-                 unavailable_sink=lambda status: None, clock=time.monotonic):
+                 unavailable_sink=lambda status: None, clock=time.monotonic, externally_managed=False):
         super().__init__(provider_factory, enabled=enabled,
                          poll_interval_seconds=poll_interval_seconds,
                          stale_after_seconds=stale_after_seconds, sensor_type="ccs811",
                          available_measurements=("eco2_ppm", "tvoc_ppb"), reading_sink=reading_sink,
-                         unavailable_sink=unavailable_sink, clock=clock)
+                         unavailable_sink=unavailable_sink, clock=clock, externally_managed=externally_managed)
         self._compensation_supplier = compensation_supplier
         self._compensation_source = None
 
@@ -328,21 +375,29 @@ class AirQualitySensorService(_SensorService):
         return {"compensation_input": self._compensation_source
                 if status in {"available", "warming_up"} else None}
 
+    def accept_controller_update(self, name: str, value: int) -> None:
+        field = {"eco2": "eco2_ppm", "tvoc": "tvoc_ppb"}[name]
+        self._accept_external_fields({field: value})
+        measurements = self.snapshot()["measurements"]
+        if measurements is not None and {"eco2_ppm", "tvoc_ppb"} <= measurements.keys():
+            self._reading_sink(AirQualityReading(measurements["eco2_ppm"], measurements["tvoc_ppb"]), self._clock())
 
 class IMUSensorService(_SensorService):
     _label = "IMU sensor"
 
     def __init__(self, provider_factory: Callable[[], IMUSensorProvider], *,
                  enabled, poll_interval_seconds, stale_after_seconds, motion_settings: MotionSettings,
-                 motion_state_sink=lambda state: None, clock=time.monotonic):
+                 motion_state_sink=lambda state: None, clock=time.monotonic, externally_managed=False):
         super().__init__(provider_factory, enabled=enabled,
                          poll_interval_seconds=poll_interval_seconds,
                          stale_after_seconds=stale_after_seconds, sensor_type="mpu6050",
                          available_measurements=("acceleration_x_m_s2", "acceleration_y_m_s2", "acceleration_z_m_s2",
                                                  "angular_velocity_x_deg_s", "angular_velocity_y_deg_s",
-                                                 "angular_velocity_z_deg_s"), clock=clock)
+                                                 "angular_velocity_z_deg_s"), clock=clock,
+                         externally_managed=externally_managed)
         self._motion = MotionInterpreter(motion_settings)
         self._motion_state = None
+        self._motion_intensity = None
         self._motion_last_event = None
         self._motion_state_sink = motion_state_sink
 
@@ -366,10 +421,29 @@ class IMUSensorService(_SensorService):
             self._motion_state_sink(state)
         return reading
 
+    def accept_controller_orientation(self, reading: IMUReading) -> None:
+        if not isinstance(reading, IMUReading):
+            raise ValueError("Controller orientation must be an IMU reading")
+        self._accept_external_fields(asdict(reading))
+
+    def accept_controller_motion(self, state: MotionState, intensity: str) -> None:
+        if not isinstance(state, MotionState) or intensity not in {"low", "medium", "high"}:
+            raise ValueError("Invalid controller semantic motion")
+        now = self._clock()
+        with self._lock:
+            changed = state is not self._motion_state
+            self._motion_state, self._motion_intensity = state, intensity
+            self._motion_last_event = {"state": state.value,
+                                       "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        self._accept_external_fields({})
+        if changed:
+            self._motion_state_sink(state)
+
     def _snapshot_details(self, status):
         active = status == "available"
         state = self._motion_state if active else None
         return {"calibration": "factory_scale_only" if status in {"available", "starting"} else None,
                 "motion_state": state.value if state is not None else None,
+                "motion_intensity": self._motion_intensity if active else None,
                 "tilt_direction": tilt_direction(state) if state is not None else None,
                 "last_motion_event": self._motion_last_event if active else None}

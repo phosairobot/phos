@@ -15,6 +15,13 @@ class FaceExpression(str, Enum):
     SURPRISED = "surprised"
     SLEEPY = "sleepy"
     WORRIED = "worried"
+    SAD = "sad"
+    ANGRY = "angry"
+    FOCUSED = "focused"
+    TIRED = "tired"
+    CONFUSED = "confused"
+    SCARED = "scared"
+    SKEPTICAL = "skeptical"
 
 
 class VisualAccent(str, Enum):
@@ -27,6 +34,21 @@ class VisualAccent(str, Enum):
     ALERT = "alert"
     SLEEPY = "sleepy"
     ERROR = "error"
+
+
+def expression_reaction_accent(expression: FaceExpression) -> VisualAccent:
+    """Return the visual accent used for an explicit expression reaction.
+
+    This is semantic visual intent, shared by BehaviorEngine's expression
+    reactions and non-mutating visual representations such as the appearance
+    preview. Robot states may still select a different accent for the same
+    expression when they have a distinct meaning.
+    """
+    return {
+        FaceExpression.HAPPY: VisualAccent.CURIOUS,
+        FaceExpression.CURIOUS: VisualAccent.CURIOUS,
+        FaceExpression.SURPRISED: VisualAccent.ALERT,
+    }.get(expression, VisualAccent.NEUTRAL)
 
 
 class EnvironmentalLEDIntent(str, Enum):

@@ -1,6 +1,19 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>{{ page.title }}</h2><p>{{ page.description }}</p>
+{% if area == 'controller' %}
+<p><a class="secondary-action" href="{{ url_for('configuration', area='controller') }}">Refresh Ports</a></p>
+<section class="status" aria-label="External hardware controller status"><h3>Connection status</h3><dl>
+<dt>State</dt><dd data-controller-status="state">{{ controller_status.state if controller_status else 'Unavailable' }}</dd>
+<dt>Configured device</dt><dd data-controller-status="configured_device">{{ controller_status.configured_device if controller_status else 'Unavailable' }}</dd>
+<dt>Active device</dt><dd data-controller-status="active_device">{{ controller_status.active_device or 'None' if controller_status else 'Unavailable' }}</dd>
+<dt>Protocol</dt><dd data-controller-status="protocol">{{ controller_status.protocol or 'No valid controller message received' if controller_status else 'Unavailable' }}</dd>
+<dt>Last heartbeat</dt><dd data-controller-status="last_heartbeat">{{ controller_status.last_heartbeat or 'None' if controller_status else 'Unavailable' }}</dd>
+<dt>Capabilities</dt><dd>{% set capabilities = controller_status.capabilities if controller_status else none %}{% if capabilities %}<ul>{% for capability in capabilities.get('capabilities', capabilities.get('sensors', [])) %}<li>{{ capability | replace('_', ' ') | title }}</li>{% endfor %}{% if capabilities.get('led', {}).get('count') is not none %}<li>LED — {{ capabilities.get('led', {}).get('count') }} pixels</li>{% elif not capabilities.get('capabilities', capabilities.get('sensors', [])) %}<li>{{ capabilities }}</li>{% endif %}</ul>{% else %}None reported{% endif %}</dd></dl></section>
+<section class="status" aria-label="Recent controller messages" data-controller-diagnostics data-endpoint="{{ url_for('controller_diagnostics') }}"><h3>Recent messages</h3><p>Bounded in-memory diagnostics; heartbeat messages are retained but hidden below by default.</p>
+<div class="controller-diagnostic-filters" data-controller-filters><label>Type <select name="message_type"><option value="">All</option>{% for type in controller_filter.types | default([]) %}<option value="{{ type }}" {{ 'selected' if controller_filter.type == type else '' }}>{{ type }}</option>{% endfor %}</select></label><label>Direction <select name="direction"><option value="">RX and TX</option><option value="RX" {{ 'selected' if controller_filter.direction == 'RX' else '' }}>RX</option><option value="TX" {{ 'selected' if controller_filter.direction == 'TX' else '' }}>TX</option></select></label><label><input type="checkbox" name="show_heartbeat" value="1" {{ 'checked' if controller_filter.show_heartbeat else '' }}> Show heartbeat</label><div class="controller-diagnostic-actions"><button class="secondary-action" type="button" data-controller-filter>Filter</button><form method="post" action="{{ url_for('clear_controller_diagnostics') }}" data-controller-clear><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-action" type="submit">Clear diagnostics</button></form></div></div>
+<div class="controller-message-scroll" data-controller-message-scroll><table><thead><tr><th>Time</th><th>Direction</th><th>Type</th><th>Summary</th></tr></thead><tbody data-controller-message-rows>{% for message in controller_messages %}<tr><td>{{ message.timestamp }}</td><td>{{ message.direction }}</td><td>{{ message.type }}</td><td>{{ message.summary }}{% if message.raw %}<details><summary>Raw</summary><pre>{{ message.raw }}</pre></details>{% endif %}</td></tr>{% else %}<tr><td colspan="4">No controller messages matching this filter.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
 {% if area in ('general', 'status', 'sensors', 'controls') %}
 <section id="phos-operations" class="status live-dashboard" data-phos-live aria-label="Live PHOS status">
 <div class="section-heading"><div><p class="eyebrow">LIVE OPERATIONS</p><h3>Current PHOS Status</h3></div><div class="status-heading-side"><span class="status-pulse">● Semantic runtime</span>{% if area == 'general' %}<img class="dashboard-phos-image" src="{{ url_for('static', filename='images/phos-dashboard-black.webp') }}" alt="" loading="lazy">{% endif %}</div></div>
@@ -21,7 +34,7 @@
 <div class="domain-cards live-cards status-summary">
 <dl><dt>Temperature</dt><dd data-live="environment.temperature">Unavailable</dd><dt>Pressure</dt><dd data-live="environment.pressure">Unavailable</dd><dt>Environmental freshness</dt><dd data-live="environment.age">Unavailable</dd></dl>
 <dl><dt>eCO2</dt><dd data-live="ccs811.eco2">Unavailable</dd><dt>TVOC</dt><dd data-live="ccs811.tvoc">Unavailable</dd><dt>CCS811 freshness</dt><dd data-live="ccs811.age">Unavailable</dd></dl>
-<dl><dt>Interpreted motion</dt><dd data-live="motion.motion_state">Unavailable</dd><dt>MPU6050 freshness</dt><dd data-live="motion.age">Unavailable</dd><dt>Health</dt><dd data-live="health">Unavailable</dd></dl>
+<dl><dt>Interpreted motion</dt><dd data-live="motion.motion_state">Unavailable</dd><dt>Motion intensity</dt><dd data-live="motion.intensity">Unavailable</dd><dt>MPU6050 freshness</dt><dd data-live="motion.age">Unavailable</dd><dt>Health</dt><dd data-live="health">Unavailable</dd></dl>
 </div>
 {% endif %}
 {% if area == 'controls' %}<div class="control-grid live-controls" data-live-controls hidden>
@@ -58,9 +71,7 @@ Your edits on this page have not been saved.</p>
 {% elif area == 'status' %}
 <p class="notice">This operational overview contains semantic state and sensor health summaries. Detailed runtime diagnostics are available in Diagnostics; lifecycle actions have their own System Actions page.</p>
 {% else %}
-{% if area == 'voice' %}<p class="notice voice-live-notice">Voice &amp; Speech changes are applied live when activation succeeds. No PHOS restart is required. If activation fails, the previous working settings remain active.</p>{% else %}
-<p class="notice">Editing saved settings. Save does not apply changes. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes.</p>
-{% endif %}
+{% if area == 'voice' %}<p class="notice voice-live-notice">Voice &amp; Speech changes are applied live when activation succeeds. No PHOS restart is required. If activation fails, the previous working settings remain active.</p>{% endif %}
 {% if area == 'sensors' %}
 {% set sensor = runtime_state.get('sensors', {}).get('environmental') if runtime_state and runtime_state.ok else none %}
 {% set air = runtime_state.get('sensors', {}).get('ccs811') if runtime_state and runtime_state.ok else none %}
@@ -159,6 +170,16 @@ Your edits on this page have not been saved.</p>
 {% if area == 'voice' %}
 <section class="status"><h3>Provider availability</h3><p>Local / Piper, ElevenLabs, and Cartesia are implemented. Google Cloud TTS is coming soon. ElevenLabs credential: <strong>{{ 'Configured' if elevenlabs_credential_configured else 'Not configured' }}</strong>. Cartesia credential: <strong>{{ 'Configured' if cartesia_credential_configured else 'Not configured' }}</strong>. Credentials remain write-only in <a href="{{ url_for('credentials') }}">Credentials</a>.</p></section>
 {% endif %}
+{% if area == 'network' %}
+<section class="status admin-network" aria-label="PHOS runtime network connection"><h3>Runtime / Connection</h3><dl>
+<dt>Hostname</dt><dd>{{ admin_network.hostname if admin_network else 'Not available' }}</dd>
+<dt>IP address</dt><dd>{{ admin_network.ip_address or 'Not available' if admin_network else 'Not available' }}</dd>
+<dt>Interface</dt><dd>{{ admin_network.interface or '—' if admin_network else '—' }}</dd>
+<dt>Status</dt><dd>{{ 'Connected' if admin_network and admin_network.status == 'connected' else 'Disconnected' }}</dd>
+<dt>Admin URL</dt><dd>{% if admin_network and admin_network.admin_url %}<a href="{{ admin_network.admin_url }}">{{ admin_network.admin_url }}</a>{% else %}Not available{% endif %}</dd>
+</dl>{% if admin_network and admin_network.admin_url %}<form method="post" action="{{ url_for('show_admin_access') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="secondary-action">Show QR on PHOS</button></form>{% else %}<button type="button" class="secondary-action" disabled>Show QR on PHOS</button>{% endif %}</section>
+<h3>Network Configuration</h3>
+{% endif %}
 <form method="post" action="{{ url_for('configuration', area=area) }}">
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -169,23 +190,37 @@ Your edits on this page have not been saved.</p>
 {% if area == 'voice' and section.name == 'tts' %}{% set tts = speech.get('tts', {}) %}</section><section class="voice-section voice-section--tts"><header><h3>Text to Speech</h3><p>Choose a local or cloud voice provider.</p></header><dl class="voice-section__status"><dt>Configured</dt><dd>{{ {'local':'Local / Piper','cartesia':'Cartesia','elevenlabs':'ElevenLabs'}.get(tts.get('configured_provider'), tts.get('configured_provider') or 'Unknown') }}</dd><dt>Active</dt><dd>{{ {'local':'Local / Piper','cartesia':'Cartesia','elevenlabs':'ElevenLabs'}.get(tts.get('active_provider'), tts.get('active_provider') or 'Unknown') }}</dd><dt>Available</dt><dd>{{ 'Yes' if tts.get('available') else 'Unknown' if tts.get('available') is none else 'No' }}</dd><dt>Enabled</dt><dd>{{ 'Yes' if tts.get('enabled') else 'Unknown' if tts.get('enabled') is none else 'No' }}</dd></dl>{% endif %}
 {% if area == 'voice' and section.name == 'audio' %}{% set audio = speech.get('audio_output', {}) %}</section><section class="voice-section voice-section--audio"><header><h3>Audio Output</h3><p>Choose where PHOS plays speech.</p></header><dl class="voice-section__status"><dt>Configured provider</dt><dd>{{ {'aplay':'ALSA (aplay)','pipewire':'PipeWire (pw-play)'}.get(audio.get('configured_provider'), audio.get('configured_provider') or 'Unknown') }}</dd><dt>Active provider</dt><dd>{{ {'aplay':'ALSA (aplay)','pipewire':'PipeWire (pw-play)'}.get(audio.get('active_provider'), audio.get('active_provider') or 'Unknown') }}</dd><dt>Configured device</dt><dd>{{ audio.get('configured_device') or 'Default output' }}</dd><dt>Active device</dt><dd>{{ audio.get('active_device') or 'Default output' }}</dd><dt>Available</dt><dd>{{ 'Yes' if audio.get('available') else 'Unknown' if audio.get('available') is none else 'No' }}</dd></dl>{% endif %}
 <fieldset id="{{ 'voice-' ~ section.name if area == 'voice' else section.name }}" data-section="{{ section.name }}" {% if area == 'voice' and section.name in ('vosk', 'cartesia-stt') %}data-stt-provider-panel="{{ section.provider }}"{% elif area == 'voice' and section.name in ('local', 'elevenlabs', 'cartesia') %}data-tts-provider-panel="{{ section.provider }}"{% elif section.provider %}data-provider="{{ section.provider }}"{% endif %}><legend>{{ section.title }}</legend>
-<p>{% if area == 'voice' and section.name == 'stt' %}Choose between local Vosk and optional Cartesia speech recognition.{% elif area == 'voice' and section.name == 'vosk' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia-stt' %}Cartesia uses the credential configured in Credentials.{% elif area == 'voice' and section.name == 'tts' %}Choose a local or cloud voice provider.{% elif area == 'voice' and section.name == 'local' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia' %}Cloud TTS using the Cartesia credential configured in Credentials.{% elif area == 'voice' and section.name == 'elevenlabs' %}Cloud TTS using the ElevenLabs credential configured in Credentials.{% elif area == 'voice' and section.name == 'audio' %}Choose where PHOS plays speech.{% else %}{{ section.help }}{% endif %}</p>
+{% if area == 'voice' or section.help %}<p>{% if area == 'voice' and section.name == 'stt' %}Choose between local Vosk and optional Cartesia speech recognition.{% elif area == 'voice' and section.name == 'vosk' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia-stt' %}Cartesia uses the credential configured in Credentials.{% elif area == 'voice' and section.name == 'tts' %}Choose a local or cloud voice provider.{% elif area == 'voice' and section.name == 'local' %}Runs locally on PHOS.{% elif area == 'voice' and section.name == 'cartesia' %}Cloud TTS using the Cartesia credential configured in Credentials.{% elif area == 'voice' and section.name == 'elevenlabs' %}Cloud TTS using the ElevenLabs credential configured in Credentials.{% elif area == 'voice' and section.name == 'audio' %}Choose where PHOS plays speech.{% else %}{{ section.help }}{% endif %}</p>{% endif %}
 {% if error and related_area == area and error_group == section.name %}<p class="error" role="alert">{{ error }}</p>{% endif %}<div class="fields">
 {% for field in section.fields %}
 {% set value = submitted.get(field.name, '') if submitted is not none else field.value %}
 <div class="field"><label for="{{ field.name }}">{{ field.label }}</label>
-{% if field.choices %}
+{% if field.name == 'display.iris_color' %}
+{% set preset = iris_resolver.preset_for(value) %}
+<div class="iris-color-controls" data-iris-color-controls>
+<select id="iris-color-preset" data-iris-color-preset aria-label="Iris color preset">{% for name, color in iris_resolver.PRESETS.items() %}<option value="{{ name }}" data-color="{{ color }}" {{ 'selected' if preset == name else '' }}>{{ name | title }}</option>{% endfor %}<option value="custom" {{ 'selected' if preset is none else '' }}>Custom</option></select>
+<input id="iris-color-picker" data-iris-color-picker type="color" value="{{ value }}" aria-label="Custom iris color">
+<input id="iris-color-hex" data-iris-color-hex type="text" value="{{ value }}" pattern="#[0-9A-Fa-f]{6}" maxlength="7" spellcheck="false" aria-label="Custom iris color hex value">
+<input id="{{ field.name }}" name="{{ field.name }}" type="hidden" value="{{ value }}">
+<small>Iris color accepts a preset or a #RRGGBB custom color</small>
+<small data-iris-color-error role="alert" hidden>Enter a color as #RRGGBB.</small>
+</div>
+{% elif field.choices %}
 <select id="{{ field.name }}" name="{{ field.name }}">{% for choice in field.choices %}{% set tts_label = {'local': 'Local / Piper', 'elevenlabs': 'ElevenLabs', 'google': 'Google Cloud TTS (Coming soon)', 'cartesia': 'Cartesia'}.get(choice, choice) %}{% set audio_label = {'aplay': 'ALSA (aplay)', 'pipewire': 'PipeWire (pw-play)'}.get(choice, choice) %}<option value="{{ choice }}" {{ 'selected' if value == choice else '' }} {% if field.name == 'tts.provider' and choice == 'google' %}disabled{% endif %}>{{ choice | upper if field.name == 'sensors.environmental.type' else (tts_label if field.name == 'tts.provider' else (audio_label if field.name == 'tts.audio_output.player' else choice)) }}</option>{% endfor %}</select>
 {% elif field.kind == 'checkbox' %}
 <input id="{{ field.name }}" name="{{ field.name }}" type="checkbox" {{ 'checked' if (value == 'on' if submitted is not none else value) else '' }}>
 {% else %}
+{% if field.name == 'hardware_controller.serial.device' %}
+<select id="{{ field.name }}" name="{{ field.name }}"><option value="{{ value }}" selected>{{ value }}{% if controller_ports and value not in controller_ports | map(attribute='device') | list %} — unavailable{% endif %}</option>{% for port in controller_ports if port.device != value %}<option value="{{ port.device }}">{{ port.device }}{% if port.description %} — {{ port.description }}{% endif %}</option>{% endfor %}</select><small>Refresh this page to discover currently attached serial ports.</small>
+{% else %}
 <input id="{{ field.name }}" name="{{ field.name }}" type="{{ 'number' if field.kind == 'number' else 'text' }}" {% if field.kind == 'number' %}step="any"{% endif %} value="{{ value if value is not none else '' }}">
 {% if field.kind == 'array' %}<small>Comma-separated values</small>{% elif field.nullable %}<small>Optional; blank means unset</small>{% endif %}
+{% endif %}
 {% endif %}</div>
 {% endfor %}</div></fieldset>
 {% endfor %}
 {% if area == 'voice' %}</section>{% endif %}
-<button class="save">Save {{ page.title }}</button><p>Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.</p>
+<button class="save">{{ 'Save & Apply' if area == 'eyes' else 'Save ' ~ page.title }}</button>{% if area != 'eyes' %}<p>Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.</p>{% endif %}
 </form>
 {% endif %}
 {% endblock %}
