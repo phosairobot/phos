@@ -179,6 +179,27 @@ BehaviorEngine -> FaceState -> EyeRenderer -> display
                          \-> LEDRingController -> local socket -> root LED helper -> WS2812BProvider -> ring
 ```
 
+### External-controller semantic LED arbitration
+
+External controller LEDs use a separate semantic path: `SemanticLedService`
+owns source-scoped requests, priority arbitration, expiry, and command
+deduplication; the controller executes only the resolved realtime animation.
+`RobotState` contributes one persistent intent, environmental context contributes
+a lower-priority ambient intent, and `signal_user` contributes the bounded
+semantic signals `success`, `warning`, `error`, or `attention`. All user
+signals, including `signal_user("error")`, are transient. In contrast,
+`RobotState.ERROR` contributes the persistent `robot_state/error` intent until
+the robot state changes. Error wins over warning, transient user signals,
+robot-state intents, and ambient context.
+Neither `BehaviorEngine`, Web/API adapters, nor firmware choose animation
+parameters. On a controller capability report the arbiter reapplies its current
+winner; when LED capability is absent it retains logical intent and emits no
+hardware command.
+
+```text
+RobotState / environment / signal_user -> SemanticLedService -> ControllerService -> external controller LED executor
+```
+
 ## Runtime
 
 `PhosRuntime` is the current application coordinator. It supervises Core/UI and optional Vision tasks and handles lifecycle/failure boundaries.

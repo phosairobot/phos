@@ -364,3 +364,11 @@ def test_local_openapi_and_documentation_routes():
     assert response.headers["Content-Security-Policy"] == (
         "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:")
     assert app.test_client().get("/static/swagger-ui/swagger-ui-bundle.js").status_code == 200
+
+
+def test_openapi_exposes_only_semantic_signal_values():
+    from robot.web.openapi import load_spec
+    spec = load_spec()
+    schema = spec["paths"]["/api/v1/signal"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert schema == {"$ref": "#/components/schemas/SignalCommand"}
+    assert spec["components"]["schemas"]["SignalCommand"]["properties"]["signal"]["enum"] == ["success", "warning", "error", "attention"]

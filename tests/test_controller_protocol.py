@@ -1,12 +1,16 @@
 import pytest
 import asyncio
 import json
+import threading
 import time
 from types import SimpleNamespace
 
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
                                                  decode_frame, validate_led_animation)
 from robot.hardware.serial_controller import ControllerConnection, ControllerService, SerialControllerTransport
+from robot.core.events import EventBus
+from robot.core.semantic_led import SemanticLedService
+from robot.core.state import RobotState
 from robot.sensors import AirQualityReading, AirQualitySensorService, EnvironmentalSensorService
 from robot.sensors import IMUReading, IMUSensorService
 from robot.motion import MotionSettings, MotionState
@@ -146,12 +150,107 @@ def test_controller_status_keeps_configuration_and_learns_protocol_capabilities_
                                 heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
     assert service.status()["configured_device"] == "/dev/ttyUSB0"
     assert service.status()["protocol"] is None
+    assert service.status()["session_generation"] == 0
     asyncio.run(service._message(ControllerMessage("capabilities", {"sensors": ["temperature"], "led_count": 12})))
     asyncio.run(service._message(ControllerMessage("heartbeat", {})))
     status = service.status()
     assert status["protocol"] == "phos-hw v1"
     assert status["capabilities"] == {"sensors": ["temperature"], "led_count": 12}
     assert status["last_activity"] and status["last_heartbeat"]
+
+
+def test_controller_session_generation_invalidates_only_active_led_capabilities():
+    capability_notifications = []
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None,
+                                led_capabilities_sink=lambda: capability_notifications.append(service.led_output_available()))
+    service._state = ControllerConnection.CONNECTED
+    asyncio.run(service._message(ControllerMessage("capabilities", {"led_count": 12})))
+    assert service.led_output_available()
+    assert capability_notifications == [True]
+
+    service._new_session()
+
+    assert service.status()["session_generation"] == 1
+    assert service.status()["capabilities"] == {"led_count": 12}
+    assert service.status()["active_capabilities"] is None
+    assert not service.led_output_available()
+
+
+def test_controller_led_output_availability_accepts_controller_advertised_led_shape():
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+    service._state = ControllerConnection.CONNECTED
+    payload = {"capabilities": ["temperature", "pressure", "air_quality", "motion", "led"],
+               "led": {"count": 12}}
+
+    asyncio.run(service._message(ControllerMessage("capabilities", payload)))
+
+    assert service.led_output_available()
+    assert service.led_output_status()["led_advertised"]
+    assert service.led_output_status()["active_capabilities"] == payload
+
+
+def test_controller_disconnect_retains_diagnostic_capabilities_but_disables_active_led_output():
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+    service._state = ControllerConnection.CONNECTED
+    asyncio.run(service._message(ControllerMessage("capabilities", {"led_count": 12})))
+    assert service.led_output_available()
+
+    service._state = ControllerConnection.DISCONNECTED
+    service._deactivate_session_capabilities()
+
+    assert service.status()["capabilities"] == {"led_count": 12}
+    assert service.status()["active_capabilities"] is None
+    assert not service.led_output_available()
+
+
+def test_capability_callback_reapplies_current_led_winner_on_every_session_without_state_event():
+    class Transport:
+        def __init__(self): self.device, self.writes = "/dev/ttyUSB0", []
+        async def write(self, raw): self.writes.append(raw)
+
+    async def exercise():
+        holder = {}
+        controller = ControllerService(
+            SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+            reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+            touch_sink=lambda _event: None,
+            led_capabilities_sink=lambda: asyncio.create_task(
+                holder["semantic_led"].reapply(reason="controller_capabilities")),
+        )
+        semantic_led = SemanticLedService(EventBus(), controller.set_led_animation,
+                                          lambda: RobotState.LISTENING)
+        holder["semantic_led"] = semantic_led
+        await semantic_led.set_intent("robot_state", "listening")
+
+        for generation in range(1, 4):
+            transport = Transport()
+            controller._transport = transport
+            controller._state = ControllerConnection.CONNECTED
+            controller._new_session()
+            await controller._message(ControllerMessage("capabilities", {"led_count": 12}))
+            await asyncio.sleep(0)
+            led_writes = [raw for raw in transport.writes if b'"type":"set_led_animation"' in raw]
+            assert len(led_writes) == 1
+            assert b'"animation":"breathe"' in led_writes[0]
+            assert controller.status()["session_generation"] == generation
+
+            # A normal semantic reconciliation remains deduplicated within
+            # the session; no RobotState event is needed for recovery.
+            await semantic_led.set_intent("robot_state", "listening")
+            assert len([raw for raw in transport.writes if b'"type":"set_led_animation"' in raw]) == 1
+
+            controller._transport = None
+            controller._deactivate_session_capabilities()
+            controller._state = ControllerConnection.DISCONNECTED
+            assert not controller.led_output_available()
+
+    asyncio.run(exercise())
 
 
 def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder():
@@ -163,7 +262,7 @@ def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder()
     serial = Serial()
     transport = SerialControllerTransport("/dev/ttyUSB0", 115200, serial_factory=lambda *_args, **_kwargs: serial)
     transport.open()
-    assert serial.input_reset and serial.output_reset
+    assert serial.input_reset and not serial.output_reset
     service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
                                 reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
                                 heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
@@ -174,6 +273,123 @@ def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder()
     assert service._last_peer_activity > 0
     assert second_deadline > service._last_peer_activity
     assert first_deadline > 0
+
+
+def test_serial_transport_reports_pyserial_write_result_after_flush():
+    class Serial:
+        def __init__(self): self.writes, self.flushed = [], False
+        def write(self, data): self.writes.append(data); return len(data)
+        def flush(self): self.flushed = True
+        def close(self): pass
+
+    serial = Serial()
+    transport = SerialControllerTransport("/dev/ttyUSB0", 115200, serial_factory=lambda *_args, **_kwargs: serial)
+    transport.open()
+    result = asyncio.run(transport.write(b"test\n"))
+
+    assert result == 5
+    assert serial.writes == [b"test\n"]
+    assert serial.flushed
+
+
+def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
+    class Transport:
+        device = "/dev/ttyUSB0"
+        def __init__(self): self.writes = []
+        def read(self): time.sleep(.02); return b""
+        async def write(self, raw): self.writes.append(raw); return len(raw)
+
+    async def exercise():
+        transport = Transport()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=10,
+                                    heartbeat_timeout_seconds=.8, touch_sink=lambda _event: None)
+        service._transport, service._state = transport, ControllerConnection.CONNECTED
+        _decoder, next_heartbeat = service._new_session()
+        await service._request_capabilities()
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(service._read_connected(JsonLinesDecoder(), next_heartbeat), timeout=.58)
+        requests = [raw for raw in transport.writes if b'"type":"request_capabilities"' in raw]
+        assert len(requests) >= 2
+        assert all(b'"id":"phos-1-cap-' in raw for raw in requests)
+        assert len(set(requests)) == len(requests)
+
+    asyncio.run(exercise())
+
+
+def test_controller_reader_is_active_before_initial_capabilities_request():
+    class Transport:
+        device = "/dev/ttyUSB0"
+        def __init__(self):
+            self.events, self.release_read, self.read_entered, self.writes = [], threading.Event(), threading.Event(), []
+        def read(self):
+            self.events.append("reader")
+            self.read_entered.set()
+            self.release_read.wait(1)
+            return b""
+        async def write(self, raw):
+            self.events.append("request_capabilities")
+            self.writes.append(raw)
+            return len(raw)
+
+    async def exercise():
+        transport = Transport()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=10,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        service._transport, service._state = transport, ControllerConnection.CONNECTED
+        decoder, deadline = service._new_session()
+        ready = asyncio.Event()
+        reader = asyncio.create_task(service._read_connected(decoder, deadline, reader_ready=ready))
+        try:
+            await ready.wait()
+            await asyncio.to_thread(transport.read_entered.wait)
+            await service._request_capabilities()
+            assert transport.events.index("reader") < transport.events.index("request_capabilities")
+        finally:
+            transport.release_read.set()
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+
+    asyncio.run(exercise())
+
+
+def test_controller_settles_once_after_reader_readiness_before_initial_handshake():
+    async def exercise():
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        service._session_generation = 4
+        service._open_settle_seconds = .5
+        observed = []
+
+        async def sleep(seconds): observed.append(("settle", seconds))
+        service._sleep = sleep
+        ready = asyncio.Event()
+        waiter = asyncio.create_task(service._await_reader_and_settle(ready))
+        await asyncio.sleep(0)
+        assert observed == []
+        ready.set()
+        await waiter
+        assert observed == [("settle", .5)]
+
+    asyncio.run(exercise())
+
+
+def test_controller_settle_can_be_cancelled_before_any_initial_handshake():
+    async def exercise():
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        service._open_settle_seconds = 60
+        ready = asyncio.Event(); ready.set()
+        waiter = asyncio.create_task(service._await_reader_and_settle(ready))
+        await asyncio.sleep(0)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+    asyncio.run(exercise())
 
 
 def test_controller_reconfigure_replaces_only_connection_level_transport_and_resets_session():
@@ -196,6 +412,7 @@ def test_controller_reconfigure_replaces_only_connection_level_transport_and_res
                                 reconnect_delay_seconds=.1, heartbeat_interval_seconds=2,
                                 heartbeat_timeout_seconds=3, touch_sink=lambda _event: None,
                                 provider_disconnected_sink=lambda: disconnected.append(True), transport_factory=factory)
+    service._open_settle_seconds = .001
 
     async def exercise():
         await service.start(); await asyncio.sleep(.03)

@@ -12,12 +12,14 @@ from threading import Event, Thread
 
 import pytest
 import yaml
+from flask import Flask
 
 from robot.config import RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
-from robot.services.application import ApplicationError, PhosApplicationService
+from robot.services.application import ApplicationError, PhosApplicationService, RemoteApplicationService
 from robot.ui.skins import SkinRepository, appearance_snapshot
+from robot.web.api import create_api
 
 
 @pytest.fixture
@@ -352,6 +354,48 @@ def test_lifecycle_channel_dispatches_controller_read_models(runtime):
         assert client.execute("application.controller_recent_messages")["result"] == [{"type": "sensor_update"}]
         assert client.execute("application.controller_serial_ports")["result"] == [{"device": "/dev/ttyUSB0"}]
         assert client.execute("application.clear_controller_recent_messages")["result"] == {"cleared": True}
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_signal_api_reaches_semantic_application_service_over_lifecycle_channel(runtime):
+    """The web worker must not reject semantic signals as lifecycle commands."""
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def signal_user(self, signal):
+            if signal not in {"success", "warning", "attention", "error"}:
+                raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
+            received.append(signal)
+            return {"active_intent": signal}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    app = Flask(__name__)
+    app.register_blueprint(create_api(RemoteApplicationService(LifecycleClient(child))))
+    try:
+        client = app.test_client()
+        for signal in ("success", "warning", "attention", "error"):
+            response = client.post("/api/v1/signal", json={"signal": signal})
+            assert response.status_code == 200
+            assert response.json == {"active_intent": signal}
+        assert received == ["success", "warning", "attention", "error"]
+
+        unknown = client.post("/api/v1/signal", json={"signal": "rainbow"})
+        assert unknown.status_code == 400
+        assert unknown.json["error"]["code"] == "invalid_signal"
+        raw = client.post("/api/v1/signal", json={"signal": "success", "animation": "spin"})
+        assert raw.status_code == 400
+        assert raw.json["error"]["code"] == "invalid_signal"
+        assert received == ["success", "warning", "attention", "error"]
     finally:
         stop.set()
         child.close()
