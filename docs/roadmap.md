@@ -19,6 +19,12 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] Hardware-free core, renderer, and administrative-overlay regression coverage.
 - [ ] Physical Raspberry display validation.
 
+## Semantic Physical Context v1
+
+- [x] Read-only provider-independent aggregation of canonical perception state.
+- [ ] Minimal Agent Permission Model, MCP semantic adapter, async MCP events,
+  and camera snapshot resources.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 - [x] Generic, bounded `phos-hw` v1 JSON Lines serial transport with capability

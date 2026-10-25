@@ -115,6 +115,28 @@ preview but before the final local administrative layer. Recovery and Admin QR
 overlays therefore remain secret-bearing system overlays above it, retain their
 existing touch behavior, and are not dismissible by semantic requests.
 
+### Semantic Physical Context
+
+```text
+Sensors / Vision / RobotState
+          ↓
+canonical semantic services
+          ↓
+Semantic Physical Context
+          ↓
+PhosApplicationService
+          ↓
+future Agent / MCP / REST adapters
+```
+
+`SemanticPhysicalContext` is a read-only, build-on-read perception model. It
+combines canonical robot, environmental, air-quality, motion, presence,
+attention, and observed-expression semantics. Each section preserves its own
+availability and freshness state, so partial context remains useful. It exposes
+no provider/device identity, raw camera data, identity, renderer state, LED
+state, or controller health. It adds no REST endpoint or MCP adapter;
+`/api/v1/status` remains the broader operational status contract.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 
