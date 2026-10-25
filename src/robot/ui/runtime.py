@@ -46,6 +46,7 @@ class EyeRenderLoop(Behavior):
         robot_state_supplier: Optional[Callable[[], object]] = None,
         state_effect_resolver: Optional[StateEffectResolver] = None,
         eye_safe_resolver: Optional[EyeSafeResolver] = None,
+        transient_overlay_supplier: Optional[Callable[[], object]] = None,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive.")
@@ -68,6 +69,7 @@ class EyeRenderLoop(Behavior):
         self._state_effect_resolver = state_effect_resolver
         self._pending_state_effect_resolver: Optional[StateEffectResolver] = None
         self._eye_safe_resolver = eye_safe_resolver
+        self._transient_overlay_supplier = transient_overlay_supplier
         self._pending_eye_safe_resolver: Optional[EyeSafeResolver] = None
         self._effect_dimensions = None
         self._state_effect_prewarm_handle = None
@@ -321,17 +323,20 @@ class EyeRenderLoop(Behavior):
         if self._preview_settings.enabled:
             background = self._background()
             if background.available:
-                self._display.draw(frame, preview, self._preview_settings, background=background, **safe_kwargs, **effect_kwargs)
+                self._display.draw(frame, preview, self._preview_settings, background=background, transient_overlay=self._transient_overlay(), **safe_kwargs, **effect_kwargs)
             else:
-                self._display.draw(frame, preview, self._preview_settings, **effect_kwargs)
+                self._display.draw(frame, preview, self._preview_settings, transient_overlay=self._transient_overlay(), **effect_kwargs)
         else:
             background = self._background()
             if background.available:
-                self._display.draw(frame, background=background, **safe_kwargs, **effect_kwargs)
+                self._display.draw(frame, background=background, transient_overlay=self._transient_overlay(), **safe_kwargs, **effect_kwargs)
             else:
                 # Preserve the legacy call exactly while backgrounds are disabled
                 # or no state image is usable.
-                self._display.draw(frame, **effect_kwargs)
+                self._display.draw(frame, transient_overlay=self._transient_overlay(), **effect_kwargs)
+
+    def _transient_overlay(self):
+        return self._transient_overlay_supplier() if self._transient_overlay_supplier is not None else None
 
     def _state_effect(self) -> StateEffectParams:
         if self._state_effect_resolver is None:

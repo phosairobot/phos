@@ -24,7 +24,8 @@ from robot.sensors import (EnvironmentalSensorProvider, EnvironmentalSensorServi
                            AirQualitySensorProvider, AirQualitySensorService,
                            IMUSensorProvider, IMUSensorService, IMUReading)
 from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalSettings, Event, EventBus,
-                        RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager)
+                        RobotCore, RobotState, STATE_CHANGED, PresenceInterpreter, AttentionManager,
+                        SemanticOverlayService)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
 from robot.core.semantic_led import SemanticLedService
 from robot.core.touch import TOUCH_EVENT, TOUCH_EVENT_NAMES, TouchStatus
@@ -80,6 +81,7 @@ class PhosRuntime:
         voice_session: Optional[VoiceCaptureSession] = None,
         interaction_coordinator: Optional[InteractionCoordinator] = None,
         controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
+        semantic_overlay: Optional[SemanticOverlayService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
     ) -> None:
         self.core = core
@@ -104,6 +106,7 @@ class PhosRuntime:
         self._interaction_coordinator = interaction_coordinator
         self._controller = controller
         self._semantic_led = semantic_led
+        self._semantic_overlay = semantic_overlay
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
@@ -163,6 +166,19 @@ class PhosRuntime:
     def clear_admin_overlay(self) -> None:
         """Remove any local administrative layer; safe when already hidden."""
         self._eye_render_loop.clear_admin_overlay()
+
+    async def request_transient_overlay(self, intent: str, source: str, *, message: str | None = None,
+                                        duration_seconds: float | None = None) -> dict:
+        if self._semantic_overlay is None:
+            raise RuntimeError("Transient overlay service is unavailable.")
+        state = await self._semantic_overlay.request(source, intent, message=message, duration_seconds=duration_seconds)
+        return {"visible": state.visible, "intent": state.intent.value if state.intent else None, "message": state.message}
+
+    async def clear_transient_overlay(self, source: str) -> dict:
+        if self._semantic_overlay is None:
+            raise RuntimeError("Transient overlay service is unavailable.")
+        state = await self._semantic_overlay.clear(source)
+        return {"visible": state.visible, "intent": state.intent.value if state.intent else None, "message": state.message}
 
     def admin_network_info(self) -> dict:
         """Read the cached local-LAN address without exposing device internals."""
@@ -987,6 +1003,7 @@ def build_runtime(
     semantic_led = SemanticLedService(core.events, controller.set_led_animation,
                                       lambda: behavior_engine.robot_state)
     semantic_led_holder["service"] = semantic_led
+    semantic_overlay = SemanticOverlayService(core.events)
 
     def startup_view() -> dict:
         view = startup.document()
@@ -1013,12 +1030,14 @@ def build_runtime(
         robot_state_supplier=lambda: behavior_engine.robot_state,
         state_effect_resolver=state_effect_resolver,
         eye_safe_resolver=eye_safe_resolver,
+        transient_overlay_supplier=semantic_overlay.view_state,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)
     core.add_behavior(behavior_engine)
     core.add_behavior(eye_render_loop)
     core.add_behavior(semantic_led)
+    core.add_behavior(semantic_overlay)
     core.add_behavior(controller)
     runtime_holder = {}
     environmental_interpreter = EnvironmentalInterpreter(
@@ -1084,6 +1103,7 @@ def build_runtime(
                        air_quality_service=air_quality, imu_service=imu, led_ring_controller=led_ring,
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
                        interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
+                       semantic_overlay=semantic_overlay,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._secrets_service = secrets_service
     # Compose once after the runtime exists, since the application service owns

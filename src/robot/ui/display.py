@@ -22,6 +22,7 @@ from .state_effect_layer import StateEffectLayer
 from .eye_safe import EyeSafeLayer, EyeSafeParams
 from .touch import TouchInputAdapter
 from robot.admin_access import AdminOverlayState
+from robot.core.semantic_overlay import OverlayViewState, SemanticOverlayIntent
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,12 @@ class RecoveryOverlayLayout:
         return self.card_y + self.card_height
 
 
+def transient_overlay_layout(width: int, height: int) -> tuple[float, float, float, float]:
+    """Return a compact, safe bottom card independent of caller input."""
+    card_width, card_height = min(width * .62, width - 64), max(52.0, height * .115)
+    return ((width - card_width) / 2, height - card_height - max(44.0, height * .09), card_width, card_height)
+
+
 def recovery_overlay_layout(width: int, height: int) -> RecoveryOverlayLayout:
     """Return a centered, safely inset recovery card for the current canvas."""
     margin_x, margin_y = max(24.0, width * .06), max(24.0, height * .08)
@@ -180,7 +187,7 @@ class EyeDisplay(ABC):
     @abstractmethod
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0, transient_overlay: Optional[OverlayViewState] = None) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -216,7 +223,7 @@ class MemoryEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0, transient_overlay: Optional[OverlayViewState] = None) -> None:
         self.frames.append(frame)
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
@@ -293,7 +300,7 @@ class TkEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0, transient_overlay: Optional[OverlayViewState] = None) -> None:
         if self._root is None or self._canvas is None:
             raise RuntimeError("Display has not been opened.")
         self._canvas.delete("all")
@@ -317,7 +324,23 @@ class TkEyeDisplay(EyeDisplay):
             if self._preview_future is not None:
                 self._preview_future.cancel()
                 self._preview_future = None
+        self._draw_transient_overlay(frame, transient_overlay)
         self._draw_admin_overlay(frame)
+
+    def _draw_transient_overlay(self, frame: EyeFrame, overlay: Optional[OverlayViewState]) -> None:
+        if overlay is None or not overlay.visible or overlay.intent is None:
+            return
+        palette = {SemanticOverlayIntent.SUCCESS: ("#00C9B7", "Success"), SemanticOverlayIntent.INFO: ("#00AEEF", "Info"),
+                   SemanticOverlayIntent.ATTENTION: ("#7F6BFF", "Attention"), SemanticOverlayIntent.WARNING: ("#D9A441", "Warning"),
+                   SemanticOverlayIntent.ERROR: ("#D95B5B", "Error"), SemanticOverlayIntent.SENSOR_ALERT: ("#B27AD9", "Sensor alert")}
+        color, label = palette[overlay.intent]
+        x, y, width, height = transient_overlay_layout(frame.width, frame.height)
+        message = overlay.message or label
+        self._canvas.create_rectangle(x, y, x + width, y + height, fill="#071B35", outline=color, width=2)
+        self._canvas.create_text(x + 22, y + height / 2, anchor="w", text=label.upper(), fill=color,
+                                 font=("TkDefaultFont", max(11, int(frame.height * .022)), "bold"))
+        self._canvas.create_text(x + width * .30, y + height / 2, anchor="w", text=message, fill="#DDEEFF",
+                                 width=width * .64, font=("TkDefaultFont", max(12, int(frame.height * .025))))
 
     def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
         previous = self._admin_overlay

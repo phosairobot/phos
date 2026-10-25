@@ -15,6 +15,12 @@ This file is an implementation handoff for coding agents. It records what is pre
 The authoritative source version is **1.7.0**. The following records retain
 earlier implementation milestones as historical context.
 
+## Transient Overlay System v1
+
+The source implements source-scoped, bounded semantic transient overlays with
+renderer and protected-admin-layer integration. Automated core and UI coverage
+passes; physical Raspberry display validation is deferred.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 The repository implements the generic `phos-hw` v1 serial controller boundary,

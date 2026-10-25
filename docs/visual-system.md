@@ -48,4 +48,13 @@ expression intensity are not implemented.
 - **Overlays:** independently confirmed environmental markers—sweat, snow/ice
   and haze—decorate a safe band without changing eye geometry or pupils.
 
+## Transient semantic notices
+
+PHOS can also present a compact, non-interactive semantic notice near the
+bottom of the face display. Application callers submit a bounded meaning and
+optional plain-text message; PHOS owns its visual treatment and expiry. Notices
+do not change `RobotState` or `FaceState`, do not expose renderer controls, and
+are not a public Remote API. They render below the protected local Admin QR and
+recovery-code layers, which continue to consume their existing touch gestures.
+
 The detailed contracts are maintained in the [architecture reference](architecture.md#visual-reaction-semantics) and [1.1.0 release record](release-1.1.0.md).

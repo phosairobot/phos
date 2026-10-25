@@ -8,6 +8,7 @@ from robot.ui.display import (MemoryEyeDisplay, TkEyeDisplay, admin_access_overl
 from robot.ui.eyes import EyeRenderer
 from robot.ui.runtime import EyeRenderLoop
 from robot.ui.state import FaceState
+from robot.core.semantic_overlay import OverlayViewState, SemanticOverlayIntent
 
 
 def test_runtime_recovery_overlay_is_local_and_clear_is_idempotent():
@@ -104,6 +105,24 @@ def test_recovery_overlay_is_the_final_tk_layer_and_hidden_state_draws_nothing()
     assert ("text", "Password recovery code") in calls
     assert ("text", "483921") in calls
     assert any(entry[0] == "text" and entry[1].startswith("Expires in ") for entry in calls if len(entry) == 2)
+
+
+def test_transient_overlay_renders_below_the_final_admin_layer():
+    display = TkEyeDisplay()
+    calls = []
+    display._root = object()
+    display._canvas = SimpleNamespace(
+        delete=lambda *_: None, configure=lambda **_: None,
+        create_oval=lambda *_args, **_kwargs: None, create_arc=lambda *_args, **_kwargs: None,
+        create_line=lambda *_args, **_kwargs: None,
+        create_rectangle=lambda *_args, **kwargs: calls.append(("rectangle", kwargs.get("fill"))),
+        create_text=lambda *_args, **kwargs: calls.append(("text", kwargs.get("text"))),
+    )
+    display._tk = SimpleNamespace(ARC="arc")
+    display.set_admin_overlay(AdminOverlayState.recovery("483921", time.monotonic() + 60.0))
+    display.draw(EyeRenderer().render(FaceState(), timestamp=0.0),
+                 transient_overlay=OverlayViewState(True, SemanticOverlayIntent.WARNING, "Check sensor"))
+    assert calls.index(("text", "Check sensor")) < calls.index(("text", "PHOS ADMIN"))
 
 
 def test_admin_access_overlay_draws_a_matrix_url_and_close_instruction():
