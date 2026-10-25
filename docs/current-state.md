@@ -27,6 +27,16 @@ The repository implements a read-only, provider-independent semantic perception
 context through `PhosApplicationService`; it is automated-tested and has no
 REST or MCP adapter yet.
 
+## Minimal Agent Permission Model
+
+The repository implements an in-code, immutable semantic permission boundary
+for future trusted external-agent adapters. `AgentApplicationService` delegates
+only approved semantic reads and actions to `PhosApplicationService`; it adds
+no MCP transport, authentication, user/account model, persistence, or raw
+hardware/render surface. `standard` and read-only `observer` profiles are
+automated-tested. This is not a network or OS security boundary; adapter
+identity and authentication remain deferred.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 The repository implements the generic `phos-hw` v1 serial controller boundary,

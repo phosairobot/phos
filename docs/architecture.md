@@ -137,6 +137,47 @@ no provider/device identity, raw camera data, identity, renderer state, LED
 state, or controller health. It adds no REST endpoint or MCP adapter;
 `/api/v1/status` remains the broader operational status contract.
 
+### Minimal Agent Permission Model
+
+```text
+External Agent
+      ↓
+Agent Permission Boundary
+      ↓
+PhosApplicationService
+      ↓
+Behavior / Voice / Physical Context / Semantic Signals
+```
+
+`AgentApplicationService` is a small, provider-independent facade for future
+trusted agent adapters.  It checks an immutable `AgentAccess` set before
+delegating to the existing `PhosApplicationService`; it never grants access to
+providers, renderers, controller transports, or configuration internals.  The
+canonical operation mapping is `status` → `READ_STATUS`,
+`get_physical_context` → `READ_PHYSICAL_CONTEXT`, and `presence`, `attention`,
+and `observed_expression` → `READ_PERCEPTION`.  Semantic actions map as
+`set_expression` → `CONTROL_EXPRESSION`, `speak` → `CONTROL_VOICE`, `sleep` /
+`wake` → `CONTROL_SLEEP`, and `signal_user` → `SIGNAL_USER`.  Sleep and wake
+remain normal state transitions; a signal remains subject to existing semantic
+LED arbitration.
+
+The in-code `standard` profile contains that explicit complete v1 set; the
+`observer` profile contains only the three read permissions.  No profile is
+persisted or selected from configuration yet.  Raw LED animation, renderer and
+camera-frame access, serial/controller transport, hardware/configuration
+mutation, and administrative/recovery controls are intentionally absent from
+this facade.
+
+Permission answers whether a trusted adapter may request an operation.
+Capability answers whether the delegated application service can currently
+perform it; validation, availability, lifecycle, and arbitration errors still
+come from that service after a permission check.  Authentication answers who is
+calling and is not implemented here.  This is therefore an application-level
+semantic authorization model, not a complete security boundary: it does not
+replace transport authentication, OS permissions, network security, or
+sandboxing.  MCP, network identities, credentials, and persistence remain
+deferred.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 
