@@ -192,25 +192,25 @@ PhosApplicationService
 PHOS runtime/services
 ```
 
-Stage 1 uses the official Python `mcp` SDK (the pinned 1.x line) over local
-stdio only. It exposes ten request/response tools: `phos_get_status`,
+Stage 1 uses the official Python `mcp` SDK (the pinned 1.x line) over
+Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
+creates one listener over the existing application services, and normal runtime
+shutdown closes it. It exposes ten request/response tools: `phos_get_status`,
 `phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`,
 `phos_get_observed_expression`, `phos_set_expression`, `phos_speak`,
 `phos_sleep`, `phos_wake`, and `phos_signal_user`. Every one delegates through
 `AgentApplicationService`; MCP owns no permissions, runtime state, provider,
 or hardware logic.
 
-Run `python -m robot.mcp --config PATH` only instead of the normal PHOS
-process. That command starts one PHOS runtime and embeds the stdio adapter in
-that same owner process; it does not attach to a running PHOS process, create
-IPC, or start a Web worker. Closing stdio stops that owner process cleanly;
-the adapter never independently stops a runtime it does not own. MCP logging
-uses stderr so stdout remains protocol-only.
+MCP clients connect to the already-running PHOS instance. Client sessions do
+not create runtimes, application services, or permission boundaries. The
+default listener is loopback-only; a non-loopback bind requires explicit
+configuration and is warned because transport authentication, agent identity,
+and network authorization are not implemented.
 
-This is for trusted local/integrated execution. There is no MCP authentication,
-network listener, or transport security in Stage 1; application permissions are
-not transport authentication. Do not expose this stdio process as an arbitrary
-remote shell/service. Raw hardware, controller transport, renderer, camera,
+This is for trusted local/integrated execution. There is no MCP authentication;
+application permissions are not transport authentication. Do not expose the
+endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
 audio device, configuration, and administrative/recovery controls are absent.
 Stage 2 is reserved for semantic events/subscriptions, filtering/deduplication,
 camera resources, and asynchronous notifications.
@@ -504,8 +504,8 @@ services. They reuse the same validation, authorization, configuration and
 behavior-command services; they must not reach into GPIO, hardware adapters,
 provider objects, renderer state or other subsystem internals. Add an application
 service when an approved capability needs one, rather than duplicating behavior
-in each surface. The configuration, Remote API, and supported Voice & Speech
-application services are implemented examples; MCP remains deferred.
+in each surface. The configuration, Remote API, supported Voice & Speech, and
+MCP semantic application services are implemented examples.
 
 
 ## Application lifecycle boundary

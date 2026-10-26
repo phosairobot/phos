@@ -1,52 +1,60 @@
 # MCP Semantic Adapter
 
-PHOS Stage 1 provides a trusted-local, stdio-only MCP adapter over semantic
-application services. Install the optional `mcp` extra on Python 3.10 or newer,
-then run this instead of the usual PHOS process:
+PHOS starts its trusted-local MCP Streamable HTTP endpoint as part of normal
+runtime startup. Install the `mcp` optional dependency, configure `mcp` in the
+canonical PHOS configuration, then start PHOS normally:
 
 ```bash
-python -m robot.mcp --config config/phos.yaml
+systemctl --user restart phos.service
 ```
 
-That process owns the single PHOS runtime and embeds the MCP server. Do not run
-it alongside a normal PHOS runtime: no IPC attachment exists, and two runtime
-owners would compete for hardware. Stdio closure requests normal shutdown;
-MCP does not own a separately running PHOS process.
+The committed default endpoint is `http://127.0.0.1:8001/mcp`. MCP is enabled
+by default, binds only to loopback, and uses one listener in the same process,
+runtime loop, `PhosApplicationService`, and `AgentApplicationService` as PHOS.
+Each HTTP client has its own MCP session but never creates a runtime or service
+graph. Stopping PHOS gracefully stops the listener and its sessions. If an
+enabled endpoint cannot bind, PHOS performs normal shutdown and exits with an
+error so the service manager applies its configured failure policy.
 
-Available tools are `phos_get_status`, `phos_get_physical_context`,
-`phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression`,
+```yaml
+mcp:
+  enabled: true
+  host: 127.0.0.1
+  port: 8001
+  path: /mcp
+```
+
+Older configuration files without this section retain these defaults. A
+non-loopback host is allowed only by explicit configuration and emits a warning:
+MCP authentication, agent identity, and network authorization are not yet
+implemented. Do not expose this endpoint to the public internet.
+
+MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
+camera/provider objects, controllers, or raw runtime state. Available tools are
+`phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,
+`phos_get_attention`, `phos_get_observed_expression`,
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
-`phos_wake`, and `phos_signal_user(signal)`. Inputs use the existing semantic
-expression/signal vocabulary and the existing 500-character speech bound.
-Results are JSON-compatible semantic application results.
+`phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
+semantic result documents, and sanitized error mapping are transport-independent.
 
-`phos_get_status` returns compact agent status only: `running`, `state`, broad
-semantic availability, and degradation reasons. It is not the operational
-`/api/v1/status` contract and never includes provider names, device paths,
-controller sessions, model files, audio backends, raw sensor structures, LED
-animation details, renderer/background data, or touch/startup diagnostics. Use
-`phos_get_physical_context` for current semantic perception values.
+## Raspberry Pi validation
 
-Its `availability.voice` means the voice-input session is configured, enabled,
-and has no current capture-session error. It does not mean PHOS is listening,
-and it is independent of STT-provider availability and speech/TTS availability.
+```bash
+systemctl --user restart phos.service
+systemctl --user status phos.service --no-pager
+ss -ltnp | grep 8001
+journalctl --user -u phos.service -n 100 --no-pager
+```
 
-Presence excludes tracking identifiers; attention exposes only normalized target
-coordinates/confidence, never an ID; observed expression excludes provider and
-model details. Action acknowledgements are compact semantic documents:
-expression `{expression, applied}`, sleep/wake `{state, applied}`, speech
-`{accepted}`, and signals `{intent, applied}`. The stdio server runs on the
-PHOS runtime loop, so its actions use the application service's nonblocking
-same-loop path rather than synchronously waiting on work queued to that loop.
+On the Pi, start the MCP Inspector with `npx @modelcontextprotocol/inspector`.
+In its connection form select **Streamable HTTP** and enter
+`http://127.0.0.1:8001/mcp`; connect, then call each available tool. From a
+workstation, first use an SSH tunnel and use the same Inspector URL locally:
 
-The default profile is `standard`; callers can construct a server with another
-`AgentAccess`, such as `observer`, through `create_mcp_server`. Permission
-denial is distinct from invalid input and unavailable capability/service errors.
-No tool exposes raw sensors, LED animations, renderer or camera objects,
-controller/serial configuration, configuration mutation, or recovery/admin
-controls.
+```bash
+ssh -N -L 8001:127.0.0.1:8001 pi@PHOS_HOST
+npx @modelcontextprotocol/inspector
+```
 
-This is not a complete security boundary. Stage 1 has no authentication,
-accounts, tokens, network listener, resources, subscriptions, event history,
-camera snapshots, or asynchronous notifications. It is intended only for a
-trusted local MCP client.
+For an explicitly configured LAN host, connect only from that trusted LAN to
+`http://LAN_ADDRESS:PORT/PATH`; do not forward it to the Internet.

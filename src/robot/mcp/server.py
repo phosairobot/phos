@@ -1,12 +1,17 @@
-"""Stage 1 stdio MCP adapter over the permission-checked semantic boundary."""
+"""Streamable HTTP MCP adapter over the permission-checked semantic boundary."""
 from __future__ import annotations
 
+import asyncio
+import ipaddress
+import logging
 from typing import Annotated, Any, Callable
 
 from pydantic import Field
 
 from robot.services import AgentApplicationService, AgentPermissionDenied, ApplicationError, USER_SIGNAL_INTENTS
 from robot.services.application import COMMANDS
+
+logger = logging.getLogger(__name__)
 
 
 MCP_TOOL_NAMES = frozenset({
@@ -109,7 +114,8 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService):
+def create_mcp_server(agent_service: AgentApplicationService, *, host: str = "127.0.0.1",
+                      port: int = 8001, path: str = "/mcp"):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
         from mcp.server.fastmcp import FastMCP
@@ -118,7 +124,8 @@ def create_mcp_server(agent_service: AgentApplicationService):
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.10+.") from error
 
     adapter = McpSemanticAdapter(agent_service)
-    server = FastMCP("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.")
+    server = FastMCP("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
+                     host=host, port=port, streamable_http_path=path)
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
@@ -180,6 +187,48 @@ async def _async_tool_result(handler, error_type) -> dict[str, Any]:
         raise error_type(str(error)) from None
 
 
-async def run_stdio_server(server) -> None:
-    """Run an already-constructed server on its SDK-provided stdio transport."""
-    await server.run_stdio_async()
+class McpHttpServer:
+    """One Streamable HTTP listener owned by the normal PHOS process."""
+
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
+        self.host, self.port, self.path = host, port, path
+        self._mcp_server = create_mcp_server(agent_service, host=host, port=port, path=path)
+        self._uvicorn_server = None
+
+    @property
+    def url(self) -> str:
+        host = f"[{self.host}]" if ":" in self.host else self.host
+        return f"http://{host}:{self.port}{self.path}"
+
+    async def serve(self) -> None:
+        """Serve on PHOS's event loop and fail PHOS startup if binding fails."""
+        try:
+            import uvicorn
+        except ImportError as error:
+            raise RuntimeError("MCP Streamable HTTP requires the optional 'mcp' dependency.") from error
+
+        if not ipaddress.ip_address(self.host).is_loopback:
+            logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
+        logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
+        config = uvicorn.Config(self._mcp_server.streamable_http_app(), host=self.host, port=self.port,
+                                log_level="warning", access_log=False)
+        server = self._uvicorn_server = uvicorn.Server(config)
+        try:
+            await server.serve()
+        except (OSError, SystemExit) as error:
+            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}") from error
+        if not server.started:
+            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}")
+
+    @property
+    def started(self) -> bool:
+        return bool(self._uvicorn_server is not None and self._uvicorn_server.started)
+
+    async def stop(self) -> None:
+        """Request graceful listener shutdown; its ASGI lifespan closes sessions."""
+        if self._uvicorn_server is not None:
+            self._uvicorn_server.should_exit = True
+            await asyncio.sleep(0)
+        logger.info("PHOS MCP: stopped host=%s port=%s path=%s", self.host, self.port, self.path)

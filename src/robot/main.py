@@ -92,8 +92,7 @@ def _install_shutdown_handlers(loop: asyncio.AbstractEventLoop, stop_event: asyn
             pass
 
 
-async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web_server=None,
-                     mcp_stdio: bool = False) -> None:
+async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web_server=None) -> None:
     stop_event = asyncio.Event()
     _install_shutdown_handlers(asyncio.get_running_loop(), stop_event)
     async def watch_restart():
@@ -112,11 +111,42 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
     watcher = asyncio.create_task(watch_restart()) if lifecycle is not None or web_server is not None else None
     application_service = None
     mcp_task = None
+    mcp_http_server = None
     try:
         runtime = build_application(config=config)
-        if hasattr(runtime, "core") and (lifecycle is not None or mcp_stdio):
-            from robot.services import PhosApplicationService
+        if hasattr(runtime, "core"):
+            from robot.services import AgentAccess, AgentApplicationService, PhosApplicationService
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
+            if config is not None and config.mcp_enabled:
+                from robot.mcp import McpHttpServer
+                mcp_http_server = McpHttpServer(
+                    AgentApplicationService(application_service, AgentAccess.for_profile()),
+                    host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
+                )
+            elif config is not None:
+                logger.info("PHOS MCP: disabled")
+
+        async def supervise_mcp() -> None:
+            assert mcp_http_server is not None
+            server_task = asyncio.create_task(mcp_http_server.serve(), name="mcp-streamable-http")
+            announced = False
+            while not server_task.done():
+                if mcp_http_server.started and not announced:
+                    announced = True
+                    logger.info("PHOS MCP: started host=%s port=%s path=%s", config.mcp_host, config.mcp_port, config.mcp_path)
+                await asyncio.sleep(.01)
+            await server_task
+
+        def start_mcp_after_runtime_start() -> None:
+            nonlocal mcp_task
+            if mcp_http_server is None:
+                return
+            mcp_task = asyncio.create_task(supervise_mcp(), name="mcp-supervisor")
+            mcp_task.add_done_callback(lambda completed: stop_event.set())
+
+        register_mcp_start = getattr(runtime, "register_started_callback", None)
+        if mcp_http_server is not None and callable(register_mcp_start):
+            register_mcp_start(start_mcp_after_runtime_start)
         if lifecycle is not None:
             if application_service is not None:
                 lifecycle.register_application_service(application_service)
@@ -163,24 +193,19 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             application_status = getattr(runtime, "application_status", None)
             if application_status is not None:
                 lifecycle.register_application_status(application_status)
-        if mcp_stdio:
-            from robot.mcp.server import create_mcp_server, run_stdio_server
-            from robot.services import AgentAccess, AgentApplicationService
-            mcp_server = create_mcp_server(AgentApplicationService(application_service, AgentAccess.for_profile()))
-            mcp_task = asyncio.create_task(run_stdio_server(mcp_server))
-            mcp_task.add_done_callback(lambda completed: stop_event.set())
         await runtime.run(stop_event)
         if stop_event.is_set():
             logger.info("PHOS MAIN: stop_event received")
         if mcp_task is not None and mcp_task.done() and not mcp_task.cancelled():
-            # Surface an unexpected stdio-server failure after the runtime has
+            # Surface an unexpected MCP listener failure after the runtime has
             # performed its normal stop path; never leave it silently orphaned.
             mcp_task.result()
         if watcher is not None and watcher.done():
             watcher.result()
     finally:
+        if mcp_http_server is not None:
+            await mcp_http_server.stop()
         if mcp_task is not None:
-            mcp_task.cancel()
             await asyncio.gather(mcp_task, return_exceptions=True)
         if application_service is not None and lifecycle is None:
             application_service.close()
@@ -196,8 +221,6 @@ def main() -> None:
                                      argument_default=argparse.SUPPRESS,
                                      epilog="All individual setting flags are deprecated overrides; edit the active configuration file instead.")
     parser.add_argument("--config", type=Path, help="explicit PHOS configuration file; otherwise discover phos.yaml, phos.yml, then phos.json")
-    parser.add_argument("--mcp-stdio", action="store_true",
-                        help="run trusted-local MCP over stdio as this process's sole PHOS runtime owner")
     parser.add_argument("--expression-provider", choices=("local", "aws"), help="deprecated: override expression.provider and enable expressions")
     parser.add_argument("--aws-region", help="deprecated: override expression.aws.region")
     parser.add_argument(
@@ -248,7 +271,6 @@ def main() -> None:
     )
     arguments = vars(parser.parse_args())
     config_path = arguments.pop("config", None)
-    mcp_stdio = arguments.pop("mcp_stdio", False)
     try:
         # Compatibility flags become typed overrides of the one JSON model.
         # No flag supplies a separate default or persists its override.
@@ -278,8 +300,7 @@ def main() -> None:
         config = repository.load(document, overrides=overrides)
     except (ValueError, TypeError, OSError) as error:
         parser.error(str(error))
-    # MCP reserves stdout for JSON-RPC frames; diagnostics must stay on stderr.
-    handlers = [logging.StreamHandler(sys.stderr if mcp_stdio else sys.stdout)]
+    handlers = [logging.StreamHandler(sys.stdout)]
     if config.log_file is not None:
         try:
             handlers.append(logging.FileHandler(config.resolve_path(config.log_file), encoding="utf-8"))
@@ -296,9 +317,6 @@ def main() -> None:
     logger.info("PHOS configuration loaded: %s", repository.active_path)
     _log_graphical_session()
     _configure_x11_display_power()
-    if mcp_stdio:
-        asyncio.run(async_main(config=config, mcp_stdio=True))
-        return
     # The optional web worker is isolated from camera/rendering and is stopped
     # even when runtime startup or execution fails.
     from robot.web.server import WebServer

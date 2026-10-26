@@ -24,7 +24,7 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] Read-only provider-independent aggregation of canonical perception state.
 - [x] Minimal Agent Permission Model: immutable semantic permission profiles,
   deterministic evaluation, and a permission-checked application facade.
-- [x] MCP Semantic Adapter — Stage 1: trusted-local stdio tools over the agent
+- [x] MCP Semantic Adapter — Stage 1: trusted-local Streamable HTTP tools over the agent
   permission/application-service boundary.
 - [ ] MCP async events/subscriptions, agent authentication, and camera snapshot
   resources.
