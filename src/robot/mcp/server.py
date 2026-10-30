@@ -114,18 +114,16 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService, *, host: str = "127.0.0.1",
-                      port: int = 8001, path: str = "/mcp"):
+def create_mcp_server(agent_service: AgentApplicationService):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
-        from mcp.server.fastmcp import FastMCP
-        from mcp.server.fastmcp.exceptions import ToolError
+        from mcp.server.mcpserver import MCPServer
+        from mcp.server.mcpserver.exceptions import ToolError
     except ImportError as error:
-        raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.10+.") from error
+        raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
     adapter = McpSemanticAdapter(agent_service)
-    server = FastMCP("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
-                     host=host, port=port, streamable_http_path=path)
+    server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.")
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
@@ -192,7 +190,7 @@ class McpHttpServer:
 
     def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
         self.host, self.port, self.path = host, port, path
-        self._mcp_server = create_mcp_server(agent_service, host=host, port=port, path=path)
+        self._mcp_server = create_mcp_server(agent_service)
         self._uvicorn_server = None
 
     @property
@@ -210,7 +208,8 @@ class McpHttpServer:
         if not ipaddress.ip_address(self.host).is_loopback:
             logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
         logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
-        config = uvicorn.Config(self._mcp_server.streamable_http_app(), host=self.host, port=self.port,
+        app = self._mcp_server.streamable_http_app(host=self.host, streamable_http_path=self.path)
+        config = uvicorn.Config(app, host=self.host, port=self.port,
                                 log_level="warning", access_log=False)
         server = self._uvicorn_server = uvicorn.Server(config)
         try:

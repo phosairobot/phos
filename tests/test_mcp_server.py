@@ -59,7 +59,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
     ))
     expression = next(tool for tool in tools if tool.name == "phos_set_expression")
-    assert expression.inputSchema["properties"]["expression"]["enum"] == [
+    assert expression.input_schema["properties"]["expression"]["enum"] == [
         "neutral", "happy", "curious", "surprised", "sad", "angry", "focused", "tired", "confused",
         "scared", "skeptical",
     ]
@@ -150,21 +150,20 @@ def test_mcp_server_returns_structured_results_and_schema_rejects_bad_speech_inp
     server = create_mcp_server(adapter._agent_service)
 
     async def call():
-        _, result = await server.call_tool("phos_get_physical_context", {})
+        result = await server.call_tool("phos_get_physical_context", {})
         with pytest.raises(Exception):
             await server.call_tool("phos_speak", {"text": ""})
         return result
 
-    assert asyncio.run(call())["operation"] == "get_physical_context"
+    assert asyncio.run(call()).structured_content["operation"] == "get_physical_context"
 
 
 def test_streamable_http_server_configuration_is_kept_outside_the_semantic_surface():
     adapter, _ = _adapter()
-    server = create_mcp_server(adapter._agent_service, host="127.0.0.1", port=8123, path="/robot-mcp")
+    server = create_mcp_server(adapter._agent_service)
+    app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/robot-mcp")
 
-    assert server.settings.host == "127.0.0.1"
-    assert server.settings.port == 8123
-    assert server.settings.streamable_http_path == "/robot-mcp"
+    assert [route.path for route in app.routes] == ["/robot-mcp"]
 
 
 def test_mcp_status_uses_the_sanitized_agent_status_contract():

@@ -192,7 +192,7 @@ PhosApplicationService
 PHOS runtime/services
 ```
 
-Stage 1 uses the official Python `mcp` SDK (the pinned 1.x line) over
+Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
 Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
 creates one listener over the existing application services, and normal runtime
 shutdown closes it. It exposes ten request/response tools: `phos_get_status`,
