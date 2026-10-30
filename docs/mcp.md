@@ -16,6 +16,13 @@ graph. Stopping PHOS gracefully stops the listener and its sessions. If an
 enabled endpoint cannot bind, PHOS performs normal shutdown and exits with an
 error so the service manager applies its configured failure policy.
 
+When Web Administration is enabled, **Settings → Network → MCP** can enable or disable
+only this listener and change its port without restarting PHOS. The page and
+`/api/v1/settings/mcp` report the actual listener state and endpoint. A failed
+rebind restores the prior listener and does not persist the requested port;
+existing client sessions disconnect when a listener is intentionally stopped or
+rebound. The loopback host and `/mcp` path remain deliberately non-editable.
+
 ```yaml
 mcp:
   enabled: true

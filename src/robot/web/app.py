@@ -511,6 +511,14 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         })
                         flash("Eyes saved and applied live.")
                         return redirect(url_for("configuration", area=area))
+                    if area == "mcp":
+                        if application_service is None:
+                            raise ApplicationError("service_unavailable", "MCP configuration service is unavailable.", status=503)
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        mcp = prepared.document["mcp"]
+                        application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"]})
+                        flash("MCP settings saved and applied live.")
+                        return redirect(url_for("configuration", area=area))
                     if area == "controller":
                         if application_service is None:
                             raise ApplicationError("service_unavailable", "Hardware controller service is unavailable.", status=503)
@@ -539,6 +547,12 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         # lifecycle status service owns the cross-process, provider-neutral
         # runtime snapshot; the web worker must not reach into sensor adapters.
         runtime_state = lifecycle.execute("status") if area in {"status", "sensors", "diagnostics", "voice"} and lifecycle is not None else None
+        mcp_status = None
+        if area == "mcp" and application_service is not None:
+            try:
+                mcp_status = application_service.mcp_settings()
+            except ApplicationError:
+                mcp_status = {"status": "error", "error": "MCP runtime status is unavailable."}
         controller_status, controller_ports, controller_messages = None, [], []
         controller_filter = {"type": request.args.get("message_type", ""), "direction": request.args.get("direction", ""),
                              "show_heartbeat": request.args.get("show_heartbeat") == "1"}
@@ -586,6 +600,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                submitted=request.form if request.method == "POST" else None,
                                error=error, config_path=config.path, document=document,
                                active=current, runtime_state=runtime_state,
+                               mcp_status=mcp_status,
                                admin_network=admin_network,
                                elevenlabs_credential_configured=any(slot["name"] == "tts.elevenlabs.api_key" and slot["configured"]
                                                                     for slot in web_secrets.slots()),

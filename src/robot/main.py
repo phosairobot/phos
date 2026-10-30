@@ -110,42 +110,30 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             await asyncio.sleep(.1)
     watcher = asyncio.create_task(watch_restart()) if lifecycle is not None or web_server is not None else None
     application_service = None
-    mcp_task = None
-    mcp_http_server = None
+    mcp_manager = None
+    mcp_start_task = None
     try:
         runtime = build_application(config=config)
         if hasattr(runtime, "core"):
             from robot.services import AgentAccess, AgentApplicationService, PhosApplicationService
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
-            if config is not None and config.mcp_enabled:
-                from robot.mcp import McpHttpServer
-                mcp_http_server = McpHttpServer(
+            if config is not None:
+                from robot.mcp import McpServerManager
+                mcp_manager = McpServerManager(
                     AgentApplicationService(application_service, AgentAccess.for_profile()),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
+                    enabled=config.mcp_enabled,
                 )
-            elif config is not None:
-                logger.info("PHOS MCP: disabled")
-
-        async def supervise_mcp() -> None:
-            assert mcp_http_server is not None
-            server_task = asyncio.create_task(mcp_http_server.serve(), name="mcp-streamable-http")
-            announced = False
-            while not server_task.done():
-                if mcp_http_server.started and not announced:
-                    announced = True
-                    logger.info("PHOS MCP: started host=%s port=%s path=%s", config.mcp_host, config.mcp_port, config.mcp_path)
-                await asyncio.sleep(.01)
-            await server_task
+                application_service.register_mcp_manager(mcp_manager)
 
         def start_mcp_after_runtime_start() -> None:
-            nonlocal mcp_task
-            if mcp_http_server is None:
-                return
-            mcp_task = asyncio.create_task(supervise_mcp(), name="mcp-supervisor")
-            mcp_task.add_done_callback(lambda completed: stop_event.set())
+            nonlocal mcp_start_task
+            if mcp_manager is not None:
+                mcp_manager.attach_loop()
+                mcp_start_task = asyncio.create_task(mcp_manager.start(), name="mcp-supervisor")
 
         register_mcp_start = getattr(runtime, "register_started_callback", None)
-        if mcp_http_server is not None and callable(register_mcp_start):
+        if mcp_manager is not None and callable(register_mcp_start):
             register_mcp_start(start_mcp_after_runtime_start)
         if lifecycle is not None:
             if application_service is not None:
@@ -196,17 +184,13 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         await runtime.run(stop_event)
         if stop_event.is_set():
             logger.info("PHOS MAIN: stop_event received")
-        if mcp_task is not None and mcp_task.done() and not mcp_task.cancelled():
-            # Surface an unexpected MCP listener failure after the runtime has
-            # performed its normal stop path; never leave it silently orphaned.
-            mcp_task.result()
         if watcher is not None and watcher.done():
             watcher.result()
     finally:
-        if mcp_http_server is not None:
-            await mcp_http_server.stop()
-        if mcp_task is not None:
-            await asyncio.gather(mcp_task, return_exceptions=True)
+        if mcp_start_task is not None:
+            await asyncio.gather(mcp_start_task, return_exceptions=True)
+        if mcp_manager is not None:
+            await mcp_manager.close()
         if application_service is not None and lifecycle is None:
             application_service.close()
         if lifecycle is not None:

@@ -232,3 +232,91 @@ class McpHttpServer:
             self._uvicorn_server.should_exit = True
             await asyncio.sleep(0)
         logger.info("PHOS MCP: stopped host=%s port=%s path=%s", self.host, self.port, self.path)
+
+
+class McpServerManager:
+    """Own only the MCP listener, never the PHOS runtime or service graph."""
+
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, path: str,
+                 enabled: bool, port: int) -> None:
+        self._agent_service, self._host, self._path = agent_service, host, path
+        self._enabled, self._configured_port = enabled, port
+        self._server = self._task = self._loop = None
+        self._status, self._error = ("disabled" if not enabled else "starting"), None
+        self._lock = asyncio.Lock()
+
+    def status(self) -> dict[str, Any]:
+        server = self._server
+        bound = server.port if self._status == "running" and server is not None else None
+        endpoint = server.url if bound is not None else None
+        return {"enabled": self._enabled, "port": self._configured_port, "status": self._status,
+                "bound_port": bound, "endpoint": endpoint, "error": self._error}
+
+    async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        if self._enabled:
+            await self._start(self._configured_port)
+
+    def attach_loop(self) -> None:
+        """Publish the already-running PHOS loop before Admin becomes ready."""
+        self._loop = asyncio.get_running_loop()
+
+    def apply(self, *, enabled: bool, port: int) -> dict[str, Any]:
+        """Thread-safe bridge for the lifecycle worker; it reuses this loop."""
+        if self._loop is None:
+            raise RuntimeError("MCP runtime is not ready")
+        future = asyncio.run_coroutine_threadsafe(self._apply(enabled, port), self._loop)
+        return future.result(timeout=10)
+
+    async def _start(self, port: int) -> None:
+        self._status, self._error = "starting", None
+        # Resolve through the package at start time so deployments/tests can
+        # provide the listener adapter without changing lifecycle semantics.
+        from robot.mcp import McpHttpServer as Listener
+        server = Listener(self._agent_service, host=self._host, port=port, path=self._path)
+        task = asyncio.create_task(server.serve(), name="mcp-streamable-http")
+        for _ in range(200):
+            if server.started:
+                self._server, self._task, self._status = server, task, "running"
+                return
+            if task.done():
+                try: task.result()
+                except Exception: pass
+                self._status, self._error = "error", "MCP could not start on the requested port."
+                raise RuntimeError(self._error)
+            await asyncio.sleep(.01)
+        await server.stop(); await asyncio.gather(task, return_exceptions=True)
+        self._status, self._error = "error", "MCP startup timed out."
+        raise RuntimeError(self._error)
+
+    async def _stop(self) -> None:
+        if self._server is None: return
+        self._status = "stopping"
+        await self._server.stop()
+        await asyncio.gather(self._task, return_exceptions=True)
+        self._server = self._task = None
+
+    async def _apply(self, enabled: bool, port: int) -> dict[str, Any]:
+        async with self._lock:
+            previous_enabled, previous_port = self._enabled, self._configured_port
+            if not enabled:
+                await self._stop(); self._enabled, self._configured_port, self._status, self._error = False, port, "disabled", None
+                return self.status()
+            if self._status == "running" and previous_enabled and previous_port == port:
+                return self.status()
+            await self._stop()
+            try:
+                await self._start(port)
+            except Exception:
+                # A failed rebind must restore the working listener before reporting failure.
+                self._enabled, self._configured_port = previous_enabled, previous_port
+                if previous_enabled:
+                    try: await self._start(previous_port)
+                    except Exception: pass
+                raise
+            self._enabled, self._configured_port = True, port
+            return self.status()
+
+    async def close(self) -> None:
+        async with self._lock:
+            await self._stop()

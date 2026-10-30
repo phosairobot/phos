@@ -450,6 +450,8 @@ class LifecycleService:
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
             "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
             "application.configure_eyes": lambda: self._application_service.configure_eyes(payload),
+            "application.mcp_settings": lambda: self._application_service.mcp_settings(),
+            "application.configure_mcp": lambda: self._application_service.configure_mcp(payload),
             "application.controller_status": lambda: self._application_service.controller_status(),
             "application.controller_serial_ports": lambda: self._application_service.controller_serial_ports(),
             "application.controller_recent_messages": lambda: self._application_service.controller_recent_messages(),
