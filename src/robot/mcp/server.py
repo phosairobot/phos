@@ -19,6 +19,7 @@ MCP_TOOL_NAMES = frozenset({
     "phos_get_observed_expression", "phos_set_expression", "phos_speak", "phos_sleep",
     "phos_wake", "phos_signal_user",
 })
+MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment"})
 
 Expression = Annotated[str, Field(min_length=1, json_schema_extra={
     "enum": COMMANDS["set_expression"].allowed_values,
@@ -78,6 +79,10 @@ class McpSemanticAdapter:
     def get_observed_expression(self) -> dict[str, Any]:
         return self._call("phos_get_observed_expression", self._agent_service.observed_expression)
 
+    def environment(self) -> dict[str, Any]:
+        """Return the canonical environmental semantic-context section."""
+        return self._call("phos://environment", lambda: self._agent_service.get_physical_context()["environment"])
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._agent_service.set_expression(expression))
 
@@ -127,6 +132,23 @@ def create_mcp_server(agent_service: AgentApplicationService):
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
+
+    def resource(uri: str, name: str, description: str):
+        return server.resource(uri, name=name, description=description, mime_type="application/json")
+
+    @resource("phos://status", "PHOS semantic status", "Current compact PHOS semantic status.")
+    def status_resource() -> dict[str, Any]:
+        return _resource_result(adapter.get_status)
+
+    @resource("phos://physical-context", "PHOS semantic physical context",
+              "Current provider-independent semantic physical context.")
+    def physical_context_resource() -> dict[str, Any]:
+        return _resource_result(adapter.get_physical_context)
+
+    @resource("phos://environment", "PHOS semantic environment",
+              "Current environmental section of PHOS semantic physical context.")
+    def environment_resource() -> dict[str, Any]:
+        return _resource_result(adapter.environment)
 
     @tool("phos_get_status", "Return provider-independent PHOS semantic status.")
     def get_status() -> dict[str, Any]:
@@ -183,6 +205,15 @@ async def _async_tool_result(handler, error_type) -> dict[str, Any]:
         return await handler()
     except McpToolError as error:
         raise error_type(str(error)) from None
+
+
+def _resource_result(handler: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Map the existing sanitized adapter error into an MCP resource failure."""
+    try:
+        return handler()
+    except McpToolError as error:
+        from mcp.server.mcpserver.exceptions import ResourceError
+        raise ResourceError(str(error)) from None
 
 
 class McpHttpServer:

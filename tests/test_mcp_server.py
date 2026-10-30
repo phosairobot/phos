@@ -1,11 +1,12 @@
 import asyncio
 import inspect
+import json
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from robot.mcp.server import MCP_TOOL_NAMES, McpSemanticAdapter, McpToolError, create_mcp_server
+from robot.mcp.server import MCP_RESOURCE_URIS, MCP_TOOL_NAMES, McpSemanticAdapter, McpToolError, create_mcp_server
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
 from robot.services import AgentAccess, AgentApplicationService, ApplicationError, AgentProfile
@@ -29,7 +30,9 @@ class ApplicationSpy:
                 "observed_expression": {"available": True},
                 "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
                 "speech": {"tts": {"available": True}}, "semantic_led": {"available": True}}
-    def get_physical_context(self): return self._call("get_physical_context")
+    def get_physical_context(self):
+        result = self._call("get_physical_context")
+        return {**result, "environment": {"operation": "get_physical_context"}}
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
@@ -63,6 +66,26 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
         "neutral", "happy", "curious", "surprised", "sad", "angry", "focused", "tired", "confused",
         "scared", "skeptical",
     ]
+
+
+def test_server_lists_and_reads_only_semantic_snapshot_resources():
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    async def read():
+        resources = await server.list_resources()
+        status = await server.read_resource("phos://status")
+        physical_context = await server.read_resource("phos://physical-context")
+        environment = await server.read_resource("phos://environment")
+        return resources, status, physical_context, environment
+
+    resources, status, physical_context, environment = asyncio.run(read())
+    assert {resource.uri for resource in resources} == MCP_RESOURCE_URIS
+    assert all(resource.mime_type == "application/json" for resource in resources)
+    assert json.loads(status[0].content)["running"] is True
+    assert json.loads(physical_context[0].content)["operation"] == "get_physical_context"
+    assert json.loads(environment[0].content)["operation"] == "get_physical_context"
+    assert "camera" not in inspect.getsource(__import__("robot.mcp.server", fromlist=["server"])).lower()
 
 
 @pytest.mark.parametrize(("method", "expected"), [

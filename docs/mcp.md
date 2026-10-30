@@ -52,6 +52,20 @@ camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
 semantic result documents, and sanitized error mapping are transport-independent.
 
+## Semantic snapshot resources
+
+PHOS also exposes read-only MCP resources, each served as `application/json`:
+
+- `phos://status` — compact agent-facing semantic status.
+- `phos://physical-context` — provider-independent semantic physical context.
+- `phos://environment` — the environmental section of that physical context.
+
+Resources are live snapshots: each read calls the same permission-checked
+application-service boundary as the corresponding semantic tool. They do not
+poll providers, mutate PHOS, replay history, or expose controller/camera/
+renderer internals. Camera snapshots remain deferred because no approved
+privacy-preserving application-service resource exists.
+
 ## Raspberry Pi validation
 
 ```bash
