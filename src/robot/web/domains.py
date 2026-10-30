@@ -23,6 +23,7 @@ DOMAINS = {
     "integrations": {"title": "Integrations", "description": "Optional Web Administration integration settings."},
     "voice": {"title": "Voice & speech", "description": "Offline Vosk/optional Cartesia STT and text-to-speech settings."},
     "controller": {"title": "Hardware Controller", "description": "Generic external serial controller configuration, status and bounded diagnostics."},
+    "mcp": {"title": "MCP", "description": "Local MCP listener settings and live runtime status."},
 }
 
 # Paths select fields that already exist in the canonical document. A trailing
@@ -68,6 +69,7 @@ GROUPS["voice"] = [("stt", "Speech-to-text", ("voice.enabled", "voice.stt.provid
                     ("cartesia", "Cartesia", ("tts.cartesia.",), "cartesia"),
                     ("audio", "Audio output", ("tts.audio_output.",), None)]
 GROUPS["controller"] = [("controller", "External hardware controller", ("hardware_controller.",), None)]
+GROUPS["mcp"] = [("mcp", "MCP", ("mcp.enabled", "mcp.port"), None)]
 
 
 def domain_sections(document, area):

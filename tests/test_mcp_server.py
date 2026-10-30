@@ -26,7 +26,8 @@ class ApplicationSpy:
                 "environment": {"status": "available", "available": True},
                 "motion": {"status": "available", "available": True},
                 "sensors": {"ccs811": {"status": "available", "available": True}},
-                "observed_expression": {"available": True}, "voice": {"available": True},
+                "observed_expression": {"available": True},
+                "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
                 "speech": {"tts": {"available": True}}, "semantic_led": {"available": True}}
     def get_physical_context(self): return self._call("get_physical_context")
     def presence(self): return self._call("presence")
@@ -155,6 +156,15 @@ def test_mcp_server_returns_structured_results_and_schema_rejects_bad_speech_inp
         return result
 
     assert asyncio.run(call())["operation"] == "get_physical_context"
+
+
+def test_streamable_http_server_configuration_is_kept_outside_the_semantic_surface():
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service, host="127.0.0.1", port=8123, path="/robot-mcp")
+
+    assert server.settings.host == "127.0.0.1"
+    assert server.settings.port == 8123
+    assert server.settings.streamable_http_path == "/robot-mcp"
 
 
 def test_mcp_status_uses_the_sanitized_agent_status_contract():

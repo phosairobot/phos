@@ -24,8 +24,8 @@ passes; physical Raspberry display validation is deferred.
 ## Semantic Physical Context v1
 
 The repository implements a read-only, provider-independent semantic perception
-context through `PhosApplicationService`; it is automated-tested and has no
-REST or MCP adapter yet.
+context through `PhosApplicationService`; it is automated-tested and available
+to the MCP semantic adapter.
 
 ## Minimal Agent Permission Model
 
@@ -39,10 +39,11 @@ identity and authentication remain deferred.
 
 ## MCP Semantic Adapter — Stage 1
 
-The repository implements a trusted-local stdio MCP adapter over
+The repository implements a trusted-local Streamable HTTP MCP adapter over
 `AgentApplicationService`, with the standard semantic read/action tools only.
-It runs embedded in the one PHOS runtime owner started by `python -m robot.mcp`;
-it does not attach to an existing runtime or expose a network listener. Events,
+It runs embedded in the one PHOS runtime owner started by normal PHOS startup;
+it exposes the configured Streamable HTTP listener over that existing runtime.
+Events,
 resources/camera snapshots, subscriptions, asynchronous notifications, and MCP
 authentication remain deferred.
 
@@ -69,7 +70,7 @@ ElevenLabs TTS adapters feed `AudioOutputProvider` and the
 configuration; legacy JSON remains a supported fallback.
 
 Transcript-to-intent/command interpretation, wake words, continuous listening,
-conversational LLM, Home Assistant and MCP/tool execution remain deferred.
+conversational LLM, Home Assistant and MCP events/subscriptions remain deferred.
 
 ## PHOS 1.3.0 release candidate
 

@@ -160,9 +160,9 @@ should still be edited carefully. Structured settings pages remain available for
 common changes. The editor warns before navigation with unsaved changes.
 
 Navigation is defined by a small domain registry, separate from the canonical
-schema. Future implemented subsystems can add areas there. LED Ring,
-Audio, Voice, LLM, Home Assistant, Remote API and MCP have no settings or
-placeholder pages in this milestone.
+schema. Settings → Network → MCP controls only the local MCP listener's enabled state and
+port, and displays its live status and endpoint; host and path remain fixed in
+the normal UI. Future implemented subsystems can add areas there.
 
 Choose **local** or **aws** under Expression Recognition. The matching provider fields are
 shown; switching keeps the inactive provider's settings for later use. Both

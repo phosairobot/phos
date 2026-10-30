@@ -180,6 +180,13 @@ Your edits on this page have not been saved.</p>
 </dl>{% if admin_network and admin_network.admin_url %}<form method="post" action="{{ url_for('show_admin_access') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="secondary-action">Show QR on PHOS</button></form>{% else %}<button type="button" class="secondary-action" disabled>Show QR on PHOS</button>{% endif %}</section>
 <h3>Network Configuration</h3>
 {% endif %}
+{% if area == 'mcp' %}
+<section class="status" aria-label="MCP runtime status"><h3>Runtime</h3><dl>
+<dt>Status</dt><dd>{{ mcp_status.status | title if mcp_status else 'Unavailable' }}</dd>
+<dt>Endpoint</dt><dd>{{ mcp_status.endpoint if mcp_status and mcp_status.endpoint else 'Not running' }}</dd>
+{% if mcp_status and mcp_status.error %}<dt>Error</dt><dd>{{ mcp_status.error }}</dd>{% endif %}
+</dl><p>MCP listens only on the configured local address. Connected clients disconnect when the listener is stopped or rebound.</p></section>
+{% endif %}
 <form method="post" action="{{ url_for('configuration', area=area) }}">
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

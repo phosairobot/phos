@@ -593,6 +593,14 @@ def test_legacy_voice_document_receives_pre_roll_default(document, tmp_path):
     assert config.voice_pre_roll_ms == 300
 
 
+def test_legacy_document_without_mcp_uses_the_safe_streamable_http_defaults(document, tmp_path):
+    del document["mcp"]
+
+    config = RuntimeConfig.from_file(write_config(tmp_path, document))
+
+    assert (config.mcp_enabled, config.mcp_host, config.mcp_port, config.mcp_path) == (True, "127.0.0.1", 8001, "/mcp")
+
+
 def test_legacy_voice_document_receives_debug_defaults(document, tmp_path):
     del document["voice"]["debug"]
     config = RuntimeConfig.from_file(write_config(tmp_path, document))

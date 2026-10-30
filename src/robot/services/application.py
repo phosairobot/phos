@@ -198,6 +198,8 @@ class RemoteApplicationService:
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
     def configure_eyes(self, value): return self._call("configure_eyes", value)
+    def mcp_settings(self): return self._call("mcp_settings")
+    def configure_mcp(self, value): return self._call("configure_mcp", value)
     def controller_status(self): return self._call("controller_status")
     def controller_serial_ports(self): return self._call("controller_serial_ports")
     def controller_recent_messages(self): return self._call("controller_recent_messages")
@@ -305,6 +307,7 @@ class PhosApplicationService:
         self._core = runtime.core
         self._behavior = runtime._behavior_engine  # composition-owned semantic collaborator
         self._lifecycle = lifecycle
+        self._mcp_manager = None
         self._admin_recovery = RecoveryState(clock=clock)
         self._physical_context = SemanticPhysicalContextService()
         self._clock = clock
@@ -703,6 +706,41 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", result.get("error", "Configuration service is unavailable."), status=503)
         saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
+
+    def register_mcp_manager(self, manager) -> None:
+        self._mcp_manager = manager
+
+    def mcp_settings(self) -> dict:
+        if self._lifecycle is None or self._mcp_manager is None:
+            raise ApplicationError("service_unavailable", "MCP runtime service is unavailable.", status=503)
+        return self._mcp_manager.status()
+
+    def configure_mcp(self, patch: dict) -> dict:
+        if (self._lifecycle is None or self._mcp_manager is None or not isinstance(patch, dict)
+                or set(patch) - {"enabled", "port"}):
+            raise ApplicationError("invalid_mcp_settings", "MCP settings are invalid.")
+        if type(patch.get("enabled")) is not bool or type(patch.get("port")) is not int or not 1 <= patch["port"] <= 65535:
+            raise ApplicationError("invalid_mcp_settings", "MCP port must be an integer between 1 and 65535.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        document["mcp"].update(patch)
+        candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        try:
+            result = self._mcp_manager.apply(enabled=candidate.mcp_enabled, port=candidate.mcp_port)
+        except Exception as error:
+            current = self._mcp_manager.status()
+            message = (f"MCP could not start on port {patch['port']}. "
+                       f"MCP remains available on port {current['bound_port']}." if current.get("bound_port")
+                       else "MCP could not start on the requested port.")
+            raise ApplicationError("port_in_use", message, status=409) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+        except OSError as error:
+            # Keep runtime and persistence coherent if storage fails.
+            self._mcp_manager.apply(enabled=previous.mcp_enabled, port=previous.mcp_port)
+            raise ApplicationError("configuration_unavailable", "MCP settings could not be saved.", status=503) from error
+        self._lifecycle.active["mcp"] = candidate.to_dict()["mcp"]
+        return result
 
     def request_admin_password_recovery(self):
         show = getattr(self._runtime, "show_recovery_code", None)

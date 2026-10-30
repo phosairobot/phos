@@ -444,7 +444,7 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     app, _, _ = setup
     client = authorize(app)
     page = client.get("/").get_data(as_text=True)
-    for label in ("Dashboard", "PHOS Status", "Controls", "Sensors", "API", "Diagnostics", "System Actions", "Settings"):
+    for label in ("Dashboard", "PHOS Status", "Controls", "Sensors", "API", "Diagnostics", "System Actions", "Settings", "MCP"):
         assert label in page
     assert page.count('href="/system"') == 1
     system_routes = [rule for rule in app.url_map.iter_rules() if rule.rule == "/system"]
@@ -457,6 +457,35 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     assert "Apply robot state" in controls and "Editing saved settings" not in controls
     status = client.get("/configuration/status").get_data(as_text=True)
     assert "Detailed runtime diagnostics" in status
+
+
+def test_mcp_settings_navigation_is_visible_active_and_uses_the_responsive_sidebar(setup):
+    app, _, _ = setup
+    client = authorize(app)
+
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    dashboard_text = dashboard.get_data(as_text=True)
+    sidebar = re.search(r'<nav class="side-nav".*?</nav>', dashboard_text, re.DOTALL).group(0)
+    assert sidebar.count('href="/configuration/mcp"') == 1
+    assert '<summary><i>⌁</i>Network</summary>' in sidebar
+    assert '<a href="/configuration/network" ><i>⌁</i>General</a>' in sidebar
+
+    mcp = client.get("/configuration/mcp")
+    text = mcp.get_data(as_text=True)
+    assert mcp.status_code == 200
+    assert '<details class="nav-group is-active" open>\n<summary><i>⌁</i>Network</summary>' in text
+    assert '<a href="/configuration/mcp" aria-current="page"><i>⌘</i>MCP</a>' in text
+    assert '<h2>MCP</h2>' in text
+
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+    assert ".side-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }" in stylesheet
+
+    network = client.get("/configuration/network")
+    network_text = network.get_data(as_text=True)
+    assert network.status_code == 200
+    assert '<a href="/configuration/network" aria-current="page"><i>⌁</i>General</a>' in network_text
+    assert '<a href="/configuration/mcp" ><i>⌘</i>MCP</a>' in network_text
 
 
 @pytest.mark.parametrize(

@@ -40,6 +40,26 @@ class _VoiceFuture:
         return self._result
 
 
+def test_mcp_settings_api_reports_runtime_state_and_applies_only_safe_fields():
+    class Service:
+        def __init__(self): self.patch = None
+        def mcp_settings(self):
+            return {"enabled": True, "port": 8001, "status": "running", "bound_port": 8001,
+                    "endpoint": "http://127.0.0.1:8001/mcp", "error": None}
+        def configure_mcp(self, patch):
+            self.patch = patch
+            return {**self.mcp_settings(), **patch, "bound_port": patch["port"],
+                    "endpoint": f"http://127.0.0.1:{patch['port']}/mcp"}
+
+    service = Service()
+    app = Flask(__name__); app.register_blueprint(create_api(service))
+    client = app.test_client()
+    assert client.get("/api/v1/settings/mcp").json["status"] == "running"
+    response = client.patch("/api/v1/settings/mcp", json={"enabled": False, "port": 8100})
+    assert response.status_code == 200 and service.patch == {"enabled": False, "port": 8100}
+    assert response.json["endpoint"] == "http://127.0.0.1:8100/mcp"
+
+
 def test_voice_start_failure_logs_traceback_and_keeps_stable_503(monkeypatch, caplog):
     runtime = Runtime()
     runtime._loop = object()

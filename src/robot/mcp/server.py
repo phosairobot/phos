@@ -1,12 +1,17 @@
-"""Stage 1 stdio MCP adapter over the permission-checked semantic boundary."""
+"""Streamable HTTP MCP adapter over the permission-checked semantic boundary."""
 from __future__ import annotations
 
+import asyncio
+import ipaddress
+import logging
 from typing import Annotated, Any, Callable
 
 from pydantic import Field
 
 from robot.services import AgentApplicationService, AgentPermissionDenied, ApplicationError, USER_SIGNAL_INTENTS
 from robot.services.application import COMMANDS
+
+logger = logging.getLogger(__name__)
 
 
 MCP_TOOL_NAMES = frozenset({
@@ -109,7 +114,8 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService):
+def create_mcp_server(agent_service: AgentApplicationService, *, host: str = "127.0.0.1",
+                      port: int = 8001, path: str = "/mcp"):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
         from mcp.server.fastmcp import FastMCP
@@ -118,7 +124,8 @@ def create_mcp_server(agent_service: AgentApplicationService):
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.10+.") from error
 
     adapter = McpSemanticAdapter(agent_service)
-    server = FastMCP("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.")
+    server = FastMCP("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
+                     host=host, port=port, streamable_http_path=path)
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
@@ -180,6 +187,136 @@ async def _async_tool_result(handler, error_type) -> dict[str, Any]:
         raise error_type(str(error)) from None
 
 
-async def run_stdio_server(server) -> None:
-    """Run an already-constructed server on its SDK-provided stdio transport."""
-    await server.run_stdio_async()
+class McpHttpServer:
+    """One Streamable HTTP listener owned by the normal PHOS process."""
+
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
+        self.host, self.port, self.path = host, port, path
+        self._mcp_server = create_mcp_server(agent_service, host=host, port=port, path=path)
+        self._uvicorn_server = None
+
+    @property
+    def url(self) -> str:
+        host = f"[{self.host}]" if ":" in self.host else self.host
+        return f"http://{host}:{self.port}{self.path}"
+
+    async def serve(self) -> None:
+        """Serve on PHOS's event loop and fail PHOS startup if binding fails."""
+        try:
+            import uvicorn
+        except ImportError as error:
+            raise RuntimeError("MCP Streamable HTTP requires the optional 'mcp' dependency.") from error
+
+        if not ipaddress.ip_address(self.host).is_loopback:
+            logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
+        logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
+        config = uvicorn.Config(self._mcp_server.streamable_http_app(), host=self.host, port=self.port,
+                                log_level="warning", access_log=False)
+        server = self._uvicorn_server = uvicorn.Server(config)
+        try:
+            await server.serve()
+        except (OSError, SystemExit) as error:
+            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}") from error
+        if not server.started:
+            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}")
+
+    @property
+    def started(self) -> bool:
+        return bool(self._uvicorn_server is not None and self._uvicorn_server.started)
+
+    async def stop(self) -> None:
+        """Request graceful listener shutdown; its ASGI lifespan closes sessions."""
+        if self._uvicorn_server is not None:
+            self._uvicorn_server.should_exit = True
+            await asyncio.sleep(0)
+        logger.info("PHOS MCP: stopped host=%s port=%s path=%s", self.host, self.port, self.path)
+
+
+class McpServerManager:
+    """Own only the MCP listener, never the PHOS runtime or service graph."""
+
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, path: str,
+                 enabled: bool, port: int) -> None:
+        self._agent_service, self._host, self._path = agent_service, host, path
+        self._enabled, self._configured_port = enabled, port
+        self._server = self._task = self._loop = None
+        self._status, self._error = ("disabled" if not enabled else "starting"), None
+        self._lock = asyncio.Lock()
+
+    def status(self) -> dict[str, Any]:
+        server = self._server
+        bound = server.port if self._status == "running" and server is not None else None
+        endpoint = server.url if bound is not None else None
+        return {"enabled": self._enabled, "port": self._configured_port, "status": self._status,
+                "bound_port": bound, "endpoint": endpoint, "error": self._error}
+
+    async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        if self._enabled:
+            await self._start(self._configured_port)
+
+    def attach_loop(self) -> None:
+        """Publish the already-running PHOS loop before Admin becomes ready."""
+        self._loop = asyncio.get_running_loop()
+
+    def apply(self, *, enabled: bool, port: int) -> dict[str, Any]:
+        """Thread-safe bridge for the lifecycle worker; it reuses this loop."""
+        if self._loop is None:
+            raise RuntimeError("MCP runtime is not ready")
+        future = asyncio.run_coroutine_threadsafe(self._apply(enabled, port), self._loop)
+        return future.result(timeout=10)
+
+    async def _start(self, port: int) -> None:
+        self._status, self._error = "starting", None
+        # Resolve through the package at start time so deployments/tests can
+        # provide the listener adapter without changing lifecycle semantics.
+        from robot.mcp import McpHttpServer as Listener
+        server = Listener(self._agent_service, host=self._host, port=port, path=self._path)
+        task = asyncio.create_task(server.serve(), name="mcp-streamable-http")
+        for _ in range(200):
+            if server.started:
+                self._server, self._task, self._status = server, task, "running"
+                return
+            if task.done():
+                try: task.result()
+                except Exception: pass
+                self._status, self._error = "error", "MCP could not start on the requested port."
+                raise RuntimeError(self._error)
+            await asyncio.sleep(.01)
+        await server.stop(); await asyncio.gather(task, return_exceptions=True)
+        self._status, self._error = "error", "MCP startup timed out."
+        raise RuntimeError(self._error)
+
+    async def _stop(self) -> None:
+        if self._server is None: return
+        self._status = "stopping"
+        await self._server.stop()
+        await asyncio.gather(self._task, return_exceptions=True)
+        self._server = self._task = None
+
+    async def _apply(self, enabled: bool, port: int) -> dict[str, Any]:
+        async with self._lock:
+            previous_enabled, previous_port = self._enabled, self._configured_port
+            if not enabled:
+                await self._stop(); self._enabled, self._configured_port, self._status, self._error = False, port, "disabled", None
+                return self.status()
+            if self._status == "running" and previous_enabled and previous_port == port:
+                return self.status()
+            await self._stop()
+            try:
+                await self._start(port)
+            except Exception:
+                # A failed rebind must restore the working listener before reporting failure.
+                self._enabled, self._configured_port = previous_enabled, previous_port
+                if previous_enabled:
+                    try: await self._start(previous_port)
+                    except Exception: pass
+                raise
+            self._enabled, self._configured_port = True, port
+            return self.status()
+
+    async def close(self) -> None:
+        async with self._lock:
+            await self._stop()

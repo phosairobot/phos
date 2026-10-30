@@ -312,6 +312,7 @@ class CloudExpressionConfig:
 # live only in phos.json; this mapping is schema, not a second set of defaults.
 _SCHEMA = {
     "web": {"enabled": "web_enabled", "host": "web_host", "port": "web_port"},
+    "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path"},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
                 "iris_color": "iris_color", "base_visual_source": "base_visual_source",
@@ -554,6 +555,10 @@ class RuntimeConfig:
     web_enabled: bool
     web_host: str
     web_port: int
+    mcp_enabled: bool
+    mcp_host: str
+    mcp_port: int
+    mcp_path: str
     display_width: int
     display_height: int
     display_fps: int
@@ -721,6 +726,9 @@ class RuntimeConfig:
                 display["state_effects"].pop("smooth_transitions", None)
                 display["state_effects"].setdefault("palette", "phos")
         if isinstance(document, dict):
+            # MCP was added after the initial canonical configuration schema.
+            # Existing complete documents retain the safe local endpoint.
+            document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
             document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
                 "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
                 "reconnect": {"delay_seconds": 2},
@@ -883,6 +891,15 @@ class RuntimeConfig:
             raise ConfigurationError("web.host must be an IPv4 or IPv6 bind address") from None
         if not isinstance(self.web_host, str):
             raise ConfigurationError("web.host must be an IP address string")
+        number("mcp_port", integer=True, maximum=65535)
+        try:
+            ipaddress.ip_address(self.mcp_host)
+        except (ValueError, TypeError):
+            raise ConfigurationError("mcp.host must be an IPv4 or IPv6 bind address") from None
+        if not isinstance(self.mcp_host, str):
+            raise ConfigurationError("mcp.host must be an IP address string")
+        if not isinstance(self.mcp_path, str) or not self.mcp_path.startswith("/") or self.mcp_path == "/" or "?" in self.mcp_path or "#" in self.mcp_path:
+            raise ConfigurationError("mcp.path must be a non-root absolute URL path without query or fragment")
 
         for name in ("display_width", "display_height", "display_fps", "expression_minimum_observations"):
             number(name, integer=True)
@@ -992,7 +1009,7 @@ class RuntimeConfig:
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:
             raise ConfigurationError("presence LED directions must be clockwise or counter_clockwise")
-        for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
+        for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "mcp_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
                      "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav",

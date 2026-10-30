@@ -35,7 +35,13 @@
 <a href="{{ url_for('appearance_eye_safe_layer') }}" {% if request.endpoint == 'appearance_eye_safe_layer' %}aria-current="page"{% endif %}><i>◌</i>Eye Safe Layer</a>
 <a href="{{ url_for('appearance_state_effects') }}" {% if request.endpoint == 'appearance_state_effects' %}aria-current="page"{% endif %}><i>✧</i>State Effects</a>
 </div></details>
-<a href="{{ url_for('configuration', area='network') }}" {% if area is defined and area == 'network' %}aria-current="page"{% endif %}><i>⌁</i>Network</a>
+{% set network_active = area is defined and area in ('network', 'mcp') %}
+<details class="nav-group{% if network_active %} is-active{% endif %}"{% if network_active %} open{% endif %}>
+<summary><i>⌁</i>Network</summary>
+<div class="nav-group-items">
+<a href="{{ url_for('configuration', area='network') }}" {% if area is defined and area == 'network' %}aria-current="page"{% endif %}><i>⌁</i>General</a>
+<a href="{{ url_for('configuration', area='mcp') }}" {% if area is defined and area == 'mcp' %}aria-current="page"{% endif %}><i>⌘</i>MCP</a>
+</div></details>
 <a href="{{ url_for('configuration', area='runtime') }}" {% if area is defined and area == 'runtime' %}aria-current="page"{% endif %}><i>⏱</i>Runtime</a>
 <a href="{{ url_for('configuration', area='voice') }}" {% if area is defined and area == 'voice' %}aria-current="page"{% endif %}><i>♬</i>Voice &amp; speech</a>
 <a href="{{ url_for('configuration', area='behavior') }}" {% if area is defined and area == 'behavior' %}aria-current="page"{% endif %}><i>◇</i>Behavior</a>

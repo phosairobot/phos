@@ -106,7 +106,7 @@ Local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web
 Admin, and live STT/TTS switching have recorded Pi validation. Optional sensor,
 provider, and deployment acceptance remains component-specific.
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP/tool execution. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP event/subscription extensions. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

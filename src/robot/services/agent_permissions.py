@@ -174,7 +174,11 @@ class AgentApplicationService:
             "air_quality": available(air_quality),
             "motion": available(motion),
             "vision": available(observed_expression),
-            "voice": available(voice),
+            # VoiceCaptureSession models capture interaction separately from
+            # STT readiness and active listening. A configured, enabled session
+            # with no capture-session error is ready to accept an interaction
+            # while PHOS remains idle.
+            "voice": bool(isinstance(voice, dict) and voice.get("enabled") and not voice.get("last_error")),
             "speech": available(tts),
             "signals": available(signals),
         }
