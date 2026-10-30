@@ -26,6 +26,7 @@ from robot.core.state import InvalidStateTransition, allowed_next_states, transi
 from robot.semantics import VisualSource
 from robot.core.environmental import AirQualityOverlay, EnvironmentalState, TemperatureOverlay
 from robot.core.runtime import STATE_CHANGED
+from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
 from robot.core.presence import PRESENCE_CHANGED, PERSON_ENTERED, PERSON_LEFT
 from robot.core.attention import (ATTENTION_CHANGED, ATTENTION_TARGET_ACQUIRED,
                                   ATTENTION_TARGET_CHANGED, ATTENTION_TARGET_LOST)
@@ -44,6 +45,7 @@ from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProvi
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
+from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
@@ -310,6 +312,7 @@ class PhosApplicationService:
         self._mcp_manager = None
         self._admin_recovery = RecoveryState(clock=clock)
         self._physical_context = SemanticPhysicalContextService()
+        self._semantic_events = SemanticEventPublisher()
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -317,14 +320,19 @@ class PhosApplicationService:
         self._lock = RLock()
         self._unsubscribers = [
             self._core.events.subscribe(STATE_CHANGED, lambda event: self._emit("robot_state_changed", event.data)),
+            self._core.events.subscribe(STATE_CHANGED, self._on_robot_state_changed),
             self._core.events.subscribe(PRESENCE_CHANGED, lambda event: self._emit("presence_changed", event.data)),
+            self._core.events.subscribe(PRESENCE_CHANGED, self._on_presence_changed),
             self._core.events.subscribe(PERSON_ENTERED, lambda event: self._emit("person_entered", event.data)),
             self._core.events.subscribe(PERSON_LEFT, lambda event: self._emit("person_left", event.data)),
             self._core.events.subscribe(ATTENTION_CHANGED, lambda event: self._emit("attention_changed", event.data)),
+            self._core.events.subscribe(ATTENTION_CHANGED, self._on_attention_changed),
             self._core.events.subscribe(ATTENTION_TARGET_ACQUIRED, lambda event: self._emit("attention_target_acquired", event.data)),
             self._core.events.subscribe(ATTENTION_TARGET_CHANGED, lambda event: self._emit("attention_target_changed", event.data)),
             self._core.events.subscribe(ATTENTION_TARGET_LOST, lambda event: self._emit("attention_target_lost", event.data)),
             self._core.events.subscribe(OBSERVED_EXPRESSION_CHANGED, self._on_observed_expression_changed),
+            self._core.events.subscribe(IMU_MOTION_STATE, self._on_motion_state_changed),
+            self._core.events.subscribe(ENVIRONMENTAL_STATE_CHANGED, self._on_environmental_state_changed),
             self._core.events.subscribe(EXPRESSION_REACTION_STARTED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_COMPLETED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_SUPPRESSED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
@@ -350,6 +358,57 @@ class PhosApplicationService:
                     self._listeners.remove(listener)
         return unsubscribe
 
+    def subscribe_semantic_events(self, listener: Callable[[SemanticEvent], None], *, event_types=None) -> SemanticSubscription:
+        """Subscribe to stable semantic transitions, independently of adapters."""
+        return self._semantic_events.subscribe(listener, event_types=event_types)
+
+    def _semantic_transition(self, event_type: str, source: str, current, *, previous=None, details=None) -> None:
+        payload = {"current": current}
+        if previous is not None:
+            payload["previous"] = previous
+        if details:
+            payload.update(details)
+        self._semantic_events.publish(event_type, source, payload)
+
+    def _on_robot_state_changed(self, event) -> None:
+        self._semantic_transition("robot_state_changed", "robot", event.data.get("current"),
+                                  previous=event.data.get("previous"), details={"reason": event.data.get("reason")})
+
+    def _on_presence_changed(self, event) -> None:
+        current = event.data.get("state")
+        previous = self._last.get("semantic.presence")
+        if current != previous:
+            self._last["semantic.presence"] = current
+            self._semantic_transition("presence_changed", "presence", current, previous=previous,
+                                      details={"people_count": event.data.get("people_count")})
+
+    def _on_attention_changed(self, event) -> None:
+        current = event.data.get("state")
+        previous = self._last.get("semantic.attention")
+        if current != previous:
+            self._last["semantic.attention"] = current
+            self._semantic_transition("attention_changed", "attention", current, previous=previous)
+
+    def _on_motion_state_changed(self, event) -> None:
+        current = event.data.get("state")
+        previous = self._last.get("semantic.motion")
+        if current != previous:
+            self._last["semantic.motion"] = current
+            self._semantic_transition("motion_state_changed", "motion", current, previous=previous,
+                                      details={"intensity": event.data.get("intensity")})
+
+    def _on_environmental_state_changed(self, event) -> None:
+        data = event.data
+        for event_type, source, key in (("environment_condition_changed", "environment", "temperature_overlay"),
+                                        ("air_quality_condition_changed", "air_quality", "air_quality_overlay")):
+            current = data.get(key, "none")
+            last_key = f"semantic.{event_type}"
+            previous = self._last.get(last_key)
+            if current != previous:
+                self._last[last_key] = current
+                self._semantic_transition(event_type, source, current, previous=previous,
+                                          details={"reason": data.get("reason")})
+
     def _emit(self, event_type: str, payload: dict, *, force: bool = False):
         # State-change events can arrive through more than one runtime path;
         # suppress identical consecutive payloads before crossing adapters.
@@ -371,6 +430,11 @@ class PhosApplicationService:
     def _on_observed_expression_changed(self, event) -> None:
         """Trace the exact runtime snapshot forwarded to remote adapters."""
         self._emit("observed_expression_changed", event.data)
+        current = {key: event.data.get(key) for key in ("available", "label", "unavailable_reason")}
+        previous = self._last.get("semantic.observed_expression")
+        if current != previous:
+            self._last["semantic.observed_expression"] = current
+            self._semantic_transition("observed_expression_changed", "observed_expression", current, previous=previous)
         snapshot = self.observed_expression()
         logger.debug("EXPR SNAPSHOT: state_id=%s available=%s label=%s confidence=%s",
                     id(getattr(getattr(self._runtime, "_vision_pipeline", None), "observed_expression", None)),
