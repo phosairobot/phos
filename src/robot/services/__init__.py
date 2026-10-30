@@ -5,8 +5,10 @@ from .agent_permissions import (AGENT_ACCESS_PROFILES, DEFAULT_AGENT_PROFILE, OP
                                 AgentAccess, AgentApplicationService, AgentPermission,
                                 AgentOperation, AgentPermissionDenied, AgentPermissionService, AgentProfile)
 from .physical_context import SemanticPhysicalContext, SemanticPhysicalContextService
+from .semantic_events import SEMANTIC_EVENT_TYPES, SemanticEvent, SemanticEventPublisher
 
 __all__ = ("AGENT_ACCESS_PROFILES", "DEFAULT_AGENT_PROFILE", "OPERATION_PERMISSIONS", "AgentAccess",
            "AgentApplicationService", "AgentPermission", "AgentPermissionDenied", "AgentPermissionService",
            "AgentOperation", "AgentProfile", "ApplicationError", "PhosApplicationService", "RemoteApplicationService",
-           "SemanticPhysicalContext", "SemanticPhysicalContextService", "USER_SIGNAL_INTENTS")
+           "SEMANTIC_EVENT_TYPES", "SemanticEvent", "SemanticEventPublisher", "SemanticPhysicalContext", "SemanticPhysicalContextService",
+           "USER_SIGNAL_INTENTS")

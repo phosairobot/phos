@@ -16,6 +16,8 @@ from robot.motion import MotionState
 from robot.vision.provider import ObservedExpression
 from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
 from robot.core import Event
+from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
+from robot.core.presence import PRESENCE_CHANGED
 from robot.web.openapi import _resolve, load_spec
 from robot.config import RuntimeConfig, load_document
 from robot.services.application import ApplicationError
@@ -496,6 +498,35 @@ def test_overlay_expiry_resolves_against_current_environment_not_cached_intent()
     arbiter.set_environmental(AmbientOverlayState("none", "warning"))
     now[0] = 1.0
     assert arbiter.resolved() == AmbientOverlayState("none", "warning")
+
+
+def test_semantic_events_are_transport_neutral_transitions_without_raw_measurements():
+    runtime = Runtime()
+    service = PhosApplicationService(runtime)
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+
+    async def exercise():
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1}))
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1, "confidence": .93}))
+        await runtime.core.events.publish(Event(IMU_MOTION_STATE, {"state": "moving", "intensity": "medium"}))
+        await runtime.core.events.publish(Event(ENVIRONMENTAL_STATE_CHANGED, {
+            "state": "warm", "reason": "temperature above warm threshold",
+            "temperature_overlay": "warm", "air_quality_overlay": "none"}))
+        await runtime.core.events.publish(Event(OBSERVED_EXPRESSION_CHANGED, {
+            "available": True, "label": "happy", "confidence": .8, "provider": "local"}))
+
+    asyncio.run(exercise())
+
+    assert [event["type"] for event in received] == [
+        "presence_changed", "motion_state_changed", "environment_condition_changed",
+        "air_quality_condition_changed", "observed_expression_changed",
+    ]
+    assert all(set(event) == {"type", "timestamp", "source", "payload"} for event in received)
+    assert received[0]["payload"] == {"current": "person_present", "people_count": 1}
+    assert received[2]["payload"]["current"] == "warm"
+    assert "confidence" not in received[-1]["payload"]["current"]
+    assert "provider" not in received[-1]["payload"]["current"]
 
 
 def test_overlay_validation_and_capabilities_use_canonical_overlay_enums():

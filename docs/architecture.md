@@ -212,8 +212,18 @@ This is for trusted local/integrated execution. There is no MCP authentication;
 application permissions are not transport authentication. Do not expose the
 endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
 audio device, configuration, and administrative/recovery controls are absent.
-Stage 2 is reserved for semantic events/subscriptions, filtering/deduplication,
-camera resources, and asynchronous notifications.
+Stage 2 begins with a transport-neutral semantic event model. The application
+service projects meaningful interpreted transitions (robot state, environmental
+and air-quality conditions, motion, presence, attention, and observed
+expression) into events with stable `type`, `timestamp`, `source`, and
+`payload` fields. It does not emit raw telemetry, provider/device details, or
+confidence jitter. Consumers may request a validated allow-list of stable event
+types; each subscription defensively suppresses only adjacent identical
+semantic events during a short internal window, so real A → B → A transitions
+remain visible. The model is an internal observer boundary—not the Core event
+bus and not an MCP feature. MCP subscriptions/notifications, REST or WebSocket
+delivery, capability-transition production, and camera resources remain
+deferred.
 
 `phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
 status document contains only `running`, `state`, semantic subsystem
