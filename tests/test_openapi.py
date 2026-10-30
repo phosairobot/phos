@@ -34,3 +34,26 @@ def test_openapi_is_valid_and_covers_every_public_api_route():
     documented = {(path, method) for path, operations in spec["paths"].items()
                   for method in operations}
     assert actual == documented
+
+
+def test_mcp_settings_openapi_matches_the_authenticated_admin_contract():
+    spec = validate()
+    assert spec["security"] == [{"phosAdminSession": []}]
+    operations = spec["paths"]["/api/v1/settings/mcp"]
+    assert set(operations) == {"get", "patch"}
+    assert operations["get"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/McpSettings"}
+    patch = operations["patch"]
+    assert patch["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/McpSettingsPatch"}
+    assert set(patch["responses"]) == {"200", "400", "409", "503", "500"}
+    schemas = spec["components"]["schemas"]
+    assert schemas["McpSettingsPatch"] == {
+        "type": "object", "required": ["enabled", "port"], "additionalProperties": False,
+        "properties": {
+            "enabled": {"type": "boolean"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        },
+    }
+    assert schemas["McpSettings"]["required"] == [
+        "enabled", "port", "status", "bound_port", "endpoint", "error"]
