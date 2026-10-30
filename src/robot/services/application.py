@@ -46,6 +46,7 @@ from robot.config import ConfigurationError, RuntimeConfig
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
 from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
+from robot.services.agent_permissions import AgentApplicationService
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
@@ -317,6 +318,7 @@ class PhosApplicationService:
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
         self._last: dict[str, object] = {}
+        self._semantic_availability = self._semantic_health = None
         self._lock = RLock()
         self._unsubscribers = [
             self._core.events.subscribe(STATE_CHANGED, lambda event: self._emit("robot_state_changed", event.data)),
@@ -342,7 +344,15 @@ class PhosApplicationService:
               for name in (VOICE_LISTENING_STARTED, VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED, VOICE_ERROR)],
             *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
               for name in (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED, INTERACTION_RESOLUTION_FAILED)],
+            *[self._core.events.subscribe(name, self._on_semantic_system_input)
+              for name in (STATE_CHANGED, OBSERVED_EXPRESSION_CHANGED, IMU_MOTION_STATE,
+                           ENVIRONMENTAL_STATE_CHANGED, VOICE_ERROR, VOICE_LISTENING_STARTED,
+                           VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED,
+                           VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED)],
         ]
+        register_started = getattr(runtime, "register_started_callback", None)
+        if callable(register_started):
+            register_started(self._establish_semantic_system_baseline)
 
     def close(self):
         for unsubscribe in self._unsubscribers:
@@ -369,6 +379,40 @@ class PhosApplicationService:
         if details:
             payload.update(details)
         self._semantic_events.publish(event_type, source, payload)
+
+    def _establish_semantic_system_baseline(self) -> None:
+        """Record ready-state availability without inventing startup transitions."""
+        # Lightweight composition/test runtimes may expose Core alone. They
+        # establish the baseline on their first semantic input instead.
+        if not callable(getattr(self._runtime, "sensor_status", None)):
+            return
+        self._status(emit_visual_event=False)
+
+    def _on_semantic_system_input(self, _event) -> None:
+        """Compare the canonical status snapshot after a semantic source update."""
+        self._status(emit_visual_event=False)
+
+    def _observe_semantic_system_state(self, status: dict) -> None:
+        """Emit compact capability and health transitions from the shared status model."""
+        semantic = AgentApplicationService._semantic_status(status)
+        availability = dict(semantic["availability"])
+        health = {"degraded": semantic["degraded"],
+                  "reasons": sorted(set(semantic["degraded_reasons"]))}
+        with self._lock:
+            previous_availability = self._semantic_availability
+            previous_health = self._semantic_health
+            self._semantic_availability = availability
+            self._semantic_health = health
+        if previous_availability is None:
+            return
+        for capability, current in availability.items():
+            previous = previous_availability[capability]
+            if current != previous:
+                self._semantic_events.publish("capability_changed", "capability", {
+                    "capability": capability, "previous": previous, "current": current,
+                })
+        if health != previous_health:
+            self._semantic_transition("system_health_changed", "system", health, previous=previous_health)
 
     def _on_robot_state_changed(self, event) -> None:
         self._semantic_transition("robot_state_changed", "robot", event.data.get("current"),
@@ -597,6 +641,9 @@ class PhosApplicationService:
         return result
 
     def status(self) -> dict:
+        return self._status(emit_visual_event=True)
+
+    def _status(self, *, emit_visual_event: bool) -> dict:
         # Runtime supplies this same provider-neutral snapshot to the local
         # lifecycle status service consumed by Web Admin.
         snapshot = getattr(self._runtime, "application_status", None)
@@ -620,7 +667,9 @@ class PhosApplicationService:
             "last_resolution": {"status": None, "intent": None, "source_language": None},
             "unavailable_reason": "unconfigured"}
         result.setdefault("sensors", self.sensors())
-        self._emit("visual_state_changed", result["visual"])
+        if emit_visual_event:
+            self._emit("visual_state_changed", result["visual"])
+        self._observe_semantic_system_state(result)
         return result
 
     def controller_status(self) -> dict:

@@ -22,6 +22,19 @@ def test_event_type_filter_rejects_unknown_stable_event_type():
         publisher.subscribe(lambda event: None, event_types={"presnce_changed"})
 
 
+def test_system_health_changed_is_a_supported_stable_event_type():
+    publisher = SemanticEventPublisher()
+    received = []
+
+    publisher.subscribe(received.append, event_types={"system_health_changed"})
+    publisher.publish("system_health_changed", "system", {
+        "previous": {"degraded": False, "reasons": []},
+        "current": {"degraded": True, "reasons": ["motion_unavailable"]},
+    })
+
+    assert [event.type for event in received] == ["system_health_changed"]
+
+
 def test_deduplication_suppresses_only_adjacent_identical_semantic_events():
     clock = [10.0]
     publisher = SemanticEventPublisher(deduplication_window_seconds=1.0, clock=lambda: clock[0])
