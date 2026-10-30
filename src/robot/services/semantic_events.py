@@ -11,6 +11,7 @@ import json
 from threading import RLock
 import time
 from typing import Any, Callable, Mapping
+from uuid import uuid4
 
 SEMANTIC_EVENT_TYPES = frozenset({
     "robot_state_changed", "environment_condition_changed", "air_quality_condition_changed",
@@ -41,12 +42,17 @@ class SemanticEventPublisher:
     def __init__(self, *, deduplication_window_seconds: float = 1.0, clock=time.monotonic) -> None:
         if deduplication_window_seconds < 0:
             raise ValueError("Semantic event deduplication window must be nonnegative")
-        self._listeners: list[Callable[[SemanticEvent], None]] = []
+        self._subscriptions: dict[str, SemanticSubscription] = {}
         self._lock = RLock()
         self._deduplication_window_seconds = deduplication_window_seconds
         self._clock = clock
 
-    def subscribe(self, listener: Callable[[SemanticEvent], None], *, event_types=None) -> Callable[[], None]:
+    @property
+    def active_subscription_count(self) -> int:
+        with self._lock:
+            return len(self._subscriptions)
+
+    def subscribe(self, listener: Callable[[SemanticEvent], None], *, event_types=None) -> "SemanticSubscription":
         """Subscribe to all events or a validated semantic event-type allow-list.
 
         Deduplication is deliberately per subscription: one consumer cannot
@@ -68,28 +74,14 @@ class SemanticEventPublisher:
             unsupported = allowed - SEMANTIC_EVENT_TYPES
             if unsupported:
                 raise ValueError(f"Unsupported semantic event types: {', '.join(sorted(unsupported))}")
-        last_fingerprint = None
-        last_at = None
-
-        def filtered_listener(event: SemanticEvent) -> None:
-            nonlocal last_fingerprint, last_at
-            if allowed is not None and event.type not in allowed:
-                return
-            fingerprint = _fingerprint(event)
-            now = self._clock()
-            if (fingerprint == last_fingerprint and last_at is not None
-                    and now - last_at <= self._deduplication_window_seconds):
-                return
-            last_fingerprint, last_at = fingerprint, now
-            listener(event)
-
+        subscription = SemanticSubscription(self, listener, allowed)
         with self._lock:
-            self._listeners.append(filtered_listener)
-        def unsubscribe() -> None:
-            with self._lock:
-                if filtered_listener in self._listeners:
-                    self._listeners.remove(filtered_listener)
-        return unsubscribe
+            self._subscriptions[subscription.id] = subscription
+        return subscription
+
+    def _remove(self, subscription: "SemanticSubscription") -> None:
+        with self._lock:
+            self._subscriptions.pop(subscription.id, None)
 
     def publish(self, event_type: str, source: str, payload: Mapping[str, Any]) -> SemanticEvent:
         if event_type not in SEMANTIC_EVENT_TYPES:
@@ -98,14 +90,69 @@ class SemanticEventPublisher:
             raise ValueError("Semantic event source is required")
         event = SemanticEvent(event_type, source, dict(payload))
         with self._lock:
-            listeners = tuple(self._listeners)
-        for listener in listeners:
+            subscriptions = tuple(self._subscriptions.values())
+        for subscription in subscriptions:
             try:
-                listener(event)
+                subscription._deliver(event, self._clock(), self._deduplication_window_seconds)
             except Exception:
                 # Consumers are observers and cannot affect PHOS behavior.
                 continue
         return event
+
+
+class SemanticSubscription:
+    """Explicit ownership handle for one filtered semantic event stream.
+
+    The publisher keeps a strong reference while this subscription is active;
+    consumers must call :meth:`close` (or use the context manager) to release
+    it. A publish already snapshotted before close may finish its callback, but
+    no later delivery is started after ``close`` returns.
+    """
+    def __init__(self, publisher: SemanticEventPublisher, handler: Callable[[SemanticEvent], None], allowed) -> None:
+        self.id = uuid4().hex
+        self._publisher, self._handler, self._allowed = publisher, handler, allowed
+        self._last_fingerprint = self._last_at = None
+        self._active = True
+        self._lock = RLock()
+
+    @property
+    def active(self) -> bool:
+        with self._lock:
+            return self._active
+
+    def close(self) -> None:
+        with self._lock:
+            if not self._active:
+                return
+            self._active = False
+            publisher = self._publisher
+            self._publisher = None
+            self._handler = None
+            self._allowed = None
+            self._last_fingerprint = self._last_at = None
+        publisher._remove(self)
+
+    def __call__(self) -> None:
+        """Compatibility with the prior unsubscribe callback return value."""
+        self.close()
+
+    def __enter__(self) -> "SemanticSubscription":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def _deliver(self, event: SemanticEvent, now: float, window: float) -> None:
+        with self._lock:
+            if not self._active or (self._allowed is not None and event.type not in self._allowed):
+                return
+            fingerprint = _fingerprint(event)
+            if (fingerprint == self._last_fingerprint and self._last_at is not None
+                    and now - self._last_at <= window):
+                return
+            self._last_fingerprint, self._last_at = fingerprint, now
+            handler = self._handler
+        handler(event)
 
 
 def _fingerprint(event: SemanticEvent) -> str:

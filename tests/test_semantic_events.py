@@ -53,3 +53,51 @@ def test_identical_event_after_the_deduplication_window_is_delivered():
     publisher.publish("robot_state_changed", "robot", payload)
 
     assert len(received) == 2
+
+
+def test_subscription_handle_is_opaque_active_and_idempotently_releases_publisher_state():
+    publisher = SemanticEventPublisher()
+    received = []
+    subscription = publisher.subscribe(received.append, event_types={"presence_changed"})
+
+    assert subscription.id and subscription.active
+    assert publisher.active_subscription_count == 1
+    publisher.publish("presence_changed", "presence", {"current": "person_present"})
+    subscription.close()
+    subscription.close()
+    publisher.publish("presence_changed", "presence", {"current": "no_one"})
+
+    assert len(received) == 1
+    assert not subscription.active
+    assert publisher.active_subscription_count == 0
+
+
+def test_subscription_close_isolated_reentrant_and_subscribe_during_delivery_is_deferred():
+    publisher = SemanticEventPublisher()
+    received = []
+    second = publisher.subscribe(lambda event: received.append(("second", event.type)))
+    first = None
+
+    def first_handler(event):
+        nonlocal first
+        received.append(("first", event.type))
+        first.close()
+        publisher.subscribe(lambda later: received.append(("later", later.type)))
+
+    first = publisher.subscribe(first_handler)
+    publisher.publish("presence_changed", "presence", {"current": "person_present"})
+    publisher.publish("presence_changed", "presence", {"current": "no_one"})
+
+    assert received == [
+        ("second", "presence_changed"), ("first", "presence_changed"),
+        ("second", "presence_changed"), ("later", "presence_changed"),
+    ]
+    assert not first.active and second.active
+
+
+def test_repeated_subscription_close_cycles_do_not_accumulate_references():
+    publisher = SemanticEventPublisher()
+    for _ in range(20):
+        subscription = publisher.subscribe(lambda event: None)
+        subscription.close()
+    assert publisher.active_subscription_count == 0

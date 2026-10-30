@@ -45,7 +45,7 @@ from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProvi
 from robot.config import ConfigurationError, RuntimeConfig
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
-from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher
+from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
@@ -358,7 +358,7 @@ class PhosApplicationService:
                     self._listeners.remove(listener)
         return unsubscribe
 
-    def subscribe_semantic_events(self, listener: Callable[[SemanticEvent], None], *, event_types=None) -> Callable[[], None]:
+    def subscribe_semantic_events(self, listener: Callable[[SemanticEvent], None], *, event_types=None) -> SemanticSubscription:
         """Subscribe to stable semantic transitions, independently of adapters."""
         return self._semantic_events.subscribe(listener, event_types=event_types)
 

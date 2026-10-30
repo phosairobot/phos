@@ -221,9 +221,14 @@ confidence jitter. Consumers may request a validated allow-list of stable event
 types; each subscription defensively suppresses only adjacent identical
 semantic events during a short internal window, so real A → B → A transitions
 remain visible. The model is an internal observer boundary—not the Core event
-bus and not an MCP feature. MCP subscriptions/notifications, REST or WebSocket
-delivery, capability-transition production, and camera resources remain
-deferred.
+bus and not an MCP feature. Each observer owns an explicit
+`SemanticSubscription` handle with an opaque process-local identifier, active
+state, idempotent `close()`, and optional context-manager cleanup. The publisher
+holds the handler strongly only while the handle is active; explicit close is
+the required ownership boundary. A dispatch snapshot already in progress may
+complete when a handle is closed, but no later delivery starts after `close()`
+returns. MCP subscriptions/notifications, REST or WebSocket delivery,
+capability-transition production, and camera resources remain deferred.
 
 `phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
 status document contains only `running`, `state`, semantic subsystem
