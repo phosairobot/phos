@@ -89,6 +89,24 @@ PHOS can be administered from a trusted LAN through authenticated Web Admin. It 
 
 The Remote API exposes semantic status and control through the shared application-service boundary. See the [Web Admin manual](https://phosairobot.github.io/phos/web-administration/) and [Remote API reference](https://phosairobot.github.io/phos/remote-api/) for deployment, authentication, and endpoint details.
 
+## MCP: semantic context and current perception
+
+PHOS can expose semantic tools and read-only MCP Resources to an external AI
+agent through Streamable HTTP. Resources read PHOS state/context; tools request
+supported semantic actions. The external agent never accesses hardware or the
+Raspberry Pi camera directly:
+
+```text
+External Agent → MCP semantic interface → AgentApplicationService
+               → PhosApplicationService → PHOS runtime services
+```
+
+Available Resources are `phos://status`, `phos://physical-context`,
+`phos://environment`, and `phos://vision/snapshot`. The vision resource is one
+current on-demand JPEG frame, not a video stream or continuous subscription.
+It is protected separately from generic physical-context reads because the
+image may contain people visible to the camera. See the [MCP guide](docs/mcp.md).
+
 ## Project status & roadmap
 
 ### PHOS 1.6.0 — Multilingual Voice Commands & Runtime Hardening

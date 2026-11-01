@@ -52,9 +52,17 @@ camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
 semantic result documents, and sanitized error mapping are transport-independent.
 
-## Semantic snapshot resources
+## MCP Resources
 
-PHOS also exposes read-only MCP resources, each served as `application/json`:
+PHOS exposes read-only MCP Resources through the same permission-checked
+application-service boundary as its tools:
+
+| Resource | MIME type | Purpose |
+| --- | --- | --- |
+| `phos://status` | `application/json` | Compact semantic robot status. |
+| `phos://physical-context` | `application/json` | Current Semantic Physical Context. |
+| `phos://environment` | `application/json` | Current environmental semantic context. |
+| `phos://vision/snapshot` | `image/jpeg` | Current on-demand camera snapshot. |
 
 - `phos://status` — compact agent-facing semantic status.
 - `phos://physical-context` — provider-independent semantic physical context.
@@ -69,6 +77,36 @@ demand: it uses the existing Vision pipeline's latest in-memory frame, copies
 it before bounded JPEG encoding, and never opens another camera or streams
 video. It is protected by the dedicated `read_camera_snapshot` permission;
 the standard profile has it while the observer profile deliberately does not.
+This is separate from generic physical-context access because a snapshot may
+contain people physically visible to the camera. It contains no camera device,
+provider/backend, filesystem, identity, candidate-ID, debug, or EXIF/location
+metadata.
+
+### Discovery and snapshot read
+
+The `phos-mcp-bridge` dynamically forwards MCP Resources, so no bridge-specific
+snapshot implementation is required. For a trusted-LAN PHOS endpoint:
+
+```bash
+npx --yes @modelcontextprotocol/inspector@latest --cli \
+  node /Users/francescoazzola/Documents/dev/phos-mcp-bridge/dist/index.js \
+  --url http://192.168.1.127:8001/mcp \
+  --method resources/list
+```
+
+The result includes the four URIs in the table above. Read the current snapshot
+with the Inspector CLI syntax supported by the installed version, for example:
+
+```bash
+npx --yes @modelcontextprotocol/inspector@latest --cli \
+  node /Users/francescoazzola/Documents/dev/phos-mcp-bridge/dist/index.js \
+  --url http://192.168.1.127:8001/mcp \
+  --method resources/read --uri phos://vision/snapshot
+```
+
+The response has MIME type `image/jpeg` and binary MCP Resource content. The
+Inspector may serialize that content as a textual blob representation for CLI
+output; PHOS itself does not use a JSON/base64 snapshot contract.
 
 ## Raspberry Pi validation
 

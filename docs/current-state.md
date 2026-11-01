@@ -37,7 +37,7 @@ hardware/render surface. `standard` and read-only `observer` profiles are
 automated-tested. This is not a network or OS security boundary; adapter
 identity and authentication remain deferred.
 
-## MCP Semantic Adapter — Stage 1
+## MCP Semantic Adapter — Stage 2
 
 The repository implements a trusted-local Streamable HTTP MCP adapter over
 `AgentApplicationService`, with standard semantic read/action tools and
@@ -48,7 +48,12 @@ It runs embedded in the one PHOS runtime owner started by normal PHOS startup;
 it exposes the configured Streamable HTTP listener over that existing runtime.
 The camera snapshot is synchronous, read-only and non-streaming; it travels
 through the application/agent permission boundary without opening another
-camera. Subscriptions, asynchronous notifications and MCP authentication remain deferred.
+camera. The `standard` profile has the dedicated `read_camera_snapshot`
+permission; the `observer` profile does not. The stdio `phos-mcp-bridge`
+dynamically forwards Resources without snapshot-specific bridge code. Automated
+coverage verifies preview independence; physical Raspberry Pi, including the
+preview-disabled acceptance case, remains pending. Subscriptions, asynchronous
+notifications and MCP authentication remain deferred.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
