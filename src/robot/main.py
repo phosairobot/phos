@@ -109,12 +109,35 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                 return
             await asyncio.sleep(.1)
     watcher = asyncio.create_task(watch_restart()) if lifecycle is not None or web_server is not None else None
+    application_service = None
+    mcp_manager = None
+    mcp_start_task = None
     try:
         runtime = build_application(config=config)
+        if hasattr(runtime, "core"):
+            from robot.services import AgentAccess, AgentApplicationService, PhosApplicationService
+            application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
+            if config is not None:
+                from robot.mcp import McpServerManager
+                mcp_manager = McpServerManager(
+                    AgentApplicationService(application_service, AgentAccess.for_profile()),
+                    host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
+                    enabled=config.mcp_enabled,
+                )
+                application_service.register_mcp_manager(mcp_manager)
+
+        def start_mcp_after_runtime_start() -> None:
+            nonlocal mcp_start_task
+            if mcp_manager is not None:
+                mcp_manager.attach_loop()
+                mcp_start_task = asyncio.create_task(mcp_manager.start(), name="mcp-supervisor")
+
+        register_mcp_start = getattr(runtime, "register_started_callback", None)
+        if mcp_manager is not None and callable(register_mcp_start):
+            register_mcp_start(start_mcp_after_runtime_start)
         if lifecycle is not None:
-            if hasattr(runtime, "core"):
-                from robot.services import PhosApplicationService
-                lifecycle.register_application_service(PhosApplicationService(runtime, lifecycle=lifecycle))
+            if application_service is not None:
+                lifecycle.register_application_service(application_service)
             register_started = getattr(runtime, "register_started_callback", None)
             if callable(register_started):
                 register_started(lifecycle.mark_application_ready)
@@ -164,6 +187,12 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         if watcher is not None and watcher.done():
             watcher.result()
     finally:
+        if mcp_start_task is not None:
+            await asyncio.gather(mcp_start_task, return_exceptions=True)
+        if mcp_manager is not None:
+            await mcp_manager.close()
+        if application_service is not None and lifecycle is None:
+            application_service.close()
         if lifecycle is not None:
             lifecycle.clear_application_ready()
         if watcher is not None:
@@ -276,7 +305,8 @@ def main() -> None:
     # even when runtime startup or execution fails.
     from robot.web.server import WebServer
     with WebServer(repository, config) as web:
-        asyncio.run(async_main(config=config, lifecycle=web.lifecycle, web_server=web))
+        run_arguments = {"config": config, "lifecycle": web.lifecycle, "web_server": web}
+        asyncio.run(async_main(**run_arguments))
     if web.lifecycle.restart_at is not None:
         logger.info("PHOS MAIN: exiting for managed restart exit_code=%s", RESTART_EXIT_CODE)
         raise SystemExit(RESTART_EXIT_CODE)

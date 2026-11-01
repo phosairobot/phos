@@ -96,6 +96,154 @@ finite numeric `x`, `y`, and `z` axes (m/s² and degrees/second respectively).
 Both update the existing IMU service; semantic motion and telemetry remain
 independent snapshot fields.
 
+### Transient semantic overlays
+
+`SemanticOverlayService` owns bounded, source-scoped presentation requests:
+`success`, `info`, `attention`, `warning`, `error`, and `sensor_alert`. Each
+source owns one request; replacement affects only that source. Requests are
+plain-text (maximum 120 characters), expire on monotonic time, and resolve by
+priority `error → warning → sensor_alert → attention → success → info`; equal
+priority requests resolve to the newest request. The renderer receives only an
+immutable visible intent/message view, never caller-supplied drawing details.
+The existing interpreted air-quality warning/bad event is the only automatic
+v1 sensor source; it requests `sensor_alert` without inspecting raw providers.
+
+This system is internal to the application-service boundary in v1: it adds no
+REST endpoint. It is independent of `RobotState`, `FaceState`, environmental
+markers, and state effects. The compact semantic card renders after camera
+preview but before the final local administrative layer. Recovery and Admin QR
+overlays therefore remain secret-bearing system overlays above it, retain their
+existing touch behavior, and are not dismissible by semantic requests.
+
+### Semantic Physical Context
+
+```text
+Sensors / Vision / RobotState
+          ↓
+canonical semantic services
+          ↓
+Semantic Physical Context
+          ↓
+PhosApplicationService
+          ↓
+future Agent / MCP / REST adapters
+```
+
+`SemanticPhysicalContext` is a read-only, build-on-read perception model. It
+combines canonical robot, environmental, air-quality, motion, presence,
+attention, and observed-expression semantics. Each section preserves its own
+availability and freshness state, so partial context remains useful. It exposes
+no provider/device identity, raw camera data, identity, renderer state, LED
+state, or controller health. It adds no REST endpoint or MCP adapter;
+`/api/v1/status` remains the broader operational status contract.
+
+### Minimal Agent Permission Model
+
+```text
+External Agent
+      ↓
+Agent Permission Boundary
+      ↓
+PhosApplicationService
+      ↓
+Behavior / Voice / Physical Context / Semantic Signals
+```
+
+`AgentApplicationService` is a small, provider-independent facade for future
+trusted agent adapters.  It checks an immutable `AgentAccess` set before
+delegating to the existing `PhosApplicationService`; it never grants access to
+providers, renderers, controller transports, or configuration internals.  The
+canonical operation mapping is `status` → `READ_STATUS`,
+`get_physical_context` → `READ_PHYSICAL_CONTEXT`, and `presence`, `attention`,
+and `observed_expression` → `READ_PERCEPTION`.  Semantic actions map as
+`set_expression` → `CONTROL_EXPRESSION`, `speak` → `CONTROL_VOICE`, `sleep` /
+`wake` → `CONTROL_SLEEP`, and `signal_user` → `SIGNAL_USER`.  Sleep and wake
+remain normal state transitions; a signal remains subject to existing semantic
+LED arbitration.
+
+The in-code `standard` profile contains that explicit complete v1 set; the
+`observer` profile contains only the three read permissions.  No profile is
+persisted or selected from configuration yet.  Raw LED animation, renderer and
+camera-frame access, serial/controller transport, hardware/configuration
+mutation, and administrative/recovery controls are intentionally absent from
+this facade.
+
+Permission answers whether a trusted adapter may request an operation.
+Capability answers whether the delegated application service can currently
+perform it; validation, availability, lifecycle, and arbitration errors still
+come from that service after a permission check.  Authentication answers who is
+calling and is not implemented here.  This is therefore an application-level
+semantic authorization model, not a complete security boundary: it does not
+replace transport authentication, OS permissions, network security, or
+sandboxing.  MCP, network identities, credentials, and persistence remain
+deferred.
+
+### MCP Semantic Adapter — Stage 1
+
+```text
+MCP Client
+   ↓
+MCP Semantic Adapter
+   ↓
+Agent Permission Boundary
+   ↓
+PhosApplicationService
+   ↓
+PHOS runtime/services
+```
+
+Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
+Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
+creates one listener over the existing application services, and normal runtime
+shutdown closes it. It exposes ten request/response tools: `phos_get_status`,
+`phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`,
+`phos_get_observed_expression`, `phos_set_expression`, `phos_speak`,
+`phos_sleep`, `phos_wake`, and `phos_signal_user`. Every one delegates through
+`AgentApplicationService`; MCP owns no permissions, runtime state, provider,
+or hardware logic.
+
+MCP clients connect to the already-running PHOS instance. Client sessions do
+not create runtimes, application services, or permission boundaries. The
+default listener is loopback-only; a non-loopback bind requires explicit
+configuration and is warned because transport authentication, agent identity,
+and network authorization are not implemented.
+
+This is for trusted local/integrated execution. There is no MCP authentication;
+application permissions are not transport authentication. Do not expose the
+endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
+audio device, configuration, and administrative/recovery controls are absent.
+Stage 2 begins with a transport-neutral semantic event model. The application
+service projects meaningful interpreted transitions (robot state, environmental
+and air-quality conditions, motion, presence, attention, and observed
+expression) into events with stable `type`, `timestamp`, `source`, and
+`payload` fields. It does not emit raw telemetry, provider/device details, or
+confidence jitter. Consumers may request a validated allow-list of stable event
+types; each subscription defensively suppresses only adjacent identical
+semantic events during a short internal window, so real A → B → A transitions
+remain visible. The model is an internal observer boundary—not the Core event
+bus and not an MCP feature. It projects canonical agent-status availability as
+one compact `capability_changed` event per changed capability, and canonical
+degraded state as `system_health_changed`. The first ready-status snapshot
+establishes a baseline and emits neither startup availability nor health events;
+later comparisons use the same availability/degraded projection as
+`phos_get_status`, with health reasons sorted before comparison. Each observer owns an explicit
+`SemanticSubscription` handle with an opaque process-local identifier, active
+state, idempotent `close()`, and optional context-manager cleanup. The publisher
+holds the handler strongly only while the handle is active; explicit close is
+the required ownership boundary. A dispatch snapshot already in progress may
+complete when a handle is closed, but no later delivery starts after `close()`
+returns. MCP subscriptions/notifications, REST or WebSocket delivery, and
+camera resources remain deferred.
+
+`phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
+status document contains only `running`, `state`, semantic subsystem
+`availability`, `degraded`, and `degraded_reasons`. It contains no sensor or
+perception values (those belong to physical context), provider/device/model
+details, controller session data, LED animation resolution, display state, or
+administrative diagnostics. The projection is owned by
+`AgentApplicationService`, not the MCP adapter, so future trusted agent
+adapters share the same contract.
+
 ### 1. Separation of concerns
 Core coordinates lifecycle, state, events and behavior. Subsystems implement capabilities.
 
@@ -376,8 +524,8 @@ services. They reuse the same validation, authorization, configuration and
 behavior-command services; they must not reach into GPIO, hardware adapters,
 provider objects, renderer state or other subsystem internals. Add an application
 service when an approved capability needs one, rather than duplicating behavior
-in each surface. The configuration, Remote API, and supported Voice & Speech
-application services are implemented examples; MCP remains deferred.
+in each surface. The configuration, Remote API, supported Voice & Speech, and
+MCP semantic application services are implemented examples.
 
 
 ## Application lifecycle boundary

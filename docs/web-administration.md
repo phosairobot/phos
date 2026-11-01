@@ -2,9 +2,9 @@
 
 PHOS includes an optional single-administrator configuration editor. It uses the
 same typed configuration model and validation as startup, with no camera, AWS or display access
-from the web worker. Saving never applies settings. Reload applies logging level,
-supported eye appearance and camera preview settings; other runtime changes
-require restarting PHOS.
+from the web worker. Runtime-page saves apply camera-preview settings and logging level through
+the parent runtime boundary; other Runtime settings are saved as Restart PHOS pending changes.
+System Reload remains available for the other documented reloadable settings.
 
 ## Install and enable
 
@@ -112,11 +112,12 @@ page is highlighted. No frontend framework is needed.
 | Controls | Writable runtime actions only: separate Robot State, Expression, Visual Source and Overlay cards. Each action uses Remote API capabilities and reports feedback in its own card. |
 | Network | Web bind address (`web.host`) and port (`web.port`). Wi-Fi, DNS and other OS networking remain managed on the Pi. |
 | Display & Appearance | Display dimensions, fps, fullscreen and transitions; blink/gaze intervals, gaze smoothing and reaction decay from `behavior`. |
-| Vision | Face tracking, camera resolution/cadence, face detection and optional display-only camera picture-in-picture preview. |
-| Expression Recognition | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. |
+| Runtime → Vision | Face tracking, camera resolution/cadence and face detection. These settings require Restart PHOS. |
+| Runtime → Camera Preview | Optional display-only camera picture-in-picture preview. Its settings apply immediately when saved. |
+| Runtime → Expression | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. These settings require Restart PHOS. |
 | Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
 | Sensors | Environmental type (BME280/BMP280), CCS811 air quality, environmental behavior and GY-521/MPU-6050 motion: enable, I2C address, polling and stale timeout; read-only current readings, interpreter state/reason, age and sensor health from the parent runtime. Hardware settings require Restart PHOS; IMU and environmental interpretation settings use Reload configuration. |
-| Logging | Supported log level, output file and expression diagnostics. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
+| Runtime → Logging | Supported log level, output file and expression diagnostics. Log level applies immediately; output file and diagnostics require Restart PHOS. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
 | Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
 | Diagnostics | Read-only runtime health and saved-versus-active configuration diagnostics. |
@@ -160,9 +161,9 @@ should still be edited carefully. Structured settings pages remain available for
 common changes. The editor warns before navigation with unsaved changes.
 
 Navigation is defined by a small domain registry, separate from the canonical
-schema. Future implemented subsystems can add areas there. LED Ring,
-Audio, Voice, LLM, Home Assistant, Remote API and MCP have no settings or
-placeholder pages in this milestone.
+schema. Settings → Network → MCP controls only the local MCP listener's enabled state and
+port, and displays its live status and endpoint; host and path remain fixed in
+the normal UI. Future implemented subsystems can add areas there.
 
 Choose **local** or **aws** under Expression Recognition. The matching provider fields are
 shown; switching keeps the inactive provider's settings for later use. Both
@@ -401,11 +402,11 @@ deleting and assignment selection always use the directory-backed asset list.
 The **Vision** page also manages the optional camera preview on the physical
 PHOS display. It is off by default; choose a corner, scale and maximum preview
 FPS, then select whether to show the current face box and expression diagnostics.
-Save and use Reload configuration to apply these fields immediately. The preview
+Save to apply these fields immediately. The preview
 uses the existing camera owner and latest in-memory frame, stays on the local
 display, and is neither recorded nor exposed over this administration interface.
 
-Iris color and camera preview settings are reloadable. Display geometry, cadence,
+Iris color is reloadable; camera preview settings apply directly from Runtime saves. Display geometry, cadence,
 fullscreen and behavioral timing still require restart. Other implemented settings requiring restart are
 web enabled/host/port; camera resolution/tracking/detection; expression enabled/provider, preprocessing,
 smoothing and AWS policy; log destination and expression diagnostics. Switching

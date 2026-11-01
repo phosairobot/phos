@@ -28,6 +28,10 @@ def create_api(service):
 
     @api.get("/status")
     def status(): return jsonify(service.status())
+    @api.get("/settings/mcp")
+    def mcp_settings(): return jsonify(service.mcp_settings())
+    @api.patch("/settings/mcp")
+    def update_mcp_settings(): return jsonify(service.configure_mcp(body()))
     @api.get("/state")
     def state(): return jsonify(service.robot_state())
     @api.get("/environment")

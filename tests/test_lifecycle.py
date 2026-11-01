@@ -71,6 +71,79 @@ def test_appearance_change_is_reloadable_and_not_restart_required(runtime):
     assert result["restart_required"] == []
 
 
+def test_runtime_settings_apply_preview_immediately_then_persist(runtime):
+    path, service, applied_levels, _ = runtime
+    preview = []
+    service.register_camera_preview_applier(lambda config: preview.append(config.camera_preview_position))
+    document = load_document(path)
+    document["vision"]["camera_preview"]["position"] = "bottom_left"
+    document["logging"]["level"] = "DEBUG"
+
+    result = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+
+    assert result["ok"]
+    assert result["applied"] == ["vision.camera_preview.position", "logging.level"]
+    assert preview == ["bottom_left"]
+    assert applied_levels == ["DEBUG"]
+    assert RuntimeConfig.from_file(path).camera_preview_position == "bottom_left"
+    assert result["active"]["vision"]["camera_preview"]["position"] == "bottom_left"
+
+
+def test_runtime_settings_apply_every_preview_control_through_one_runtime_boundary(runtime):
+    path, service, _, _ = runtime
+    received = []
+    service.register_camera_preview_applier(lambda config: received.append({
+        "enabled": config.camera_preview_enabled, "position": config.camera_preview_position,
+        "scale": config.camera_preview_scale, "max_fps": config.camera_preview_max_fps,
+        "show_face_box": config.camera_preview_show_face_box,
+        "show_expression": config.camera_preview_show_expression,
+        "show_confidence": config.camera_preview_show_confidence,
+    }))
+    document = load_document(path)
+    document["vision"]["camera_preview"].update(enabled=True, position="top_left", scale=.3,
+                                                     max_fps=4, show_face_box=False,
+                                                     show_expression=False, show_confidence=False)
+
+    result = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+
+    assert result["ok"]
+    assert result["applied"] == [
+        "vision.camera_preview.enabled", "vision.camera_preview.position", "vision.camera_preview.scale",
+        "vision.camera_preview.max_fps", "vision.camera_preview.show_face_box",
+        "vision.camera_preview.show_expression", "vision.camera_preview.show_confidence"]
+    assert received == [{"enabled": True, "position": "top_left", "scale": .3, "max_fps": 4,
+                         "show_face_box": False, "show_expression": False, "show_confidence": False}]
+
+
+def test_failed_runtime_preview_update_neither_persists_nor_changes_active_config(runtime):
+    path, service, _, _ = runtime
+    service.register_camera_preview_applier(lambda _config: (_ for _ in ()).throw(RuntimeError("display unavailable")))
+    document = load_document(path)
+    document["vision"]["camera_preview"]["position"] = "bottom_left"
+
+    result = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+
+    assert not result["ok"]
+    assert RuntimeConfig.from_file(path).camera_preview_position == "bottom_right"
+    assert service.active["vision"]["camera_preview"]["position"] == "bottom_right"
+
+
+def test_runtime_settings_rollback_live_preview_when_persistence_fails(runtime, monkeypatch):
+    path, service, _, _ = runtime
+    applied = []
+    service.register_camera_preview_applier(lambda config: applied.append(config.camera_preview_position))
+    document = load_document(path)
+    document["vision"]["camera_preview"]["position"] = "bottom_left"
+    monkeypatch.setattr(service.config_repository, "save", lambda _config: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+
+    assert not result["ok"]
+    assert applied == ["bottom_left", "bottom_right"]
+    assert RuntimeConfig.from_file(path).camera_preview_position == "bottom_right"
+    assert service.active["vision"]["camera_preview"]["position"] == "bottom_right"
+
+
 def test_hardware_controller_connection_settings_hot_apply_without_restart(runtime):
     path, service, _, _ = runtime
     applied = []
@@ -298,6 +371,35 @@ def test_lifecycle_channel_dispatches_state_effects_configuration(runtime):
         payload = {"enabled": True, "preset": "balanced", "reduce_motion": True}
         assert client.execute("application.configure_state_effects", payload) == {"ok": True, "result": {"saved": payload}}
         assert received == [payload]
+    finally:
+        stop.set()
+        child.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_dispatches_runtime_configuration_and_rejects_unrelated_operation(runtime):
+    _, service, _, _ = runtime
+    received = []
+
+    class Application:
+        def configure_runtime(self, payload):
+            received.append(payload)
+            return {"saved": payload, "applied": ["vision.camera_preview.position"]}
+
+    service.register_application_service(Application())
+    service.mark_application_ready()
+    parent, child = multiprocessing.Pipe()
+    stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop))
+    thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"vision": {"camera_preview": {"position": "bottom_right"}}}
+        assert client.execute("application.configure_runtime", payload) == {
+            "ok": True, "result": {"saved": payload, "applied": ["vision.camera_preview.position"]}}
+        assert received == [payload]
+        assert client.execute("application.unrelated", {}) == {"ok": False, "error": "Unsupported lifecycle operation."}
     finally:
         stop.set()
         child.close()

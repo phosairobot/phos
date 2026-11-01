@@ -12,7 +12,7 @@ classes:
 
 <span class="phos-kicker">CAPABILITY MAP</span>
 
-PHOS 1.7.0 is the current source version. The capabilities below are implemented
+PHOS 1.8.0 is the current source version. The capabilities below are implemented
 in the repository; optional hardware paths still require target-Pi acceptance.
 See the [current implementation handoff](current-state.md) and
 [roadmap](roadmap.md) for scope and physical-validation limits.
@@ -123,7 +123,8 @@ PHOS exposes a versioned local REST API for robot status, health, environmental 
 <div class="phos-callout" markdown>
 
 Transcript-to-intent/command handling, conversational LLM operation, wake-word
-and continuous listening, Home Assistant, and MCP are explicitly deferred.
+and continuous listening, Home Assistant, and MCP events/subscriptions are
+explicitly deferred.
 Existing interfaces or scaffolding are not evidence of an end-to-end delivered
 feature. [Read the roadmap](roadmap.md).
 

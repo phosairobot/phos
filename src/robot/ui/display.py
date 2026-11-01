@@ -22,6 +22,7 @@ from .state_effect_layer import StateEffectLayer
 from .eye_safe import EyeSafeLayer, EyeSafeParams
 from .touch import TouchInputAdapter
 from robot.admin_access import AdminOverlayState
+from robot.core.semantic_overlay import OverlayViewState, SemanticOverlayIntent
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,43 @@ class CameraPreviewSettings:
     show_confidence: bool = True
 
 
+# The picture-in-picture preview is deliberately inset from the physical edge.
+# Keep its decorative border inside this same safe area rather than treating
+# the image dimensions as its visual bounds.
+CAMERA_PREVIEW_SAFE_MARGIN = 16
+CAMERA_PREVIEW_BORDER = 3
+
+
+@dataclass(frozen=True)
+class CameraPreviewLayout:
+    """Canvas coordinates for a fully bounded camera-preview visual box."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+
+    @property
+    def image_x(self) -> int:
+        return self.x + CAMERA_PREVIEW_BORDER
+
+    @property
+    def image_y(self) -> int:
+        return self.y + CAMERA_PREVIEW_BORDER
+
+
+def camera_preview_layout(display_width: int, display_height: int, image_width: int,
+                          image_height: int, position: str) -> CameraPreviewLayout:
+    """Anchor the complete (image plus border) preview inside the safe margin."""
+    width = image_width + 2 * CAMERA_PREVIEW_BORDER
+    height = image_height + 2 * CAMERA_PREVIEW_BORDER
+    left = "left" in position
+    top = position.startswith("top")
+    x = CAMERA_PREVIEW_SAFE_MARGIN if left else display_width - width - CAMERA_PREVIEW_SAFE_MARGIN
+    y = CAMERA_PREVIEW_SAFE_MARGIN if top else display_height - height - CAMERA_PREVIEW_SAFE_MARGIN
+    return CameraPreviewLayout(x, y, width, height)
+
+
 @dataclass(frozen=True)
 class RecoveryOverlayLayout:
     """Canvas-relative geometry for the physical recovery overlay."""
@@ -116,6 +154,12 @@ class RecoveryOverlayLayout:
     @property
     def card_bottom(self) -> float:
         return self.card_y + self.card_height
+
+
+def transient_overlay_layout(width: int, height: int) -> tuple[float, float, float, float]:
+    """Return a compact, safe bottom card independent of caller input."""
+    card_width, card_height = min(width * .62, width - 64), max(52.0, height * .115)
+    return ((width - card_width) / 2, height - card_height - max(44.0, height * .09), card_width, card_height)
 
 
 def recovery_overlay_layout(width: int, height: int) -> RecoveryOverlayLayout:
@@ -180,7 +224,7 @@ class EyeDisplay(ABC):
     @abstractmethod
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0, transient_overlay: Optional[OverlayViewState] = None) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -216,7 +260,7 @@ class MemoryEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0, transient_overlay: Optional[OverlayViewState] = None) -> None:
         self.frames.append(frame)
 
     def draw_startup(self, *, state: str, message: str, image_path=None, title="PHOS", subtitle="Starting...") -> None:
@@ -293,7 +337,7 @@ class TkEyeDisplay(EyeDisplay):
 
     def draw(self, frame: EyeFrame, preview: Optional[CameraPreviewView] = None,
              preview_settings: Optional[CameraPreviewSettings] = None, *, background: Optional[BackgroundAsset] = None,
-             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0) -> None:
+             eye_safe: Optional[EyeSafeParams] = None, state_effect: Optional[StateEffectParams] = None, effect_timestamp: float = 0.0, transient_overlay: Optional[OverlayViewState] = None) -> None:
         if self._root is None or self._canvas is None:
             raise RuntimeError("Display has not been opened.")
         self._canvas.delete("all")
@@ -317,7 +361,23 @@ class TkEyeDisplay(EyeDisplay):
             if self._preview_future is not None:
                 self._preview_future.cancel()
                 self._preview_future = None
+        self._draw_transient_overlay(frame, transient_overlay)
         self._draw_admin_overlay(frame)
+
+    def _draw_transient_overlay(self, frame: EyeFrame, overlay: Optional[OverlayViewState]) -> None:
+        if overlay is None or not overlay.visible or overlay.intent is None:
+            return
+        palette = {SemanticOverlayIntent.SUCCESS: ("#00C9B7", "Success"), SemanticOverlayIntent.INFO: ("#00AEEF", "Info"),
+                   SemanticOverlayIntent.ATTENTION: ("#7F6BFF", "Attention"), SemanticOverlayIntent.WARNING: ("#D9A441", "Warning"),
+                   SemanticOverlayIntent.ERROR: ("#D95B5B", "Error"), SemanticOverlayIntent.SENSOR_ALERT: ("#B27AD9", "Sensor alert")}
+        color, label = palette[overlay.intent]
+        x, y, width, height = transient_overlay_layout(frame.width, frame.height)
+        message = overlay.message or label
+        self._canvas.create_rectangle(x, y, x + width, y + height, fill="#071B35", outline=color, width=2)
+        self._canvas.create_text(x + 22, y + height / 2, anchor="w", text=label.upper(), fill=color,
+                                 font=("TkDefaultFont", max(11, int(frame.height * .022)), "bold"))
+        self._canvas.create_text(x + width * .30, y + height / 2, anchor="w", text=message, fill="#DDEEFF",
+                                 width=width * .64, font=("TkDefaultFont", max(12, int(frame.height * .025))))
 
     def set_admin_overlay(self, overlay: AdminOverlayState) -> None:
         previous = self._admin_overlay
@@ -746,10 +806,10 @@ class TkEyeDisplay(EyeDisplay):
         if self._preview_photo is None:
             return
         image_width, image_height = self._preview_photo.width(), self._preview_photo.height()
-        margin = 16
-        x = margin if "left" in settings.position else display_width - image_width - margin
-        y = margin if settings.position.startswith("top") else display_height - image_height - margin
-        self._canvas.create_rectangle(x - 3, y - 3, x + image_width + 3, y + image_height + 3,
+        layout = camera_preview_layout(display_width, display_height, image_width, image_height,
+                                       settings.position)
+        x, y = layout.image_x, layout.image_y
+        self._canvas.create_rectangle(layout.x, layout.y, layout.x + layout.width, layout.y + layout.height,
                                       fill="#06111b", outline="#61d8e8", width=2)
         self._canvas.create_image(x, y, image=self._preview_photo, anchor="nw")
         shape = getattr(preview.frame, "shape", ())

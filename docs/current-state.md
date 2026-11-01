@@ -12,8 +12,56 @@ This file is an implementation handoff for coding agents. It records what is pre
 
 ## Current source version
 
-The authoritative source version is **1.7.0**. The following records retain
+The authoritative source version is **1.8.0**. The following records retain
 earlier implementation milestones as historical context.
+
+## Transient Overlay System v1
+
+The source implements source-scoped, bounded semantic transient overlays with
+renderer and protected-admin-layer integration. Automated core and UI coverage
+passes; physical Raspberry display validation is deferred.
+
+## Semantic Physical Context v1
+
+The repository implements a read-only, provider-independent semantic perception
+context through `PhosApplicationService`; it is automated-tested and available
+to the MCP semantic adapter.
+
+## Minimal Agent Permission Model
+
+The repository implements an in-code, immutable semantic permission boundary
+for future trusted external-agent adapters. `AgentApplicationService` delegates
+only approved semantic reads and actions to `PhosApplicationService`; it adds
+no MCP transport, authentication, user/account model, persistence, or raw
+hardware/render surface. `standard` and read-only `observer` profiles are
+automated-tested. This is not a network or OS security boundary; adapter
+identity and authentication remain deferred.
+
+## MCP Semantic Adapter — Stage 2
+
+The repository implements a trusted-local Streamable HTTP MCP adapter over
+`AgentApplicationService`, with standard semantic read/action tools and
+read-only semantic snapshot resources (`phos://status`,
+`phos://physical-context`, `phos://environment`, and the on-demand
+`image/jpeg` camera resource `phos://vision/snapshot`).
+It runs embedded in the one PHOS runtime owner started by normal PHOS startup;
+it exposes the configured Streamable HTTP listener over that existing runtime.
+The camera snapshot is synchronous, read-only and non-streaming; it travels
+through the application/agent permission boundary without opening another
+camera. The `standard` profile has the dedicated `read_camera_snapshot`
+permission; the `observer` profile does not. The stdio `phos-mcp-bridge`
+dynamically forwards Resources without snapshot-specific bridge code. Automated
+coverage verifies preview independence; physical Raspberry Pi, including the
+preview-disabled acceptance case, remains pending. Subscriptions, asynchronous
+notifications and MCP authentication remain deferred.
+
+## PHOS 1.8.0 — MCP & Runtime Administration Stabilization
+
+PHOS 1.8.0 includes Streamable HTTP MCP semantic tools and Resources, the
+on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
+the Web Admin Runtime settings split with immediate Camera Preview/log-level
+application. Automated coverage verifies the application and permission
+boundaries; physical Raspberry Pi MCP/preview acceptance remains separate.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
@@ -38,7 +86,7 @@ ElevenLabs TTS adapters feed `AudioOutputProvider` and the
 configuration; legacy JSON remains a supported fallback.
 
 Transcript-to-intent/command interpretation, wake words, continuous listening,
-conversational LLM, Home Assistant and MCP/tool execution remain deferred.
+conversational LLM, Home Assistant and MCP events/subscriptions remain deferred.
 
 ## PHOS 1.3.0 release candidate
 

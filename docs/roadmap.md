@@ -12,6 +12,31 @@
 
 FURIOUS and expression intensity are not implemented in this milestone.
 
+## Transient Overlay System v1
+
+- [x] Source-scoped, bounded semantic overlay arbitration, expiry, and final
+  display-layer integration below protected administrative overlays.
+- [x] Hardware-free core, renderer, and administrative-overlay regression coverage.
+- [ ] Physical Raspberry display validation.
+
+## Semantic Physical Context v1
+
+- [x] Read-only provider-independent aggregation of canonical perception state.
+- [x] Minimal Agent Permission Model: immutable semantic permission profiles,
+  deterministic evaluation, and a permission-checked application facade.
+- [x] MCP Semantic Adapter — Stage 1: trusted-local Streamable HTTP tools over the agent
+  permission/application-service boundary.
+- [x] MCP Stage 2 Part 6B — Camera Snapshot Resource: application boundary,
+  dedicated `read_camera_snapshot` permission, `resources/list`/`resources/read`,
+  bounded JPEG output, no second camera provider, and preview independence in
+  automated coverage. Physical Raspberry Pi validation, including preview-disabled
+  acceptance, remains pending.
+- [x] Transport-neutral semantic event model, filtering, duplicate suppression,
+  and `SemanticSubscription` lifecycle.
+- [ ] MCP async push adapter — pending re-evaluation against current MCP SDK
+  session lifecycle support; camera snapshots are synchronous and independent
+  of async delivery. Agent authentication also remains pending.
+
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
 - [x] Generic, bounded `phos-hw` v1 JSON Lines serial transport with capability

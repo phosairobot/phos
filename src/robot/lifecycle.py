@@ -261,6 +261,52 @@ class LifecycleService:
                 "sensors": self._sensor_status() if self._sensor_status is not None else {},
                 "runtime": self._application_status() if self._application_status is not None else {}}
 
+    def apply_runtime_settings(self, candidate: RuntimeConfig) -> dict:
+        """Atomically persist Runtime-page edits and apply its safe live subset.
+
+        The Runtime page also contains startup-only Vision and expression
+        settings.  Those are persisted as pending, while camera-preview and
+        logging-level edits use the existing owner-controlled runtime boundary.
+        """
+        if not isinstance(candidate, RuntimeConfig):
+            return {"ok": False, "error": "Runtime settings are invalid."}
+        with self._lock:
+            saved = candidate.to_dict()
+            previous = RuntimeConfig.from_dict(self.active, base_dir=self.path.parent)
+            preview_paths = changed_fields(self.active["vision"]["camera_preview"],
+                                           saved["vision"]["camera_preview"],
+                                           "vision.camera_preview")
+            level_changed = self.active["logging"]["level"] != saved["logging"]["level"]
+            if preview_paths and self._apply_camera_preview is None:
+                return {"ok": False, "error": "Runtime camera preview service is not ready. No settings were saved."}
+            applied = []
+            try:
+                if preview_paths:
+                    self._apply_camera_preview(candidate)
+                    applied.extend(preview_paths)
+                if level_changed:
+                    self._set_log_level(candidate.log_level)
+                    applied.append("logging.level")
+                self.config_repository.save(candidate)
+            except Exception:
+                # Do not leave a browser save reporting an active value that
+                # failed to persist.  Preview application already has its own
+                # runtime-side rollback; this compensates after a disk failure.
+                if preview_paths:
+                    try:
+                        self._apply_camera_preview(previous)
+                    except Exception:
+                        logger.exception("Runtime preview rollback failed")
+                if level_changed:
+                    self._set_log_level(previous.log_level)
+                return {"ok": False, "error": "Runtime settings could not be applied and saved. No new active configuration was recorded."}
+            if preview_paths:
+                self.active["vision"]["camera_preview"] = deepcopy(saved["vision"]["camera_preview"])
+            if level_changed:
+                self.active["logging"]["level"] = saved["logging"]["level"]
+            self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            return {"ok": True, **self._snapshot(saved), "applied": applied}
+
     def execute(self, operation):
         """Fixed allowlist; no command/path/config payload is accepted from adapters."""
         with self._lock:
@@ -445,11 +491,14 @@ class LifecycleService:
             "application.clear_overlay": lambda: self._application_service.clear_overlay(),
             "application.config": lambda: self._application_service.config(),
             "application.update_config": lambda: self._application_service.update_config(payload),
+            "application.configure_runtime": lambda: self._application_service.configure_runtime(payload),
             "application.configure_stt": lambda: self._application_service.configure_stt(payload),
             "application.configure_tts": lambda: self._application_service.configure_tts(payload),
             "application.configure_audio_output": lambda: self._application_service.configure_audio_output(payload),
             "application.configure_backgrounds": lambda: self._application_service.configure_backgrounds(payload),
             "application.configure_eyes": lambda: self._application_service.configure_eyes(payload),
+            "application.mcp_settings": lambda: self._application_service.mcp_settings(),
+            "application.configure_mcp": lambda: self._application_service.configure_mcp(payload),
             "application.controller_status": lambda: self._application_service.controller_status(),
             "application.controller_serial_ports": lambda: self._application_service.controller_serial_ports(),
             "application.controller_recent_messages": lambda: self._application_service.controller_recent_messages(),

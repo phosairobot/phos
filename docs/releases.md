@@ -1,5 +1,17 @@
 # Releases
 
+## PHOS 1.8.0
+
+**MCP & Runtime Administration Stabilization.** The authoritative source
+version is **1.8.0**. It includes permission-checked semantic MCP tools and
+Resources over Streamable HTTP, stdio bridge Resource forwarding, the
+on-demand `phos://vision/snapshot` JPEG Resource, and immediate Web Admin
+Camera Preview/log-level updates through the runtime lifecycle boundary.
+Automated coverage is in place; physical Raspberry Pi acceptance remains a
+separate release gate.
+
+[Read the 1.8.0 release record](release-1.8.0.md){ .md-button .md-button--primary }
+
 ## PHOS 1.7.0
 
 **External Hardware Controller & Semantic LED Control.** The authoritative

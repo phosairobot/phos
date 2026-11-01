@@ -48,14 +48,25 @@ The display passes raw binary PPM data to Tk. Preview encoding or image-loading
 failures are logged as `Could not render camera preview` once per failure streak,
 so a missing overlay can be diagnosed without flooding the log or stopping eyes.
 
-Manage the preview in Web Admin → Vision. Save the canonical configuration and
-use System → Reload configuration to apply enabled state, corner, scale, maximum
-FPS and diagnostic labels without restarting PHOS. If the preview is the only
-Vision feature enabled, reload starts the existing Vision pipeline/camera once;
+Manage the preview in Web Admin → Runtime → Camera Preview. Its enabled state,
+corner, scale, maximum FPS and diagnostic labels apply immediately when saved.
+If the preview is the only
+Vision feature enabled, saving starts the existing Vision pipeline/camera once;
 disabling it releases that pipeline when face tracking and expression
 recognition are also disabled. Changing preview options while Vision is already
 running does not restart Vision or the camera. Camera/display geometry and
 other Vision settings remain restart-required.
+
+## MCP camera snapshot Resource
+
+`phos://vision/snapshot` is a synchronous, read-only, on-demand `image/jpeg`
+MCP Resource. `VisionPipeline` remains the single camera owner: the Resource
+uses its latest captured frame, copies it before bounded encoding, and neither
+opens another camera nor restarts/pause tracking. Camera Preview is a local
+display concern; the MCP snapshot is an external read-only perception concern.
+Therefore a snapshot remains available when Camera Preview is disabled, as long
+as Vision/camera capture itself is available. It is not streaming, video, or a
+frame subscription. See [MCP](mcp.md) for permissions and privacy details.
 
 ## FaceDetector
 

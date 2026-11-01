@@ -72,6 +72,10 @@ Your edits on this page have not been saved.</p>
 <p class="notice">This operational overview contains semantic state and sensor health summaries. Detailed runtime diagnostics are available in Diagnostics; lifecycle actions have their own System Actions page.</p>
 {% else %}
 {% if area == 'voice' %}<p class="notice voice-live-notice">Voice &amp; Speech changes are applied live when activation succeeds. No PHOS restart is required. If activation fails, the previous working settings remain active.</p>{% endif %}
+{% if area == 'runtime_vision' %}<p class="notice">All Vision settings require Restart PHOS.</p>{% endif %}
+{% if area == 'runtime_camera_preview' %}<p class="notice">Camera preview settings apply immediately when saved.</p>{% endif %}
+{% if area == 'runtime_expression' %}<p class="notice">Expression settings require Restart PHOS.</p>{% endif %}
+{% if area == 'runtime_logging' %}<p class="notice">Logging level applies immediately when saved. Log destination and expression diagnostics require Restart PHOS.</p>{% endif %}
 {% if area == 'sensors' %}
 {% set sensor = runtime_state.get('sensors', {}).get('environmental') if runtime_state and runtime_state.ok else none %}
 {% set air = runtime_state.get('sensors', {}).get('ccs811') if runtime_state and runtime_state.ok else none %}
@@ -180,7 +184,14 @@ Your edits on this page have not been saved.</p>
 </dl>{% if admin_network and admin_network.admin_url %}<form method="post" action="{{ url_for('show_admin_access') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="secondary-action">Show QR on PHOS</button></form>{% else %}<button type="button" class="secondary-action" disabled>Show QR on PHOS</button>{% endif %}</section>
 <h3>Network Configuration</h3>
 {% endif %}
-<form method="post" action="{{ url_for('configuration', area=area) }}">
+{% if area == 'mcp' %}
+<section class="status" aria-label="MCP runtime status"><h3>Runtime</h3><dl>
+<dt>Status</dt><dd>{{ mcp_status.status | title if mcp_status else 'Unavailable' }}</dd>
+<dt>Endpoint</dt><dd>{{ mcp_status.endpoint if mcp_status and mcp_status.endpoint else 'Not running' }}</dd>
+{% if mcp_status and mcp_status.error %}<dt>Error</dt><dd>{{ mcp_status.error }}</dd>{% endif %}
+</dl><p>MCP listens only on the configured local address. Connected clients disconnect when the listener is stopped or rebound.</p></section>
+{% endif %}
+<form method="post" action="{{ configuration_url(area) }}">
 <input type="hidden" name="area" value="{{ area }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="revision" value="{{ revision }}">
@@ -194,7 +205,7 @@ Your edits on this page have not been saved.</p>
 {% if error and related_area == area and error_group == section.name %}<p class="error" role="alert">{{ error }}</p>{% endif %}<div class="fields">
 {% for field in section.fields %}
 {% set value = submitted.get(field.name, '') if submitted is not none else field.value %}
-<div class="field"><label for="{{ field.name }}">{{ field.label }}</label>
+<div class="field"><label for="{{ field.name }}">{{ field.label }}</label>{% if area == 'runtime_camera_preview' or (area == 'runtime_logging' and field.name == 'logging.level') %}<small>Applies immediately</small>{% elif area in ('runtime_vision', 'runtime_expression', 'runtime_logging') %}<small>Requires Restart PHOS</small>{% endif %}
 {% if field.name == 'display.iris_color' %}
 {% set preset = iris_resolver.preset_for(value) %}
 <div class="iris-color-controls" data-iris-color-controls>

@@ -4,6 +4,12 @@
     "host": "127.0.0.1",
     "port": 8080
   },
+  "mcp": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8001,
+    "path": "/mcp"
+  },
   "display": {
     "width": 800,
     "height": 600,

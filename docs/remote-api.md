@@ -52,6 +52,7 @@ All read endpoints use `GET` and return JSON.
 | `/api/v1/capabilities` | Discoverable command metadata and observable vocabulary. |
 | `/api/v1/overlay` | Environmental, manual, and resolved ambient-overlay intent. |
 | `/api/v1/config` | Saved and active canonical non-secret configuration. |
+| `/api/v1/settings/mcp` | MCP listener configuration and live listener status; only `enabled` and `port` are writable. |
 
 For example:
 

@@ -26,6 +26,7 @@ from robot.core.state import InvalidStateTransition, allowed_next_states, transi
 from robot.semantics import VisualSource
 from robot.core.environmental import AirQualityOverlay, EnvironmentalState, TemperatureOverlay
 from robot.core.runtime import STATE_CHANGED
+from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
 from robot.core.presence import PRESENCE_CHANGED, PERSON_ENTERED, PERSON_LEFT
 from robot.core.attention import (ATTENTION_CHANGED, ATTENTION_TARGET_ACQUIRED,
                                   ATTENTION_TARGET_CHANGED, ATTENTION_TARGET_LOST)
@@ -42,7 +43,11 @@ from robot.voice.normalization import SpeechTextNormalizer
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
+from robot.lifecycle import changed_fields
 from robot.admin_access import RecoveryState
+from robot.services.physical_context import SemanticPhysicalContextService
+from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
+from robot.services.agent_permissions import AgentApplicationService
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
 from robot.ui.skins import (SkinRepository, appearance_snapshot, apply_appearance_snapshot,
@@ -130,6 +135,10 @@ OVERLAY_COMMANDS = {
     "clear_overlay": {"method": "DELETE", "endpoint": "/api/v1/overlay"},
 }
 
+# Canonical semantic LED signal vocabulary. Adapters must reuse this rather
+# than inferring hardware animations or maintaining a second enum.
+USER_SIGNAL_INTENTS = frozenset({"success", "warning", "error", "attention"})
+
 
 class ApplicationError(Exception):
     """A stable adapter-safe error."""
@@ -188,11 +197,14 @@ class RemoteApplicationService:
     def capabilities(self): return self._call("capabilities")
     def config(self): return self._call("config")
     def update_config(self, value): return self._call("update_config", value)
+    def configure_runtime(self, value): return self._call("configure_runtime", value)
     def configure_stt(self, value): return self._call("configure_stt", value)
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
     def configure_backgrounds(self, value): return self._call("configure_backgrounds", value)
     def configure_eyes(self, value): return self._call("configure_eyes", value)
+    def mcp_settings(self): return self._call("mcp_settings")
+    def configure_mcp(self, value): return self._call("configure_mcp", value)
     def controller_status(self): return self._call("controller_status")
     def controller_serial_ports(self): return self._call("controller_serial_ports")
     def controller_recent_messages(self): return self._call("controller_recent_messages")
@@ -300,22 +312,31 @@ class PhosApplicationService:
         self._core = runtime.core
         self._behavior = runtime._behavior_engine  # composition-owned semantic collaborator
         self._lifecycle = lifecycle
+        self._mcp_manager = None
         self._admin_recovery = RecoveryState(clock=clock)
+        self._physical_context = SemanticPhysicalContextService()
+        self._semantic_events = SemanticEventPublisher()
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
         self._last: dict[str, object] = {}
+        self._semantic_availability = self._semantic_health = None
         self._lock = RLock()
         self._unsubscribers = [
             self._core.events.subscribe(STATE_CHANGED, lambda event: self._emit("robot_state_changed", event.data)),
+            self._core.events.subscribe(STATE_CHANGED, self._on_robot_state_changed),
             self._core.events.subscribe(PRESENCE_CHANGED, lambda event: self._emit("presence_changed", event.data)),
+            self._core.events.subscribe(PRESENCE_CHANGED, self._on_presence_changed),
             self._core.events.subscribe(PERSON_ENTERED, lambda event: self._emit("person_entered", event.data)),
             self._core.events.subscribe(PERSON_LEFT, lambda event: self._emit("person_left", event.data)),
             self._core.events.subscribe(ATTENTION_CHANGED, lambda event: self._emit("attention_changed", event.data)),
+            self._core.events.subscribe(ATTENTION_CHANGED, self._on_attention_changed),
             self._core.events.subscribe(ATTENTION_TARGET_ACQUIRED, lambda event: self._emit("attention_target_acquired", event.data)),
             self._core.events.subscribe(ATTENTION_TARGET_CHANGED, lambda event: self._emit("attention_target_changed", event.data)),
             self._core.events.subscribe(ATTENTION_TARGET_LOST, lambda event: self._emit("attention_target_lost", event.data)),
             self._core.events.subscribe(OBSERVED_EXPRESSION_CHANGED, self._on_observed_expression_changed),
+            self._core.events.subscribe(IMU_MOTION_STATE, self._on_motion_state_changed),
+            self._core.events.subscribe(ENVIRONMENTAL_STATE_CHANGED, self._on_environmental_state_changed),
             self._core.events.subscribe(EXPRESSION_REACTION_STARTED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_COMPLETED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_SUPPRESSED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
@@ -325,7 +346,15 @@ class PhosApplicationService:
               for name in (VOICE_LISTENING_STARTED, VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED, VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED, VOICE_ERROR)],
             *[self._core.events.subscribe(name, lambda event, name=name: self._emit(name, dict(event.data), force=True))
               for name in (INTERACTION_INTENT_RESOLVED, INTERACTION_INTENT_UNRESOLVED, INTERACTION_RESOLUTION_FAILED)],
+            *[self._core.events.subscribe(name, self._on_semantic_system_input)
+              for name in (STATE_CHANGED, OBSERVED_EXPRESSION_CHANGED, IMU_MOTION_STATE,
+                           ENVIRONMENTAL_STATE_CHANGED, VOICE_ERROR, VOICE_LISTENING_STARTED,
+                           VOICE_SPEECH_STARTED, VOICE_SPEECH_ENDED, VOICE_TRANSCRIPTION_STARTED,
+                           VOICE_TRANSCRIPTION_COMPLETED, VOICE_EMPTY_UTTERANCE, VOICE_SESSION_CANCELLED)],
         ]
+        register_started = getattr(runtime, "register_started_callback", None)
+        if callable(register_started):
+            register_started(self._establish_semantic_system_baseline)
 
     def close(self):
         for unsubscribe in self._unsubscribers:
@@ -340,6 +369,91 @@ class PhosApplicationService:
                 if listener in self._listeners:
                     self._listeners.remove(listener)
         return unsubscribe
+
+    def subscribe_semantic_events(self, listener: Callable[[SemanticEvent], None], *, event_types=None) -> SemanticSubscription:
+        """Subscribe to stable semantic transitions, independently of adapters."""
+        return self._semantic_events.subscribe(listener, event_types=event_types)
+
+    def _semantic_transition(self, event_type: str, source: str, current, *, previous=None, details=None) -> None:
+        payload = {"current": current}
+        if previous is not None:
+            payload["previous"] = previous
+        if details:
+            payload.update(details)
+        self._semantic_events.publish(event_type, source, payload)
+
+    def _establish_semantic_system_baseline(self) -> None:
+        """Record ready-state availability without inventing startup transitions."""
+        # Lightweight composition/test runtimes may expose Core alone. They
+        # establish the baseline on their first semantic input instead.
+        if not callable(getattr(self._runtime, "sensor_status", None)):
+            return
+        self._status(emit_visual_event=False)
+
+    def _on_semantic_system_input(self, _event) -> None:
+        """Compare the canonical status snapshot after a semantic source update."""
+        self._status(emit_visual_event=False)
+
+    def _observe_semantic_system_state(self, status: dict) -> None:
+        """Emit compact capability and health transitions from the shared status model."""
+        semantic = AgentApplicationService._semantic_status(status)
+        availability = dict(semantic["availability"])
+        health = {"degraded": semantic["degraded"],
+                  "reasons": sorted(set(semantic["degraded_reasons"]))}
+        with self._lock:
+            previous_availability = self._semantic_availability
+            previous_health = self._semantic_health
+            self._semantic_availability = availability
+            self._semantic_health = health
+        if previous_availability is None:
+            return
+        for capability, current in availability.items():
+            previous = previous_availability[capability]
+            if current != previous:
+                self._semantic_events.publish("capability_changed", "capability", {
+                    "capability": capability, "previous": previous, "current": current,
+                })
+        if health != previous_health:
+            self._semantic_transition("system_health_changed", "system", health, previous=previous_health)
+
+    def _on_robot_state_changed(self, event) -> None:
+        self._semantic_transition("robot_state_changed", "robot", event.data.get("current"),
+                                  previous=event.data.get("previous"), details={"reason": event.data.get("reason")})
+
+    def _on_presence_changed(self, event) -> None:
+        current = event.data.get("state")
+        previous = self._last.get("semantic.presence")
+        if current != previous:
+            self._last["semantic.presence"] = current
+            self._semantic_transition("presence_changed", "presence", current, previous=previous,
+                                      details={"people_count": event.data.get("people_count")})
+
+    def _on_attention_changed(self, event) -> None:
+        current = event.data.get("state")
+        previous = self._last.get("semantic.attention")
+        if current != previous:
+            self._last["semantic.attention"] = current
+            self._semantic_transition("attention_changed", "attention", current, previous=previous)
+
+    def _on_motion_state_changed(self, event) -> None:
+        current = event.data.get("state")
+        previous = self._last.get("semantic.motion")
+        if current != previous:
+            self._last["semantic.motion"] = current
+            self._semantic_transition("motion_state_changed", "motion", current, previous=previous,
+                                      details={"intensity": event.data.get("intensity")})
+
+    def _on_environmental_state_changed(self, event) -> None:
+        data = event.data
+        for event_type, source, key in (("environment_condition_changed", "environment", "temperature_overlay"),
+                                        ("air_quality_condition_changed", "air_quality", "air_quality_overlay")):
+            current = data.get(key, "none")
+            last_key = f"semantic.{event_type}"
+            previous = self._last.get(last_key)
+            if current != previous:
+                self._last[last_key] = current
+                self._semantic_transition(event_type, source, current, previous=previous,
+                                          details={"reason": data.get("reason")})
 
     def _emit(self, event_type: str, payload: dict, *, force: bool = False):
         # State-change events can arrive through more than one runtime path;
@@ -362,6 +476,11 @@ class PhosApplicationService:
     def _on_observed_expression_changed(self, event) -> None:
         """Trace the exact runtime snapshot forwarded to remote adapters."""
         self._emit("observed_expression_changed", event.data)
+        current = {key: event.data.get(key) for key in ("available", "label", "unavailable_reason")}
+        previous = self._last.get("semantic.observed_expression")
+        if current != previous:
+            self._last["semantic.observed_expression"] = current
+            self._semantic_transition("observed_expression_changed", "observed_expression", current, previous=previous)
         snapshot = self.observed_expression()
         logger.debug("EXPR SNAPSHOT: state_id=%s available=%s label=%s confidence=%s",
                     id(getattr(getattr(self._runtime, "_vision_pipeline", None), "observed_expression", None)),
@@ -417,6 +536,12 @@ class PhosApplicationService:
                 "y": plain["target_y"], "confidence": plain["confidence"]}, "acquired_at": plain["acquired_at"],
                 "last_seen": plain["last_seen"]}
 
+    def get_physical_context(self) -> dict:
+        """Compact perception context; distinct from operational status/capabilities."""
+        return self._physical_context.build(robot=self.robot_state(), sensors=self.sensors(),
+                                            presence=self.presence(), attention=self.attention(),
+                                            observed_expression=self.observed_expression()).document()
+
     def touch(self) -> dict:
         reader = getattr(self._runtime, "touch_status", None)
         if reader is not None:
@@ -440,6 +565,20 @@ class PhosApplicationService:
         logger.debug("OBSERVED STATE READER: pipeline=%s state=%s available=%s label=%s confidence=%s",
                      id(pipeline), id(observation), observation.available, observation.label, observation.confidence)
         return self._plain(observation)
+
+    def get_camera_snapshot(self) -> bytes:
+        """Return one privacy-bounded current Vision frame, encoded on demand."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "camera_snapshot_jpeg", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision is unavailable.", status=503)
+        try:
+            return reader()
+        except RuntimeError as error:
+            reason = str(error)
+            if reason == "no_frame":
+                raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
 
     def expression_reaction(self) -> dict:
         return self._plain(self._behavior.expression_reaction_state())
@@ -518,6 +657,9 @@ class PhosApplicationService:
         return result
 
     def status(self) -> dict:
+        return self._status(emit_visual_event=True)
+
+    def _status(self, *, emit_visual_event: bool) -> dict:
         # Runtime supplies this same provider-neutral snapshot to the local
         # lifecycle status service consumed by Web Admin.
         snapshot = getattr(self._runtime, "application_status", None)
@@ -541,7 +683,9 @@ class PhosApplicationService:
             "last_resolution": {"status": None, "intent": None, "source_language": None},
             "unavailable_reason": "unconfigured"}
         result.setdefault("sensors", self.sensors())
-        self._emit("visual_state_changed", result["visual"])
+        if emit_visual_event:
+            self._emit("visual_state_changed", result["visual"])
+        self._observe_semantic_system_state(result)
         return result
 
     def controller_status(self) -> dict:
@@ -622,6 +766,28 @@ class PhosApplicationService:
             logger.exception("TTS: failed exception_type=%s", type(error).__name__)
             raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
 
+    async def speak_async(self, text: str):
+        """Accept speech without blocking the runtime loop that consumes it."""
+        text = self._validated_speech_text(text)
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        if loop is not asyncio.get_running_loop():
+            return await asyncio.to_thread(self.speak, text)
+        try:
+            await self._runtime.accept_speech(text)
+            return {"status": "accepted"}
+        except TTSBusyError as error:
+            raise ApplicationError("tts_busy", "PHOS is already speaking.", status=409) from error
+        except TTSProviderError as error:
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except (TTSConfigurationError, TTSError) as error:
+            logger.warning("TTS: unavailable exception_type=%s", type(error).__name__)
+            raise ApplicationError("tts_unavailable", "Text-to-speech is currently unavailable.", status=503) from error
+        except Exception as error:
+            logger.exception("TTS: failed exception_type=%s", type(error).__name__)
+            raise ApplicationError("internal_error", "PHOS could not process the speech request.", status=500) from error
+
     @staticmethod
     def _validated_speech_text(text: str) -> str:
         if not isinstance(text, str) or not (text := text.strip()):
@@ -669,6 +835,41 @@ class PhosApplicationService:
             raise ApplicationError("service_unavailable", result.get("error", "Configuration service is unavailable."), status=503)
         saved = self._lifecycle.config_repository.load().to_dict()
         return {"saved": saved, "active": result["active"], "pending": result["changed"]}
+
+    def register_mcp_manager(self, manager) -> None:
+        self._mcp_manager = manager
+
+    def mcp_settings(self) -> dict:
+        if self._lifecycle is None or self._mcp_manager is None:
+            raise ApplicationError("service_unavailable", "MCP runtime service is unavailable.", status=503)
+        return self._mcp_manager.status()
+
+    def configure_mcp(self, patch: dict) -> dict:
+        if (self._lifecycle is None or self._mcp_manager is None or not isinstance(patch, dict)
+                or set(patch) - {"enabled", "port"}):
+            raise ApplicationError("invalid_mcp_settings", "MCP settings are invalid.")
+        if type(patch.get("enabled")) is not bool or type(patch.get("port")) is not int or not 1 <= patch["port"] <= 65535:
+            raise ApplicationError("invalid_mcp_settings", "MCP port must be an integer between 1 and 65535.")
+        previous = self._lifecycle.config_repository.load()
+        document = previous.to_dict()
+        document["mcp"].update(patch)
+        candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
+        try:
+            result = self._mcp_manager.apply(enabled=candidate.mcp_enabled, port=candidate.mcp_port)
+        except Exception as error:
+            current = self._mcp_manager.status()
+            message = (f"MCP could not start on port {patch['port']}. "
+                       f"MCP remains available on port {current['bound_port']}." if current.get("bound_port")
+                       else "MCP could not start on the requested port.")
+            raise ApplicationError("port_in_use", message, status=409) from error
+        try:
+            self._lifecycle.config_repository.save(candidate)
+        except OSError as error:
+            # Keep runtime and persistence coherent if storage fails.
+            self._mcp_manager.apply(enabled=previous.mcp_enabled, port=previous.mcp_port)
+            raise ApplicationError("configuration_unavailable", "MCP settings could not be saved.", status=503) from error
+        self._lifecycle.active["mcp"] = candidate.to_dict()["mcp"]
+        return result
 
     def request_admin_password_recovery(self):
         show = getattr(self._runtime, "show_recovery_code", None)
@@ -1098,6 +1299,33 @@ class PhosApplicationService:
             raise ApplicationError("runtime_unavailable", result.get("error", "Configuration was saved but could not be applied."), status=503)
         return {"saved": document, "applied": result.get("applied", []), "pending": result.get("restart_required", [])}
 
+    def configure_runtime(self, candidate: RuntimeConfig) -> dict:
+        """Apply Runtime-page changes through the lifecycle reconfiguration boundary."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Runtime configuration service is unavailable.", status=503)
+        if isinstance(candidate, dict):
+            try:
+                candidate = RuntimeConfig.from_dict(candidate, base_dir=self._lifecycle.path.parent)
+            except ConfigurationError as error:
+                raise ApplicationError("invalid_configuration", "Runtime settings are invalid.", {"reason": str(error)}) from error
+        # A deliberately standalone administration instance has no PHOS
+        # runtime to reconfigure.  It may still repair/persist canonical
+        # settings, but must report every changed field as pending rather than
+        # pretending a hot update happened.
+        if not self._lifecycle._application_ready:
+            try:
+                self._lifecycle.config_repository.save(candidate)
+            except OSError as error:
+                raise ApplicationError("configuration_unavailable", "Runtime settings could not be saved.", status=503) from error
+            saved = candidate.to_dict()
+            return {"saved": saved, "active": self._lifecycle.active,
+                    "applied": [], "pending": changed_fields(self._lifecycle.active, saved)}
+        result = self._lifecycle.apply_runtime_settings(candidate)
+        if not result.get("ok"):
+            raise ApplicationError("runtime_unavailable", result.get("error", "Runtime settings could not be applied."), status=503)
+        return {"saved": candidate.to_dict(), "active": result["active"],
+                "applied": result.get("applied", []), "pending": result.get("restart_required", [])}
+
     def set_visual_source(self, source: str) -> dict:
         if source not in COMMANDS["set_visual_source"].allowed_values:
             raise ApplicationError("invalid_visual_source", "Unsupported visual source.", {"source": source})
@@ -1117,7 +1345,7 @@ class PhosApplicationService:
         return payload
 
     def signal_user(self, signal: str) -> dict:
-        if signal not in {"success", "warning", "error", "attention"}:
+        if signal not in USER_SIGNAL_INTENTS:
             raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
         loop = self._runtime._loop
         if loop is None:
@@ -1126,6 +1354,50 @@ class PhosApplicationService:
             return self._plain(asyncio.run_coroutine_threadsafe(self._runtime.signal_user(signal), loop).result(timeout=2))
         except Exception as error:
             raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
+
+    async def signal_user_async(self, signal: str) -> dict:
+        """Apply a semantic signal without synchronously blocking its runtime loop."""
+        if signal not in USER_SIGNAL_INTENTS:
+            raise ApplicationError("invalid_signal", "Unsupported user signal.", {"signal": signal})
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        if loop is not asyncio.get_running_loop():
+            return await asyncio.to_thread(self.signal_user, signal)
+        try:
+            return self._plain(await self._runtime.signal_user(signal))
+        except Exception as error:
+            raise ApplicationError("led_unavailable", "PHOS could not apply the semantic LED signal.", status=503) from error
+
+    def request_transient_overlay(self, value: dict) -> dict:
+        """Submit semantic presentation context without exposing renderer controls."""
+        if not isinstance(value, dict) or set(value) - {"intent", "source", "message", "duration_seconds"}:
+            raise ApplicationError("invalid_overlay_request", "Overlay request has unsupported fields.")
+        intent, source = value.get("intent"), value.get("source")
+        if intent not in {"success", "info", "attention", "warning", "error", "sensor_alert"}:
+            raise ApplicationError("invalid_overlay_intent", "Unsupported overlay intent.")
+        if not isinstance(source, str) or not source:
+            raise ApplicationError("invalid_overlay_source", "Overlay source is required.")
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return self._plain(asyncio.run_coroutine_threadsafe(
+                self._runtime.request_transient_overlay(intent, source, message=value.get("message"),
+                                                        duration_seconds=value.get("duration_seconds")), loop).result(timeout=2))
+        except ValueError as error:
+            raise ApplicationError("invalid_overlay_request", str(error)) from error
+        except Exception as error:
+            raise ApplicationError("overlay_unavailable", "PHOS could not apply the semantic overlay.", status=503) from error
+
+    def clear_transient_overlay(self, source: str) -> dict:
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        try:
+            return self._plain(asyncio.run_coroutine_threadsafe(self._runtime.clear_transient_overlay(source), loop).result(timeout=2))
+        except Exception as error:
+            raise ApplicationError("overlay_unavailable", "PHOS could not clear the semantic overlay.", status=503) from error
 
     def set_expression(self, expression: str) -> dict:
         try:
@@ -1184,6 +1456,31 @@ class PhosApplicationService:
                            (time.monotonic() - submitted_at) * 1000)
             raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
         logger.info("PHOS COMMAND: state target=%s accepted", target.value)
+        return self.robot_state()
+
+    async def set_state_async(self, state: str) -> dict:
+        """Apply a state command from the runtime loop without self-deadlock."""
+        try:
+            target = RobotState(state)
+        except (TypeError, ValueError) as error:
+            raise ApplicationError("invalid_robot_state", "Unsupported robot state.", {"state": state}) from error
+        if target not in COMMANDS["set_robot_state"].allowed_members:
+            raise ApplicationError("unsupported_state_command", "Robot state is runtime-only.", {"state": state})
+        loop = self._runtime._loop
+        if loop is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        if loop is not asyncio.get_running_loop():
+            return await asyncio.to_thread(self.set_state, state)
+        if self._core.state is target:
+            return self.robot_state()
+        submitted_at = time.monotonic()
+        try:
+            await asyncio.wait_for(self._accept_state_command(target, submitted_at), STATE_COMMAND_TIMEOUT_SECONDS)
+        except InvalidStateTransition as error:
+            raise ApplicationError("invalid_state_transition", str(error),
+                                   {"current": self._core.state.value, "target": target.value}, status=409) from error
+        except asyncio.TimeoutError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS did not accept the state command in time.", status=503) from error
         return self.robot_state()
 
 

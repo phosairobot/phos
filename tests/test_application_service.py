@@ -16,6 +16,8 @@ from robot.motion import MotionState
 from robot.vision.provider import ObservedExpression
 from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
 from robot.core import Event
+from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
+from robot.core.presence import PRESENCE_CHANGED
 from robot.web.openapi import _resolve, load_spec
 from robot.config import RuntimeConfig, load_document
 from robot.services.application import ApplicationError
@@ -66,6 +68,17 @@ def test_status_has_semantic_environment_and_health():
     assert status["environment"]["status"] == "available"
     assert status["health"]["subsystems"]["ccs811"]["state"] == "warming_up"
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
+
+
+def test_physical_context_uses_existing_application_read_models():
+    context = PhosApplicationService(Runtime()).get_physical_context()
+    assert context["robot"] == {"state": "idle"}
+    assert context["environment"]["temperature_c"] == 21.5
+    assert context["air_quality"]["status"] == "warming_up"
+    assert context["motion"]["status"] == "unavailable"
+    assert context["presence"]["state"] == "no_one"
+    assert context["attention"]["state"] == "idle"
+    assert context["observed_expression"]["available"] is False
 
 
 def test_recovery_code_is_shown_only_locally_and_never_returned():
@@ -485,6 +498,95 @@ def test_overlay_expiry_resolves_against_current_environment_not_cached_intent()
     arbiter.set_environmental(AmbientOverlayState("none", "warning"))
     now[0] = 1.0
     assert arbiter.resolved() == AmbientOverlayState("none", "warning")
+
+
+def test_semantic_events_are_transport_neutral_transitions_without_raw_measurements():
+    runtime = Runtime()
+    service = PhosApplicationService(runtime)
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+
+    async def exercise():
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1}))
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1, "confidence": .93}))
+        await runtime.core.events.publish(Event(IMU_MOTION_STATE, {"state": "moving", "intensity": "medium"}))
+        await runtime.core.events.publish(Event(ENVIRONMENTAL_STATE_CHANGED, {
+            "state": "warm", "reason": "temperature above warm threshold",
+            "temperature_overlay": "warm", "air_quality_overlay": "none"}))
+        await runtime.core.events.publish(Event(OBSERVED_EXPRESSION_CHANGED, {
+            "available": True, "label": "happy", "confidence": .8, "provider": "local"}))
+
+    asyncio.run(exercise())
+
+    assert [event["type"] for event in received] == [
+        "presence_changed", "motion_state_changed", "environment_condition_changed",
+        "air_quality_condition_changed", "observed_expression_changed",
+    ]
+    assert all(set(event) == {"type", "timestamp", "source", "payload"} for event in received)
+    assert received[0]["payload"] == {"current": "person_present", "people_count": 1}
+    assert received[2]["payload"]["current"] == "warm"
+    assert "confidence" not in received[-1]["payload"]["current"]
+    assert "provider" not in received[-1]["payload"]["current"]
+
+
+def test_capability_and_system_health_events_reuse_agent_status_semantics_without_startup_burst():
+    service = PhosApplicationService(Runtime())
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+    baseline = {
+        "robot": {"running": True, "state": "idle"},
+        "environment": {"status": "available", "available": True},
+        "motion": {"status": "available", "available": True},
+        "sensors": {"ccs811": {"status": "available", "available": True}},
+        "observed_expression": {"available": False, "provider": "not-exposed"},
+        "voice": {"enabled": True, "listening": False, "last_error": None},
+        "speech": {"tts": {"available": True, "provider": "not-exposed"}},
+        "semantic_led": {"available": False},
+    }
+    changed = {
+        **baseline,
+        "environment": {"status": "unavailable", "available": False},
+        "motion": {"status": "unavailable", "available": False},
+        "sensors": {"ccs811": {"status": "unavailable", "available": False}},
+        "observed_expression": {"available": True, "provider": "not-exposed"},
+        "voice": {"enabled": True, "listening": False, "last_error": "not-exposed"},
+        "semantic_led": {"available": True},
+    }
+
+    service._observe_semantic_system_state(baseline)
+    assert received == []
+    service._observe_semantic_system_state(changed)
+
+    assert [(event["type"], event["payload"]) for event in received] == [
+        ("capability_changed", {"capability": "environment", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "air_quality", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "motion", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "vision", "previous": False, "current": True}),
+        ("capability_changed", {"capability": "voice", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "signals", "previous": False, "current": True}),
+        ("system_health_changed", {
+            "previous": {"degraded": False, "reasons": []},
+            "current": {"degraded": True, "reasons": [
+                "air_quality_unavailable", "environment_unavailable", "motion_unavailable"]},
+        }),
+    ]
+
+
+def test_capability_state_is_not_reemitted_without_a_transition():
+    service = PhosApplicationService(Runtime())
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+    status = {
+        "robot": {"running": True}, "environment": {"available": True},
+        "motion": {"available": True}, "sensors": {"ccs811": {"available": True}},
+        "observed_expression": {"available": False}, "voice": {"enabled": True, "last_error": None},
+        "speech": {"tts": {"available": True}}, "semantic_led": {"available": True},
+    }
+
+    service._observe_semantic_system_state(status)
+    service._observe_semantic_system_state(status)
+
+    assert received == []
 
 
 def test_overlay_validation_and_capabilities_use_canonical_overlay_enums():

@@ -4,6 +4,7 @@ from .behaviors import Behavior, BehaviorManager
 from .behavior_engine import BehaviorEngine
 from .environmental import EnvironmentalInterpreter, EnvironmentalSettings, EnvironmentalState
 from .overlay import OverlayArbiter, OverlayOverride
+from .semantic_overlay import OverlayViewState, SemanticOverlayIntent, SemanticOverlayService
 from .events import Event, EventBus
 from .presence import PresenceInterpreter, PresenceKind, PresenceState
 from .attention import AttentionManager, AttentionKind, AttentionState
@@ -22,6 +23,9 @@ __all__ = [
     "EnvironmentalState",
     "OverlayArbiter",
     "OverlayOverride",
+    "OverlayViewState",
+    "SemanticOverlayIntent",
+    "SemanticOverlayService",
     "CORE_STARTED",
     "CORE_STOPPED",
     "Event",
