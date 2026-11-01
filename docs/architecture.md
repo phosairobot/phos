@@ -192,7 +192,7 @@ PhosApplicationService
 PHOS runtime/services
 ```
 
-Stage 1 uses the official Python `mcp` SDK (the pinned 1.x line) over
+Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
 Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
 creates one listener over the existing application services, and normal runtime
 shutdown closes it. It exposes ten request/response tools: `phos_get_status`,
@@ -221,14 +221,19 @@ confidence jitter. Consumers may request a validated allow-list of stable event
 types; each subscription defensively suppresses only adjacent identical
 semantic events during a short internal window, so real A → B → A transitions
 remain visible. The model is an internal observer boundary—not the Core event
-bus and not an MCP feature. Each observer owns an explicit
+bus and not an MCP feature. It projects canonical agent-status availability as
+one compact `capability_changed` event per changed capability, and canonical
+degraded state as `system_health_changed`. The first ready-status snapshot
+establishes a baseline and emits neither startup availability nor health events;
+later comparisons use the same availability/degraded projection as
+`phos_get_status`, with health reasons sorted before comparison. Each observer owns an explicit
 `SemanticSubscription` handle with an opaque process-local identifier, active
 state, idempotent `close()`, and optional context-manager cleanup. The publisher
 holds the handler strongly only while the handle is active; explicit close is
 the required ownership boundary. A dispatch snapshot already in progress may
 complete when a handle is closed, but no later delivery starts after `close()`
-returns. MCP subscriptions/notifications, REST or WebSocket delivery,
-capability-transition production, and camera resources remain deferred.
+returns. MCP subscriptions/notifications, REST or WebSocket delivery, and
+camera resources remain deferred.
 
 `phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
 status document contains only `running`, `state`, semantic subsystem

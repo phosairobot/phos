@@ -8,6 +8,14 @@ canonical PHOS configuration, then start PHOS normally:
 systemctl --user restart phos.service
 ```
 
+PHOS requires Python 3.11 or later for MCP and pins the supported SDK family as
+`mcp>=2.0,<3`. The PHOS listener continues to own Uvicorn binding and shutdown;
+the SDK supplies only the Streamable HTTP ASGI app. This keeps listener
+lifecycle, Web Admin enable/disable, and port rebinding in `McpServerManager`.
+Under SDK 2.x the ASGI app owns the protocol's per-client session handling and
+its lifespan cleanup; PHOS does not retain SDK session objects. Uvicorn closes
+that app as part of the existing listener shutdown path.
+
 The committed default endpoint is `http://127.0.0.1:8001/mcp`. MCP is enabled
 by default, binds only to loopback, and uses one listener in the same process,
 runtime loop, `PhosApplicationService`, and `AgentApplicationService` as PHOS.
@@ -43,6 +51,20 @@ camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
 `phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
 semantic result documents, and sanitized error mapping are transport-independent.
+
+## Semantic snapshot resources
+
+PHOS also exposes read-only MCP resources, each served as `application/json`:
+
+- `phos://status` — compact agent-facing semantic status.
+- `phos://physical-context` — provider-independent semantic physical context.
+- `phos://environment` — the environmental section of that physical context.
+
+Resources are live snapshots: each read calls the same permission-checked
+application-service boundary as the corresponding semantic tool. They do not
+poll providers, mutate PHOS, replay history, or expose controller/camera/
+renderer internals. Camera snapshots remain deferred because no approved
+privacy-preserving application-service resource exists.
 
 ## Raspberry Pi validation
 

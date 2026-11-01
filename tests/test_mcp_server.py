@@ -1,11 +1,12 @@
 import asyncio
 import inspect
+import json
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from robot.mcp.server import MCP_TOOL_NAMES, McpSemanticAdapter, McpToolError, create_mcp_server
+from robot.mcp.server import MCP_RESOURCE_URIS, MCP_TOOL_NAMES, McpSemanticAdapter, McpToolError, create_mcp_server
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
 from robot.services import AgentAccess, AgentApplicationService, ApplicationError, AgentProfile
@@ -29,7 +30,9 @@ class ApplicationSpy:
                 "observed_expression": {"available": True},
                 "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
                 "speech": {"tts": {"available": True}}, "semantic_led": {"available": True}}
-    def get_physical_context(self): return self._call("get_physical_context")
+    def get_physical_context(self):
+        result = self._call("get_physical_context")
+        return {**result, "environment": {"operation": "get_physical_context"}}
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
@@ -59,10 +62,30 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
     ))
     expression = next(tool for tool in tools if tool.name == "phos_set_expression")
-    assert expression.inputSchema["properties"]["expression"]["enum"] == [
+    assert expression.input_schema["properties"]["expression"]["enum"] == [
         "neutral", "happy", "curious", "surprised", "sad", "angry", "focused", "tired", "confused",
         "scared", "skeptical",
     ]
+
+
+def test_server_lists_and_reads_only_semantic_snapshot_resources():
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    async def read():
+        resources = await server.list_resources()
+        status = await server.read_resource("phos://status")
+        physical_context = await server.read_resource("phos://physical-context")
+        environment = await server.read_resource("phos://environment")
+        return resources, status, physical_context, environment
+
+    resources, status, physical_context, environment = asyncio.run(read())
+    assert {resource.uri for resource in resources} == MCP_RESOURCE_URIS
+    assert all(resource.mime_type == "application/json" for resource in resources)
+    assert json.loads(status[0].content)["running"] is True
+    assert json.loads(physical_context[0].content)["operation"] == "get_physical_context"
+    assert json.loads(environment[0].content)["operation"] == "get_physical_context"
+    assert "camera" not in inspect.getsource(__import__("robot.mcp.server", fromlist=["server"])).lower()
 
 
 @pytest.mark.parametrize(("method", "expected"), [
@@ -150,21 +173,20 @@ def test_mcp_server_returns_structured_results_and_schema_rejects_bad_speech_inp
     server = create_mcp_server(adapter._agent_service)
 
     async def call():
-        _, result = await server.call_tool("phos_get_physical_context", {})
+        result = await server.call_tool("phos_get_physical_context", {})
         with pytest.raises(Exception):
             await server.call_tool("phos_speak", {"text": ""})
         return result
 
-    assert asyncio.run(call())["operation"] == "get_physical_context"
+    assert asyncio.run(call()).structured_content["operation"] == "get_physical_context"
 
 
 def test_streamable_http_server_configuration_is_kept_outside_the_semantic_surface():
     adapter, _ = _adapter()
-    server = create_mcp_server(adapter._agent_service, host="127.0.0.1", port=8123, path="/robot-mcp")
+    server = create_mcp_server(adapter._agent_service)
+    app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/robot-mcp")
 
-    assert server.settings.host == "127.0.0.1"
-    assert server.settings.port == 8123
-    assert server.settings.streamable_http_path == "/robot-mcp"
+    assert [route.path for route in app.routes] == ["/robot-mcp"]
 
 
 def test_mcp_status_uses_the_sanitized_agent_status_contract():

@@ -529,6 +529,66 @@ def test_semantic_events_are_transport_neutral_transitions_without_raw_measureme
     assert "provider" not in received[-1]["payload"]["current"]
 
 
+def test_capability_and_system_health_events_reuse_agent_status_semantics_without_startup_burst():
+    service = PhosApplicationService(Runtime())
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+    baseline = {
+        "robot": {"running": True, "state": "idle"},
+        "environment": {"status": "available", "available": True},
+        "motion": {"status": "available", "available": True},
+        "sensors": {"ccs811": {"status": "available", "available": True}},
+        "observed_expression": {"available": False, "provider": "not-exposed"},
+        "voice": {"enabled": True, "listening": False, "last_error": None},
+        "speech": {"tts": {"available": True, "provider": "not-exposed"}},
+        "semantic_led": {"available": False},
+    }
+    changed = {
+        **baseline,
+        "environment": {"status": "unavailable", "available": False},
+        "motion": {"status": "unavailable", "available": False},
+        "sensors": {"ccs811": {"status": "unavailable", "available": False}},
+        "observed_expression": {"available": True, "provider": "not-exposed"},
+        "voice": {"enabled": True, "listening": False, "last_error": "not-exposed"},
+        "semantic_led": {"available": True},
+    }
+
+    service._observe_semantic_system_state(baseline)
+    assert received == []
+    service._observe_semantic_system_state(changed)
+
+    assert [(event["type"], event["payload"]) for event in received] == [
+        ("capability_changed", {"capability": "environment", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "air_quality", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "motion", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "vision", "previous": False, "current": True}),
+        ("capability_changed", {"capability": "voice", "previous": True, "current": False}),
+        ("capability_changed", {"capability": "signals", "previous": False, "current": True}),
+        ("system_health_changed", {
+            "previous": {"degraded": False, "reasons": []},
+            "current": {"degraded": True, "reasons": [
+                "air_quality_unavailable", "environment_unavailable", "motion_unavailable"]},
+        }),
+    ]
+
+
+def test_capability_state_is_not_reemitted_without_a_transition():
+    service = PhosApplicationService(Runtime())
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+    status = {
+        "robot": {"running": True}, "environment": {"available": True},
+        "motion": {"available": True}, "sensors": {"ccs811": {"available": True}},
+        "observed_expression": {"available": False}, "voice": {"enabled": True, "last_error": None},
+        "speech": {"tts": {"available": True}}, "semantic_led": {"available": True},
+    }
+
+    service._observe_semantic_system_state(status)
+    service._observe_semantic_system_state(status)
+
+    assert received == []
+
+
 def test_overlay_validation_and_capabilities_use_canonical_overlay_enums():
     service = PhosApplicationService(Runtime())
     capabilities = service.capabilities()

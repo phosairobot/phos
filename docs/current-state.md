@@ -40,11 +40,12 @@ identity and authentication remain deferred.
 ## MCP Semantic Adapter — Stage 1
 
 The repository implements a trusted-local Streamable HTTP MCP adapter over
-`AgentApplicationService`, with the standard semantic read/action tools only.
+`AgentApplicationService`, with standard semantic read/action tools and
+read-only semantic snapshot resources (`phos://status`,
+`phos://physical-context`, and `phos://environment`).
 It runs embedded in the one PHOS runtime owner started by normal PHOS startup;
 it exposes the configured Streamable HTTP listener over that existing runtime.
-Events,
-resources/camera snapshots, subscriptions, asynchronous notifications, and MCP
+Camera snapshots, subscriptions, asynchronous notifications, and MCP
 authentication remain deferred.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control

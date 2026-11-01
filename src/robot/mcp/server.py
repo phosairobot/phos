@@ -19,6 +19,7 @@ MCP_TOOL_NAMES = frozenset({
     "phos_get_observed_expression", "phos_set_expression", "phos_speak", "phos_sleep",
     "phos_wake", "phos_signal_user",
 })
+MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment"})
 
 Expression = Annotated[str, Field(min_length=1, json_schema_extra={
     "enum": COMMANDS["set_expression"].allowed_values,
@@ -78,6 +79,10 @@ class McpSemanticAdapter:
     def get_observed_expression(self) -> dict[str, Any]:
         return self._call("phos_get_observed_expression", self._agent_service.observed_expression)
 
+    def environment(self) -> dict[str, Any]:
+        """Return the canonical environmental semantic-context section."""
+        return self._call("phos://environment", lambda: self._agent_service.get_physical_context()["environment"])
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._agent_service.set_expression(expression))
 
@@ -114,21 +119,36 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService, *, host: str = "127.0.0.1",
-                      port: int = 8001, path: str = "/mcp"):
+def create_mcp_server(agent_service: AgentApplicationService):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
-        from mcp.server.fastmcp import FastMCP
-        from mcp.server.fastmcp.exceptions import ToolError
+        from mcp.server.mcpserver import MCPServer
+        from mcp.server.mcpserver.exceptions import ToolError
     except ImportError as error:
-        raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.10+.") from error
+        raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
     adapter = McpSemanticAdapter(agent_service)
-    server = FastMCP("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
-                     host=host, port=port, streamable_http_path=path)
+    server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.")
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
+
+    def resource(uri: str, name: str, description: str):
+        return server.resource(uri, name=name, description=description, mime_type="application/json")
+
+    @resource("phos://status", "PHOS semantic status", "Current compact PHOS semantic status.")
+    def status_resource() -> dict[str, Any]:
+        return _resource_result(adapter.get_status)
+
+    @resource("phos://physical-context", "PHOS semantic physical context",
+              "Current provider-independent semantic physical context.")
+    def physical_context_resource() -> dict[str, Any]:
+        return _resource_result(adapter.get_physical_context)
+
+    @resource("phos://environment", "PHOS semantic environment",
+              "Current environmental section of PHOS semantic physical context.")
+    def environment_resource() -> dict[str, Any]:
+        return _resource_result(adapter.environment)
 
     @tool("phos_get_status", "Return provider-independent PHOS semantic status.")
     def get_status() -> dict[str, Any]:
@@ -187,12 +207,21 @@ async def _async_tool_result(handler, error_type) -> dict[str, Any]:
         raise error_type(str(error)) from None
 
 
+def _resource_result(handler: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Map the existing sanitized adapter error into an MCP resource failure."""
+    try:
+        return handler()
+    except McpToolError as error:
+        from mcp.server.mcpserver.exceptions import ResourceError
+        raise ResourceError(str(error)) from None
+
+
 class McpHttpServer:
     """One Streamable HTTP listener owned by the normal PHOS process."""
 
     def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
         self.host, self.port, self.path = host, port, path
-        self._mcp_server = create_mcp_server(agent_service, host=host, port=port, path=path)
+        self._mcp_server = create_mcp_server(agent_service)
         self._uvicorn_server = None
 
     @property
@@ -210,7 +239,8 @@ class McpHttpServer:
         if not ipaddress.ip_address(self.host).is_loopback:
             logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
         logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
-        config = uvicorn.Config(self._mcp_server.streamable_http_app(), host=self.host, port=self.port,
+        app = self._mcp_server.streamable_http_app(host=self.host, streamable_http_path=self.path)
+        config = uvicorn.Config(app, host=self.host, port=self.port,
                                 log_level="warning", access_log=False)
         server = self._uvicorn_server = uvicorn.Server(config)
         try:
