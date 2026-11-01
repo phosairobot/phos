@@ -36,6 +36,9 @@ class ApplicationSpy:
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
+    def get_camera_snapshot(self):
+        self._call("get_camera_snapshot")
+        return b"\xff\xd8fake-jpeg\xff\xd9"
     def set_expression(self, expression): return self._call("set_expression", expression)
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
@@ -68,7 +71,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     ]
 
 
-def test_server_lists_and_reads_only_semantic_snapshot_resources():
+def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():
     adapter, _ = _adapter()
     server = create_mcp_server(adapter._agent_service)
 
@@ -77,15 +80,38 @@ def test_server_lists_and_reads_only_semantic_snapshot_resources():
         status = await server.read_resource("phos://status")
         physical_context = await server.read_resource("phos://physical-context")
         environment = await server.read_resource("phos://environment")
-        return resources, status, physical_context, environment
+        snapshot = await server.read_resource("phos://vision/snapshot")
+        return resources, status, physical_context, environment, snapshot
 
-    resources, status, physical_context, environment = asyncio.run(read())
+    resources, status, physical_context, environment, snapshot = asyncio.run(read())
     assert {resource.uri for resource in resources} == MCP_RESOURCE_URIS
-    assert all(resource.mime_type == "application/json" for resource in resources)
+    assert next(resource for resource in resources if resource.uri == "phos://vision/snapshot").mime_type == "image/jpeg"
+    assert all(resource.mime_type == "application/json" for resource in resources if resource.uri != "phos://vision/snapshot")
     assert json.loads(status[0].content)["running"] is True
     assert json.loads(physical_context[0].content)["operation"] == "get_physical_context"
     assert json.loads(environment[0].content)["operation"] == "get_physical_context"
-    assert "camera" not in inspect.getsource(__import__("robot.mcp.server", fromlist=["server"])).lower()
+    assert snapshot[0].content == b"\xff\xd8fake-jpeg\xff\xd9"
+    assert snapshot[0].mime_type == "image/jpeg"
+
+
+def test_camera_snapshot_uses_dedicated_permission_and_observer_is_denied():
+    adapter, application = _adapter(profile=AgentProfile.OBSERVER)
+    with pytest.raises(McpToolError, match="permission_denied: operation=camera_snapshot required_permission=read_camera_snapshot"):
+        adapter.camera_snapshot()
+    assert application.calls == []
+
+    standard, application = _adapter()
+    assert standard.camera_snapshot().startswith(b"\xff\xd8")
+    assert application.calls == [("get_camera_snapshot",)]
+
+
+def test_camera_snapshot_unavailable_is_sanitized():
+    class Unavailable(ApplicationSpy):
+        def get_camera_snapshot(self):
+            raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503)
+    adapter, _ = _adapter(Unavailable())
+    with pytest.raises(McpToolError, match="service_unavailable: No camera frame is available yet"):
+        adapter.camera_snapshot()
 
 
 @pytest.mark.parametrize(("method", "expected"), [

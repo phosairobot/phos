@@ -566,6 +566,20 @@ class PhosApplicationService:
                      id(pipeline), id(observation), observation.available, observation.label, observation.confidence)
         return self._plain(observation)
 
+    def get_camera_snapshot(self) -> bytes:
+        """Return one privacy-bounded current Vision frame, encoded on demand."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "camera_snapshot_jpeg", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision is unavailable.", status=503)
+        try:
+            return reader()
+        except RuntimeError as error:
+            reason = str(error)
+            if reason == "no_frame":
+                raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+
     def expression_reaction(self) -> dict:
         return self._plain(self._behavior.expression_reaction_state())
 

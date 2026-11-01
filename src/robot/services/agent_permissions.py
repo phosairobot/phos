@@ -22,6 +22,7 @@ class AgentPermission(str, Enum):
     READ_STATUS = "read_status"
     READ_PHYSICAL_CONTEXT = "read_physical_context"
     READ_PERCEPTION = "read_perception"
+    READ_CAMERA_SNAPSHOT = "read_camera_snapshot"
     CONTROL_EXPRESSION = "control_expression"
     CONTROL_VOICE = "control_voice"
     CONTROL_SLEEP = "control_sleep"
@@ -36,6 +37,7 @@ class AgentOperation(str, Enum):
     PRESENCE = "presence"
     ATTENTION = "attention"
     OBSERVED_EXPRESSION = "observed_expression"
+    CAMERA_SNAPSHOT = "camera_snapshot"
     SET_EXPRESSION = "set_expression"
     SPEAK = "speak"
     SLEEP = "sleep"
@@ -49,6 +51,7 @@ OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyTy
     AgentOperation.PRESENCE: AgentPermission.READ_PERCEPTION,
     AgentOperation.ATTENTION: AgentPermission.READ_PERCEPTION,
     AgentOperation.OBSERVED_EXPRESSION: AgentPermission.READ_PERCEPTION,
+    AgentOperation.CAMERA_SNAPSHOT: AgentPermission.READ_CAMERA_SNAPSHOT,
     AgentOperation.SET_EXPRESSION: AgentPermission.CONTROL_EXPRESSION,
     AgentOperation.SPEAK: AgentPermission.CONTROL_VOICE,
     AgentOperation.SLEEP: AgentPermission.CONTROL_SLEEP,
@@ -218,6 +221,10 @@ class AgentApplicationService:
         self._require(AgentOperation.OBSERVED_EXPRESSION)
         value = self._application.observed_expression()
         return {key: value.get(key) for key in ("available", "label", "confidence", "observed_at", "unavailable_reason")}
+
+    def camera_snapshot(self) -> bytes:
+        self._require(AgentOperation.CAMERA_SNAPSHOT)
+        return self._application.get_camera_snapshot()
 
     def set_expression(self, expression: str) -> dict[str, Any]:
         self._require(AgentOperation.SET_EXPRESSION)
