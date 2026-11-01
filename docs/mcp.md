@@ -59,12 +59,16 @@ PHOS also exposes read-only MCP resources, each served as `application/json`:
 - `phos://status` — compact agent-facing semantic status.
 - `phos://physical-context` — provider-independent semantic physical context.
 - `phos://environment` — the environmental section of that physical context.
+- `phos://vision/snapshot` — one current `image/jpeg` camera snapshot.
 
 Resources are live snapshots: each read calls the same permission-checked
 application-service boundary as the corresponding semantic tool. They do not
 poll providers, mutate PHOS, replay history, or expose controller/camera/
-renderer internals. Camera snapshots remain deferred because no approved
-privacy-preserving application-service resource exists.
+renderer internals. The camera snapshot is synchronous, read-only and on
+demand: it uses the existing Vision pipeline's latest in-memory frame, copies
+it before bounded JPEG encoding, and never opens another camera or streams
+video. It is protected by the dedicated `read_camera_snapshot` permission;
+the standard profile has it while the observer profile deliberately does not.
 
 ## Raspberry Pi validation
 

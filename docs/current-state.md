@@ -42,11 +42,13 @@ identity and authentication remain deferred.
 The repository implements a trusted-local Streamable HTTP MCP adapter over
 `AgentApplicationService`, with standard semantic read/action tools and
 read-only semantic snapshot resources (`phos://status`,
-`phos://physical-context`, and `phos://environment`).
+`phos://physical-context`, `phos://environment`, and the on-demand
+`image/jpeg` camera resource `phos://vision/snapshot`).
 It runs embedded in the one PHOS runtime owner started by normal PHOS startup;
 it exposes the configured Streamable HTTP listener over that existing runtime.
-Camera snapshots, subscriptions, asynchronous notifications, and MCP
-authentication remain deferred.
+The camera snapshot is synchronous, read-only and non-streaming; it travels
+through the application/agent permission boundary without opening another
+camera. Subscriptions, asynchronous notifications and MCP authentication remain deferred.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

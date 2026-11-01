@@ -211,6 +211,6 @@ def test_agent_surface_has_no_raw_hardware_renderer_or_admin_operations():
     assert public_methods == {
         "attention", "get_physical_context", "observed_expression", "presence", "set_expression",
         "signal_user", "sleep", "speak", "status", "wake", "sleep_async", "speak_async",
-        "signal_user_async", "wake_async",
+        "signal_user_async", "wake_async", "camera_snapshot",
     }
     assert set(OPERATION_PERMISSIONS) == set(AgentOperation)

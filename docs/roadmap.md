@@ -26,8 +26,9 @@ FURIOUS and expression intensity are not implemented in this milestone.
   deterministic evaluation, and a permission-checked application facade.
 - [x] MCP Semantic Adapter — Stage 1: trusted-local Streamable HTTP tools over the agent
   permission/application-service boundary.
-- [ ] MCP async events/subscriptions, agent authentication, and camera snapshot
-  resources. Read-only semantic MCP snapshot resources are implemented.
+- [ ] MCP async events/subscriptions and agent authentication. Read-only
+  semantic MCP snapshot resources and the on-demand camera snapshot resource
+  are implemented.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

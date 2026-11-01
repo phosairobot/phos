@@ -19,7 +19,7 @@ MCP_TOOL_NAMES = frozenset({
     "phos_get_observed_expression", "phos_set_expression", "phos_speak", "phos_sleep",
     "phos_wake", "phos_signal_user",
 })
-MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment"})
+MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
 
 Expression = Annotated[str, Field(min_length=1, json_schema_extra={
     "enum": COMMANDS["set_expression"].allowed_values,
@@ -83,6 +83,9 @@ class McpSemanticAdapter:
         """Return the canonical environmental semantic-context section."""
         return self._call("phos://environment", lambda: self._agent_service.get_physical_context()["environment"])
 
+    def camera_snapshot(self) -> bytes:
+        return self._call("phos://vision/snapshot", self._agent_service.camera_snapshot)
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._agent_service.set_expression(expression))
 
@@ -133,8 +136,8 @@ def create_mcp_server(agent_service: AgentApplicationService):
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
 
-    def resource(uri: str, name: str, description: str):
-        return server.resource(uri, name=name, description=description, mime_type="application/json")
+    def resource(uri: str, name: str, description: str, mime_type="application/json"):
+        return server.resource(uri, name=name, description=description, mime_type=mime_type)
 
     @resource("phos://status", "PHOS semantic status", "Current compact PHOS semantic status.")
     def status_resource() -> dict[str, Any]:
@@ -149,6 +152,11 @@ def create_mcp_server(agent_service: AgentApplicationService):
               "Current environmental section of PHOS semantic physical context.")
     def environment_resource() -> dict[str, Any]:
         return _resource_result(adapter.environment)
+
+    @resource("phos://vision/snapshot", "PHOS vision snapshot",
+              "Current privacy-bounded camera snapshot from PHOS vision.", "image/jpeg")
+    def vision_snapshot_resource() -> bytes:
+        return _resource_bytes_result(adapter.camera_snapshot)
 
     @tool("phos_get_status", "Return provider-independent PHOS semantic status.")
     def get_status() -> dict[str, Any]:
@@ -209,6 +217,15 @@ async def _async_tool_result(handler, error_type) -> dict[str, Any]:
 
 def _resource_result(handler: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     """Map the existing sanitized adapter error into an MCP resource failure."""
+    try:
+        return handler()
+    except McpToolError as error:
+        from mcp.server.mcpserver.exceptions import ResourceError
+        raise ResourceError(str(error)) from None
+
+
+def _resource_bytes_result(handler: Callable[[], bytes]) -> bytes:
+    """Preserve SDK binary resource semantics while sanitizing failures."""
     try:
         return handler()
     except McpToolError as error:

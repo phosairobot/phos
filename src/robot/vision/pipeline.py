@@ -27,6 +27,8 @@ OBSERVED_EXPRESSION_CHANGED = "vision.observed_expression_changed"
 logger = logging.getLogger(__name__)
 
 _EXPRESSION_LOG_INTERVAL_SECONDS = 1.0
+_CAMERA_SNAPSHOT_MAX_WIDTH = 640
+_CAMERA_SNAPSHOT_MAX_BYTES = 512 * 1024
 # Classifier inference is slower than camera capture. Keep a valid result
 # through normal frame gaps, then explicitly mark it stale.
 _OBSERVED_EXPRESSION_TTL_SECONDS = 1.5
@@ -106,6 +108,9 @@ class VisionPipeline(Behavior):
         self._preview_enabled = preview_enabled
         self._publish_face_position = publish_face_position
         self._preview_snapshot: Optional[VisionPreviewSnapshot] = None
+        # Independent of display preview: this remains one latest in-memory
+        # reference owned by the one capture pipeline, never a frame queue.
+        self._latest_frame: Any = None
         self._face_selector = FaceSelector()
         self._camera = camera
         self._face_detector = face_detector
@@ -178,6 +183,7 @@ class VisionPipeline(Behavior):
         """Capture one frame and perform work only when its rate limit permits."""
         now = self._clock() if timestamp is None else timestamp
         frame = await self._camera.capture_frame()
+        self._latest_frame = frame
         if self._preview_enabled:
             previous = self._preview_snapshot
             self._preview_snapshot = VisionPreviewSnapshot(
@@ -400,6 +406,34 @@ class VisionPipeline(Behavior):
         self._preview_enabled = enabled
         if not enabled:
             self._preview_snapshot = None
+
+    def camera_snapshot_jpeg(self) -> bytes:
+        """Encode a bounded copy of the newest captured frame on demand.
+
+        This neither captures nor retains another frame.  The copy happens
+        before encoding so callers never receive a mutable camera buffer.
+        """
+        frame = self._latest_frame
+        if frame is None:
+            raise RuntimeError("no_frame")
+        try:
+            import cv2
+            image = frame.copy()
+            height, width = image.shape[:2]
+            if not height or not width:
+                raise ValueError("empty")
+            if width > _CAMERA_SNAPSHOT_MAX_WIDTH:
+                image = cv2.resize(image, (_CAMERA_SNAPSHOT_MAX_WIDTH,
+                    max(1, round(height * _CAMERA_SNAPSHOT_MAX_WIDTH / width))), interpolation=cv2.INTER_AREA)
+            for quality in (80, 60):
+                ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, quality])
+                if ok and len(encoded) <= _CAMERA_SNAPSHOT_MAX_BYTES:
+                    return encoded.tobytes()
+        except Exception as error:
+            if isinstance(error, RuntimeError):
+                raise
+            raise RuntimeError("snapshot_unavailable") from None
+        raise RuntimeError("snapshot_too_large")
 
     async def _run(self) -> None:
         while True:
