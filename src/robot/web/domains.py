@@ -19,6 +19,10 @@ DOMAINS = {
     "eyes": {"title": "Eyes", "description": "PHOS iris color and supported eye visual settings."},
     "network": {"title": "Network", "description": "Web Admin host, bind address and local network exposure settings."},
     "runtime": {"title": "Runtime", "description": "Vision, expression and safe logging configuration."},
+    "runtime_vision": {"title": "Runtime — Vision", "description": "Camera, tracking and face-detection configuration."},
+    "runtime_camera_preview": {"title": "Runtime — Camera Preview", "description": "Local picture-in-picture preview controls."},
+    "runtime_expression": {"title": "Runtime — Expression", "description": "Expression-observation provider and policy configuration."},
+    "runtime_logging": {"title": "Runtime — Logging", "description": "Safe PHOS logging configuration."},
     "behavior": {"title": "Behavior", "description": "Supported eye and environmental behavior settings."},
     "integrations": {"title": "Integrations", "description": "Optional Web Administration integration settings."},
     "voice": {"title": "Voice & speech", "description": "Offline Vosk/optional Cartesia STT and text-to-speech settings."},
@@ -56,7 +60,10 @@ GROUPS = {
 # it changes navigation only, not configuration meaning or validation.
 GROUPS["appearance"] = [("display", "Display", ("display.width", "display.height", "display.fps", "display.fullscreen"), None), *GROUPS["display"][1:3]]
 GROUPS["eyes"] = [("eyes", "Eye appearance", ("display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled"), None)]
-GROUPS["runtime"] = [*GROUPS["vision"], *GROUPS["expression"], *GROUPS["logging"]]
+GROUPS["runtime_vision"] = [GROUPS["vision"][0], GROUPS["vision"][2]]
+GROUPS["runtime_camera_preview"] = [GROUPS["vision"][1]]
+GROUPS["runtime_expression"] = GROUPS["expression"]
+GROUPS["runtime_logging"] = GROUPS["logging"]
 GROUPS["behavior"] = [("behavior", "Eye behavior", ("behavior.",), None)]
 GROUPS["integrations"] = GROUPS["security"]
 GROUPS["backgrounds"] = []

@@ -97,6 +97,43 @@ class CameraPreviewSettings:
     show_confidence: bool = True
 
 
+# The picture-in-picture preview is deliberately inset from the physical edge.
+# Keep its decorative border inside this same safe area rather than treating
+# the image dimensions as its visual bounds.
+CAMERA_PREVIEW_SAFE_MARGIN = 16
+CAMERA_PREVIEW_BORDER = 3
+
+
+@dataclass(frozen=True)
+class CameraPreviewLayout:
+    """Canvas coordinates for a fully bounded camera-preview visual box."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+
+    @property
+    def image_x(self) -> int:
+        return self.x + CAMERA_PREVIEW_BORDER
+
+    @property
+    def image_y(self) -> int:
+        return self.y + CAMERA_PREVIEW_BORDER
+
+
+def camera_preview_layout(display_width: int, display_height: int, image_width: int,
+                          image_height: int, position: str) -> CameraPreviewLayout:
+    """Anchor the complete (image plus border) preview inside the safe margin."""
+    width = image_width + 2 * CAMERA_PREVIEW_BORDER
+    height = image_height + 2 * CAMERA_PREVIEW_BORDER
+    left = "left" in position
+    top = position.startswith("top")
+    x = CAMERA_PREVIEW_SAFE_MARGIN if left else display_width - width - CAMERA_PREVIEW_SAFE_MARGIN
+    y = CAMERA_PREVIEW_SAFE_MARGIN if top else display_height - height - CAMERA_PREVIEW_SAFE_MARGIN
+    return CameraPreviewLayout(x, y, width, height)
+
+
 @dataclass(frozen=True)
 class RecoveryOverlayLayout:
     """Canvas-relative geometry for the physical recovery overlay."""
@@ -769,10 +806,10 @@ class TkEyeDisplay(EyeDisplay):
         if self._preview_photo is None:
             return
         image_width, image_height = self._preview_photo.width(), self._preview_photo.height()
-        margin = 16
-        x = margin if "left" in settings.position else display_width - image_width - margin
-        y = margin if settings.position.startswith("top") else display_height - image_height - margin
-        self._canvas.create_rectangle(x - 3, y - 3, x + image_width + 3, y + image_height + 3,
+        layout = camera_preview_layout(display_width, display_height, image_width, image_height,
+                                       settings.position)
+        x, y = layout.image_x, layout.image_y
+        self._canvas.create_rectangle(layout.x, layout.y, layout.x + layout.width, layout.y + layout.height,
                                       fill="#06111b", outline="#61d8e8", width=2)
         self._canvas.create_image(x, y, image=self._preview_photo, anchor="nw")
         shape = getattr(preview.frame, "shape", ())

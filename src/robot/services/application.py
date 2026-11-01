@@ -43,6 +43,7 @@ from robot.voice.normalization import SpeechTextNormalizer
 from robot.voice.tts import TTSBusyError, TTSConfigurationError, TTSProviderError, TTSError
 from robot.voice import AudioOutputProviderFactory, STTProviderFactory, TTSProviderFactory
 from robot.config import ConfigurationError, RuntimeConfig
+from robot.lifecycle import changed_fields
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
 from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
@@ -196,6 +197,7 @@ class RemoteApplicationService:
     def capabilities(self): return self._call("capabilities")
     def config(self): return self._call("config")
     def update_config(self, value): return self._call("update_config", value)
+    def configure_runtime(self, value): return self._call("configure_runtime", value)
     def configure_stt(self, value): return self._call("configure_stt", value)
     def configure_tts(self, value): return self._call("configure_tts", value)
     def configure_audio_output(self, value): return self._call("configure_audio_output", value)
@@ -1282,6 +1284,33 @@ class PhosApplicationService:
         if not result.get("ok"):
             raise ApplicationError("runtime_unavailable", result.get("error", "Configuration was saved but could not be applied."), status=503)
         return {"saved": document, "applied": result.get("applied", []), "pending": result.get("restart_required", [])}
+
+    def configure_runtime(self, candidate: RuntimeConfig) -> dict:
+        """Apply Runtime-page changes through the lifecycle reconfiguration boundary."""
+        if self._lifecycle is None:
+            raise ApplicationError("service_unavailable", "Runtime configuration service is unavailable.", status=503)
+        if isinstance(candidate, dict):
+            try:
+                candidate = RuntimeConfig.from_dict(candidate, base_dir=self._lifecycle.path.parent)
+            except ConfigurationError as error:
+                raise ApplicationError("invalid_configuration", "Runtime settings are invalid.", {"reason": str(error)}) from error
+        # A deliberately standalone administration instance has no PHOS
+        # runtime to reconfigure.  It may still repair/persist canonical
+        # settings, but must report every changed field as pending rather than
+        # pretending a hot update happened.
+        if not self._lifecycle._application_ready:
+            try:
+                self._lifecycle.config_repository.save(candidate)
+            except OSError as error:
+                raise ApplicationError("configuration_unavailable", "Runtime settings could not be saved.", status=503) from error
+            saved = candidate.to_dict()
+            return {"saved": saved, "active": self._lifecycle.active,
+                    "applied": [], "pending": changed_fields(self._lifecycle.active, saved)}
+        result = self._lifecycle.apply_runtime_settings(candidate)
+        if not result.get("ok"):
+            raise ApplicationError("runtime_unavailable", result.get("error", "Runtime settings could not be applied."), status=503)
+        return {"saved": candidate.to_dict(), "active": result["active"],
+                "applied": result.get("applied", []), "pending": result.get("restart_required", [])}
 
     def set_visual_source(self, source: str) -> dict:
         if source not in COMMANDS["set_visual_source"].allowed_values:

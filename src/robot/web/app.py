@@ -102,7 +102,11 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
 
     @app.context_processor
     def navigation():
-        return {"domains": DOMAINS, "phos_version": __version__}
+        def configuration_url(area):
+            if area.startswith("runtime_"):
+                return url_for("runtime_configuration", section=area.removeprefix("runtime_").replace("_", "-"))
+            return url_for("configuration", area=area)
+        return {"domains": DOMAINS, "phos_version": __version__, "configuration_url": configuration_url}
 
     @app.before_request
     def require_authentication():
@@ -436,13 +440,28 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         return render_template("state_effects.html", document=document, error=error,
                                config_path=config.path), status
 
+    @app.route("/configuration/runtime")
+    def runtime_parent():
+        """Runtime is navigation only; start with its focused Vision page."""
+        return redirect(url_for("runtime_configuration", section="vision"))
+
+    @app.route("/configuration/runtime/<section>", methods=["GET", "POST"])
+    def runtime_configuration(section):
+        area = f"runtime_{section.replace('-', '_')}"
+        if area not in {"runtime_vision", "runtime_camera_preview", "runtime_expression", "runtime_logging"}:
+            abort(404)
+        return configuration(area)
+
     @app.route("/", methods=["GET", "POST"])
     @app.route("/configuration/<area>", methods=["GET", "POST"])
     def configuration(area="general"):
-        aliases = {"settings": "appearance", "display": "appearance", "vision": "runtime",
-                   "expression": "runtime", "logging": "runtime", "security": "integrations"}
+        aliases = {"settings": "appearance", "display": "appearance", "vision": "runtime_vision",
+                   "expression": "runtime_expression", "logging": "runtime_logging", "security": "integrations"}
         if area in aliases:
-            return redirect(url_for("configuration", area=aliases[area]) + f"#{area}")
+            target = aliases[area]
+            if target.startswith("runtime_"):
+                return redirect(url_for("runtime_configuration", section=target.removeprefix("runtime_").replace("_", "-")))
+            return redirect(url_for("configuration", area=target) + f"#{area}")
         if area == "backgrounds" and request.method == "GET" and request.path == "/configuration/backgrounds":
             return redirect(url_for("appearance_backgrounds"))
         # Keep the original save URL usable with a page's explicit area value.
@@ -519,6 +538,22 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"]})
                         flash("MCP settings saved and applied live.")
                         return redirect(url_for("configuration", area=area))
+                    if area in {"runtime_vision", "runtime_camera_preview", "runtime_expression", "runtime_logging"}:
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        if application_service is None:
+                            # The standalone editor has no PHOS runtime to
+                            # reconfigure, so it only persists the candidate.
+                            config.repository.save(prepared.config)
+                            result = {"applied": [], "pending": ["runtime unavailable"]}
+                        else:
+                            result = application_service.configure_runtime(prepared.document)
+                        pending = result.get("pending", [])
+                        message = ("Runtime settings saved; applicable settings were applied immediately."
+                                   if result.get("applied") else "Runtime settings saved.")
+                        if pending:
+                            message += " Other changed settings require Restart PHOS."
+                        flash(message)
+                        return redirect(url_for("runtime_configuration", section=area.removeprefix("runtime_").replace("_", "-")))
                     if area == "controller":
                         if application_service is None:
                             raise ApplicationError("service_unavailable", "Hardware controller service is unavailable.", status=503)

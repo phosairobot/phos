@@ -191,7 +191,8 @@ def test_remote_speak_uses_lifecycle_ipc_and_main_dispatch_reaches_application_s
     assert received == ["Hello"]
 
 
-@pytest.mark.parametrize("method, operation", [("configure_stt", "application.configure_stt"),
+@pytest.mark.parametrize("method, operation", [("configure_runtime", "application.configure_runtime"),
+                                                  ("configure_stt", "application.configure_stt"),
                                                   ("configure_tts", "application.configure_tts"),
                                                   ("configure_audio_output", "application.configure_audio_output")])
 def test_remote_speech_configuration_uses_explicit_ipc_dispatch(method, operation):

@@ -452,7 +452,7 @@ def test_canonical_admin_navigation_has_unique_destinations_and_redirects_legacy
     assert 'href="/configuration/vision"' not in page
     assert 'href="/configuration/logging"' not in page
     assert client.get("/configuration/display").location == "/configuration/appearance#display"
-    assert client.get("/configuration/logging").location == "/configuration/runtime#logging"
+    assert client.get("/configuration/logging").location == "/configuration/runtime/logging"
     controls = client.get("/configuration/controls").get_data(as_text=True)
     assert "Apply robot state" in controls and "Editing saved settings" not in controls
     status = client.get("/configuration/status").get_data(as_text=True)
@@ -518,6 +518,49 @@ def test_appearance_navigation_group_spans_the_mobile_sidebar_grid():
 
     assert ".nav-group[open] summary::after" in stylesheet
     assert ".nav-heading, .nav-group, .sidebar-account { grid-column: 1 / -1; }" in stylesheet
+
+
+def test_runtime_navigation_uses_focused_child_pages_and_parent_redirect(setup):
+    app, _, _ = setup
+    client = authorize(app)
+
+    assert client.get("/configuration/runtime").location == "/configuration/runtime/vision"
+    pages = {
+        "vision": ("vision.face_tracking_enabled", "vision.detector.min_size"),
+        "camera-preview": ("vision.camera_preview.position", "vision.camera_preview.scale"),
+        "expression": ("expression.provider", "expression.local.model_path"),
+        "logging": ("logging.level", "logging.expression_diagnostics"),
+    }
+    all_names = {name for names in pages.values() for name in names}
+    for section, expected in pages.items():
+        text = client.get(f"/configuration/runtime/{section}").get_data(as_text=True)
+        assert all(f'name="{name}"' in text for name in expected)
+        assert all(f'name="{name}"' not in text for name in all_names - set(expected))
+        assert '<details class="nav-group is-active" open>' in text
+    sidebar = client.get("/configuration/runtime/camera-preview").get_data(as_text=True)
+    assert all(label in sidebar for label in ("Vision", "Camera Preview", "Expression", "Logging"))
+    assert 'href="/configuration/runtime/camera-preview" aria-current="page"' in sidebar
+    assert "Applies immediately" in sidebar
+    assert "Requires Restart PHOS" in client.get("/configuration/runtime/vision").get_data(as_text=True)
+
+
+def test_runtime_camera_preview_page_uses_existing_runtime_configuration_service(setup):
+    class RuntimeSettings:
+        def __init__(self): self.documents = []
+        def configure_runtime(self, document):
+            self.documents.append(document)
+            return {"applied": ["vision.camera_preview.position"], "pending": []}
+
+    _, path, now = setup
+    service = RuntimeSettings()
+    client = authorize(create_app(path, clock=lambda: now[0], application_service=service))
+    values = form(client, "runtime/camera-preview")
+    values["vision.camera_preview.position"] = "bottom_left"
+    response = client.post("/configuration/runtime/camera-preview", data=values)
+
+    assert response.status_code == 302
+    assert response.location.endswith("/configuration/runtime/camera-preview")
+    assert service.documents[-1]["vision"]["camera_preview"]["position"] == "bottom_left"
 
 
 def test_skin_import_picker_advertises_package_extensions_only():
@@ -791,7 +834,7 @@ def test_login_rate_limit_is_global_and_expires(setup):
 def test_configuration_controls_switch_both_providers_and_persist(setup):
     app, path, _ = setup
     client = authorize(app)
-    vision_form = form(client, "vision")
+    vision_form = form(client, "runtime/camera-preview")
     assert {"vision.camera_preview.position",
             "vision.camera_preview.scale", "vision.camera_preview.max_fps",
             "vision.camera_preview.show_face_box", "vision.camera_preview.show_expression",
@@ -809,7 +852,7 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
     model = path.parent / "model.onnx"
     model.write_bytes(b"fake model; never inferred")
     for provider in ("aws", "local"):
-        data = form(client, "expression")
+        data = form(client, "runtime/expression")
         data.update({"expression.provider": provider, "expression.enabled": "on",
                      "expression.local.model_path": "model.onnx"})
         response = client.post("/", data=data)
@@ -817,8 +860,8 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
         config = RuntimeConfig.from_file(path)
         assert config.expression_provider == provider and config.expression_enabled
         assert config.display_fps == 30
-        page = client.get("/configuration/expression", follow_redirects=True).get_data(as_text=True)
-        assert "Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes." in page
+        page = client.get("/configuration/runtime/expression", follow_redirects=True).get_data(as_text=True)
+        assert "Runtime settings saved. Other changed settings require Restart PHOS." in page
 
 
 def test_voice_settings_show_provider_availability_and_persist_local_settings(setup):
