@@ -6,7 +6,7 @@
 
 PHOS combines an animated face, camera-based perception, environmental and motion sensing, touch, voice, and LAN administration into a modular physical robot platform. It targets Raspberry Pi 3 today and is developed as a real hardware project: capabilities are designed behind explicit provider boundaries, covered by hardware-free tests where possible, and distinguished from physical Pi validation.
 
-**Current release:** PHOS 1.7.0 — External Hardware Controller & Semantic LED Control · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
+**Current release:** PHOS 1.8.0 — MCP & Runtime Administration Stabilization · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
 
 ## What is PHOS?
 
@@ -106,25 +106,26 @@ Available Resources are `phos://status`, `phos://physical-context`,
 current on-demand JPEG frame, not a video stream or continuous subscription.
 It is protected separately from generic physical-context reads because the
 image may contain people visible to the camera. See the [MCP guide](docs/mcp.md).
+The currently exposed tools are `phos_get_status`, `phos_get_physical_context`,
+`phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression`,
+`phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
+`phos_signal_user`.
 
 ## Project status & roadmap
 
-### PHOS 1.6.0 — Multilingual Voice Commands & Runtime Hardening
+### PHOS 1.8.0 — MCP & Runtime Administration Stabilization
 
-This release adds deterministic local voice commands in English and Italian,
-with opt-in execution through the existing application-service boundary. It
-also documents the supported command catalog, hardens native audio-capture
-shutdown to avoid the PortAudio/ALSA SIGSEGV path, makes cold-boot lifecycle
-readiness deterministic, and cleans up runtime logging. See [Voice
-Commands](docs/voice-commands.md) for the supported phrases and configuration;
-the README intentionally does not duplicate the catalog.
+This release adds the permission-checked MCP semantic adapter, Streamable HTTP
+transport, stdio bridge Resource forwarding, and the on-demand camera snapshot
+Resource. It also stabilizes Web Admin Runtime settings with immediate Camera
+Preview and logging-level application through the PHOS lifecycle boundary.
 
 PHOS continues to distinguish source implementation from physical validation.
-Local Vosk STT, Cartesia STT, local Piper TTS, Cartesia TTS, Voice & Speech Web
-Admin, and live STT/TTS switching have recorded Pi validation. Optional sensor,
-provider, and deployment acceptance remains component-specific.
+MCP camera-snapshot acceptance on the Raspberry Pi, including a non-empty JPEG
+read with Camera Preview disabled, remains pending. Optional sensor, provider,
+and deployment acceptance remains component-specific.
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP event/subscription extensions. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and the MCP async push adapter. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

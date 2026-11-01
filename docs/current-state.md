@@ -12,7 +12,7 @@ This file is an implementation handoff for coding agents. It records what is pre
 
 ## Current source version
 
-The authoritative source version is **1.7.0**. The following records retain
+The authoritative source version is **1.8.0**. The following records retain
 earlier implementation milestones as historical context.
 
 ## Transient Overlay System v1
@@ -54,6 +54,14 @@ dynamically forwards Resources without snapshot-specific bridge code. Automated
 coverage verifies preview independence; physical Raspberry Pi, including the
 preview-disabled acceptance case, remains pending. Subscriptions, asynchronous
 notifications and MCP authentication remain deferred.
+
+## PHOS 1.8.0 — MCP & Runtime Administration Stabilization
+
+PHOS 1.8.0 includes Streamable HTTP MCP semantic tools and Resources, the
+on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
+the Web Admin Runtime settings split with immediate Camera Preview/log-level
+application. Automated coverage verifies the application and permission
+boundaries; physical Raspberry Pi MCP/preview acceptance remains separate.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
