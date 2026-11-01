@@ -818,7 +818,7 @@ def test_configuration_controls_switch_both_providers_and_persist(setup):
         assert config.expression_provider == provider and config.expression_enabled
         assert config.display_fps == 30
         page = client.get("/configuration/expression", follow_redirects=True).get_data(as_text=True)
-        assert "Configuration saved. Use System actions to reload eligible settings, or restart PHOS for hardware and other pending changes." in page
+        assert "Runtime settings saved. Other changed settings require Restart PHOS." in page
 
 
 def test_voice_settings_show_provider_availability_and_persist_local_settings(setup):

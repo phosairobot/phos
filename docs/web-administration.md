@@ -2,9 +2,9 @@
 
 PHOS includes an optional single-administrator configuration editor. It uses the
 same typed configuration model and validation as startup, with no camera, AWS or display access
-from the web worker. Saving never applies settings. Reload applies logging level,
-supported eye appearance and camera preview settings; other runtime changes
-require restarting PHOS.
+from the web worker. Runtime-page saves apply camera-preview settings and logging level through
+the parent runtime boundary; other Runtime settings are saved as Restart PHOS pending changes.
+System Reload remains available for the other documented reloadable settings.
 
 ## Install and enable
 
@@ -401,11 +401,11 @@ deleting and assignment selection always use the directory-backed asset list.
 The **Vision** page also manages the optional camera preview on the physical
 PHOS display. It is off by default; choose a corner, scale and maximum preview
 FPS, then select whether to show the current face box and expression diagnostics.
-Save and use Reload configuration to apply these fields immediately. The preview
+Save to apply these fields immediately. The preview
 uses the existing camera owner and latest in-memory frame, stays on the local
 display, and is neither recorded nor exposed over this administration interface.
 
-Iris color and camera preview settings are reloadable. Display geometry, cadence,
+Iris color is reloadable; camera preview settings apply directly from Runtime saves. Display geometry, cadence,
 fullscreen and behavioral timing still require restart. Other implemented settings requiring restart are
 web enabled/host/port; camera resolution/tracking/detection; expression enabled/provider, preprocessing,
 smoothing and AWS policy; log destination and expression diagnostics. Switching

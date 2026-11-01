@@ -519,6 +519,22 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"]})
                         flash("MCP settings saved and applied live.")
                         return redirect(url_for("configuration", area=area))
+                    if area == "runtime":
+                        prepared = config.prepare_form_update(request.form, area=area)
+                        if application_service is None:
+                            # The standalone editor has no PHOS runtime to
+                            # reconfigure, so it only persists the candidate.
+                            config.repository.save(prepared.config)
+                            result = {"applied": [], "pending": ["runtime unavailable"]}
+                        else:
+                            result = application_service.configure_runtime(prepared.document)
+                        pending = result.get("pending", [])
+                        message = ("Runtime settings saved; applicable settings were applied immediately."
+                                   if result.get("applied") else "Runtime settings saved.")
+                        if pending:
+                            message += " Other changed settings require Restart PHOS."
+                        flash(message)
+                        return redirect(url_for("configuration", area=area))
                     if area == "controller":
                         if application_service is None:
                             raise ApplicationError("service_unavailable", "Hardware controller service is unavailable.", status=503)
