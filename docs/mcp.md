@@ -108,6 +108,40 @@ The response has MIME type `image/jpeg` and binary MCP Resource content. The
 Inspector may serialize that content as a textual blob representation for CLI
 output; PHOS itself does not use a JSON/base64 snapshot contract.
 
+## Async resource-change subscriptions
+
+Modern MCP clients negotiating protocol revision `2026-07-28` can use
+`subscriptions/listen` for `phos://status`, `phos://physical-context`, and
+`phos://environment`:
+
+```text
+listen -> notifications/resources/updated -> resources/read
+```
+
+Notifications are URI-only change cues, not PHOS event payloads. Robot state
+maps to status and physical context; environmental condition maps to environment
+and physical context; air quality, motion, presence, attention, and observed
+expression map to physical context; capability and system-health changes map to
+status. `phos://vision/snapshot` is never announced because it is on-demand,
+not a video stream.
+
+Numeric sensor samples remain read-only Resource data and do not cause push
+notifications. Confirmed environmental/motion conditions and meaningful sensor
+availability or freshness status transitions do cause Resource update cues.
+`environment_availability_changed` updates both `phos://environment` and
+`phos://physical-context`; `air_quality_availability_changed` and
+`motion_availability_changed` update physical context only. Camera snapshots
+remain excluded from continuous notifications.
+
+The SDK owns listen-stream filtering, disconnect cleanup, and bounded
+per-client delivery. PHOS owns one bounded bridge subscription for its MCP
+listener and coalesces duplicate pending resource URIs. MCP subscriptions are
+not an event log: updates while disconnected are not replayed; reconnect, open
+a new listen stream, and read current Resources. Current trusted-local MCP has
+no agent identity, so subscription visibility cannot be individualized until
+authentication exists. The stdio bridge has not been validated for long-lived
+listen streams in this repository.
+
 ## Raspberry Pi validation
 
 ```bash

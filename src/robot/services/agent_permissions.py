@@ -226,6 +226,17 @@ class AgentApplicationService:
         self._require(AgentOperation.CAMERA_SNAPSHOT)
         return self._application.get_camera_snapshot()
 
+    def _subscribe_semantic_events(self, listener, *, event_types=None):
+        """Attach an adapter-owned observer to stable semantic transitions.
+
+        The listener receives no direct client/session reference.  Transports
+        map the transition to their own bounded change cues.
+        """
+        subscribe = getattr(self._application, "subscribe_semantic_events", None)
+        if not callable(subscribe):
+            return None
+        return subscribe(listener, event_types=event_types)
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         self._require(AgentOperation.SET_EXPRESSION)
         value = self._application.set_expression(expression)

@@ -529,6 +529,37 @@ def test_semantic_events_are_transport_neutral_transitions_without_raw_measureme
     assert "provider" not in received[-1]["payload"]["current"]
 
 
+def test_sensor_availability_statuses_establish_a_baseline_then_emit_only_transitions():
+    runtime = Runtime()
+    service = PhosApplicationService(runtime)
+    received = []
+    service.subscribe_semantic_events(lambda event: received.append(event.document()))
+
+    def status(environment="available", air="available", motion="available"):
+        return {"robot": {"running": True, "state": "idle"},
+                "environment": {"available": environment == "available", "status": environment},
+                "motion": {"available": motion == "available", "status": motion},
+                "sensors": {"environmental": {"status": environment, "available": environment == "available"},
+                            "ccs811": {"status": air, "available": air == "available"},
+                            "imu": {"status": motion, "available": motion == "available"}},
+                "observed_expression": {"available": False}, "voice": {"enabled": False, "last_error": None},
+                "speech": {"tts": {"available": False}}, "semantic_led": {"available": False}}
+
+    service._observe_semantic_system_state(status())
+    assert not [event for event in received if event["type"].endswith("availability_changed")]
+    service._observe_semantic_system_state(status(environment="stale", air="stale", motion="stale"))
+    transitions = [event for event in received if event["type"].endswith("availability_changed")]
+    assert {(event["type"], event["payload"]["previous"], event["payload"]["current"]) for event in transitions} == {
+        ("environment_availability_changed", "available", "stale"),
+        ("air_quality_availability_changed", "available", "stale"),
+        ("motion_availability_changed", "available", "stale"),
+    }
+    service._observe_semantic_system_state(status(environment="stale", air="stale", motion="stale"))
+    assert len([event for event in received if event["type"].endswith("availability_changed")]) == 3
+    service._observe_semantic_system_state(status(environment="available", air="available", motion="available"))
+    assert len([event for event in received if event["type"].endswith("availability_changed")]) == 6
+
+
 def test_capability_and_system_health_events_reuse_agent_status_semantics_without_startup_burst():
     service = PhosApplicationService(Runtime())
     received = []
@@ -569,6 +600,7 @@ def test_capability_and_system_health_events_reuse_agent_status_semantics_withou
             "current": {"degraded": True, "reasons": [
                 "air_quality_unavailable", "environment_unavailable", "motion_unavailable"]},
         }),
+        ("air_quality_availability_changed", {"previous": "available", "current": "unavailable"}),
     ]
 
 

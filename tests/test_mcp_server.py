@@ -6,11 +6,19 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from robot.mcp.server import MCP_RESOURCE_URIS, MCP_TOOL_NAMES, McpSemanticAdapter, McpToolError, create_mcp_server
+from robot.mcp.server import (
+    MCP_RESOURCE_URIS,
+    MCP_TOOL_NAMES,
+    McpSemanticAdapter,
+    McpSemanticEventBridge,
+    McpToolError,
+    create_mcp_server,
+)
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
 from robot.services import AgentAccess, AgentApplicationService, ApplicationError, AgentProfile
 from robot.services.application import PhosApplicationService
+from robot.services.semantic_events import SemanticEventPublisher
 
 
 class ApplicationSpy:
@@ -237,5 +245,72 @@ def test_mcp_sleep_and_wake_use_the_runtime_loop_without_self_blocking():
         adapter = McpSemanticAdapter(agent)
         assert await adapter.sleep_async() == {"state": "sleeping", "applied": True}
         assert await adapter.wake_async() == {"state": "idle", "applied": True}
+
+    asyncio.run(exercise())
+
+
+def test_semantic_events_publish_only_mapped_resource_update_cues_and_close_cleanly():
+    class SemanticApplication(ApplicationSpy):
+        def __init__(self):
+            super().__init__()
+            self.events = SemanticEventPublisher(deduplication_window_seconds=0)
+
+        def subscribe_semantic_events(self, listener, *, event_types=None):
+            return self.events.subscribe(listener, event_types=event_types)
+
+    async def exercise():
+        application = SemanticApplication()
+        agent = AgentApplicationService(application, AgentAccess.for_profile())
+        bridge = McpSemanticEventBridge(agent)
+        received = []
+        bridge.bus.subscribe(received.append)
+        bridge.start(asyncio.get_running_loop())
+
+        application.events.publish("robot_state_changed", "robot", {"current": "sleeping"})
+        application.events.publish("environment_condition_changed", "environment", {"current": "warm"})
+        application.events.publish("air_quality_condition_changed", "air_quality", {"current": "poor"})
+        application.events.publish("motion_state_changed", "motion", {"current": "moving"})
+        application.events.publish("presence_changed", "presence", {"current": "present"})
+        application.events.publish("attention_changed", "attention", {"current": "engaged"})
+        application.events.publish("observed_expression_changed", "vision", {"current": "happy"})
+        application.events.publish("capability_changed", "system", {"current": True})
+        application.events.publish("system_health_changed", "system", {"current": "healthy"})
+        application.events.publish("environment_availability_changed", "environment", {"current": "stale"})
+        application.events.publish("air_quality_availability_changed", "air_quality", {"current": "unavailable"})
+        application.events.publish("motion_availability_changed", "motion", {"current": "available"})
+        await asyncio.sleep(.05)
+
+        assert {event.uri for event in received} == {
+            "phos://status", "phos://physical-context", "phos://environment",
+        }
+        assert len(received) == 3
+        assert "phos://vision/snapshot" not in {event.uri for event in received}
+        bridge.close()
+        assert application.events.active_subscription_count == 0
+
+    asyncio.run(exercise())
+
+
+def test_semantic_event_bridge_coalesces_repeated_uri_updates_without_blocking_publishers():
+    class SemanticApplication(ApplicationSpy):
+        def __init__(self):
+            super().__init__()
+            self.events = SemanticEventPublisher(deduplication_window_seconds=0)
+
+        def subscribe_semantic_events(self, listener, *, event_types=None):
+            return self.events.subscribe(listener, event_types=event_types)
+
+    async def exercise():
+        application = SemanticApplication()
+        bridge = McpSemanticEventBridge(AgentApplicationService(application, AgentAccess.for_profile()))
+        received = []
+        bridge.bus.subscribe(received.append)
+        bridge.start(asyncio.get_running_loop())
+        for state in ("sleeping", "idle", "thinking"):
+            application.events.publish("robot_state_changed", "robot", {"current": state})
+        await asyncio.sleep(.05)
+        assert {event.uri for event in received} == {"phos://status", "phos://physical-context"}
+        assert len(received) == 2
+        bridge.close()
 
     asyncio.run(exercise())

@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from robot.core import RobotState
-from robot.runtime import RuntimeConfig, build_runtime
+from robot.core import RobotCore, RobotState
+from robot.core.behavior_engine import BehaviorEngine
+from robot.runtime import PhosRuntime, RuntimeConfig, build_runtime
+from robot.services.application import PhosApplicationService
 from robot.ui.state_effects import StateEffectResolver
 from robot.ui import FaceExpression, MemoryEyeDisplay, VisualAccent
 from robot.vision import ExpressionObservation, ExpressionSmoother, FaceRegion, VisionPipeline
@@ -17,6 +19,33 @@ class FakeFrame:
 
     def __getitem__(self, item):
         return item
+
+
+def test_runtime_freshness_check_publishes_one_edge_triggered_sensor_transition():
+    class Sensor:
+        def __init__(self): self.status = "available"
+        def snapshot(self):
+            return {"status": self.status, "available": self.status == "available", "measurements": {}}
+
+    async def exercise():
+        core = RobotCore(); sensor = Sensor()
+        display = SimpleNamespace(background_status=lambda: {})
+        runtime = PhosRuntime(core, BehaviorEngine(core.events), display,
+                              config=RuntimeConfig(), sensor_service=sensor)
+        application = PhosApplicationService(runtime)
+        received = []
+        application.subscribe_semantic_events(lambda event: received.append(event.document()))
+        application._establish_semantic_system_baseline()
+        sensor.status = "stale"
+        await runtime._check_sensor_freshness()
+        await runtime._check_sensor_freshness()
+        sensor.status = "available"
+        await runtime._check_sensor_freshness()
+        return [event for event in received if event["type"] == "environment_availability_changed"]
+
+    events = asyncio.run(exercise())
+    assert [(event["payload"]["previous"], event["payload"]["current"]) for event in events] == [
+        ("available", "stale"), ("stale", "available")]
 
 
 class FakeCamera:

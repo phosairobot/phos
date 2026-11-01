@@ -114,6 +114,7 @@ class PhosRuntime:
                                           "available": False, "reason": "disabled"}
         self._tts_lock = asyncio.Lock()
         self._speech_task: asyncio.Task | None = None
+        self._sensor_freshness_task: asyncio.Task | None = None
         self._touch_voice_task: asyncio.Task | None = None
         self._next_speech_request_id = 0
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
@@ -148,6 +149,35 @@ class PhosRuntime:
                  "air_quality_overlay": getattr(air_quality_overlay, "value", "none")})))
             task.add_done_callback(_log_motion_publish_failure)
         loop.call_soon_threadsafe(publish)
+
+    def publish_sensor_status(self) -> None:
+        if self._loop is None or self._stopping:
+            return
+        self._loop.call_soon_threadsafe(lambda: asyncio.create_task(
+            self.core.events.publish(Event("sensor_status_changed", {}))))
+
+    def _sensor_freshness_interval(self) -> float:
+        if self._config is None:
+            return 5.0
+        thresholds = (self._config.environmental_stale_after_seconds,
+                      self._config.ccs811_stale_after_seconds,
+                      self._config.imu_stale_after_seconds)
+        return min(5.0, max(.1, min(thresholds) / 2))
+
+    async def _monitor_sensor_freshness(self) -> None:
+        """Re-evaluate the existing snapshot freshness state on the runtime loop."""
+        try:
+            while not self._stopping:
+                await asyncio.sleep(self._sensor_freshness_interval())
+                if not self._stopping:
+                    await self._check_sensor_freshness()
+        except asyncio.CancelledError:
+            raise
+
+    async def _check_sensor_freshness(self) -> None:
+        """Publish one runtime-owned semantic status re-evaluation."""
+        if not self._stopping:
+            await self.core.events.publish(Event("sensor_status_changed", {}))
 
     def apply_appearance(self, config: RuntimeConfig) -> None:
         """Apply validated appearance through the display runtime boundary."""
@@ -696,6 +726,8 @@ class PhosRuntime:
             self._started = True
             for callback in tuple(self._started_callbacks):
                 callback()
+            self._sensor_freshness_task = asyncio.create_task(
+                self._monitor_sensor_freshness(), name="sensor-freshness-monitor")
             logger.info("STARTUP: %s", self._startup.overall_state.value)
             self._play_ready_sound()
             logger.info("PHOS runtime started")
@@ -778,6 +810,11 @@ class PhosRuntime:
 
     async def stop(self) -> None:
         self._stopping = True
+        freshness_task = self._sensor_freshness_task
+        if freshness_task is not None and not freshness_task.done():
+            freshness_task.cancel()
+            await asyncio.gather(freshness_task, return_exceptions=True)
+        self._sensor_freshness_task = None
         if self._interaction_coordinator is not None:
             self._interaction_coordinator.close()
         if self._voice_session is not None and self._voice_session.status().get("listening"):
@@ -1062,6 +1099,7 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_environmental(reading.temperature_c, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="environmental", status=status),
+        status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
         externally_managed=config.environmental_provider == "controller",
     )
     if config.environmental_enabled and config.environmental_provider == "local":
@@ -1075,6 +1113,7 @@ def build_runtime(
         reading_sink=lambda reading, now: environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="air_quality", status=status),
+        status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
         externally_managed=config.ccs811_provider == "controller",
     )
     if config.ccs811_enabled and config.ccs811_provider == "local":
@@ -1087,6 +1126,7 @@ def build_runtime(
         stale_after_seconds=config.imu_stale_after_seconds,
         motion_settings=_motion_settings(config),
         motion_state_sink=lambda state: runtime_holder["runtime"].publish_motion_state(state),
+        status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
         externally_managed=config.imu_provider == "controller",
     )
     if config.imu_enabled and config.imu_provider == "local":
