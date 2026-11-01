@@ -21,10 +21,10 @@ FURIOUS and expression intensity are not implemented in this milestone.
 
 ## Semantic Physical Context v1
 
-- [ ] MCP Stage 2 — not complete: all implemented async-event and bridge work
-  below is complete and physically validated as recorded, but Raspberry Pi
-  camera-snapshot Resource acceptance (including preview-disabled operation)
-  remains the final planned Stage 2 gate.
+- [x] MCP Stage 2 — COMPLETE: semantic event model, filtering/deduplication,
+  subscription lifecycle, modern protocol Resource cues, capability/system-health
+  events, snapshot Resources, sensor availability/freshness events, and
+  standalone bridge compatibility are complete and validated as recorded below.
 - [x] Read-only provider-independent aggregation of canonical perception state.
 - [x] Minimal Agent Permission Model: immutable semantic permission profiles,
   deterministic evaluation, and a permission-checked application facade.
@@ -33,8 +33,8 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] MCP Stage 2 Part 6B — Camera Snapshot Resource: application boundary,
   dedicated `read_camera_snapshot` permission, `resources/list`/`resources/read`,
   bounded JPEG output, no second camera provider, and preview independence in
-  automated coverage. Physical Raspberry Pi validation, including preview-disabled
-  acceptance, remains pending.
+  automated coverage. Raspberry Pi validation confirmed preview-disabled
+  `resources/read` acceptance with a non-empty `image/jpeg` blob.
 - [x] Transport-neutral semantic event model, filtering, duplicate suppression,
   and `SemanticSubscription` lifecycle.
 - [x] MCP async semantic Resource cues — SDK `subscriptions/listen`, bounded
@@ -51,8 +51,11 @@ updates, `phos://environment` availability updates, environment loss/recovery,
 and motion/IMU availability transitions. The independently owned
 `phos-mcp-bridge` was also externally validated with a stdio
 `subscriptions/listen` client receiving two consecutive `phos://status`
-ResourceUpdated notifications. This does not establish camera-snapshot
-acceptance; no air-quality physical validation is claimed.
+ResourceUpdated notifications. Raspberry Pi camera validation confirmed that,
+with Camera Preview disabled, `phos://vision/snapshot` remained available and
+returned a non-empty `image/jpeg` blob. This establishes resource availability
+and JPEG output only; it does not establish image-content quality. No
+air-quality physical validation is claimed.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

@@ -132,9 +132,11 @@ Preview and logging-level application through the PHOS lifecycle boundary.
 
 PHOS continues to distinguish source implementation from physical validation.
 Direct HTTP semantic subscription and sensor freshness validation is recorded;
-MCP camera-snapshot acceptance on the Raspberry Pi, including a non-empty JPEG
-read with Camera Preview disabled, remains pending. Optional sensor, provider,
-and deployment acceptance remains component-specific.
+MCP Stage 2 is complete. Raspberry Pi validation confirmed that, with Camera
+Preview disabled, `phos://vision/snapshot` remained available and returned a
+non-empty `image/jpeg` blob. This validates resource availability and JPEG
+output, not image-content quality. Optional sensor, provider, and deployment
+acceptance remains component-specific.
 
 Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP authentication/per-client authorization. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 

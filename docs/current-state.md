@@ -51,11 +51,12 @@ through the application/agent permission boundary without opening another
 camera. The `standard` profile has the dedicated `read_camera_snapshot`
 permission; the `observer` profile does not. The stdio `phos-mcp-bridge`
 dynamically forwards Resources without snapshot-specific bridge code. Automated
-coverage verifies preview independence; physical Raspberry Pi camera-snapshot
-acceptance, including the preview-disabled case, remains pending. Async
-semantic change cues use SDK `subscriptions/listen`; clients receive URI-only
-notifications and re-read current Resources. Camera snapshots are excluded from
-notifications.
+coverage verifies preview independence, and Raspberry Pi validation confirmed
+that `phos://vision/snapshot` remains available with Camera Preview disabled
+and returns a non-empty `image/jpeg` blob. This establishes resource
+availability and JPEG output, not image-content quality. Async semantic change
+cues use SDK `subscriptions/listen`; clients receive URI-only notifications and
+re-read current Resources. Camera snapshots are excluded from notifications.
 MCP authentication remains deferred.
 
 Sensor availability/freshness transitions are complete: numeric samples remain
@@ -76,9 +77,9 @@ PHOS 1.8.0 includes Streamable HTTP MCP semantic tools and Resources, the
 on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
-boundaries; physical Raspberry Pi camera-snapshot/preview acceptance remains
-separate. MCP Stage 2 is not yet complete because that planned camera-snapshot
-acceptance gate remains open.
+boundaries; Raspberry Pi camera-snapshot acceptance has confirmed operation
+with Camera Preview disabled. MCP Stage 2 is complete; authentication and
+per-client authorization remain separate future MCP work.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

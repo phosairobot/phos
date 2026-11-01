@@ -176,5 +176,7 @@ notifications, `phos://physical-context` semantic updates, and
 confirmed environment loss/recovery and motion/IMU availability transitions.
 The bridge validation above confirmed a stdio subscription to `phos://status`
 and two consecutive ResourceUpdated notifications. These checks did not
-include physical air-quality validation. Camera-snapshot acceptance, including
-a preview-disabled `resources/read`, remains pending.
+include physical air-quality validation. With Camera Preview disabled,
+`phos://vision/snapshot` remained available and `resources/read` returned an
+`image/jpeg` Resource with a non-empty blob. This validates resource
+availability and JPEG output only; it does not validate image content quality.
