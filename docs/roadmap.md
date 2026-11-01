@@ -26,9 +26,16 @@ FURIOUS and expression intensity are not implemented in this milestone.
   deterministic evaluation, and a permission-checked application facade.
 - [x] MCP Semantic Adapter — Stage 1: trusted-local Streamable HTTP tools over the agent
   permission/application-service boundary.
-- [ ] MCP async events/subscriptions and agent authentication. Read-only
-  semantic MCP snapshot resources and the on-demand camera snapshot resource
-  are implemented.
+- [x] MCP Stage 2 Part 6B — Camera Snapshot Resource: application boundary,
+  dedicated `read_camera_snapshot` permission, `resources/list`/`resources/read`,
+  bounded JPEG output, no second camera provider, and preview independence in
+  automated coverage. Physical Raspberry Pi validation, including preview-disabled
+  acceptance, remains pending.
+- [x] Transport-neutral semantic event model, filtering, duplicate suppression,
+  and `SemanticSubscription` lifecycle.
+- [ ] MCP async push adapter — pending re-evaluation against current MCP SDK
+  session lifecycle support; camera snapshots are synchronous and independent
+  of async delivery. Agent authentication also remains pending.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
