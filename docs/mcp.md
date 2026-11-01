@@ -136,11 +136,15 @@ remain excluded from continuous notifications.
 The SDK owns listen-stream filtering, disconnect cleanup, and bounded
 per-client delivery. PHOS owns one bounded bridge subscription for its MCP
 listener and coalesces duplicate pending resource URIs. MCP subscriptions are
-not an event log: updates while disconnected are not replayed; reconnect, open
-a new listen stream, and read current Resources. Current trusted-local MCP has
-no agent identity, so subscription visibility cannot be individualized until
-authentication exists. The stdio bridge has not been validated for long-lived
-listen streams in this repository.
+not an event log: there is no replay, no history, and no raw sensor-telemetry
+push. Updates while disconnected are not replayed; reconnect, open a new
+listen stream, and read current Resources. Current trusted-local MCP has no
+agent identity, so subscription visibility cannot be individualized until
+authentication exists. The separately owned `phos-mcp-bridge` has been
+externally validated for a long-lived stdio `subscriptions/listen` connection:
+two consecutive `phos://status` ResourceUpdated notifications were forwarded
+from PHOS Streamable HTTP to the Inspector. Bridge code is not owned or
+modified by this repository.
 
 ## Raspberry Pi validation
 
@@ -163,3 +167,14 @@ npx @modelcontextprotocol/inspector
 
 For an explicitly configured LAN host, connect only from that trusted LAN to
 `http://LAN_ADDRESS:PORT/PATH`; do not forward it to the Internet.
+
+### Recorded physical validation
+
+Direct Streamable HTTP validation confirmed `phos://status` sleep/wake
+notifications, `phos://physical-context` semantic updates, and
+`phos://environment` availability updates. Sensor freshness validation
+confirmed environment loss/recovery and motion/IMU availability transitions.
+The bridge validation above confirmed a stdio subscription to `phos://status`
+and two consecutive ResourceUpdated notifications. These checks did not
+include physical air-quality validation. Camera-snapshot acceptance, including
+a preview-disabled `resources/read`, remains pending.

@@ -21,6 +21,10 @@ FURIOUS and expression intensity are not implemented in this milestone.
 
 ## Semantic Physical Context v1
 
+- [ ] MCP Stage 2 — not complete: all implemented async-event and bridge work
+  below is complete and physically validated as recorded, but Raspberry Pi
+  camera-snapshot Resource acceptance (including preview-disabled operation)
+  remains the final planned Stage 2 gate.
 - [x] Read-only provider-independent aggregation of canonical perception state.
 - [x] Minimal Agent Permission Model: immutable semantic permission profiles,
   deterministic evaluation, and a permission-checked application facade.
@@ -40,6 +44,15 @@ FURIOUS and expression intensity are not implemented in this milestone.
   runtime freshness monitoring, MCP Resource cues, and Raspberry Pi environment
   and IMU validation.
 - [ ] Agent authentication and per-client authorization for MCP.
+
+Stage 2 physical validation completed for direct Streamable HTTP includes
+`phos://status` sleep/wake notifications, `phos://physical-context` semantic
+updates, `phos://environment` availability updates, environment loss/recovery,
+and motion/IMU availability transitions. The independently owned
+`phos-mcp-bridge` was also externally validated with a stdio
+`subscriptions/listen` client receiving two consecutive `phos://status`
+ResourceUpdated notifications. This does not establish camera-snapshot
+acceptance; no air-quality physical validation is claimed.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

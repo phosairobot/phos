@@ -115,7 +115,11 @@ Modern MCP clients may use `subscriptions/listen` for semantic Resource change
 cues, then re-read the notified Resource. Notifications contain no PHOS event
 payloads and never announce camera frames. Numeric sensor samples are read on
 demand; semantic condition and sensor availability/freshness transitions emit
-Resource update cues.
+Resource update cues. This is a change-cue protocol, not an event log: it has
+no replay, history, or raw sensor-telemetry push; after reconnecting, clients
+open a new subscription and re-read current Resources. The separately owned
+`phos-mcp-bridge` has externally validated long-lived stdio subscription
+forwarding for consecutive `phos://status` updates.
 
 ## Project status & roadmap
 
@@ -127,6 +131,7 @@ Resource. It also stabilizes Web Admin Runtime settings with immediate Camera
 Preview and logging-level application through the PHOS lifecycle boundary.
 
 PHOS continues to distinguish source implementation from physical validation.
+Direct HTTP semantic subscription and sensor freshness validation is recorded;
 MCP camera-snapshot acceptance on the Raspberry Pi, including a non-empty JPEG
 read with Camera Preview disabled, remains pending. Optional sensor, provider,
 and deployment acceptance remains component-specific.

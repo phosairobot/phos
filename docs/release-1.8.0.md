@@ -36,19 +36,31 @@ controllers, renderers, sensor providers, or direct `RobotState` mutation.
 - Complete: MCP async semantic Resource cues via `subscriptions/listen`.
   Notifications are URI-only change cues; clients re-read Resources. Synchronous
   camera snapshots do not deliver async events.
+- Complete: sensor availability/freshness transition cues and externally
+  validated long-lived stdio bridge forwarding. The bridge remains separately
+  owned; this repository does not contain or modify its code.
 - Pending: MCP authentication and per-client authorization.
 
 Sensor availability/freshness events are edge-triggered and do not publish raw
-telemetry. Raspberry Pi validation confirmed environment loss/recovery and IMU
-availability Resource cues; the monitor sleep-loop fake-clock test remains a
-non-blocking test improvement.
+telemetry. Resource updates are change cues, not an event log: they provide no
+replay, history, or raw telemetry push, and a reconnect must open a new
+subscription and read current Resources. Raspberry Pi validation confirmed
+direct-HTTP `phos://status` sleep/wake notifications,
+`phos://physical-context` semantic updates, `phos://environment` availability
+updates, environment loss/recovery, and motion/IMU availability transitions.
+The bridge validation observed two consecutive `phos://status` ResourceUpdated
+notifications through a stdio subscription. No physical air-quality validation
+is claimed. A full fake-clock test does not currently drive the long-running
+sensor-freshness monitor sleep loop with a real sensor-service age calculation;
+coverage through `_check_sensor_freshness()` exists, so this is a non-blocking
+test follow-up.
 
 ## Validation and release gate
 
 Automated tests cover MCP discovery and reads, permission enforcement, snapshot
 encoding and preview independence, application/lifecycle behavior, and Web
-Admin configuration paths. The target-Pi validation remains a release
-acceptance task: verify `resources/list` exposes `phos://vision/snapshot`, then
-verify `resources/read` returns a non-empty `image/jpeg` blob, including with
-Camera Preview disabled. No physical Raspberry Pi validation, tag, deployment,
+Admin configuration paths. The remaining MCP Stage 2 gate is physical
+camera-snapshot acceptance: verify `resources/list` exposes
+`phos://vision/snapshot`, then verify `resources/read` returns a non-empty
+`image/jpeg` blob, including with Camera Preview disabled. No tag, deployment,
 or publication is claimed by this source release candidate.

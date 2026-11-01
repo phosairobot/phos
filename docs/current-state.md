@@ -51,17 +51,24 @@ through the application/agent permission boundary without opening another
 camera. The `standard` profile has the dedicated `read_camera_snapshot`
 permission; the `observer` profile does not. The stdio `phos-mcp-bridge`
 dynamically forwards Resources without snapshot-specific bridge code. Automated
-coverage verifies preview independence; physical Raspberry Pi, including the
-preview-disabled acceptance case, remains pending. Async semantic change cues
-use SDK `subscriptions/listen`; clients receive URI-only notifications and
-re-read current Resources. Camera snapshots are excluded from notifications.
+coverage verifies preview independence; physical Raspberry Pi camera-snapshot
+acceptance, including the preview-disabled case, remains pending. Async
+semantic change cues use SDK `subscriptions/listen`; clients receive URI-only
+notifications and re-read current Resources. Camera snapshots are excluded from
+notifications.
 MCP authentication remains deferred.
 
 Sensor availability/freshness transitions are complete: numeric samples remain
 read-only, while status transitions publish semantic Resource cues. Raspberry
-Pi validation confirmed environment loss/recovery updates for environment and
-physical context, and IMU loss updates for physical context. A fake-clock test
-of the monitor sleep loop remains a non-blocking test improvement.
+Pi validation confirmed direct-HTTP `phos://status` sleep/wake notifications,
+`phos://physical-context` semantic updates, `phos://environment` availability
+updates, environment loss/recovery, and motion/IMU availability transitions.
+The separately owned `phos-mcp-bridge` was externally validated with a stdio
+subscription receiving two consecutive `phos://status` ResourceUpdated
+notifications. No physical air-quality validation is claimed. A fake-clock
+test of the monitor sleep loop with a real sensor-service age calculation
+remains a non-blocking test improvement; `_check_sensor_freshness()` is
+automated-tested.
 
 ## PHOS 1.8.0 — MCP & Runtime Administration Stabilization
 
@@ -69,7 +76,9 @@ PHOS 1.8.0 includes Streamable HTTP MCP semantic tools and Resources, the
 on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
-boundaries; physical Raspberry Pi MCP/preview acceptance remains separate.
+boundaries; physical Raspberry Pi camera-snapshot/preview acceptance remains
+separate. MCP Stage 2 is not yet complete because that planned camera-snapshot
+acceptance gate remains open.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
