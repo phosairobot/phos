@@ -122,7 +122,7 @@ class _SensorService:
                  enabled: bool, poll_interval_seconds: float, stale_after_seconds: float,
                  sensor_type="bme280",
                  available_measurements=("temperature_c", "humidity_percent", "pressure_hpa"),
-                 reading_sink=lambda reading, now: None, unavailable_sink=lambda status: None, clock=time.monotonic,
+                 reading_sink=lambda reading, now: None, unavailable_sink=lambda status: None, status_sink=lambda: None, clock=time.monotonic,
                  externally_managed=False):
         self._sensor_type = sensor_type
         self._measurements = tuple(available_measurements)
@@ -133,6 +133,7 @@ class _SensorService:
         self._clock = clock
         self._reading_sink = reading_sink
         self._unavailable_sink = unavailable_sink
+        self._status_sink = status_sink
         self._externally_managed = externally_managed
         self._lock = Lock()
         self._stop = Event()
@@ -209,6 +210,7 @@ class _SensorService:
             self._sample_time = self._clock()
             self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self._status, self._error = "available", None
+        self._status_sink()
 
     def mark_external_unavailable(self) -> None:
         """Reflect controller loss through the normal sensor availability boundary."""
@@ -217,6 +219,7 @@ class _SensorService:
                 return
             self._status, self._error = "unavailable", "External sensor provider disconnected"
         self._unavailable_sink("unavailable")
+        self._status_sink()
 
     @staticmethod
     def _close(provider):
@@ -252,6 +255,7 @@ class _SensorService:
                         self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
                         self._status, self._error = "available", None
                     self._reading_sink(reading, self._sample_time)
+                    self._status_sink()
                     if first_reading:
                         logger.info("%s available", self._label)
                     elif recovering:
@@ -268,6 +272,7 @@ class _SensorService:
                         self._status, self._error = error.status, str(error)
                         self._last_poll = self._clock()
                     self._unavailable_sink(error.status)
+                    self._status_sink()
                     if previous != error.status and self._clock() - last_readiness_log >= 60:
                         logger.warning("%s %s: %s", self._label, error.status, error)
                         last_readiness_log = self._clock()
@@ -281,6 +286,7 @@ class _SensorService:
                             break
                         self._status, self._error = "unavailable", type(error).__name__
                     self._unavailable_sink("unavailable")
+                    self._status_sink()
                     now = self._clock()
                     if now - last_warning >= 60:
                         logger.warning("%s unavailable (%s, %s: %s); retrying",
@@ -346,12 +352,12 @@ class AirQualitySensorService(_SensorService):
     def __init__(self, provider_factory: Callable[[], AirQualitySensorProvider], *,
                  enabled, poll_interval_seconds, stale_after_seconds,
                  compensation_supplier=lambda: None, reading_sink=lambda reading, now: None,
-                 unavailable_sink=lambda status: None, clock=time.monotonic, externally_managed=False):
+                 unavailable_sink=lambda status: None, status_sink=lambda: None, clock=time.monotonic, externally_managed=False):
         super().__init__(provider_factory, enabled=enabled,
                          poll_interval_seconds=poll_interval_seconds,
                          stale_after_seconds=stale_after_seconds, sensor_type="ccs811",
                          available_measurements=("eco2_ppm", "tvoc_ppb"), reading_sink=reading_sink,
-                         unavailable_sink=unavailable_sink, clock=clock, externally_managed=externally_managed)
+                         unavailable_sink=unavailable_sink, status_sink=status_sink, clock=clock, externally_managed=externally_managed)
         self._compensation_supplier = compensation_supplier
         self._compensation_source = None
 
@@ -387,14 +393,14 @@ class IMUSensorService(_SensorService):
 
     def __init__(self, provider_factory: Callable[[], IMUSensorProvider], *,
                  enabled, poll_interval_seconds, stale_after_seconds, motion_settings: MotionSettings,
-                 motion_state_sink=lambda state: None, clock=time.monotonic, externally_managed=False):
+                 motion_state_sink=lambda state: None, status_sink=lambda: None, clock=time.monotonic, externally_managed=False):
         super().__init__(provider_factory, enabled=enabled,
                          poll_interval_seconds=poll_interval_seconds,
                          stale_after_seconds=stale_after_seconds, sensor_type="mpu6050",
                          available_measurements=("acceleration_x_m_s2", "acceleration_y_m_s2", "acceleration_z_m_s2",
                                                  "angular_velocity_x_deg_s", "angular_velocity_y_deg_s",
                                                  "angular_velocity_z_deg_s"), clock=clock,
-                         externally_managed=externally_managed)
+                         externally_managed=externally_managed, status_sink=status_sink)
         self._motion = MotionInterpreter(motion_settings)
         self._motion_state = None
         self._motion_intensity = None

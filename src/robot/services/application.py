@@ -337,6 +337,7 @@ class PhosApplicationService:
             self._core.events.subscribe(OBSERVED_EXPRESSION_CHANGED, self._on_observed_expression_changed),
             self._core.events.subscribe(IMU_MOTION_STATE, self._on_motion_state_changed),
             self._core.events.subscribe(ENVIRONMENTAL_STATE_CHANGED, self._on_environmental_state_changed),
+            self._core.events.subscribe("sensor_status_changed", self._on_semantic_system_input),
             self._core.events.subscribe(EXPRESSION_REACTION_STARTED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_COMPLETED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_SUPPRESSED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
@@ -405,16 +406,28 @@ class PhosApplicationService:
             previous_health = self._semantic_health
             self._semantic_availability = availability
             self._semantic_health = health
-        if previous_availability is None:
-            return
-        for capability, current in availability.items():
-            previous = previous_availability[capability]
-            if current != previous:
-                self._semantic_events.publish("capability_changed", "capability", {
-                    "capability": capability, "previous": previous, "current": current,
-                })
-        if health != previous_health:
+        if previous_availability is not None:
+            for capability, current in availability.items():
+                previous = previous_availability[capability]
+                if current != previous:
+                    self._semantic_events.publish("capability_changed", "capability", {
+                        "capability": capability, "previous": previous, "current": current,
+                    })
+        if previous_health is not None and health != previous_health:
             self._semantic_transition("system_health_changed", "system", health, previous=previous_health)
+        sensors = status.get("sensors") if isinstance(status, dict) else {}
+        for key, event_type, source in (("environmental", "environment_availability_changed", "environment"),
+                                        ("ccs811", "air_quality_availability_changed", "air_quality"),
+                                        ("imu", "motion_availability_changed", "motion")):
+            snapshot = sensors.get(key) if isinstance(sensors, dict) else {}
+            current = snapshot.get("status", "unavailable") if isinstance(snapshot, dict) else "unavailable"
+            last_key = f"semantic.{event_type}"
+            previous = self._last.get(last_key)
+            if previous is None and current == "starting":
+                continue
+            self._last[last_key] = current
+            if previous is not None and current != previous:
+                self._semantic_transition(event_type, source, current, previous=previous)
 
     def _on_robot_state_changed(self, event) -> None:
         self._semantic_transition("robot_state_changed", "robot", event.data.get("current"),

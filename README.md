@@ -111,6 +111,12 @@ The currently exposed tools are `phos_get_status`, `phos_get_physical_context`,
 `phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
 `phos_signal_user`.
 
+Modern MCP clients may use `subscriptions/listen` for semantic Resource change
+cues, then re-read the notified Resource. Notifications contain no PHOS event
+payloads and never announce camera frames. Numeric sensor samples are read on
+demand; semantic condition and sensor availability/freshness transitions emit
+Resource update cues.
+
 ## Project status & roadmap
 
 ### PHOS 1.8.0 — MCP & Runtime Administration Stabilization
@@ -125,7 +131,7 @@ MCP camera-snapshot acceptance on the Raspberry Pi, including a non-empty JPEG
 read with Camera Preview disabled, remains pending. Optional sensor, provider,
 and deployment acceptance remains component-specific.
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and the MCP async push adapter. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP authentication/per-client authorization. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

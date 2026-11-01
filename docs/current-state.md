@@ -52,8 +52,16 @@ camera. The `standard` profile has the dedicated `read_camera_snapshot`
 permission; the `observer` profile does not. The stdio `phos-mcp-bridge`
 dynamically forwards Resources without snapshot-specific bridge code. Automated
 coverage verifies preview independence; physical Raspberry Pi, including the
-preview-disabled acceptance case, remains pending. Subscriptions, asynchronous
-notifications and MCP authentication remain deferred.
+preview-disabled acceptance case, remains pending. Async semantic change cues
+use SDK `subscriptions/listen`; clients receive URI-only notifications and
+re-read current Resources. Camera snapshots are excluded from notifications.
+MCP authentication remains deferred.
+
+Sensor availability/freshness transitions are complete: numeric samples remain
+read-only, while status transitions publish semantic Resource cues. Raspberry
+Pi validation confirmed environment loss/recovery updates for environment and
+physical context, and IMU loss updates for physical context. A fake-clock test
+of the monitor sleep loop remains a non-blocking test improvement.
 
 ## PHOS 1.8.0 — MCP & Runtime Administration Stabilization
 

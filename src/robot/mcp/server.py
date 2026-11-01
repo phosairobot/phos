@@ -4,11 +4,12 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+from threading import RLock
 from typing import Annotated, Any, Callable
 
 from pydantic import Field
 
-from robot.services import AgentApplicationService, AgentPermissionDenied, ApplicationError, USER_SIGNAL_INTENTS
+from robot.services import AgentApplicationService, AgentPermissionDenied, ApplicationError, SemanticEvent, USER_SIGNAL_INTENTS
 from robot.services.application import COMMANDS
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,21 @@ MCP_TOOL_NAMES = frozenset({
 })
 MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
 
+_EVENT_RESOURCE_URIS = {
+    "robot_state_changed": frozenset({"phos://status", "phos://physical-context"}),
+    "environment_condition_changed": frozenset({"phos://environment", "phos://physical-context"}),
+    "air_quality_condition_changed": frozenset({"phos://physical-context"}),
+    "motion_state_changed": frozenset({"phos://physical-context"}),
+    "presence_changed": frozenset({"phos://physical-context"}),
+    "attention_changed": frozenset({"phos://physical-context"}),
+    "observed_expression_changed": frozenset({"phos://physical-context"}),
+    "capability_changed": frozenset({"phos://status"}),
+    "system_health_changed": frozenset({"phos://status"}),
+    "environment_availability_changed": frozenset({"phos://environment", "phos://physical-context"}),
+    "air_quality_availability_changed": frozenset({"phos://physical-context"}),
+    "motion_availability_changed": frozenset({"phos://physical-context"}),
+}
+
 Expression = Annotated[str, Field(min_length=1, json_schema_extra={
     "enum": COMMANDS["set_expression"].allowed_values,
 })]
@@ -32,6 +48,70 @@ SignalIntent = Annotated[str, Field(min_length=1, json_schema_extra={
 
 class McpToolError(Exception):
     """Sanitized semantic error returned as an MCP tool failure."""
+
+
+class McpSemanticEventBridge:
+    """Bounded thread-safe bridge from PHOS events to MCP change cues."""
+
+    def __init__(self, agent_service: AgentApplicationService) -> None:
+        from mcp.server.subscriptions import InMemorySubscriptionBus
+
+        self.bus = InMemorySubscriptionBus()
+        self._agent_service = agent_service
+        self._loop = self._subscription = None
+        self._pending: set[str] = set()
+        self._draining = self._closed = False
+        self._lock = RLock()
+
+    def start(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Attach once after the server loop exists; safe to call repeatedly."""
+        with self._lock:
+            if self._closed or self._subscription is not None:
+                return
+            self._loop = loop
+            self._subscription = self._agent_service._subscribe_semantic_events(self._on_semantic_event)
+
+    def _on_semantic_event(self, event: SemanticEvent) -> None:
+        uris = _EVENT_RESOURCE_URIS.get(event.type)
+        if not uris:
+            return
+        with self._lock:
+            if self._closed or self._loop is None:
+                return
+            self._pending.update(uris)
+            if self._draining:
+                return
+            self._draining = True
+            self._loop.call_soon_threadsafe(self._start_drain)
+
+    def _start_drain(self) -> None:
+        asyncio.create_task(self._drain(), name="mcp-semantic-resource-updates")
+
+    async def _drain(self) -> None:
+        from mcp.shared.subscriptions import ResourceUpdated
+
+        while True:
+            with self._lock:
+                pending = tuple(sorted(self._pending))
+                self._pending.clear()
+                closed = self._closed
+            if closed or not pending:
+                with self._lock:
+                    if self._pending and not self._closed:
+                        continue
+                    self._draining = False
+                return
+            for uri in pending:
+                await self.bus.publish(ResourceUpdated(uri=uri))
+
+    def close(self) -> None:
+        """Release the PHOS observer; SDK owns client-stream teardown."""
+        with self._lock:
+            self._closed = True
+            self._pending.clear()
+            subscription, self._subscription = self._subscription, None
+        if subscription is not None:
+            subscription.close()
 
 
 class McpSemanticAdapter:
@@ -122,7 +202,7 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService):
+def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=None):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
         from mcp.server.mcpserver import MCPServer
@@ -131,7 +211,8 @@ def create_mcp_server(agent_service: AgentApplicationService):
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
     adapter = McpSemanticAdapter(agent_service)
-    server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.")
+    server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
+                       subscriptions=subscriptions)
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
@@ -238,7 +319,8 @@ class McpHttpServer:
 
     def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
         self.host, self.port, self.path = host, port, path
-        self._mcp_server = create_mcp_server(agent_service)
+        self._semantic_events = McpSemanticEventBridge(agent_service)
+        self._mcp_server = create_mcp_server(agent_service, subscriptions=self._semantic_events.bus)
         self._uvicorn_server = None
 
     @property
@@ -253,6 +335,7 @@ class McpHttpServer:
         except ImportError as error:
             raise RuntimeError("MCP Streamable HTTP requires the optional 'mcp' dependency.") from error
 
+        self._semantic_events.start(asyncio.get_running_loop())
         if not ipaddress.ip_address(self.host).is_loopback:
             logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
         logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
@@ -261,13 +344,16 @@ class McpHttpServer:
                                 log_level="warning", access_log=False)
         server = self._uvicorn_server = uvicorn.Server(config)
         try:
-            await server.serve()
-        except (OSError, SystemExit) as error:
-            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
-            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}") from error
-        if not server.started:
-            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
-            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}")
+            try:
+                await server.serve()
+            except (OSError, SystemExit) as error:
+                logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+                raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}") from error
+            if not server.started:
+                logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+                raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}")
+        finally:
+            self._semantic_events.close()
 
     @property
     def started(self) -> bool:
@@ -275,6 +361,7 @@ class McpHttpServer:
 
     async def stop(self) -> None:
         """Request graceful listener shutdown; its ASGI lifespan closes sessions."""
+        self._semantic_events.close()
         if self._uvicorn_server is not None:
             self._uvicorn_server.should_exit = True
             await asyncio.sleep(0)

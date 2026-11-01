@@ -33,9 +33,15 @@ controllers, renderers, sensor providers, or direct `RobotState` mutation.
   `SemanticSubscription` lifecycle.
 - Complete: capability/system-health semantic events, semantic snapshot
   Resources, camera snapshot Resource, and stdio bridge Resource forwarding.
-- Pending: MCP async push adapter, pending recheck against the current SDK
-  session lifecycle support. Synchronous camera snapshots do not deliver async
-  events.
+- Complete: MCP async semantic Resource cues via `subscriptions/listen`.
+  Notifications are URI-only change cues; clients re-read Resources. Synchronous
+  camera snapshots do not deliver async events.
+- Pending: MCP authentication and per-client authorization.
+
+Sensor availability/freshness events are edge-triggered and do not publish raw
+telemetry. Raspberry Pi validation confirmed environment loss/recovery and IMU
+availability Resource cues; the monitor sleep-loop fake-clock test remains a
+non-blocking test improvement.
 
 ## Validation and release gate
 

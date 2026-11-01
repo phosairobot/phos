@@ -33,9 +33,13 @@ FURIOUS and expression intensity are not implemented in this milestone.
   acceptance, remains pending.
 - [x] Transport-neutral semantic event model, filtering, duplicate suppression,
   and `SemanticSubscription` lifecycle.
-- [ ] MCP async push adapter — pending re-evaluation against current MCP SDK
-  session lifecycle support; camera snapshots are synchronous and independent
-  of async delivery. Agent authentication also remains pending.
+- [x] MCP async semantic Resource cues — SDK `subscriptions/listen`, bounded
+  URI coalescing, and Resource re-read model. Camera snapshots remain
+  synchronous and independent of async delivery.
+- [x] MCP Stage 2 Part 5B — sensor availability/freshness semantic events,
+  runtime freshness monitoring, MCP Resource cues, and Raspberry Pi environment
+  and IMU validation.
+- [ ] Agent authentication and per-client authorization for MCP.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
