@@ -112,11 +112,12 @@ page is highlighted. No frontend framework is needed.
 | Controls | Writable runtime actions only: separate Robot State, Expression, Visual Source and Overlay cards. Each action uses Remote API capabilities and reports feedback in its own card. |
 | Network | Web bind address (`web.host`) and port (`web.port`). Wi-Fi, DNS and other OS networking remain managed on the Pi. |
 | Display & Appearance | Display dimensions, fps, fullscreen and transitions; blink/gaze intervals, gaze smoothing and reaction decay from `behavior`. |
-| Vision | Face tracking, camera resolution/cadence, face detection and optional display-only camera picture-in-picture preview. |
-| Expression Recognition | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. |
+| Runtime → Vision | Face tracking, camera resolution/cadence and face detection. These settings require Restart PHOS. |
+| Runtime → Camera Preview | Optional display-only camera picture-in-picture preview. Its settings apply immediately when saved. |
+| Runtime → Expression | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. These settings require Restart PHOS. |
 | Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
 | Sensors | Environmental type (BME280/BMP280), CCS811 air quality, environmental behavior and GY-521/MPU-6050 motion: enable, I2C address, polling and stale timeout; read-only current readings, interpreter state/reason, age and sensor health from the parent runtime. Hardware settings require Restart PHOS; IMU and environmental interpretation settings use Reload configuration. |
-| Logging | Supported log level, output file and expression diagnostics. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
+| Runtime → Logging | Supported log level, output file and expression diagnostics. Log level applies immediately; output file and diagnostics require Restart PHOS. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
 | Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
 | Diagnostics | Read-only runtime health and saved-versus-active configuration diagnostics. |
