@@ -433,10 +433,16 @@ def _decode(document, schema=_SCHEMA, location="config"):
                 raise ConfigurationError(f"{name}.entries must be an array")
             try:
                 entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"))
-                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile"})
+                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential"})
                 if len(entries) != len(value["entries"]):
                     raise ValueError("malformed agent entry")
-                result[target] = AgentRegistry(value["default_agent"], entries)
+                refs = {}
+                for item in value["entries"]:
+                    credential = item.get("credential")
+                    if credential is not None:
+                        if not isinstance(credential, dict) or set(credential) != {"type", "secret_ref"} or credential["type"] != "bearer" or not isinstance(credential["secret_ref"], str) or not credential["secret_ref"].strip(): raise ValueError("invalid credential reference")
+                        refs[item["id"]] = credential["secret_ref"]
+                result[target] = AgentRegistry(value["default_agent"], entries, refs)
             except (KeyError, TypeError, ValueError) as error:
                 raise ConfigurationError(f"{name}: invalid configured agents ({error})") from error
         else:
@@ -774,7 +780,8 @@ class RuntimeConfig:
                         value = asdict(value)
                     elif key == "agents":
                         value = {"default_agent": value.default_agent, "entries": [
-                            {"id": item.id, "display_name": item.display_name, "permission_profile": item.permission_profile.value}
+                            {"id": item.id, "display_name": item.display_name, "permission_profile": item.permission_profile.value,
+                             **({"credential": {"type": "bearer", "secret_ref": value.credential_refs[item.id]}} if item.id in value.credential_refs else {})}
                             for item in value.entries]}
                     elif isinstance(value, Path):
                         value = str(value)

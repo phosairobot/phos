@@ -40,9 +40,9 @@ mcp:
 ```
 
 Older configuration files without this section retain these defaults. A
-non-loopback host is allowed only by explicit configuration and emits a warning:
-credential-backed authentication and network authorization are not yet
-implemented. Do not expose this endpoint to the public internet.
+non-loopback host is allowed only by explicit configuration and emits a warning.
+Bearer authentication is available when configured, but deployment/TLS policy
+remains the operator's responsibility; do not expose this endpoint publicly.
 
 ## Agent identity and transitional local authentication
 
@@ -53,7 +53,8 @@ existing permission-profile reference); the application facade then applies the
 existing profile permissions before capability and runtime checks. Identity,
 permission, capability, and current activity remain separate concerns.
 
-Stage 3.1 uses `LocalAgentAuthenticator`, a deliberately transitional resolver
+Without configured credential references, the Stage 3.1 compatibility mode uses
+`LocalAgentAuthenticator`, a deliberately transitional resolver
 that identifies every trusted-local client as `local-agent` with the existing
 `standard` profile. It does not verify credentials and must not be treated as
 production-grade authentication. This preserves existing clients while a later
@@ -64,6 +65,18 @@ Stage 3.2 persists the default identity in the canonical `agents` configuration.
 Once present, invalid records, duplicate IDs, unknown profiles, or an unknown
 default fail configuration loading; no fallback grants broader access. Changes
 require a PHOS restart because the registry is created at startup.
+
+## Bearer authentication
+
+An agent entry may contain only a non-secret bearer `secret_ref`. The actual
+token is read by trusted runtime code from `SecretsService`, never from runtime
+configuration or `AgentIdentity`. If any credential references are configured,
+identity is request-scoped: every MCP request must provide `Authorization:
+Bearer TOKEN`; missing or invalid credentials fail before application execution
+and never fall back to `default_agent`. Without credential references, Stage
+3.2 default-agent compatibility remains. Comparison uses a constant-time
+secret comparison. Tokens are not logged or returned in MCP errors. Rotation,
+revocation, expiry, Web Admin and bridge credential UX remain deferred.
 
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
@@ -159,9 +172,12 @@ per-client delivery. PHOS owns one bounded bridge subscription for its MCP
 listener and coalesces duplicate pending resource URIs. MCP subscriptions are
 not an event log: there is no replay, no history, and no raw sensor-telemetry
 push. Updates while disconnected are not replayed; reconnect, open a new
-listen stream, and read current Resources. Current trusted-local MCP has no
-agent identity, so subscription visibility cannot be individualized until
-authentication exists. The separately owned `phos-mcp-bridge` has been
+listen stream, and read current Resources. In credential mode each subscription
+request is authenticated, but subscription authorization is deliberately
+cue-only: `ResourceUpdated` contains only a URI, and every subsequent
+`resources/read` authenticates and applies the resource permission again. A
+subscription therefore cannot disclose a protected camera frame to an observer.
+The separately owned `phos-mcp-bridge` has been
 externally validated for a long-lived stdio `subscriptions/listen` connection:
 two consecutive `phos://status` ResourceUpdated notifications were forwarded
 from PHOS Streamable HTTP to the Inspector. Bridge code is not owned or

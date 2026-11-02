@@ -60,6 +60,20 @@ def test_absent_agents_section_uses_only_the_documented_compatibility_identity(d
     assert (registry.default_identity.id, registry.default_identity.permission_profile.value) == ("local-agent", "standard")
 
 
+def test_agent_bearer_credential_references_are_secret_free_and_fail_closed(document, tmp_path):
+    document["agents"] = {"default_agent": "standard", "entries": [
+        {"id": "standard", "permission_profile": "standard", "credential": {"type": "bearer", "secret_ref": "mcp.standard.token"}},
+        {"id": "observer", "permission_profile": "observer", "credential": {"type": "bearer", "secret_ref": "mcp.observer.token"}},
+    ]}
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert config.agent_registry.credential_refs == {"standard": "mcp.standard.token", "observer": "mcp.observer.token"}
+    assert config.to_dict()["agents"]["entries"][0]["credential"] == {"type": "bearer", "secret_ref": "mcp.standard.token"}
+    for malformed in ({"type": "bearer", "unsupported_field": "rejected"}, {"type": "basic", "secret_ref": "mcp.standard.token"}, {"type": "bearer", "secret_ref": ""}):
+        document["agents"]["entries"][0]["credential"] = malformed
+        with pytest.raises(ConfigurationError):
+            RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
 def test_state_effect_defaults_backfill_and_validate(document, tmp_path):
     document["display"].pop("state_effects", None)
     config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)

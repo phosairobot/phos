@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import secrets
 from types import MappingProxyType
 from typing import Mapping, Protocol
 
@@ -59,12 +60,16 @@ class LocalAgentAuthenticator:
 
 class AgentRegistry:
     """Immutable configured identities, independent of transports and credentials."""
-    def __init__(self, default_agent: str, entries: tuple[AgentIdentity, ...]) -> None:
+    def __init__(self, default_agent: str, entries: tuple[AgentIdentity, ...], credential_refs: Mapping[str, str] | None = None) -> None:
         identities = {identity.id: identity for identity in entries}
         if len(identities) != len(entries) or default_agent not in identities:
             raise ValueError("Configured agents require unique ids and a known default_agent.")
         self.default_agent = default_agent
         self._identities: Mapping[str, AgentIdentity] = MappingProxyType(identities)
+        refs = dict(credential_refs or {})
+        if set(refs) - set(identities) or len(set(refs.values())) != len(refs):
+            raise ValueError("Configured credential references must be unique and belong to known agents.")
+        self._credential_refs = MappingProxyType(refs)
 
     def get(self, agent_id: str) -> AgentIdentity | None:
         return self._identities.get(agent_id)
@@ -77,8 +82,12 @@ class AgentRegistry:
     def entries(self) -> tuple[AgentIdentity, ...]:
         return tuple(self._identities.values())
 
+    @property
+    def credential_refs(self) -> Mapping[str, str]: return self._credential_refs
+
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, AgentRegistry) and self.default_agent == other.default_agent and self.entries == other.entries
+        return (isinstance(other, AgentRegistry) and self.default_agent == other.default_agent
+                and self.entries == other.entries and self.credential_refs == other.credential_refs)
 
 
 COMPATIBILITY_AGENT_REGISTRY = AgentRegistry("local-agent", (LOCAL_AGENT_IDENTITY,))
@@ -91,3 +100,23 @@ class ConfiguredAgentAuthenticator(LocalAgentAuthenticator):
 
     async def authenticate(self, request_context: object | None = None) -> AgentIdentity:
         return self._registry.default_identity
+
+
+class BearerAgentAuthenticator(ConfiguredAgentAuthenticator):
+    """Bearer verifier using only secret references held by the registry."""
+    def __init__(self, registry: AgentRegistry, secrets_service) -> None:
+        super().__init__(registry); self._secrets = secrets_service
+
+    async def authenticate(self, request_context: object | None = None) -> AgentIdentity:
+        if not self._registry.credential_refs:
+            return await super().authenticate(request_context)
+        headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
+        value = headers.get("authorization") or headers.get("Authorization")
+        if not isinstance(value, str) or not value.startswith("Bearer ") or not value[7:]:
+            raise PermissionError("authentication_failed")
+        token = value[7:]
+        for agent_id, secret_ref in self._registry.credential_refs.items():
+            expected = self._secrets.get_secret(secret_ref)
+            if expected and secrets.compare_digest(token, expected):
+                return self._registry.get(agent_id)
+        raise PermissionError("authentication_failed")

@@ -43,7 +43,8 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] MCP Stage 2 Part 5B — sensor availability/freshness semantic events,
   runtime freshness monitoring, MCP Resource cues, and Raspberry Pi environment
   and IMU validation.
-- [ ] Credential-backed agent authentication and per-client authorization for MCP.
+- [x] MCP Stage 3.3 — COMPLETE: credential-backed per-client MCP authentication
+  and authorization through non-secret `SecretsService` references.
 
 ### MCP Stage 3.1 — Agent Identity & Authentication Boundary
 
@@ -63,7 +64,7 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] MCP Stage 3.2 — COMPLETE.
 - [x] Canonical `agents` configuration and immutable configured registry.
 - [x] Configured default identity resolves through its existing permission profile.
-- [ ] Stage 3.3: credential-backed per-client authorization.
+- [x] Stage 3.3: credential-backed per-client authorization.
 - [ ] Stage 3.4: credential persistence/configuration.
 - [ ] Stage 3.5: Web Admin agent management.
 - [ ] Stage 3.6: bridge authentication.

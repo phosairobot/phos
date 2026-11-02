@@ -57,13 +57,16 @@ and returns a non-empty `image/jpeg` blob. This establishes resource
 availability and JPEG output, not image-content quality. Async semantic change
 cues use SDK `subscriptions/listen`; clients receive URI-only notifications and
 re-read current Resources. Camera snapshots are excluded from notifications.
-Credential-backed MCP authentication remains deferred.
+MCP Stage 3.3 is complete: configured bearer `secret_ref` values resolve only
+through `SecretsService`; valid credentials resolve a request-scoped
+`AgentIdentity` and existing permission profile. Missing, malformed, or invalid
+bearers fail before application execution with no default-agent fallback.
 
 Stage 3.2 loads the canonical `agents` registry at startup. A configured default
 agent resolves to `AgentIdentity`, its existing permission profile, and then the
-agent application facade. Changes are restart-only. No credentials, tokens,
-Web Admin management, bridge credentials, or per-client identity resolution are
-implemented.
+agent application facade. Changes are restart-only. Stage 3.3 adds only
+non-secret credential references, not tokens, Web Admin management, bridge
+credentials, or credential lifecycle operations.
 
 MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
 MCP request passes through one authentication middleware hook that resolves an
@@ -94,8 +97,8 @@ on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
 boundaries; Raspberry Pi camera-snapshot acceptance has confirmed operation
-with Camera Preview disabled. MCP Stage 2 is complete; authentication and
-per-client authorization remain separate future MCP work.
+with Camera Preview disabled. MCP Stages 2 and 3.3 are complete; credential
+lifecycle/management remains later MCP work.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

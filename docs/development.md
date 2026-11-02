@@ -108,11 +108,22 @@ agents:
       permission_profile: standard
 ```
 
-Each entry has only a stable id, optional display name, and one existing
-permission profile. It contains no credential, token, secret, transport, or
-session fields. If the entire section is absent, compatibility resolves
+Each entry has a stable id, optional display name, and one existing permission
+profile. In credential mode it may also contain a non-secret bearer reference:
+
+```yaml
+credential:
+  type: bearer
+  secret_ref: mcp.agent-standard.token
+```
+
+`secret_ref` is resolved only by `SecretsService`; the actual token must never
+appear in this file, `RuntimeConfig`, `AgentIdentity`, logs, test fixtures, or
+Web/API responses. If the entire section is absent, compatibility resolves
 `local-agent`/`standard`; if present, malformed entries, duplicate ids, unknown
-profiles, or an unknown default agent fail configuration loading.
+profiles, duplicate credential references, malformed credential records, or an
+unknown default agent fail configuration loading. When any credential reference
+is configured, MCP requires a matching bearer token for every request.
 
 Startup reads one JSON, applies explicit deprecated CLI overrides, validates
 schema/types/ranges and active paths, then builds typed settings and constructs

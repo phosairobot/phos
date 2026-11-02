@@ -115,14 +115,18 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
     try:
         runtime = build_application(config=config)
         if hasattr(runtime, "core"):
-            from robot.services import AgentApplicationService, ConfiguredAgentAuthenticator, PhosApplicationService
+            from pathlib import Path
+            from robot.secrets import SecretsService
+            from robot.services import AgentApplicationService, BearerAgentAuthenticator, ConfiguredAgentAuthenticator, PhosApplicationService
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
             if config is not None:
                 from robot.mcp import McpServerManager
+                authenticator = (BearerAgentAuthenticator(config.agent_registry, SecretsService(config.resolve_path(Path(".")) / ".phos-secrets"))
+                                 if config.agent_registry.credential_refs else ConfiguredAgentAuthenticator(config.agent_registry))
                 mcp_manager = McpServerManager(
                     AgentApplicationService(application_service, config.agent_registry.default_identity),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
-                    authenticator=ConfiguredAgentAuthenticator(config.agent_registry),
+                    authenticator=authenticator,
                     enabled=config.mcp_enabled,
                 )
                 application_service.register_mcp_manager(mcp_manager)
