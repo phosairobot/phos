@@ -32,10 +32,10 @@ to the MCP semantic adapter.
 The repository implements an in-code, immutable semantic permission boundary
 for future trusted external-agent adapters. `AgentApplicationService` delegates
 only approved semantic reads and actions to `PhosApplicationService`; it adds
-no MCP transport, authentication, user/account model, persistence, or raw
-hardware/render surface. `standard` and read-only `observer` profiles are
-automated-tested. This is not a network or OS security boundary; adapter
-identity and authentication remain deferred.
+no MCP transport, user/account model, persistence, or raw hardware/render
+surface. `standard` and read-only `observer` profiles are automated-tested.
+This is not a network or OS security boundary; Stage 3.1 adds the separate
+transitional identity/authentication boundary below.
 
 ## MCP Semantic Adapter — Stage 2
 
@@ -57,7 +57,17 @@ and returns a non-empty `image/jpeg` blob. This establishes resource
 availability and JPEG output, not image-content quality. Async semantic change
 cues use SDK `subscriptions/listen`; clients receive URI-only notifications and
 re-read current Resources. Camera snapshots are excluded from notifications.
-MCP authentication remains deferred.
+Credential-backed MCP authentication remains deferred.
+
+MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
+MCP request passes through one authentication middleware hook that resolves an
+immutable provider-neutral `AgentIdentity`; its permission-profile reference is
+then used to create the permission-checked `AgentApplicationService` facade.
+The transitional `LocalAgentAuthenticator` resolves every trusted-local client
+as `local-agent` with the existing `standard` profile and verifies no
+credentials. It preserves prior behavior but is explicitly not production-grade
+authentication. Credential-backed authentication, persisted identities and
+profiles, and per-client authorization remain future work.
 
 Sensor availability/freshness transitions are complete: numeric samples remain
 read-only, while status transitions publish semantic Resource cues. Raspberry

@@ -1,9 +1,4 @@
-"""A small semantic permission boundary for future trusted agent adapters.
-
-This module deliberately has no identity, transport, persistence, or runtime
-knowledge.  It decides only whether a named semantic operation may enter the
-existing application-service boundary.
-"""
+"""A small semantic permission boundary for authenticated agent adapters."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -134,12 +129,23 @@ class AgentApplicationService:
     lifecycle behavior of the delegated application method.
     """
 
-    __slots__ = ("_application", "_access", "_permissions")
+    __slots__ = ("_application", "_access", "_identity", "_permissions")
 
-    def __init__(self, application, access: AgentAccess,
+    def __init__(self, application, identity_or_access,
                  permissions: AgentPermissionService | None = None) -> None:
+        from .agent_identity import AgentIdentity
+
         self._application = application
-        self._access = access
+        # ``AgentAccess`` remains accepted for in-process compatibility while
+        # adapters migrate to explicit identities. MCP always supplies identity.
+        if isinstance(identity_or_access, AgentIdentity):
+            self._identity = identity_or_access
+            self._access = AgentAccess.for_profile(identity_or_access.permission_profile)
+        elif isinstance(identity_or_access, AgentAccess):
+            self._identity = None
+            self._access = identity_or_access
+        else:
+            raise TypeError("AgentApplicationService requires AgentIdentity or AgentAccess.")
         self._permissions = permissions or AgentPermissionService()
 
     def _require(self, operation: AgentOperation) -> None:

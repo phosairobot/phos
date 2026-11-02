@@ -41,8 +41,23 @@ mcp:
 
 Older configuration files without this section retain these defaults. A
 non-loopback host is allowed only by explicit configuration and emits a warning:
-MCP authentication, agent identity, and network authorization are not yet
+credential-backed authentication and network authorization are not yet
 implemented. Do not expose this endpoint to the public internet.
+
+## Agent identity and transitional local authentication
+
+Every inbound MCP request passes through one authentication middleware boundary
+before any tool or Resource reaches `AgentApplicationService`. The middleware
+resolves an immutable `AgentIdentity` (`id`, optional display name, and an
+existing permission-profile reference); the application facade then applies the
+existing profile permissions before capability and runtime checks. Identity,
+permission, capability, and current activity remain separate concerns.
+
+Stage 3.1 uses `LocalAgentAuthenticator`, a deliberately transitional resolver
+that identifies every trusted-local client as `local-agent` with the existing
+`standard` profile. It does not verify credentials and must not be treated as
+production-grade authentication. This preserves existing clients while a later
+stage adds credential-backed authentication, persistence, and per-client policy.
 
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import ipaddress
 import logging
 from threading import RLock
@@ -9,10 +10,12 @@ from typing import Annotated, Any, Callable
 
 from pydantic import Field
 
-from robot.services import AgentApplicationService, AgentPermissionDenied, ApplicationError, SemanticEvent, USER_SIGNAL_INTENTS
+from robot.services import (AgentApplicationService, AgentPermissionDenied, ApplicationError, SemanticEvent,
+                            USER_SIGNAL_INTENTS, AgentIdentity, LocalAgentAuthenticator)
 from robot.services.application import COMMANDS
 
 logger = logging.getLogger(__name__)
+_REQUEST_IDENTITY: ContextVar[AgentIdentity | None] = ContextVar("mcp_request_identity", default=None)
 
 
 MCP_TOOL_NAMES = frozenset({
@@ -117,8 +120,16 @@ class McpSemanticEventBridge:
 class McpSemanticAdapter:
     """Maps Stage 1 tools to an existing ``AgentApplicationService`` only."""
 
-    def __init__(self, agent_service: AgentApplicationService) -> None:
+    def __init__(self, agent_service: AgentApplicationService, *, authenticator=None) -> None:
         self._agent_service = agent_service
+        self._authenticator = authenticator or LocalAgentAuthenticator()
+
+    def _request_agent_service(self) -> AgentApplicationService:
+        """Bind the facade to the identity resolved once by MCP middleware."""
+        identity = _REQUEST_IDENTITY.get()
+        if identity is None:
+            return self._agent_service
+        return AgentApplicationService(self._agent_service._application, identity)
 
     def _call(self, operation: str, handler: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         try:
@@ -145,53 +156,53 @@ class McpSemanticAdapter:
             raise McpToolError("internal_error: PHOS could not complete the requested operation.") from None
 
     def get_status(self) -> dict[str, Any]:
-        return self._call("phos_get_status", self._agent_service.status)
+        return self._call("phos_get_status", self._request_agent_service().status)
 
     def get_physical_context(self) -> dict[str, Any]:
-        return self._call("phos_get_physical_context", self._agent_service.get_physical_context)
+        return self._call("phos_get_physical_context", self._request_agent_service().get_physical_context)
 
     def get_presence(self) -> dict[str, Any]:
-        return self._call("phos_get_presence", self._agent_service.presence)
+        return self._call("phos_get_presence", self._request_agent_service().presence)
 
     def get_attention(self) -> dict[str, Any]:
-        return self._call("phos_get_attention", self._agent_service.attention)
+        return self._call("phos_get_attention", self._request_agent_service().attention)
 
     def get_observed_expression(self) -> dict[str, Any]:
-        return self._call("phos_get_observed_expression", self._agent_service.observed_expression)
+        return self._call("phos_get_observed_expression", self._request_agent_service().observed_expression)
 
     def environment(self) -> dict[str, Any]:
         """Return the canonical environmental semantic-context section."""
-        return self._call("phos://environment", lambda: self._agent_service.get_physical_context()["environment"])
+        return self._call("phos://environment", lambda: self._request_agent_service().get_physical_context()["environment"])
 
     def camera_snapshot(self) -> bytes:
-        return self._call("phos://vision/snapshot", self._agent_service.camera_snapshot)
+        return self._call("phos://vision/snapshot", self._request_agent_service().camera_snapshot)
 
     def set_expression(self, expression: str) -> dict[str, Any]:
-        return self._call("phos_set_expression", lambda: self._agent_service.set_expression(expression))
+        return self._call("phos_set_expression", lambda: self._request_agent_service().set_expression(expression))
 
     def speak(self, text: str) -> dict[str, Any]:
-        return self._call("phos_speak", lambda: self._agent_service.speak(text))
+        return self._call("phos_speak", lambda: self._request_agent_service().speak(text))
 
     def sleep(self) -> dict[str, Any]:
-        return self._call("phos_sleep", self._agent_service.sleep)
+        return self._call("phos_sleep", self._request_agent_service().sleep)
 
     def wake(self) -> dict[str, Any]:
-        return self._call("phos_wake", self._agent_service.wake)
+        return self._call("phos_wake", self._request_agent_service().wake)
 
     def signal_user(self, signal: str) -> dict[str, Any]:
-        return self._call("phos_signal_user", lambda: self._agent_service.signal_user(signal))
+        return self._call("phos_signal_user", lambda: self._request_agent_service().signal_user(signal))
 
     async def speak_async(self, text: str) -> dict[str, Any]:
-        return await self._call_async(lambda: self._agent_service.speak_async(text))
+        return await self._call_async(lambda: self._request_agent_service().speak_async(text))
 
     async def sleep_async(self) -> dict[str, Any]:
-        return await self._call_async(self._agent_service.sleep_async)
+        return await self._call_async(self._request_agent_service().sleep_async)
 
     async def wake_async(self) -> dict[str, Any]:
-        return await self._call_async(self._agent_service.wake_async)
+        return await self._call_async(self._request_agent_service().wake_async)
 
     async def signal_user_async(self, signal: str) -> dict[str, Any]:
-        return await self._call_async(lambda: self._agent_service.signal_user_async(signal))
+        return await self._call_async(lambda: self._request_agent_service().signal_user_async(signal))
 
 
 def _application_error_message(error: ApplicationError) -> str:
@@ -202,7 +213,7 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=None):
+def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=None, authenticator=None):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
         from mcp.server.mcpserver import MCPServer
@@ -210,9 +221,18 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     except ImportError as error:
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
-    adapter = McpSemanticAdapter(agent_service)
+    adapter = McpSemanticAdapter(agent_service, authenticator=authenticator)
+
+    async def authenticate_request(request_context, call_next):
+        identity = await adapter._authenticator.authenticate(request_context)
+        token = _REQUEST_IDENTITY.set(identity)
+        try:
+            return await call_next(request_context)
+        finally:
+            _REQUEST_IDENTITY.reset(token)
+
     server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
-                       subscriptions=subscriptions)
+                       subscriptions=subscriptions, middleware=[authenticate_request])
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
@@ -337,7 +357,7 @@ class McpHttpServer:
 
         self._semantic_events.start(asyncio.get_running_loop())
         if not ipaddress.ip_address(self.host).is_loopback:
-            logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
+            logger.warning("PHOS MCP: non-loopback bind host=%s; credential-backed authentication and network authorization are not implemented", self.host)
         logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
         app = self._mcp_server.streamable_http_app(host=self.host, streamable_http_path=self.path)
         config = uvicorn.Config(app, host=self.host, port=self.port,

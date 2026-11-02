@@ -43,7 +43,20 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] MCP Stage 2 Part 5B — sensor availability/freshness semantic events,
   runtime freshness monitoring, MCP Resource cues, and Raspberry Pi environment
   and IMU validation.
-- [ ] Agent authentication and per-client authorization for MCP.
+- [ ] Credential-backed agent authentication and per-client authorization for MCP.
+
+### MCP Stage 3.1 — Agent Identity & Authentication Boundary
+
+- [x] Immutable provider-neutral `AgentIdentity` with a stable identifier,
+  optional display name, and reference to an existing permission profile.
+- [x] One pluggable MCP authentication boundary resolves an identity once per
+  inbound request before the identity-bound `AgentApplicationService` applies
+  existing permission evaluation.
+- [x] Transitional `LocalAgentAuthenticator` preserves current trusted-local
+  clients as `local-agent` with the existing `standard` profile. It performs no
+  credential verification and is not production-grade authentication.
+- [ ] Credential-backed authentication, persisted agents/profiles, per-client
+  authorization policy, bridge credentials, and external identity providers.
 
 Stage 2 physical validation completed for direct Streamable HTTP includes
 `phos://status` sleep/wake notifications, `phos://physical-context` semantic

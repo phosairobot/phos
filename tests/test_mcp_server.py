@@ -16,7 +16,7 @@ from robot.mcp.server import (
 )
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
-from robot.services import AgentAccess, AgentApplicationService, ApplicationError, AgentProfile
+from robot.services import AgentAccess, AgentApplicationService, AgentIdentity, ApplicationError, AgentProfile
 from robot.services.application import PhosApplicationService
 from robot.services.semantic_events import SemanticEventPublisher
 
@@ -100,6 +100,33 @@ def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():
     assert json.loads(environment[0].content)["operation"] == "get_physical_context"
     assert snapshot[0].content == b"\xff\xd8fake-jpeg\xff\xd9"
     assert snapshot[0].mime_type == "image/jpeg"
+
+
+def test_mcp_middleware_authenticates_once_for_each_tool_or_resource_request():
+    class Authenticator:
+        def __init__(self):
+            self.contexts = []
+
+        async def authenticate(self, context):
+            self.contexts.append(context)
+            return AgentIdentity("observer-agent", AgentProfile.OBSERVER)
+
+    adapter, _ = _adapter()
+    authenticator = Authenticator()
+    server = create_mcp_server(adapter._agent_service, authenticator=authenticator)
+    middleware = server.middleware[-1]
+
+    async def exercise():
+        resource_context, tool_context = object(), object()
+        resource = await middleware(resource_context, lambda _: server.read_resource("phos://status"))
+        tool = await middleware(tool_context, lambda _: server.call_tool("phos_get_status", {}))
+        return resource, tool, resource_context, tool_context
+
+    resource, tool, resource_context, tool_context = asyncio.run(exercise())
+
+    assert json.loads(resource[0].content)["running"] is True
+    assert tool.structured_content["running"] is True
+    assert authenticator.contexts == [resource_context, tool_context]
 
 
 def test_camera_snapshot_uses_dedicated_permission_and_observer_is_denied():

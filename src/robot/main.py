@@ -115,12 +115,12 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
     try:
         runtime = build_application(config=config)
         if hasattr(runtime, "core"):
-            from robot.services import AgentAccess, AgentApplicationService, PhosApplicationService
+            from robot.services import AgentApplicationService, LOCAL_AGENT_IDENTITY, PhosApplicationService
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
             if config is not None:
                 from robot.mcp import McpServerManager
                 mcp_manager = McpServerManager(
-                    AgentApplicationService(application_service, AgentAccess.for_profile()),
+                    AgentApplicationService(application_service, LOCAL_AGENT_IDENTITY),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
                     enabled=config.mcp_enabled,
                 )
