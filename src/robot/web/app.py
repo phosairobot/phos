@@ -284,11 +284,20 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     }.get(str(exc), "Credential operation could not be completed.")
         agents = []
         for identity in registry.entries:
+            credential_configured = identity.id in registry.credential_refs
+            credential_active = None
             try:
-                status = credentials.status(identity.id)
+                status = credentials.status(identity.id) if credential_configured else None
             except AgentCredentialError:
                 status = None
-            agents.append({"identity": identity, "status": status})
+            else:
+                if status is not None:
+                    credential_configured = status.configured
+                    credential_active = status.active
+            agents.append({"agent_id": identity.id, "display_name": identity.display_name,
+                           "permission_profile": identity.permission_profile.value,
+                           "credential_configured": credential_configured,
+                           "credential_active": credential_active})
         return render_template("agents.html", agents=agents, issued=issued, error=error), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])

@@ -1,8 +1,10 @@
 import asyncio
 import inspect
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 
 pytest.importorskip("mcp")
 
@@ -16,6 +18,8 @@ from robot.mcp.server import (
 )
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
+from robot.config import RuntimeConfig, load_document
+from robot.secrets import SecretsService
 from robot.services import AgentAccess, AgentApplicationService, AgentIdentity, AgentRegistry, BearerAgentAuthenticator, ApplicationError, AgentProfile
 from robot.services.application import PhosApplicationService
 from robot.services.semantic_events import SemanticEventPublisher
@@ -151,18 +155,42 @@ def test_bearer_middleware_isolates_profiles_and_sanitizes_failed_authentication
     assert application.calls == [("set_state", "sleeping")]
 
 
-def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(caplog):
+def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(tmp_path, caplog):
     from mcp.client import ClientSession
     from mcp.client.streamable_http import httpx2 as httpx, streamable_http_client
     from mcp.shared.exceptions import MCPError
 
-    secret = "STAGE3_TOKEN_MUST_NOT_LEAK_91A7"
-    class Secrets:
-        def get_secret(self, reference): return {"mcp.standard.token": secret, "mcp.observer.token": "http-observer"}.get(reference)
-    registry = AgentRegistry("standard", (AgentIdentity("standard", "standard"), AgentIdentity("observer", "observer")),
-                             {"standard": "mcp.standard.token", "observer": "mcp.observer.token"})
+    document = load_document()
+    document["agents"] = {"default_agent": "local-agent", "entries": [
+        {"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"},
+        {"id": "stage3-standard", "display_name": "Stage 3 Standard Agent", "permission_profile": "standard",
+         "credential": {"type": "bearer", "secret_ref": "mcp.stage3_standard.token"}},
+        {"id": "stage3-observer", "display_name": "Stage 3 Observer Agent", "permission_profile": "observer",
+         "credential": {"type": "bearer", "secret_ref": "mcp.stage3_observer.token"}},
+    ]}
+    config_path = tmp_path / "phos.yaml"
+    config_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    config = RuntimeConfig.from_file(config_path)
+    registry = config.agent_registry
+    store = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+    standard_token = "STAGE3_TOKEN_MUST_NOT_LEAK_91A7"
+    observer_token = "HTTP_OBSERVER_TOKEN_MUST_NOT_LEAK_4C2B"
+    store.set_secret("mcp.stage3_standard.token", standard_token)
+    store.set_secret("mcp.stage3_observer.token", observer_token)
     adapter, application = _adapter()
-    server = create_mcp_server(adapter._agent_service, authenticator=BearerAgentAuthenticator(registry, Secrets()))
+    authenticator = BearerAgentAuthenticator(registry, store)
+    seen_request = {}
+    original_authenticate = authenticator.authenticate
+
+    async def authenticate(context):
+        request = context.request
+        headers = request.headers
+        seen_request.update(request_type=type(request).__name__, headers_type=type(headers).__name__,
+                            authorization_present=isinstance(headers.get("authorization"), str))
+        return await original_authenticate(context)
+
+    authenticator.authenticate = authenticate
+    server = create_mcp_server(adapter._agent_service, authenticator=authenticator)
     app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/mcp")
     async def session_for(authorization):
         headers = {} if authorization is None else {"Authorization": authorization}
@@ -182,10 +210,10 @@ def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(caplo
 
     async def exercise():
         async with server.session_manager.run():
-            async for standard in session_for(f"Bearer {secret}"):
+            async for standard in session_for(f"Bearer {standard_token}"):
                 allowed_first = await standard.call_tool("phos_sleep")
                 snapshot = await standard.read_resource("phos://vision/snapshot")
-                async for observer in session_for("Bearer http-observer"):
+                async for observer in session_for(f"Bearer {observer_token}"):
                     denied = await observer.call_tool("phos_sleep")
                     with pytest.raises(MCPError) as denied_camera:
                         await observer.read_resource("phos://vision/snapshot")
@@ -193,12 +221,17 @@ def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(caplo
             failures = [await rejected(value) for value in (None, "Bearer invalid", "Bearer", "Basic invalid")]
             return allowed_first, allowed_second, denied, snapshot, repr(denied_camera.value), failures
     allowed_first, allowed_second, denied, snapshot, denied_camera, failures = asyncio.run(exercise())
+    assert registry.default_agent == "local-agent"
+    assert registry.credential_refs == {"stage3-standard": "mcp.stage3_standard.token",
+                                        "stage3-observer": "mcp.stage3_observer.token"}
     assert allowed_first.is_error is False and allowed_second.is_error is False
     assert denied.is_error is True and "permission_denied" in denied.content[0].text
     assert snapshot.contents[0].mime_type == "image/jpeg" and snapshot.contents[0].blob
     assert "permission_denied" in denied_camera
-    assert all("authentication_failed" in failure and secret not in failure for failure in failures)
-    assert secret not in caplog.text
+    assert all("authentication_failed" in failure and standard_token not in failure and observer_token not in failure
+               for failure in failures)
+    assert seen_request == {"request_type": "Request", "headers_type": "Headers", "authorization_present": True}
+    assert standard_token not in caplog.text and observer_token not in caplog.text
     assert application.calls == [("set_state", "sleeping"), ("get_camera_snapshot",), ("set_state", "sleeping")]
 
 

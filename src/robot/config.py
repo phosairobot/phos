@@ -441,6 +441,11 @@ def _decode(document, schema=_SCHEMA, location="config"):
                     credential = item.get("credential")
                     if credential is not None:
                         if not isinstance(credential, dict) or set(credential) != {"type", "secret_ref"} or credential["type"] != "bearer" or not isinstance(credential["secret_ref"], str) or not credential["secret_ref"].strip(): raise ValueError("invalid credential reference")
+                        from robot.secrets import SecretsError, SecretsService
+                        try:
+                            SecretsService.validate_name(credential["secret_ref"])
+                        except SecretsError as error:
+                            raise ValueError("invalid credential reference") from error
                         refs[item["id"]] = credential["secret_ref"]
                 result[target] = AgentRegistry(value["default_agent"], entries, refs)
             except (KeyError, TypeError, ValueError) as error:

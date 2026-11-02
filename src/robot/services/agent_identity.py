@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import secrets
 from types import MappingProxyType
 from typing import Mapping, Protocol
 
+from robot.secrets import SecretsError
+
 from .agent_permissions import AgentProfile
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -109,14 +114,43 @@ class BearerAgentAuthenticator(ConfiguredAgentAuthenticator):
 
     async def authenticate(self, request_context: object | None = None) -> AgentIdentity:
         if not self._registry.credential_refs:
+            logger.info("PHOS MCP auth compatibility_no_runtime_credential_refs=true")
             return await super().authenticate(request_context)
         headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
         value = headers.get("authorization") or headers.get("Authorization")
-        if not isinstance(value, str) or not value.startswith("Bearer ") or not value[7:]:
+        header_present = value is not None
+        bearer_format_valid = isinstance(value, str) and value.startswith("Bearer ")
+        logger.info("PHOS MCP auth request header_present=%s bearer_format_valid=%s credential_refs=%s",
+                    header_present, bearer_format_valid, len(self._registry.credential_refs))
+        if not header_present:
+            logger.info("PHOS MCP auth failed reason=missing_header")
+            raise PermissionError("authentication_failed")
+        if not bearer_format_valid:
+            logger.info("PHOS MCP auth failed reason=invalid_scheme")
             raise PermissionError("authentication_failed")
         token = value[7:]
+        if not token:
+            logger.info("PHOS MCP auth failed reason=empty_bearer")
+            raise PermissionError("authentication_failed")
+        secret_present = False
         for agent_id, secret_ref in self._registry.credential_refs.items():
-            expected = self._secrets.get_secret(secret_ref)
-            if expected and secrets.compare_digest(token, expected):
-                return self._registry.get(agent_id)
+            try:
+                expected = self._secrets.get_secret(secret_ref)
+            except (SecretsError, OSError):
+                logger.info("PHOS MCP auth credential agent=%s secret_ref=%s secret_present=unknown match=false",
+                            agent_id, secret_ref)
+                logger.info("PHOS MCP auth failed reason=secret_store_failure")
+                raise PermissionError("authentication_failed") from None
+            present = bool(expected)
+            secret_present = secret_present or present
+            matched = present and secrets.compare_digest(token, expected)
+            logger.info("PHOS MCP auth credential agent=%s secret_ref=%s secret_present=%s match=%s",
+                        agent_id, secret_ref, present, matched)
+            if matched:
+                identity = self._registry.get(agent_id)
+                if identity is None:
+                    logger.info("PHOS MCP auth failed reason=registry_agent_missing")
+                    raise PermissionError("authentication_failed")
+                return identity
+        logger.info("PHOS MCP auth failed reason=%s", "no_matching_credential" if secret_present else "secret_missing")
         raise PermissionError("authentication_failed")

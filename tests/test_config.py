@@ -68,7 +68,9 @@ def test_agent_bearer_credential_references_are_secret_free_and_fail_closed(docu
     config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
     assert config.agent_registry.credential_refs == {"standard": "mcp.standard.token", "observer": "mcp.observer.token"}
     assert config.to_dict()["agents"]["entries"][0]["credential"] == {"type": "bearer", "secret_ref": "mcp.standard.token"}
-    for malformed in ({"type": "bearer", "unsupported_field": "rejected"}, {"type": "basic", "secret_ref": "mcp.standard.token"}, {"type": "bearer", "secret_ref": ""}):
+    document["agents"]["entries"][0]["credential"] = {"type": "bearer", "secret_ref": "mcp.stage3_standard.token"}
+    assert RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).agent_registry.credential_refs["standard"] == "mcp.stage3_standard.token"
+    for malformed in ({"type": "bearer", "unsupported_field": "rejected"}, {"type": "basic", "secret_ref": "mcp.standard.token"}, {"type": "bearer", "secret_ref": ""}, {"type": "bearer", "secret_ref": "mcp.stage3-standard.token"}):
         document["agents"]["entries"][0]["credential"] = malformed
         with pytest.raises(ConfigurationError):
             RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)

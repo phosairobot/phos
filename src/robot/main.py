@@ -116,13 +116,31 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         runtime = build_application(config=config)
         if hasattr(runtime, "core"):
             from pathlib import Path
-            from robot.secrets import SecretsService
+            from robot.secrets import SecretsError, SecretsService
             from robot.services import AgentApplicationService, BearerAgentAuthenticator, ConfiguredAgentAuthenticator, PhosApplicationService
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
             if config is not None:
                 from robot.mcp import McpServerManager
-                authenticator = (BearerAgentAuthenticator(config.agent_registry, SecretsService(config.resolve_path(Path(".")) / ".phos-secrets"))
-                                 if config.agent_registry.credential_refs else ConfiguredAgentAuthenticator(config.agent_registry))
+                logger.info("PHOS MCP: agent registry loaded agents=%s credential_agents=%s",
+                            len(config.agent_registry.entries), len(config.agent_registry.credential_refs))
+                for agent_id, secret_ref in config.agent_registry.credential_refs.items():
+                    logger.info("PHOS MCP: credential agent=%s secret_ref=%s", agent_id, secret_ref)
+                if config.agent_registry.credential_refs:
+                    secret_store_path = config.resolve_path(Path(".")) / ".phos-secrets"
+                    logger.info("PHOS MCP: secret_store_directory=%s", secret_store_path)
+                    secret_store = SecretsService(secret_store_path)
+                    authenticator = BearerAgentAuthenticator(config.agent_registry, secret_store)
+                    for agent_id, secret_ref in config.agent_registry.credential_refs.items():
+                        try:
+                            present = secret_store.has_secret(secret_ref)
+                        except (SecretsError, OSError):
+                            logger.warning("PHOS MCP: credential status agent=%s secret_ref=%s present=unknown",
+                                           agent_id, secret_ref)
+                        else:
+                            logger.info("PHOS MCP: credential status agent=%s secret_ref=%s present=%s",
+                                        agent_id, secret_ref, present)
+                else:
+                    authenticator = ConfiguredAgentAuthenticator(config.agent_registry)
                 mcp_manager = McpServerManager(
                     AgentApplicationService(application_service, config.agent_registry.default_identity),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
@@ -303,7 +321,7 @@ def main() -> None:
     if arguments:
         logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", repository.active_path)
     logger.info("PHOS %s starting", __version__)
-    logger.info("PHOS configuration loaded: %s", repository.active_path)
+    logger.info("PHOS startup package_path=%s config_path=%s", Path(__file__).resolve().parent, repository.active_path)
     _log_graphical_session()
     _configure_x11_display_power()
     # The optional web worker is isolated from camera/rendering and is stopped

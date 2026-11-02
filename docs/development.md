@@ -114,7 +114,7 @@ profile. In credential mode it may also contain a non-secret bearer reference:
 ```yaml
 credential:
   type: bearer
-  secret_ref: mcp.agent-standard.token
+  secret_ref: mcp.agent_standard.token
 ```
 
 `secret_ref` is resolved only by `SecretsService`; the actual token must never

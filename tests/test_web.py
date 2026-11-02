@@ -17,8 +17,8 @@ import pytest
 import yaml
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
-from robot.secrets import SecretsService
-from robot.services import AgentIdentity, AgentRegistry, BearerAgentAuthenticator
+from robot.secrets import SecretsError, SecretsService
+from robot.services import AgentCredentialService, AgentIdentity, AgentRegistry, BearerAgentAuthenticator
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
@@ -66,6 +66,7 @@ def _agent_admin(tmp_path):
          "credential": {"type": "bearer", "secret_ref": "mcp.standard.token"}},
         {"id": "observer", "display_name": "Observer Agent", "permission_profile": "observer",
          "credential": {"type": "bearer", "secret_ref": "mcp.observer.token"}},
+        {"id": "uncredentialed", "display_name": "Uncredentialed Agent", "permission_profile": "observer"},
     ]}
     path = tmp_path / "phos.json"
     path.write_text(json.dumps(document))
@@ -77,13 +78,67 @@ def _issued_bearer(response):
     return re.search(r'id="issued-credential" type="text" value="([^"]+)"', response.get_data(as_text=True)).group(1)
 
 
+def _agent_section(page, agent_name):
+    return re.search(rf'<section class="status credential-slot"><h3>{agent_name}</h3>(.*?)</section>',
+                     page.get_data(as_text=True), re.DOTALL).group(1)
+
+
 def test_agents_page_lists_non_secret_status_and_requires_admin_authentication(tmp_path):
     app, _ = _agent_admin(tmp_path)
     assert app.test_client().get("/agents").location == "/login"
     page = authorize(app).get("/agents")
     text = page.get_data(as_text=True)
-    assert all(value in text for value in ("MCP Agents", "Standard Agent", "Observer Agent", "standard", "observer", "Inactive", "Create credential"))
+    assert all(value in text for value in ("MCP Agents", "Standard Agent", "Observer Agent", "Uncredentialed Agent", "standard", "observer", "Inactive", "Create credential"))
     assert "secret_ref" not in text and "mcp.standard.token" not in text
+
+
+def test_agents_page_renders_credential_actions_from_configured_and_active_status(tmp_path, monkeypatch):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    initial = client.get("/agents")
+    standard = _agent_section(initial, "Standard Agent")
+    observer = _agent_section(initial, "Observer Agent")
+    uncredentialed = _agent_section(initial, "Uncredentialed Agent")
+    for section in (standard, observer):
+        assert "Bearer — <strong>Inactive</strong>" in section
+        assert "Create credential" in section
+        assert "Rotate credential" not in section and "Revoke credential" not in section
+    assert "Credential not configured" in uncredentialed
+    assert all(action not in uncredentialed for action in ("Create credential", "Rotate credential", "Revoke credential"))
+
+    calls = []
+    original_create = AgentCredentialService.create
+
+    def create(service, agent_id):
+        calls.append(agent_id)
+        return original_create(service, agent_id)
+
+    monkeypatch.setattr("robot.web.app.AgentCredentialService.create", create)
+    created = post(client, "/agents", {"action": "create", "agent_id": "standard"})
+    bearer = _issued_bearer(created)
+    assert calls == ["standard"]
+    reloaded = client.get("/agents")
+    standard = _agent_section(reloaded, "Standard Agent")
+    assert "Bearer — <strong>Active</strong>" in standard
+    assert "Create credential" not in standard
+    assert "Rotate credential" in standard and "Revoke credential" in standard
+    assert bearer not in reloaded.get_data(as_text=True)
+
+
+def test_agents_page_safely_distinguishes_secret_store_failure_from_an_inactive_credential(tmp_path, monkeypatch):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+
+    def fail_status(_):
+        raise SecretsError("simulated secret store failure")
+
+    monkeypatch.setattr(store, "has_secret", fail_status)
+    page = client.get("/agents")
+    standard = _agent_section(page, "Standard Agent")
+    uncredentialed = _agent_section(page, "Uncredentialed Agent")
+    assert "Credential status unavailable" in standard
+    assert all(action not in standard for action in ("Create credential", "Rotate credential", "Revoke credential"))
+    assert "Credential not configured" in uncredentialed
 
 
 def test_agent_credential_web_lifecycle_discloses_bearer_once_and_preserves_authentication(tmp_path, caplog):

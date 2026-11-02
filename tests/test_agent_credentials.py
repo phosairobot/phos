@@ -32,6 +32,15 @@ def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, capl
         service.create("standard")
 
 
+def test_configured_credential_without_a_stored_secret_is_inactive(tmp_path):
+    service = AgentCredentialService(_registry(), SecretsService(tmp_path / ".phos-secrets"))
+
+    status = service.status("standard")
+
+    assert status.configured is True
+    assert status.active is False
+
+
 def test_rotation_replaces_the_stable_secret_without_changing_identity_or_profile(tmp_path):
     registry = _registry()
     store = SecretsService(tmp_path / ".phos-secrets")
