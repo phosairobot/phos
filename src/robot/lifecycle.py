@@ -105,6 +105,7 @@ class LifecycleService:
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
+        self._agent_management_service = None
         self._application_ready = False
         self._clock = clock
         self._lock = RLock()
@@ -236,6 +237,11 @@ class LifecycleService:
         with self._lock:
             self._application_service = service
             self._application_ready = False
+
+    def register_agent_management_service(self, service):
+        """Register the owner-process boundary for live MCP agent updates."""
+        with self._lock:
+            self._agent_management_service = service
 
     def mark_application_ready(self):
         """Publish that the registered service can safely enter the runtime loop."""
@@ -472,6 +478,15 @@ class LifecycleService:
     def _execute_application(self, request):
         name, payload = request.get("operation"), request.get("payload")
         handlers = {
+            "application.agents": lambda: self._agent_management_service.list_agents(),
+            "application.create_agent": lambda: self._agent_management_service.create_agent(
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+            "application.update_agent": lambda: self._agent_management_service.update_agent(
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+            "application.delete_agent": lambda: self._agent_management_service.delete_agent(payload.get("agent_id", "")),
+            "application.create_agent_credential": lambda: self._agent_management_service.create_credential(payload.get("agent_id", "")),
+            "application.rotate_agent_credential": lambda: self._agent_management_service.rotate_credential(payload.get("agent_id", "")),
+            "application.revoke_agent_credential": lambda: self._agent_management_service.revoke_credential(payload.get("agent_id", "")),
             "application.status": lambda: self._application_service.status(),
             "application.state": lambda: self._application_service.robot_state(),
             "application.environment": lambda: self._application_service.environment(),
@@ -528,7 +543,8 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        if self._application_service is None or not getattr(self, "_application_ready", True):
+        agent_operation = name in {"application.agents", "application.create_agent", "application.update_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential"}
+        if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",
                 "message": "PHOS runtime command service is starting. Retry shortly.",

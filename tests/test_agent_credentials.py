@@ -6,7 +6,7 @@ import pytest
 
 from robot.secrets import SecretsError, SecretsService
 from robot.services import (AgentCredentialError, AgentCredentialService, AgentIdentity, AgentRegistry,
-                            BearerAgentAuthenticator)
+                            AgentRegistryProvider, BearerAgentAuthenticator)
 
 
 def _registry():
@@ -111,3 +111,23 @@ def test_concurrent_rotations_remain_isolated_by_agent(tmp_path):
     assert new_standard.token != standard.token and new_observer.token != observer.token
     assert asyncio.run(auth.authenticate(_context(new_standard.token))).id == "standard"
     assert asyncio.run(auth.authenticate(_context(new_observer.token))).id == "observer"
+
+
+def test_bearer_authenticator_resolves_the_current_registry_for_each_request(tmp_path):
+    original = AgentRegistry("standard", (AgentIdentity("standard", "standard"),),
+                             {"standard": "mcp.agents.standard.token"})
+    provider = AgentRegistryProvider(original)
+    store = SecretsService(tmp_path / ".phos-secrets")
+    auth = BearerAgentAuthenticator(provider, store)
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(auth.authenticate(_context("ignored")))
+    updated = AgentRegistry("standard", (AgentIdentity("standard", "standard"),
+                                         AgentIdentity("live", "observer")),
+                            {"standard": "mcp.agents.standard.token", "live": "mcp.agents.live.token"})
+    provider.replace(updated)
+    service = AgentCredentialService(provider, store)
+    issued = service.create("live")
+    assert asyncio.run(auth.authenticate(_context(issued.token))).id == "live"
+    provider.replace(original)
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(auth.authenticate(_context(issued.token)))

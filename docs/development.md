@@ -97,7 +97,10 @@ never imports boto3, searches for credentials or contacts AWS.
 
 ### MCP agent configuration
 
-`agents` is a restart-only canonical configuration section:
+`agents` is a canonical configuration section. Web Admin agent management uses
+`ConfigRepository` persistence and replaces the validated runtime registry for
+subsequent MCP requests; manual configuration edits still follow the normal
+configuration/reload workflow:
 
 ```yaml
 agents:
@@ -127,8 +130,8 @@ is configured, MCP requires a matching bearer token for every request.
 
 ### MCP credential lifecycle
 
-`AgentCredentialService` is the future administration boundary for configured
-MCP bearer credentials. It uses the existing encrypted `SecretsService` store;
+`AgentCredentialService` is the administration boundary for MCP bearer
+credentials. It uses the existing encrypted `SecretsService` store;
 there is no second credential database and the configured `secret_ref` remains
 stable across rotation. It creates bearer values with `secrets.token_urlsafe(32)`
 (256 bits from the operating-system CSPRNG), returning the new value only from

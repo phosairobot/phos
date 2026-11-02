@@ -117,19 +117,24 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         if hasattr(runtime, "core"):
             from pathlib import Path
             from robot.secrets import SecretsError, SecretsService
-            from robot.services import AgentApplicationService, BearerAgentAuthenticator, ConfiguredAgentAuthenticator, PhosApplicationService
+            from robot.services import (AgentApplicationService, AgentCredentialService, AgentManagementService,
+                                        AgentRegistryProvider, BearerAgentAuthenticator, ConfiguredAgentAuthenticator,
+                                        PhosApplicationService)
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
             if config is not None:
                 from robot.mcp import McpServerManager
+                registry_provider = AgentRegistryProvider(config.agent_registry)
+                secret_store_path = config.resolve_path(Path(".")) / ".phos-secrets"
+                secret_store = SecretsService(secret_store_path)
+                agent_management = AgentManagementService(
+                    lifecycle.config_repository if lifecycle is not None else ConfigRepository(),
+                    registry_provider, AgentCredentialService(registry_provider, secret_store))
                 logger.info("PHOS MCP: agent registry loaded agents=%s credential_agents=%s",
                             len(config.agent_registry.entries), len(config.agent_registry.credential_refs))
                 for agent_id, secret_ref in config.agent_registry.credential_refs.items():
                     logger.info("PHOS MCP: credential agent=%s secret_ref=%s", agent_id, secret_ref)
                 if config.agent_registry.credential_refs:
-                    secret_store_path = config.resolve_path(Path(".")) / ".phos-secrets"
                     logger.info("PHOS MCP: secret_store_directory=%s", secret_store_path)
-                    secret_store = SecretsService(secret_store_path)
-                    authenticator = BearerAgentAuthenticator(config.agent_registry, secret_store)
                     for agent_id, secret_ref in config.agent_registry.credential_refs.items():
                         try:
                             present = secret_store.has_secret(secret_ref)
@@ -139,8 +144,10 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                         else:
                             logger.info("PHOS MCP: credential status agent=%s secret_ref=%s present=%s",
                                         agent_id, secret_ref, present)
-                else:
-                    authenticator = ConfiguredAgentAuthenticator(config.agent_registry)
+                # BearerAgentAuthenticator retains trusted-local compatibility
+                # for an empty directory, then begins enforcing bearer auth as
+                # soon as Web Admin publishes the first credential reference.
+                authenticator = BearerAgentAuthenticator(registry_provider, secret_store)
                 mcp_manager = McpServerManager(
                     AgentApplicationService(application_service, config.agent_registry.default_identity),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
@@ -161,6 +168,8 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         if lifecycle is not None:
             if application_service is not None:
                 lifecycle.register_application_service(application_service)
+                if config is not None:
+                    lifecycle.register_agent_management_service(agent_management)
             register_started = getattr(runtime, "register_started_callback", None)
             if callable(register_started):
                 register_started(lifecycle.mark_application_ready)

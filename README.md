@@ -165,9 +165,11 @@ store while retaining the same non-secret reference in configuration. A newly
 created or rotated bearer is shown exactly once; credential status never
 returns stored bearer values. Rotation and revocation take effect immediately
 for subsequent requests without changing the agent's permission profile.
-Web Admin **Settings → Agents** provides the same create/rotate/revoke workflow
-for existing configured agents, with confirmed destructive actions and one-time
-bearer disclosure only.
+Web Admin **Settings → Agents** creates, edits, and deletes agents as well as
+managing their credentials. IDs are immutable, profile changes affect the next
+MCP request, and deleting a non-default agent revokes its bearer first. New
+bearers are disclosed once only; configuration and the live registry update
+without a PHOS restart.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

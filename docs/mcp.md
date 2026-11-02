@@ -63,8 +63,9 @@ stage adds credential-backed authentication, persistence, and per-client policy.
 Stage 3.2 persists the default identity in the canonical `agents` configuration.
 `agents` absent from an older configuration retains `local-agent`/`standard`.
 Once present, invalid records, duplicate IDs, unknown profiles, or an unknown
-default fail configuration loading; no fallback grants broader access. Changes
-require a PHOS restart because the registry is created at startup.
+default fail configuration loading; no fallback grants broader access. Web
+Admin updates replace the complete validated runtime registry, so agent
+create/edit/delete changes apply to subsequent MCP requests without restart.
 
 ## Bearer authentication
 
@@ -99,10 +100,18 @@ stored secret and leaves its configured `AgentIdentity` and permission profile
 intact. Authentication looks up the secret for each request, so no PHOS restart
 is needed. Expiry policies and external identity providers remain future work.
 
-Authenticated Web Admin exposes this lifecycle at **Settings → Agents** for
-already-configured agents. It renders non-secret status only; newly created or
-rotated bearers appear once in the immediate response and cannot be retrieved
-after navigation or reload. Rotation and revocation require confirmation.
+Authenticated Web Admin exposes agent create/edit/delete and this lifecycle at
+**Settings → Agents**. IDs are immutable; profile edits affect subsequent
+requests using the same bearer. It generates a valid non-secret reference only
+when a credential is created. The default agent cannot be deleted; deleting
+another agent confirms revocation first. Newly created or rotated bearers appear
+once in the immediate response and cannot be retrieved after navigation or
+reload. Rotation, revocation, and deletion require confirmation.
+
+Agent creation, deletion, and permission-profile edits do not require a PHOS
+restart: new MCP authentication resolves the current registry. Already-open MCP
+sessions are not forcibly terminated and may retain their current request or
+session context; clients should establish a new request/session after a change.
 
 ## Bridge authentication
 

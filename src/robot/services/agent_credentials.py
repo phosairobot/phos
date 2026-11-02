@@ -8,7 +8,7 @@ from threading import RLock
 
 from robot.secrets import SecretsError, SecretsService
 
-from .agent_identity import AgentRegistry
+from .agent_identity import AgentRegistry, AgentRegistryProvider
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +45,16 @@ class AgentCredentialService:
     to retrieve an already stored bearer value.
     """
 
-    def __init__(self, registry: AgentRegistry, secrets_service: SecretsService) -> None:
+    def __init__(self, registry: AgentRegistry | AgentRegistryProvider, secrets_service: SecretsService) -> None:
         self._registry = registry
         self._secrets = secrets_service
         self._lock = RLock()
 
     def _status(self, agent_id: str) -> AgentCredentialStatus:
-        if self._registry.get(agent_id) is None:
+        registry = self._registry.get() if isinstance(self._registry, AgentRegistryProvider) else self._registry
+        if registry.get(agent_id) is None:
             raise AgentCredentialError("unknown_agent")
-        secret_ref = self._registry.credential_refs.get(agent_id)
+        secret_ref = registry.credential_refs.get(agent_id)
         if secret_ref is None:
             raise AgentCredentialError("credential_not_configured")
         try:

@@ -104,7 +104,8 @@ def test_agents_page_renders_credential_actions_from_configured_and_active_statu
         assert "Create credential" in section
         assert "Rotate credential" not in section and "Revoke credential" not in section
     assert "Credential not configured" in uncredentialed
-    assert all(action not in uncredentialed for action in ("Create credential", "Rotate credential", "Revoke credential"))
+    assert "Create credential" in uncredentialed
+    assert "Rotate credential" not in uncredentialed and "Revoke credential" not in uncredentialed
 
     calls = []
     original_create = AgentCredentialService.create
@@ -168,6 +169,80 @@ def test_agent_credential_web_lifecycle_discloses_bearer_once_and_preserves_auth
     with pytest.raises(PermissionError, match="authentication_failed"):
         asyncio.run(authenticator.authenticate(context(second)))
     assert first not in caplog.text and second not in caplog.text
+
+
+def test_agents_page_creates_edits_and_deletes_a_live_agent(tmp_path):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "live-agent",
+                                        "display_name": "Live Agent", "permission_profile": "observer"})
+    assert created.status_code == 302
+    page = client.get("/agents")
+    live = _agent_section(page, "Live Agent")
+    assert "Credential not configured" in live and "Create credential" in live
+    issued = post(client, "/agents", {"action": "create", "agent_id": "live-agent"})
+    token = _issued_bearer(issued)
+    # The local test adapter uses the same provider-backed runtime registry.
+    provider = app.extensions["phos_config"]
+    saved = RuntimeConfig.from_dict(provider.read(), base_dir=provider.path.parent)
+    authenticator = BearerAgentAuthenticator(saved.agent_registry, store)
+    context = lambda value: SimpleNamespace(request=SimpleNamespace(headers={"Authorization": f"Bearer {value}"}))
+    assert asyncio.run(authenticator.authenticate(context(token))).permission_profile.value == "observer"
+    assert post(client, "/agents", {"action": "update_agent", "agent_id": "live-agent",
+                                      "display_name": "Live Agent", "permission_profile": "standard"}).status_code == 302
+    saved = RuntimeConfig.from_dict(provider.read(), base_dir=provider.path.parent)
+    assert saved.agent_registry.get("live-agent").permission_profile.value == "standard"
+    assert post(client, "/agents", {"action": "delete_agent", "agent_id": "live-agent", "confirm": "yes"}).status_code == 302
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(authenticator.authenticate(context(token)))
+
+
+def test_agents_page_rejects_default_deletion_and_csrf(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    assert client.post("/agents", data={"action": "create_agent"}).status_code == 400
+    response = post(client, "/agents", {"action": "delete_agent", "agent_id": "standard", "confirm": "yes"})
+    assert response.status_code == 400
+    assert "Default agent cannot be deleted" in response.get_data(as_text=True)
+
+
+def test_agents_page_reports_duplicate_and_invalid_identity_fields(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    duplicate = post(client, "/agents", {"action": "create_agent", "agent_id": "standard",
+                                           "display_name": "Duplicate", "permission_profile": "standard"})
+    assert duplicate.status_code == 400 and "Agent ID already exists" in duplicate.get_data(as_text=True)
+    for agent_id, display_name, profile in (("", "Missing ID", "standard"),
+                                            ("new", "", "standard"),
+                                            ("new", "New", "unknown")):
+        invalid = post(client, "/agents", {"action": "create_agent", "agent_id": agent_id,
+                                             "display_name": display_name, "permission_profile": profile})
+        assert invalid.status_code == 400
+        assert "Agent ID, display name, or permission profile is invalid" in invalid.get_data(as_text=True)
+
+
+def test_agents_page_uses_lifecycle_agent_management_boundary(tmp_path):
+    class Lifecycle:
+        def __init__(self): self.calls = []
+        def execute(self, operation, payload=None):
+            self.calls.append((operation, payload))
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local",
+                    "permission_profile": "standard", "default": True,
+                    "credential_configured": False, "credential_active": None}]}
+            return {"ok": True, "result": {}}
+
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(load_document()))
+    lifecycle = Lifecycle()
+    client = authorize(create_app(path, lifecycle=lifecycle))
+    assert client.get("/agents").status_code == 200
+    response = post(client, "/agents", {"action": "create_agent", "agent_id": "live-agent",
+                                          "display_name": "Live Agent", "permission_profile": "observer"})
+    assert response.status_code == 302
+    assert ("application.agents", {}) in lifecycle.calls
+    assert ("application.create_agent", {"agent_id": "live-agent", "display_name": "Live Agent",
+                                           "permission_profile": "observer"}) in lifecycle.calls
 
 
 def test_recovery_request_is_public_and_never_returns_the_physical_code(setup):
