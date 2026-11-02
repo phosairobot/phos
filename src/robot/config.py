@@ -313,6 +313,7 @@ class CloudExpressionConfig:
 _SCHEMA = {
     "web": {"enabled": "web_enabled", "host": "web_host", "port": "web_port"},
     "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path"},
+    "agents": "agent_registry",
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
                 "iris_color": "iris_color", "base_visual_source": "base_visual_source",
@@ -424,6 +425,20 @@ def _decode(document, schema=_SCHEMA, location="config"):
                 result[target] = CloudExpressionConfig.from_dict(value)
             except (ValueError, TypeError) as error:
                 raise ConfigurationError(f"{name}: {error}") from error
+        elif target == "agent_registry":
+            from robot.services.agent_identity import AgentIdentity, AgentRegistry
+            if not isinstance(value, dict) or set(value) != {"default_agent", "entries"} or not isinstance(value["default_agent"], str):
+                raise ConfigurationError(f"{name} must contain default_agent and entries")
+            if not isinstance(value["entries"], list):
+                raise ConfigurationError(f"{name}.entries must be an array")
+            try:
+                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"))
+                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile"})
+                if len(entries) != len(value["entries"]):
+                    raise ValueError("malformed agent entry")
+                result[target] = AgentRegistry(value["default_agent"], entries)
+            except (KeyError, TypeError, ValueError) as error:
+                raise ConfigurationError(f"{name}: invalid configured agents ({error})") from error
         else:
             if target in _TUPLE_FIELDS:
                 if not isinstance(value, (list, tuple)):
@@ -559,6 +574,7 @@ class RuntimeConfig:
     mcp_host: str
     mcp_port: int
     mcp_path: str
+    agent_registry: object
     display_width: int
     display_height: int
     display_fps: int
@@ -729,6 +745,7 @@ class RuntimeConfig:
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
+            document.setdefault("agents", {"default_agent": "local-agent", "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]})
             document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
                 "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
                 "reconnect": {"delay_seconds": 2},
@@ -755,6 +772,10 @@ class RuntimeConfig:
                     value = getattr(self, target)
                     if isinstance(value, CloudExpressionConfig):
                         value = asdict(value)
+                    elif key == "agents":
+                        value = {"default_agent": value.default_agent, "entries": [
+                            {"id": item.id, "display_name": item.display_name, "permission_profile": item.permission_profile.value}
+                            for item in value.entries]}
                     elif isinstance(value, Path):
                         value = str(value)
                     elif isinstance(value, tuple):

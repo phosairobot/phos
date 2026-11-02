@@ -95,6 +95,25 @@ never imports boto3, searches for credentials or contacts AWS.
 
 ### Validation, precedence and migration
 
+### MCP agent configuration
+
+`agents` is a restart-only canonical configuration section:
+
+```yaml
+agents:
+  default_agent: local-agent
+  entries:
+    - id: local-agent
+      display_name: Local MCP agent
+      permission_profile: standard
+```
+
+Each entry has only a stable id, optional display name, and one existing
+permission profile. It contains no credential, token, secret, transport, or
+session fields. If the entire section is absent, compatibility resolves
+`local-agent`/`standard`; if present, malformed entries, duplicate ids, unknown
+profiles, or an unknown default agent fail configuration loading.
+
 Startup reads one JSON, applies explicit deprecated CLI overrides, validates
 schema/types/ranges and active paths, then builds typed settings and constructs
 subsystems. Errors name the field or JSON line/column and exit with status 2

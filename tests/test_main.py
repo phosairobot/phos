@@ -53,7 +53,7 @@ def test_normal_startup_creates_one_mcp_server_from_the_existing_application(mon
             stop_event.set()
 
     class FakeMcpHttpServer:
-        def __init__(self, agent_service, *, host, port, path):
+        def __init__(self, agent_service, *, host, port, path, authenticator=None):
             self.agent_service, self.host, self.port, self.path = agent_service, host, port, path
             self.started, self.stopped = False, False
             created.append(self)

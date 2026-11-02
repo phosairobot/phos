@@ -140,6 +140,12 @@ acceptance remains component-specific.
 
 Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP credential-backed authentication/per-client authorization. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
+MCP agent configuration is canonical PHOS configuration: `agents.default_agent`
+selects one entry from `agents.entries`, whose `id`, optional `display_name`,
+and `permission_profile` resolve through the existing permission boundary.
+When the whole section is absent, legacy deployments use `local-agent` with
+`standard`; an explicit invalid section fails startup rather than falling back.
+
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 
 ## Quick start

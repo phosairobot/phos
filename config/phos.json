@@ -10,6 +10,10 @@
     "port": 8001,
     "path": "/mcp"
   },
+  "agents": {
+    "default_agent": "local-agent",
+    "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]
+  },
   "display": {
     "width": 800,
     "height": 600,

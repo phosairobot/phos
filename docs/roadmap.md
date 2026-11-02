@@ -58,6 +58,17 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [ ] Credential-backed authentication, persisted agents/profiles, per-client
   authorization policy, bridge credentials, and external identity providers.
 
+### MCP Stage 3.2 — Persistent Agent & Permission Configuration
+
+- [x] MCP Stage 3.2 — COMPLETE.
+- [x] Canonical `agents` configuration and immutable configured registry.
+- [x] Configured default identity resolves through its existing permission profile.
+- [ ] Stage 3.3: credential-backed per-client authorization.
+- [ ] Stage 3.4: credential persistence/configuration.
+- [ ] Stage 3.5: Web Admin agent management.
+- [ ] Stage 3.6: bridge authentication.
+- [ ] Stage 3.7: external multi-agent PoC.
+
 Stage 2 physical validation completed for direct Streamable HTTP includes
 `phos://status` sleep/wake notifications, `phos://physical-context` semantic
 updates, `phos://environment` availability updates, environment loss/recovery,
