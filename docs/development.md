@@ -125,6 +125,24 @@ profiles, duplicate credential references, malformed credential records, or an
 unknown default agent fail configuration loading. When any credential reference
 is configured, MCP requires a matching bearer token for every request.
 
+### MCP credential lifecycle
+
+`AgentCredentialService` is the future administration boundary for configured
+MCP bearer credentials. It uses the existing encrypted `SecretsService` store;
+there is no second credential database and the configured `secret_ref` remains
+stable across rotation. It creates bearer values with `secrets.token_urlsafe(32)`
+(256 bits from the operating-system CSPRNG), returning the new value only from
+the create or rotate operation. Status reports only agent ID, credential type,
+secret reference, and configured/active state; stored values cannot be read
+back through this service.
+
+Create rejects an already-active credential, rotate atomically replaces the
+secret-store value (the old bearer becomes invalid), and revoke removes the
+secret while retaining the configured agent identity and permission profile.
+`SecretsService` is read at authentication time, so these operations take
+effect without a PHOS restart. Expiry and policy controls remain future
+hardening work.
+
 Startup reads one JSON, applies explicit deprecated CLI overrides, validates
 schema/types/ranges and active paths, then builds typed settings and constructs
 subsystems. Errors name the field or JSON line/column and exit with status 2

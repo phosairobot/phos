@@ -138,7 +138,7 @@ non-empty `image/jpeg` blob. This validates resource availability and JPEG
 output, not image-content quality. Optional sensor, provider, and deployment
 acceptance remains component-specific.
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP credential lifecycle/management hardening. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP credential policy/UI hardening. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 MCP agent configuration is canonical PHOS configuration: `agents.default_agent`
 selects one entry from `agents.entries`, whose `id`, optional `display_name`,
@@ -151,6 +151,13 @@ holds the token; runtime configuration and `AgentIdentity` never do. If any
 such reference exists, each MCP request must present `Authorization: Bearer …`;
 invalid credentials fail closed and separate MCP sessions retain separate,
 request-scoped identities.
+
+Configured MCP credentials have a programmatic lifecycle boundary for future
+administration: create, rotate, and revoke use the encrypted `SecretsService`
+store while retaining the same non-secret reference in configuration. A newly
+created or rotated bearer is shown exactly once; credential status never
+returns stored bearer values. Rotation and revocation take effect immediately
+for subsequent requests without changing the agent's permission profile.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

@@ -6,11 +6,12 @@ from .agent_permissions import (AGENT_ACCESS_PROFILES, DEFAULT_AGENT_PROFILE, OP
                                 AgentOperation, AgentPermissionDenied, AgentPermissionService, AgentProfile)
 from .agent_identity import (AgentAuthenticator, AgentIdentity, AgentRegistry, COMPATIBILITY_AGENT_REGISTRY,
                              BearerAgentAuthenticator, ConfiguredAgentAuthenticator, LOCAL_AGENT_IDENTITY, LocalAgentAuthenticator)
+from .agent_credentials import AgentCredentialError, AgentCredentialService, AgentCredentialStatus, IssuedAgentCredential
 from .physical_context import SemanticPhysicalContext, SemanticPhysicalContextService
 from .semantic_events import SEMANTIC_EVENT_TYPES, SemanticEvent, SemanticEventPublisher, SemanticSubscription
 
 __all__ = ("AGENT_ACCESS_PROFILES", "DEFAULT_AGENT_PROFILE", "OPERATION_PERMISSIONS", "AgentAccess",
-           "AgentApplicationService", "AgentAuthenticator", "AgentIdentity", "AgentRegistry", "BearerAgentAuthenticator", "ConfiguredAgentAuthenticator", "COMPATIBILITY_AGENT_REGISTRY", "LOCAL_AGENT_IDENTITY", "LocalAgentAuthenticator", "AgentPermission", "AgentPermissionDenied", "AgentPermissionService",
+           "AgentApplicationService", "AgentAuthenticator", "AgentCredentialError", "AgentCredentialService", "AgentCredentialStatus", "AgentIdentity", "AgentRegistry", "BearerAgentAuthenticator", "ConfiguredAgentAuthenticator", "COMPATIBILITY_AGENT_REGISTRY", "IssuedAgentCredential", "LOCAL_AGENT_IDENTITY", "LocalAgentAuthenticator", "AgentPermission", "AgentPermissionDenied", "AgentPermissionService",
            "AgentOperation", "AgentProfile", "ApplicationError", "PhosApplicationService", "RemoteApplicationService",
            "SEMANTIC_EVENT_TYPES", "SemanticEvent", "SemanticEventPublisher", "SemanticSubscription", "SemanticPhysicalContext", "SemanticPhysicalContextService",
            "USER_SIGNAL_INTENTS")

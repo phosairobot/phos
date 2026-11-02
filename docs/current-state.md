@@ -66,7 +66,16 @@ Stage 3.2 loads the canonical `agents` registry at startup. A configured default
 agent resolves to `AgentIdentity`, its existing permission profile, and then the
 agent application facade. Changes are restart-only. Stage 3.3 adds only
 non-secret credential references, not tokens, Web Admin management, bridge
-credentials, or credential lifecycle operations.
+credentials, or credential-management UI.
+
+MCP Stage 3.4 supplies `AgentCredentialService` for creation, rotation,
+revocation, and non-secret status of configured bearer references. It uses the
+existing encrypted `SecretsService`; bearer values are generated with the OS
+CSPRNG, disclosed only at create/rotate time, and are never readable through
+the lifecycle service. Rotation preserves `secret_ref` and invalidates the old
+bearer; revocation removes the stored value while retaining the configured
+identity/profile. No Web Admin UI, bridge credential UX, expiry policy, or
+external identity provider is included.
 
 MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
 MCP request passes through one authentication middleware hook that resolves an
@@ -75,8 +84,9 @@ then used to create the permission-checked `AgentApplicationService` facade.
 The transitional `LocalAgentAuthenticator` resolves every trusted-local client
 as `local-agent` with the existing `standard` profile and verifies no
 credentials. It preserves prior behavior but is explicitly not production-grade
-authentication. Credential-backed authentication, persisted identities and
-profiles, and per-client authorization remain future work.
+authentication. Credential-backed configuration, per-client authentication,
+and lifecycle operations are now implemented; Web Admin management, bridge
+credentials, expiry policy, and external identity providers remain future work.
 
 Sensor availability/freshness transitions are complete: numeric samples remain
 read-only, while status transitions publish semantic Resource cues. Raspberry

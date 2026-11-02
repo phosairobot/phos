@@ -75,8 +75,30 @@ identity is request-scoped: every MCP request must provide `Authorization:
 Bearer TOKEN`; missing or invalid credentials fail before application execution
 and never fall back to `default_agent`. Without credential references, Stage
 3.2 default-agent compatibility remains. Comparison uses a constant-time
-secret comparison. Tokens are not logged or returned in MCP errors. Rotation,
-revocation, expiry, Web Admin and bridge credential UX remain deferred.
+secret comparison. Tokens are not logged or returned in MCP errors. Expiry,
+Web Admin and bridge credential UX remain deferred.
+
+## Credential lifecycle
+
+Stage 3.4 provides `AgentCredentialService` as the application/service boundary
+for future management surfaces:
+
+```text
+create / rotate / revoke
+→ AgentCredentialService
+→ SecretsService
+→ stable credential.secret_ref
+→ BearerAgentAuthenticator
+```
+
+The service generates a URL/header-safe 256-bit bearer with the operating
+system CSPRNG. It returns a bearer only from creation or rotation, never via
+status or a read-back operation. Rotation replaces the value at the same
+`secret_ref`, immediately invalidating the old bearer; revocation removes the
+stored secret and leaves its configured `AgentIdentity` and permission profile
+intact. Authentication looks up the secret for each request, so no PHOS restart
+is needed. Expiry policies, lifecycle UX, bridge management, and external
+identity providers remain future work.
 
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are

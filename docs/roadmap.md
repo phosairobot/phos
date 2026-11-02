@@ -65,7 +65,8 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] Canonical `agents` configuration and immutable configured registry.
 - [x] Configured default identity resolves through its existing permission profile.
 - [x] Stage 3.3: credential-backed per-client authorization.
-- [ ] Stage 3.4: credential persistence/configuration.
+- [x] MCP Stage 3.4 — COMPLETE: encrypted bearer credential creation, rotation,
+  revocation, and non-secret lifecycle status through `AgentCredentialService`.
 - [ ] Stage 3.5: Web Admin agent management.
 - [ ] Stage 3.6: bridge authentication.
 - [ ] Stage 3.7: external multi-agent PoC.
