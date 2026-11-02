@@ -195,6 +195,19 @@ control, normal Web administration and logs; it does **not** protect against a
 host/root-level compromise. Back up or recover the key and encrypted store
 together. This foundation does not itself configure or contact a cloud provider.
 
+## MCP agents
+
+**Settings → Agents** lists configured MCP identities, their fixed permission
+profile, and non-secret bearer status. It calls `AgentCredentialService`, which
+uses `SecretsService`; the page never reads secret-store values directly.
+Create and rotate display a newly issued bearer exactly once with a copy/store
+warning. Refreshing or revisiting the page cannot retrieve it; rotate a lost
+credential. Rotation and revocation require explicit confirmation, take effect
+without a PHOS restart, and leave the configured agent identity/profile intact.
+The page manages credentials for existing configured agents only. Edit agent
+definitions and their non-secret `secret_ref` through the canonical
+configuration workflow; those configuration changes remain restart-required.
+
 **Save** on an editable page converts fields and calls the same model validation and
 atomic persistence used elsewhere. Invalid input leaves the file unchanged,
 displays an error in the relevant group and preserves non-sensitive input.

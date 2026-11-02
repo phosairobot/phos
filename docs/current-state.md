@@ -77,6 +77,13 @@ bearer; revocation removes the stored value while retaining the configured
 identity/profile. No Web Admin UI, bridge credential UX, expiry policy, or
 external identity provider is included.
 
+MCP Stage 3.5 adds the authenticated Web Admin **Settings → Agents** page for
+existing configured agents. It displays only identity/profile and non-secret
+credential status, calls `AgentCredentialService` rather than `SecretsService`,
+requires confirmation for rotate/revoke, and renders a newly issued bearer only
+in its immediate create/rotate response. Agent-definition editing remains the
+canonical restart-required configuration workflow.
+
 MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
 MCP request passes through one authentication middleware hook that resolves an
 immutable provider-neutral `AgentIdentity`; its permission-profile reference is

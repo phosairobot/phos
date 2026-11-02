@@ -1,4 +1,5 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
+import asyncio
 import json
 import html
 import io
@@ -17,6 +18,7 @@ import yaml
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
 from robot.secrets import SecretsService
+from robot.services import AgentIdentity, AgentRegistry, BearerAgentAuthenticator
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
@@ -55,6 +57,62 @@ def authorize(app):
     assert post(client, "/password", {"current": "phos", "new": PASSWORD, "confirmation": PASSWORD}).status_code == 302
     assert login(client, PASSWORD).location == "/"
     return client
+
+
+def _agent_admin(tmp_path):
+    document = load_document()
+    document["agents"] = {"default_agent": "standard", "entries": [
+        {"id": "standard", "display_name": "Standard Agent", "permission_profile": "standard",
+         "credential": {"type": "bearer", "secret_ref": "mcp.standard.token"}},
+        {"id": "observer", "display_name": "Observer Agent", "permission_profile": "observer",
+         "credential": {"type": "bearer", "secret_ref": "mcp.observer.token"}},
+    ]}
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    store = SecretsService(tmp_path / ".phos-secrets")
+    return create_app(path, secrets_service=store), store
+
+
+def _issued_bearer(response):
+    return re.search(r'id="issued-credential" type="text" value="([^"]+)"', response.get_data(as_text=True)).group(1)
+
+
+def test_agents_page_lists_non_secret_status_and_requires_admin_authentication(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    assert app.test_client().get("/agents").location == "/login"
+    page = authorize(app).get("/agents")
+    text = page.get_data(as_text=True)
+    assert all(value in text for value in ("MCP Agents", "Standard Agent", "Observer Agent", "standard", "observer", "Inactive", "Create credential"))
+    assert "secret_ref" not in text and "mcp.standard.token" not in text
+
+
+def test_agent_credential_web_lifecycle_discloses_bearer_once_and_preserves_authentication(tmp_path, caplog):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create", "agent_id": "standard"})
+    first = _issued_bearer(created)
+    assert "This credential will only be shown once" in created.get_data(as_text=True)
+    assert first not in client.get("/agents").get_data(as_text=True)
+    registry = AgentRegistry("standard", (AgentIdentity("standard", "standard"), AgentIdentity("observer", "observer")),
+                             {"standard": "mcp.standard.token", "observer": "mcp.observer.token"})
+    authenticator = BearerAgentAuthenticator(registry, store)
+    context = lambda token: SimpleNamespace(request=SimpleNamespace(headers={"Authorization": f"Bearer {token}"}))
+    assert asyncio.run(authenticator.authenticate(context(first))).id == "standard"
+
+    missing_confirmation = post(client, "/agents", {"action": "rotate", "agent_id": "standard"})
+    assert missing_confirmation.status_code == 400 and "Confirm this credential operation" in missing_confirmation.get_data(as_text=True)
+    rotated = post(client, "/agents", {"action": "rotate", "agent_id": "standard", "confirm": "yes"})
+    second = _issued_bearer(rotated)
+    assert second != first
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(authenticator.authenticate(context(first)))
+    assert asyncio.run(authenticator.authenticate(context(second))).id == "standard"
+
+    revoked = post(client, "/agents", {"action": "revoke", "agent_id": "standard", "confirm": "yes"})
+    assert revoked.status_code == 302 and second not in client.get("/agents").get_data(as_text=True)
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(authenticator.authenticate(context(second)))
+    assert first not in caplog.text and second not in caplog.text
 
 
 def test_recovery_request_is_public_and_never_returns_the_physical_code(setup):

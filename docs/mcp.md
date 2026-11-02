@@ -100,6 +100,11 @@ intact. Authentication looks up the secret for each request, so no PHOS restart
 is needed. Expiry policies, lifecycle UX, bridge management, and external
 identity providers remain future work.
 
+Authenticated Web Admin exposes this lifecycle at **Settings → Agents** for
+already-configured agents. It renders non-secret status only; newly created or
+rotated bearers appear once in the immediate response and cannot be retrieved
+after navigation or reload. Rotation and revocation require confirmation.
+
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,

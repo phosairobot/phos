@@ -67,7 +67,8 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] Stage 3.3: credential-backed per-client authorization.
 - [x] MCP Stage 3.4 — COMPLETE: encrypted bearer credential creation, rotation,
   revocation, and non-secret lifecycle status through `AgentCredentialService`.
-- [ ] Stage 3.5: Web Admin agent management.
+- [x] MCP Stage 3.5 — COMPLETE: authenticated Web Admin status and one-time
+  credential create/rotate/revoke controls for configured agents.
 - [ ] Stage 3.6: bridge authentication.
 - [ ] Stage 3.7: external multi-agent PoC.
 

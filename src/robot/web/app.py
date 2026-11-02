@@ -13,8 +13,8 @@ from flask import Flask, Response, abort, flash, jsonify, redirect, render_templ
 from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
-from robot.config import ConfigurationError
-from robot.services import ApplicationError
+from robot.config import ConfigurationError, RuntimeConfig
+from robot.services import AgentCredentialError, AgentCredentialService, ApplicationError
 from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
@@ -72,7 +72,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                       SESSION_REFRESH_EACH_REQUEST=False,
                       PERMANENT_SESSION_LIFETIME=timedelta(minutes=30))
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
-    web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
+    secret_store = secrets_service or SecretsService(config.path.parent / ".phos-secrets")
+    web_secrets = WebSecretsService(secret_store)
     auth = AuthenticationState(clock)
     app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets,
                           )
@@ -247,6 +248,48 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 else:
                     return redirect(url_for("credentials"))
         return render_template("credentials.html", slots=web_secrets.slots(), error=error), 400 if error else 200
+
+    @app.route("/agents", methods=["GET", "POST"])
+    def agents():
+        """Manage configured MCP credential lifecycle without exposing secrets."""
+        error = issued = None
+        try:
+            registry = RuntimeConfig.from_dict(config.read(), base_dir=config.path.parent, check_paths=False).agent_registry
+            credentials = AgentCredentialService(registry, secret_store)
+        except (ConfigurationError, OSError):
+            return render_template("error.html", error="Cannot load configured agents."), 503
+        if request.method == "POST":
+            allowed = {"csrf_token", "action", "agent_id", "confirm"}
+            if set(request.form) - allowed or request.form.get("action") not in {"create", "rotate", "revoke"}:
+                abort(400)
+            action, agent_id = request.form["action"], request.form.get("agent_id", "")
+            if action in {"rotate", "revoke"} and request.form.get("confirm") != "yes":
+                error = "Confirm this credential operation before continuing."
+            else:
+                try:
+                    if action == "create":
+                        issued = credentials.create(agent_id)
+                    elif action == "rotate":
+                        issued = credentials.rotate(agent_id)
+                    else:
+                        credentials.revoke(agent_id)
+                        flash("Credential revoked. This agent can no longer authenticate until a new credential is created.")
+                        return redirect(url_for("agents"))
+                except AgentCredentialError as exc:
+                    error = {
+                        "unknown_agent": "Unknown configured agent.",
+                        "credential_not_configured": "This agent has no configured credential reference.",
+                        "credential_already_exists": "A credential is already active; rotate it instead.",
+                        "credential_not_active": "No active credential is available to rotate.",
+                    }.get(str(exc), "Credential operation could not be completed.")
+        agents = []
+        for identity in registry.entries:
+            try:
+                status = credentials.status(identity.id)
+            except AgentCredentialError:
+                status = None
+            agents.append({"identity": identity, "status": status})
+        return render_template("agents.html", agents=agents, issued=issued, error=error), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():

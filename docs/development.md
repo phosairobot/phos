@@ -143,6 +143,10 @@ secret while retaining the configured agent identity and permission profile.
 effect without a PHOS restart. Expiry and policy controls remain future
 hardening work.
 
+Web Admin lifecycle operations must call `AgentCredentialService` only. They
+may display a freshly issued bearer once for create/rotate, but status/list APIs
+and subsequent HTML responses must never retrieve or serialize stored values.
+
 Startup reads one JSON, applies explicit deprecated CLI overrides, validates
 schema/types/ranges and active paths, then builds typed settings and constructs
 subsystems. Errors name the field or JSON line/column and exit with status 2
