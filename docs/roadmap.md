@@ -46,7 +46,7 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] MCP Stage 3.3 — COMPLETE: credential-backed per-client MCP authentication
   and authorization through non-secret `SecretsService` references.
 
-### MCP Stage 3.1 — Agent Identity & Authentication Boundary
+### MCP Stage 3.1 — COMPLETE: Agent Identity & Authentication Boundary
 
 - [x] Immutable provider-neutral `AgentIdentity` with a stable identifier,
   optional display name, and reference to an existing permission profile.
@@ -56,8 +56,7 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] Transitional `LocalAgentAuthenticator` preserves current trusted-local
   clients as `local-agent` with the existing `standard` profile. It performs no
   credential verification and is not production-grade authentication.
-- [ ] Credential-backed authentication, persisted agents/profiles, per-client
-  authorization policy, bridge credentials, and external identity providers.
+- [ ] External identity providers.
 
 ### MCP Stage 3.2 — Persistent Agent & Permission Configuration
 
@@ -69,8 +68,12 @@ FURIOUS and expression intensity are not implemented in this milestone.
   revocation, and non-secret lifecycle status through `AgentCredentialService`.
 - [x] MCP Stage 3.5 — COMPLETE: authenticated Web Admin status and one-time
   credential create/rotate/revoke controls for configured agents.
-- [ ] Stage 3.6: bridge authentication.
-- [ ] Stage 3.7: external multi-agent PoC.
+- [x] Stage 3.6 — COMPLETE: `phos-mcp-bridge` transports an already-issued
+  `PHOS_MCP_TOKEN` bearer through Streamable HTTP while PHOS remains
+  authoritative for identity and permission enforcement. Automated bridge
+  validation passed (10 tests); no physical live interoperability result is
+  claimed here.
+- [ ] Stage 3.7 — PENDING: external multi-agent PoC / final Stage 3 validation.
 
 Stage 2 physical validation completed for direct Streamable HTTP includes
 `phos://status` sleep/wake notifications, `phos://physical-context` semantic

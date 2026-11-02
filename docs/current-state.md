@@ -74,8 +74,8 @@ existing encrypted `SecretsService`; bearer values are generated with the OS
 CSPRNG, disclosed only at create/rotate time, and are never readable through
 the lifecycle service. Rotation preserves `secret_ref` and invalidates the old
 bearer; revocation removes the stored value while retaining the configured
-identity/profile. No Web Admin UI, bridge credential UX, expiry policy, or
-external identity provider is included.
+identity/profile. Stage 3.4 itself did not add Web Admin management, bridge
+transport support, expiry policy, or an external identity provider.
 
 MCP Stage 3.5 adds the authenticated Web Admin **Settings → Agents** page for
 existing configured agents. It displays only identity/profile and non-secret
@@ -83,6 +83,20 @@ credential status, calls `AgentCredentialService` rather than `SecretsService`,
 requires confirmation for rotate/revoke, and renders a newly issued bearer only
 in its immediate create/rotate response. Agent-definition editing remains the
 canonical restart-required configuration workflow.
+
+MCP Stage 3.6 is complete in the separately owned `phos-mcp-bridge`: its stdio
+transport reads `PHOS_MCP_TOKEN` and creates an authenticated Streamable HTTP
+connection to PHOS. The security boundary is deliberate: the bridge transports
+the credential, while PHOS resolves `AgentIdentity` and `PermissionProfile` and
+enforces authorization, including camera and Resource permissions, through
+`BearerAgentAuthenticator` and `AgentApplicationService`. The bridge has no
+identity or permission logic, rejects visible bearer CLI arguments, and does
+not fall back to an unauthenticated/default identity. Credential rotation or
+revocation in PHOS invalidates the old bearer; update `PHOS_MCP_TOKEN` and
+restart/relaunch the bridge if required to create a new authenticated upstream
+connection. Hot credential reload is not claimed. Bridge automated validation
+passed (10 tests); live PHOS/bridge interoperability validation is not yet
+recorded and remains Stage 3.7 work.
 
 MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
 MCP request passes through one authentication middleware hook that resolves an
@@ -92,8 +106,8 @@ The transitional `LocalAgentAuthenticator` resolves every trusted-local client
 as `local-agent` with the existing `standard` profile and verifies no
 credentials. It preserves prior behavior but is explicitly not production-grade
 authentication. Credential-backed configuration, per-client authentication,
-and lifecycle operations are now implemented; Web Admin management, bridge
-credentials, expiry policy, and external identity providers remain future work.
+and lifecycle operations are now implemented; expiry policy and external
+identity providers remain future work.
 
 Sensor availability/freshness transitions are complete: numeric samples remain
 read-only, while status transitions publish semantic Resource cues. Raspberry
@@ -114,8 +128,8 @@ on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
 boundaries; Raspberry Pi camera-snapshot acceptance has confirmed operation
-with Camera Preview disabled. MCP Stages 2 and 3.3 are complete; credential
-lifecycle/management remains later MCP work.
+with Camera Preview disabled. MCP Stages 2 and 3.3–3.6 are complete; live
+external multi-agent interoperability validation remains Stage 3.7 work.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

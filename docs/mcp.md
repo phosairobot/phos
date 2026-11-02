@@ -75,8 +75,8 @@ identity is request-scoped: every MCP request must provide `Authorization:
 Bearer TOKEN`; missing or invalid credentials fail before application execution
 and never fall back to `default_agent`. Without credential references, Stage
 3.2 default-agent compatibility remains. Comparison uses a constant-time
-secret comparison. Tokens are not logged or returned in MCP errors. Expiry,
-Web Admin and bridge credential UX remain deferred.
+secret comparison. Tokens are not logged or returned in MCP errors. Expiry and
+external identity providers remain deferred.
 
 ## Credential lifecycle
 
@@ -97,13 +97,72 @@ status or a read-back operation. Rotation replaces the value at the same
 `secret_ref`, immediately invalidating the old bearer; revocation removes the
 stored secret and leaves its configured `AgentIdentity` and permission profile
 intact. Authentication looks up the secret for each request, so no PHOS restart
-is needed. Expiry policies, lifecycle UX, bridge management, and external
-identity providers remain future work.
+is needed. Expiry policies and external identity providers remain future work.
 
 Authenticated Web Admin exposes this lifecycle at **Settings → Agents** for
 already-configured agents. It renders non-secret status only; newly created or
 rotated bearers appear once in the immediate response and cannot be retrieved
 after navigation or reload. Rotation and revocation require confirmation.
+
+## Bridge authentication
+
+MCP Stage 3.6 completes authentication support in the separately owned
+`phos-mcp-bridge`. It is a transport-only stdio bridge; it does not validate a
+credential or contain identity, permission, camera-permission, or
+resource-permission logic:
+
+```text
+Claude / Inspector
+→ MCP stdio
+→ phos-mcp-bridge
+→ Authorization: Bearer <credential>
+→ PHOS Streamable HTTP MCP
+→ BearerAgentAuthenticator
+→ AgentIdentity
+→ PermissionProfile
+→ AgentApplicationService
+```
+
+The bridge reads its already-issued bearer from `PHOS_MCP_TOKEN` and injects it
+only through its upstream Streamable HTTP transport. The bearer applies to
+initialization, tools, Resources, subscriptions, and reconnects. An absent or
+empty `PHOS_MCP_TOKEN` sends no `Authorization` header. A visible `--token` or
+visible `--header Authorization` argument is rejected: do not put a bearer in
+CLI arguments. Bearer values and Authorization headers are redacted from bridge
+logging and error paths.
+
+PHOS remains authoritative for authentication, `AgentIdentity` resolution,
+`PermissionProfile`, authorization, camera permissions, and Resource
+permissions. Invalid or missing credentials fail at PHOS; the bridge does not
+retry as an unauthenticated or default identity. PHOS errors, including
+`permission_denied`, are preserved.
+
+Obtain the bearer through the PHOS credential lifecycle/Web Admin, then launch
+the bridge without placing it on the command line:
+
+```bash
+export PHOS_MCP_TOKEN='...'
+
+node /path/to/phos-mcp-bridge/dist/index.js \
+  --url http://<phos-host>:8001/mcp
+```
+
+For Inspector TUI, the current working syntax is:
+
+```bash
+PHOS_MCP_TOKEN='...' \
+npx --yes @modelcontextprotocol/inspector@latest --tui \
+  --protocol-era modern \
+  node /Users/francescoazzola/Documents/dev/phos-mcp-bridge/dist/index.js \
+  -- \
+  --url http://192.168.1.127:8001/mcp
+```
+
+The bridge does not manage the credential. If PHOS rotates or revokes it, the
+old bearer no longer authenticates. Update `PHOS_MCP_TOKEN` and restart or
+relaunch the bridge if required by its current implementation to establish a
+new authenticated upstream MCP connection. Hot credential reload is not
+claimed.
 
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
@@ -146,7 +205,9 @@ metadata.
 ### Discovery and snapshot read
 
 The `phos-mcp-bridge` dynamically forwards MCP Resources, so no bridge-specific
-snapshot implementation is required. For a trusted-LAN PHOS endpoint:
+snapshot implementation is required. Set `PHOS_MCP_TOKEN` as described in
+[Bridge authentication](#bridge-authentication) when PHOS uses bearer
+credentials. For a trusted-LAN PHOS endpoint:
 
 ```bash
 npx --yes @modelcontextprotocol/inspector@latest --cli \
@@ -209,6 +270,12 @@ externally validated for a long-lived stdio `subscriptions/listen` connection:
 two consecutive `phos://status` ResourceUpdated notifications were forwarded
 from PHOS Streamable HTTP to the Inspector. Bridge code is not owned or
 modified by this repository.
+
+Stage 3.6 bridge authentication implementation and automated validation passed
+in the bridge repository (`npm run typecheck`, `npm run build`, `npm test`,
+`npm run lint`, and `git diff --check`; 10 tests passing). Its live physical
+interoperability validation against PHOS is not recorded here and remains part
+of the pending Stage 3.7 validation work.
 
 ## Raspberry Pi validation
 
