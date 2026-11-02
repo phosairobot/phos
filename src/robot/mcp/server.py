@@ -337,10 +337,10 @@ def _resource_bytes_result(handler: Callable[[], bytes]) -> bytes:
 class McpHttpServer:
     """One Streamable HTTP listener owned by the normal PHOS process."""
 
-    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str, authenticator=None) -> None:
         self.host, self.port, self.path = host, port, path
         self._semantic_events = McpSemanticEventBridge(agent_service)
-        self._mcp_server = create_mcp_server(agent_service, subscriptions=self._semantic_events.bus)
+        self._mcp_server = create_mcp_server(agent_service, subscriptions=self._semantic_events.bus, authenticator=authenticator)
         self._uvicorn_server = None
 
     @property
@@ -392,9 +392,9 @@ class McpServerManager:
     """Own only the MCP listener, never the PHOS runtime or service graph."""
 
     def __init__(self, agent_service: AgentApplicationService, *, host: str, path: str,
-                 enabled: bool, port: int) -> None:
+                 enabled: bool, port: int, authenticator=None) -> None:
         self._agent_service, self._host, self._path = agent_service, host, path
-        self._enabled, self._configured_port = enabled, port
+        self._enabled, self._configured_port, self._authenticator = enabled, port, authenticator
         self._server = self._task = self._loop = None
         self._status, self._error = ("disabled" if not enabled else "starting"), None
         self._lock = asyncio.Lock()
@@ -427,7 +427,7 @@ class McpServerManager:
         # Resolve through the package at start time so deployments/tests can
         # provide the listener adapter without changing lifecycle semantics.
         from robot.mcp import McpHttpServer as Listener
-        server = Listener(self._agent_service, host=self._host, port=port, path=self._path)
+        server = Listener(self._agent_service, host=self._host, port=port, path=self._path, authenticator=self._authenticator)
         task = asyncio.create_task(server.serve(), name="mcp-streamable-http")
         for _ in range(200):
             if server.started:

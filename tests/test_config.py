@@ -35,6 +35,31 @@ def test_canonical_config_is_complete_safe_and_round_trips(document):
     assert config.display_width == 800 and config.display_height == 600
 
 
+def test_agents_registry_loads_profiles_and_fails_closed(document, tmp_path):
+    document["agents"] = {"default_agent": "observer-agent", "entries": [
+        {"id": "standard-agent", "permission_profile": "standard"},
+        {"id": "observer-agent", "display_name": "Observer", "permission_profile": "observer"},
+    ]}
+    registry = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).agent_registry
+    assert registry.default_identity.id == "observer-agent"
+    assert registry.get("standard-agent").display_name is None
+    for invalid in (
+        {"default_agent": "missing", "entries": []},
+        {"default_agent": "x", "entries": [{"id": "x", "permission_profile": "unknown"}]},
+        {"default_agent": "x", "entries": [{"id": "x", "permission_profile": "standard"}, {"id": "x", "permission_profile": "standard"}]},
+        {"default_agent": "x", "entries": [{"id": "", "permission_profile": "standard"}]},
+    ):
+        document["agents"] = invalid
+        with pytest.raises(ConfigurationError):
+            RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
+def test_absent_agents_section_uses_only_the_documented_compatibility_identity(document, tmp_path):
+    document.pop("agents")
+    registry = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False).agent_registry
+    assert (registry.default_identity.id, registry.default_identity.permission_profile.value) == ("local-agent", "standard")
+
+
 def test_state_effect_defaults_backfill_and_validate(document, tmp_path):
     document["display"].pop("state_effects", None)
     config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)

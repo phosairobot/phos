@@ -59,6 +59,12 @@ cues use SDK `subscriptions/listen`; clients receive URI-only notifications and
 re-read current Resources. Camera snapshots are excluded from notifications.
 Credential-backed MCP authentication remains deferred.
 
+Stage 3.2 loads the canonical `agents` registry at startup. A configured default
+agent resolves to `AgentIdentity`, its existing permission profile, and then the
+agent application facade. Changes are restart-only. No credentials, tokens,
+Web Admin management, bridge credentials, or per-client identity resolution are
+implemented.
+
 MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
 MCP request passes through one authentication middleware hook that resolves an
 immutable provider-neutral `AgentIdentity`; its permission-profile reference is

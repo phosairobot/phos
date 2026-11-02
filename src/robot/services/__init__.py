@@ -4,7 +4,8 @@ from .application import ApplicationError, PhosApplicationService, RemoteApplica
 from .agent_permissions import (AGENT_ACCESS_PROFILES, DEFAULT_AGENT_PROFILE, OPERATION_PERMISSIONS,
                                 AgentAccess, AgentApplicationService, AgentPermission,
                                 AgentOperation, AgentPermissionDenied, AgentPermissionService, AgentProfile)
-from .agent_identity import AgentAuthenticator, AgentIdentity, LOCAL_AGENT_IDENTITY, LocalAgentAuthenticator
+from .agent_identity import (AgentAuthenticator, AgentIdentity, AgentRegistry, COMPATIBILITY_AGENT_REGISTRY,
+                             ConfiguredAgentAuthenticator, LOCAL_AGENT_IDENTITY, LocalAgentAuthenticator)
 from .physical_context import SemanticPhysicalContext, SemanticPhysicalContextService
 from .semantic_events import SEMANTIC_EVENT_TYPES, SemanticEvent, SemanticEventPublisher, SemanticSubscription
 

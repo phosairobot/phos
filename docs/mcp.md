@@ -59,6 +59,12 @@ that identifies every trusted-local client as `local-agent` with the existing
 production-grade authentication. This preserves existing clients while a later
 stage adds credential-backed authentication, persistence, and per-client policy.
 
+Stage 3.2 persists the default identity in the canonical `agents` configuration.
+`agents` absent from an older configuration retains `local-agent`/`standard`.
+Once present, invalid records, duplicate IDs, unknown profiles, or an unknown
+default fail configuration loading; no fallback grants broader access. Changes
+require a PHOS restart because the registry is created at startup.
+
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,
