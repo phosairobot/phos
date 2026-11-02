@@ -4,11 +4,12 @@ from .application import ApplicationError, PhosApplicationService, RemoteApplica
 from .agent_permissions import (AGENT_ACCESS_PROFILES, DEFAULT_AGENT_PROFILE, OPERATION_PERMISSIONS,
                                 AgentAccess, AgentApplicationService, AgentPermission,
                                 AgentOperation, AgentPermissionDenied, AgentPermissionService, AgentProfile)
+from .agent_identity import AgentAuthenticator, AgentIdentity, LOCAL_AGENT_IDENTITY, LocalAgentAuthenticator
 from .physical_context import SemanticPhysicalContext, SemanticPhysicalContextService
 from .semantic_events import SEMANTIC_EVENT_TYPES, SemanticEvent, SemanticEventPublisher, SemanticSubscription
 
 __all__ = ("AGENT_ACCESS_PROFILES", "DEFAULT_AGENT_PROFILE", "OPERATION_PERMISSIONS", "AgentAccess",
-           "AgentApplicationService", "AgentPermission", "AgentPermissionDenied", "AgentPermissionService",
+           "AgentApplicationService", "AgentAuthenticator", "AgentIdentity", "LOCAL_AGENT_IDENTITY", "LocalAgentAuthenticator", "AgentPermission", "AgentPermissionDenied", "AgentPermissionService",
            "AgentOperation", "AgentProfile", "ApplicationError", "PhosApplicationService", "RemoteApplicationService",
            "SEMANTIC_EVENT_TYPES", "SemanticEvent", "SemanticEventPublisher", "SemanticSubscription", "SemanticPhysicalContext", "SemanticPhysicalContextService",
            "USER_SIGNAL_INTENTS")

@@ -168,15 +168,17 @@ camera-frame access, serial/controller transport, hardware/configuration
 mutation, and administrative/recovery controls are intentionally absent from
 this facade.
 
-Permission answers whether a trusted adapter may request an operation.
-Capability answers whether the delegated application service can currently
-perform it; validation, availability, lifecycle, and arbitration errors still
-come from that service after a permission check.  Authentication answers who is
-calling and is not implemented here.  This is therefore an application-level
-semantic authorization model, not a complete security boundary: it does not
-replace transport authentication, OS permissions, network security, or
-sandboxing.  MCP, network identities, credentials, and persistence remain
-deferred.
+Permission answers whether an identity may request an operation. Capability
+answers whether the delegated application service can currently perform it;
+validation, availability, lifecycle, and arbitration errors still come from
+that service after a permission check. Authentication answers who is calling:
+MCP Stage 3.1 resolves one immutable provider-neutral `AgentIdentity` per
+inbound request before constructing the identity-bound agent facade. The
+transitional local authenticator resolves the existing trusted-local client to
+the `standard` profile without credential verification. This is not a complete
+security boundary: credential-backed transport authentication, persisted
+identities, network authorization, OS permissions, and sandboxing remain
+separate concerns.
 
 ### MCP Semantic Adapter — Stage 1
 
@@ -205,12 +207,12 @@ or hardware logic.
 MCP clients connect to the already-running PHOS instance. Client sessions do
 not create runtimes, application services, or permission boundaries. The
 default listener is loopback-only; a non-loopback bind requires explicit
-configuration and is warned because transport authentication, agent identity,
+configuration and is warned because credential-backed transport authentication
 and network authorization are not implemented.
 
-This is for trusted local/integrated execution. There is no MCP authentication;
-application permissions are not transport authentication. Do not expose the
-endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
+This is for trusted local/integrated execution. Stage 3.1 resolves a
+credential-free local identity; application permissions are not transport
+authentication. Do not expose the endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
 audio device, configuration, and administrative/recovery controls are absent.
 Stage 2 begins with a transport-neutral semantic event model. The application
 service projects meaningful interpreted transitions (robot state, environmental
