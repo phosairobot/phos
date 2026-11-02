@@ -13,8 +13,9 @@ from flask import Flask, Response, abort, flash, jsonify, redirect, render_templ
 from flask_wtf.csrf import CSRFError, CSRFProtect
 
 from robot import __version__
-from robot.config import ConfigurationError
-from robot.services import ApplicationError
+from robot.config import ConfigurationError, RuntimeConfig
+from robot.services import (AgentCredentialError, AgentCredentialService, AgentManagementError,
+                            AgentManagementService, AgentRegistryProvider, AgentProfile, ApplicationError)
 from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
@@ -72,10 +73,38 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                       SESSION_REFRESH_EACH_REQUEST=False,
                       PERMANENT_SESSION_LIFETIME=timedelta(minutes=30))
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
-    web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
+    secret_store = secrets_service or SecretsService(config.path.parent / ".phos-secrets")
+    web_secrets = WebSecretsService(secret_store)
     auth = AuthenticationState(clock)
     app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets,
                           )
+    if lifecycle is None:
+        initial_registry = RuntimeConfig.from_dict(config.read(), base_dir=config.path.parent,
+                                                   check_paths=False).agent_registry
+        local_registry_provider = AgentRegistryProvider(initial_registry)
+        agent_management = AgentManagementService(config.repository, local_registry_provider,
+                                                  AgentCredentialService(local_registry_provider, secret_store))
+    else:
+        agent_management = None
+
+    def manage_agents(operation, payload=None):
+        """Use the owner process for live updates; local apps use the same service."""
+        if lifecycle is not None:
+            reply = lifecycle.execute(f"application.{operation}", payload or {})
+            if not reply.get("ok"):
+                error = reply.get("error", {})
+                raise AgentManagementError(error.get("code", "operation_failed") if isinstance(error, dict) else "operation_failed")
+            return reply.get("result")
+        handlers = {
+            "agents": agent_management.list_agents,
+            "create_agent": lambda: agent_management.create_agent(**payload),
+            "update_agent": lambda: agent_management.update_agent(**payload),
+            "delete_agent": lambda: agent_management.delete_agent(payload["agent_id"]),
+            "create_agent_credential": lambda: agent_management.create_credential(payload["agent_id"]),
+            "rotate_agent_credential": lambda: agent_management.rotate_credential(payload["agent_id"]),
+            "revoke_agent_credential": lambda: agent_management.revoke_credential(payload["agent_id"]),
+        }
+        return handlers[operation]()
     csrf = CSRFProtect(app)
     if application_service is not None:
         from robot.web.api import create_api
@@ -247,6 +276,54 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 else:
                     return redirect(url_for("credentials"))
         return render_template("credentials.html", slots=web_secrets.slots(), error=error), 400 if error else 200
+
+    @app.route("/agents", methods=["GET", "POST"])
+    def agents():
+        """Manage live MCP identities and write-only bearer lifecycle."""
+        error = issued = None
+        if request.method == "POST":
+            allowed = {"csrf_token", "action", "agent_id", "display_name", "permission_profile", "confirm"}
+            action = request.form.get("action")
+            if set(request.form) - allowed or action not in {"create_agent", "update_agent", "delete_agent", "create", "rotate", "revoke"}:
+                abort(400)
+            agent_id = request.form.get("agent_id", "")
+            if action in {"rotate", "revoke", "delete_agent"} and request.form.get("confirm") != "yes":
+                error = "Confirm this credential operation before continuing."
+            else:
+                try:
+                    if action == "create_agent":
+                        manage_agents("create_agent", {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")})
+                        flash("Agent created. Create a credential when this identity should authenticate.")
+                        return redirect(url_for("agents"))
+                    if action == "update_agent":
+                        manage_agents("update_agent", {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")})
+                        flash("Agent updated. New permissions apply to subsequent requests.")
+                        return redirect(url_for("agents"))
+                    if action == "delete_agent":
+                        manage_agents("delete_agent", {"agent_id": agent_id})
+                        flash("Agent deleted and its credential revoked.")
+                        return redirect(url_for("agents"))
+                    if action == "create":
+                        issued = manage_agents("create_agent_credential", {"agent_id": agent_id})
+                    elif action == "rotate":
+                        issued = manage_agents("rotate_agent_credential", {"agent_id": agent_id})
+                    else:
+                        manage_agents("revoke_agent_credential", {"agent_id": agent_id})
+                        flash("Credential revoked. This agent can no longer authenticate until a new credential is created.")
+                        return redirect(url_for("agents"))
+                except (AgentCredentialError, AgentManagementError) as exc:
+                    error = {
+                        "unknown_agent": "Unknown configured agent.",
+                        "duplicate_agent": "Agent ID already exists.",
+                        "invalid_agent": "Agent ID, display name, or permission profile is invalid.",
+                        "default_agent": "Default agent cannot be deleted. Select another default agent first.",
+                        "credential_not_configured": "This agent has no configured credential reference.",
+                        "credential_already_exists": "A credential is already active; rotate it instead.",
+                        "credential_not_active": "No active credential is available to rotate.",
+                    }.get(str(exc), "Credential operation could not be completed.")
+        try: agent_rows = manage_agents("agents")
+        except AgentManagementError: return render_template("error.html", error="Cannot load configured agents."), 503
+        return render_template("agents.html", agents=agent_rows, profiles=[item.value for item in AgentProfile], issued=issued, error=error), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():

@@ -1,8 +1,10 @@
 import asyncio
 import inspect
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 
 pytest.importorskip("mcp")
 
@@ -16,7 +18,11 @@ from robot.mcp.server import (
 )
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
-from robot.services import AgentAccess, AgentApplicationService, AgentIdentity, ApplicationError, AgentProfile
+from robot.config import ConfigRepository, RuntimeConfig, load_document
+from robot.secrets import SecretsService
+from robot.services import (AgentAccess, AgentApplicationService, AgentCredentialService, AgentIdentity,
+                            AgentManagementService, AgentRegistry, AgentRegistryProvider,
+                            BearerAgentAuthenticator, ApplicationError, AgentProfile)
 from robot.services.application import PhosApplicationService
 from robot.services.semantic_events import SemanticEventPublisher
 
@@ -127,6 +133,191 @@ def test_mcp_middleware_authenticates_once_for_each_tool_or_resource_request():
     assert json.loads(resource[0].content)["running"] is True
     assert tool.structured_content["running"] is True
     assert authenticator.contexts == [resource_context, tool_context]
+
+
+def test_bearer_middleware_isolates_profiles_and_sanitizes_failed_authentication():
+    class Secrets:
+        def get_secret(self, reference): return {"mcp.standard.token": "super-secret-a", "mcp.observer.token": "super-secret-b"}.get(reference)
+    registry = AgentRegistry("standard", (AgentIdentity("standard", "standard"), AgentIdentity("observer", "observer")),
+                             {"standard": "mcp.standard.token", "observer": "mcp.observer.token"})
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service, authenticator=BearerAgentAuthenticator(registry, Secrets()))
+    middleware = server.middleware[-1]
+    def context(token): return type("Context", (), {"request": type("Request", (), {"headers": {"Authorization": token}})()})()
+    async def exercise():
+        allowed = await middleware(context("Bearer super-secret-a"), lambda _: server.call_tool("phos_sleep", {}))
+        with pytest.raises(Exception, match="permission_denied"):
+            await middleware(context("Bearer super-secret-b"), lambda _: server.call_tool("phos_sleep", {}))
+        with pytest.raises(PermissionError, match="^authentication_failed$") as error:
+            await middleware(context("Bearer invalid"), lambda _: server.call_tool("phos_sleep", {}))
+        return allowed, str(error.value)
+    allowed, error = asyncio.run(exercise())
+    assert allowed.is_error is False
+    assert error == "authentication_failed" and "super-secret" not in error
+    assert application.calls == [("set_state", "sleeping")]
+
+
+def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(tmp_path, caplog):
+    from mcp.client import ClientSession
+    from mcp.client.streamable_http import httpx2 as httpx, streamable_http_client
+    from mcp.shared.exceptions import MCPError
+
+    document = load_document()
+    document["agents"] = {"default_agent": "local-agent", "entries": [
+        {"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"},
+        {"id": "stage3-standard", "display_name": "Stage 3 Standard Agent", "permission_profile": "standard",
+         "credential": {"type": "bearer", "secret_ref": "mcp.stage3_standard.token"}},
+        {"id": "stage3-observer", "display_name": "Stage 3 Observer Agent", "permission_profile": "observer",
+         "credential": {"type": "bearer", "secret_ref": "mcp.stage3_observer.token"}},
+    ]}
+    config_path = tmp_path / "phos.yaml"
+    config_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    config = RuntimeConfig.from_file(config_path)
+    registry = config.agent_registry
+    store = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+    standard_token = "STAGE3_TOKEN_MUST_NOT_LEAK_91A7"
+    observer_token = "HTTP_OBSERVER_TOKEN_MUST_NOT_LEAK_4C2B"
+    store.set_secret("mcp.stage3_standard.token", standard_token)
+    store.set_secret("mcp.stage3_observer.token", observer_token)
+    adapter, application = _adapter()
+    authenticator = BearerAgentAuthenticator(registry, store)
+    seen_request = {}
+    original_authenticate = authenticator.authenticate
+
+    async def authenticate(context):
+        request = context.request
+        headers = request.headers
+        seen_request.update(request_type=type(request).__name__, headers_type=type(headers).__name__,
+                            authorization_present=isinstance(headers.get("authorization"), str))
+        return await original_authenticate(context)
+
+    authenticator.authenticate = authenticate
+    server = create_mcp_server(adapter._agent_service, authenticator=authenticator)
+    app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/mcp")
+    async def session_for(authorization):
+        headers = {} if authorization is None else {"Authorization": authorization}
+        client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8001", headers=headers)
+        async with streamable_http_client("http://127.0.0.1:8001/mcp", http_client=client) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                yield session
+
+    async def rejected(authorization):
+        try:
+            async for _ in session_for(authorization):
+                pass
+        except BaseExceptionGroup as error:
+            return repr(error)
+        raise AssertionError("unauthenticated MCP initialization unexpectedly succeeded")
+
+    async def exercise():
+        async with server.session_manager.run():
+            async for standard in session_for(f"Bearer {standard_token}"):
+                allowed_first = await standard.call_tool("phos_sleep")
+                snapshot = await standard.read_resource("phos://vision/snapshot")
+                async for observer in session_for(f"Bearer {observer_token}"):
+                    denied = await observer.call_tool("phos_sleep")
+                    with pytest.raises(MCPError) as denied_camera:
+                        await observer.read_resource("phos://vision/snapshot")
+                allowed_second = await standard.call_tool("phos_sleep")
+            failures = [await rejected(value) for value in (None, "Bearer invalid", "Bearer", "Basic invalid")]
+            return allowed_first, allowed_second, denied, snapshot, repr(denied_camera.value), failures
+    allowed_first, allowed_second, denied, snapshot, denied_camera, failures = asyncio.run(exercise())
+    assert registry.default_agent == "local-agent"
+    assert registry.credential_refs == {"stage3-standard": "mcp.stage3_standard.token",
+                                        "stage3-observer": "mcp.stage3_observer.token"}
+    assert allowed_first.is_error is False and allowed_second.is_error is False
+    assert denied.is_error is True and "permission_denied" in denied.content[0].text
+    assert snapshot.contents[0].mime_type == "image/jpeg" and snapshot.contents[0].blob
+    assert "permission_denied" in denied_camera
+    assert all("authentication_failed" in failure and standard_token not in failure and observer_token not in failure
+               for failure in failures)
+    assert seen_request == {"request_type": "Request", "headers_type": "Headers", "authorization_present": True}
+    assert standard_token not in caplog.text and observer_token not in caplog.text
+    assert application.calls == [("set_state", "sleeping"), ("get_camera_snapshot",), ("set_state", "sleeping")]
+
+
+def test_streamable_http_dynamic_agent_crud_updates_authentication_without_restart(tmp_path):
+    from mcp.client import ClientSession
+    from mcp.client.streamable_http import httpx2 as httpx, streamable_http_client
+
+    document = load_document()
+    document["agents"] = {"default_agent": "local-agent", "entries": [
+        {"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard",
+         "credential": {"type": "bearer", "secret_ref": "mcp.agents.local_agent.token"}},
+    ]}
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    repository = ConfigRepository(path)
+    config = repository.load()
+    before_fps = config.display_fps
+    provider = AgentRegistryProvider(config.agent_registry)
+    store = SecretsService(tmp_path / ".phos-secrets")
+    credentials = AgentCredentialService(provider, store)
+    management = AgentManagementService(repository, provider, credentials)
+    application = ApplicationSpy()
+    authenticator = BearerAgentAuthenticator(provider, store)
+    authenticated = []
+    original_authenticate = authenticator.authenticate
+
+    async def authenticate(context):
+        identity = await original_authenticate(context)
+        authenticated.append((identity.id, identity.permission_profile.value))
+        return identity
+
+    authenticator.authenticate = authenticate
+    server = create_mcp_server(AgentApplicationService(application, config.agent_registry.default_identity),
+                               authenticator=authenticator)
+    app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/mcp")
+
+    async def session_for(token):
+        client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8001",
+                                 headers={"Authorization": f"Bearer {token}"})
+        async with streamable_http_client("http://127.0.0.1:8001/mcp", http_client=client) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                yield session
+
+    async def rejected(token):
+        try:
+            async for _ in session_for(token):
+                pass
+        except BaseExceptionGroup as error:
+            return repr(error)
+        raise AssertionError("deleted bearer unexpectedly initialized an MCP session")
+
+    async def exercise(token):
+        async with server.session_manager.run():
+            async for observer in session_for(token):
+                allowed_read = await observer.call_tool("phos_get_status")
+                denied_sleep = await observer.call_tool("phos_sleep")
+            management.update_agent("live-observer", "Live Observer", "standard")
+            async for standard in session_for(token):
+                allowed_sleep = await standard.call_tool("phos_sleep")
+                await standard.call_tool("phos_wake")
+            management.delete_agent("live-observer")
+            failure = await rejected(token)
+            return allowed_read, denied_sleep, allowed_sleep, failure
+
+    management.create_agent("live-observer", "Live Observer", "observer")
+    created = repository.load()
+    assert created.agent_registry.get("live-observer").permission_profile.value == "observer"
+    assert created.display_fps == before_fps
+    issued = management.create_credential("live-observer")
+    reference = issued.status.secret_ref
+    allowed_read, denied_sleep, allowed_sleep, failure = asyncio.run(exercise(issued.token))
+
+    assert allowed_read.is_error is False
+    assert denied_sleep.is_error is True and "permission_denied" in denied_sleep.content[0].text
+    assert allowed_sleep.is_error is False
+    assert ("live-observer", "observer") in authenticated
+    assert ("live-observer", "standard") in authenticated
+    assert "authentication_failed" in failure
+    assert store.has_secret(reference) is False
+    reloaded = repository.load()
+    assert reloaded.agent_registry.get("live-observer") is None
+    assert reloaded.display_fps == before_fps
+    assert application.calls == [("status",), ("set_state", "sleeping"), ("set_state", "idle")]
 
 
 def test_camera_snapshot_uses_dedicated_permission_and_observer_is_denied():

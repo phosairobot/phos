@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+import secrets
+from threading import RLock
 from types import MappingProxyType
 from typing import Mapping, Protocol
 
+from robot.secrets import SecretsError
+
 from .agent_permissions import AgentProfile
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -59,12 +66,16 @@ class LocalAgentAuthenticator:
 
 class AgentRegistry:
     """Immutable configured identities, independent of transports and credentials."""
-    def __init__(self, default_agent: str, entries: tuple[AgentIdentity, ...]) -> None:
+    def __init__(self, default_agent: str, entries: tuple[AgentIdentity, ...], credential_refs: Mapping[str, str] | None = None) -> None:
         identities = {identity.id: identity for identity in entries}
         if len(identities) != len(entries) or default_agent not in identities:
             raise ValueError("Configured agents require unique ids and a known default_agent.")
         self.default_agent = default_agent
         self._identities: Mapping[str, AgentIdentity] = MappingProxyType(identities)
+        refs = dict(credential_refs or {})
+        if set(refs) - set(identities) or len(set(refs.values())) != len(refs):
+            raise ValueError("Configured credential references must be unique and belong to known agents.")
+        self._credential_refs = MappingProxyType(refs)
 
     def get(self, agent_id: str) -> AgentIdentity | None:
         return self._identities.get(agent_id)
@@ -77,8 +88,29 @@ class AgentRegistry:
     def entries(self) -> tuple[AgentIdentity, ...]:
         return tuple(self._identities.values())
 
+    @property
+    def credential_refs(self) -> Mapping[str, str]: return self._credential_refs
+
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, AgentRegistry) and self.default_agent == other.default_agent and self.entries == other.entries
+        return (isinstance(other, AgentRegistry) and self.default_agent == other.default_agent
+                and self.entries == other.entries and self.credential_refs == other.credential_refs)
+
+
+class AgentRegistryProvider:
+    """Thread-safe owner for the registry consulted by new MCP requests."""
+    def __init__(self, registry: AgentRegistry) -> None:
+        self._registry = registry
+        self._lock = RLock()
+
+    def get(self) -> AgentRegistry:
+        with self._lock:
+            return self._registry
+
+    def replace(self, registry: AgentRegistry) -> None:
+        if not isinstance(registry, AgentRegistry):
+            raise TypeError("registry must be an AgentRegistry")
+        with self._lock:
+            self._registry = registry
 
 
 COMPATIBILITY_AGENT_REGISTRY = AgentRegistry("local-agent", (LOCAL_AGENT_IDENTITY,))
@@ -86,8 +118,61 @@ COMPATIBILITY_AGENT_REGISTRY = AgentRegistry("local-agent", (LOCAL_AGENT_IDENTIT
 
 class ConfiguredAgentAuthenticator(LocalAgentAuthenticator):
     """Resolves the configured default identity; credential selection is deferred."""
-    def __init__(self, registry: AgentRegistry) -> None:
+    def __init__(self, registry: AgentRegistry | AgentRegistryProvider) -> None:
         self._registry = registry
 
+    def _current_registry(self) -> AgentRegistry:
+        return self._registry.get() if isinstance(self._registry, AgentRegistryProvider) else self._registry
+
     async def authenticate(self, request_context: object | None = None) -> AgentIdentity:
-        return self._registry.default_identity
+        return self._current_registry().default_identity
+
+
+class BearerAgentAuthenticator(ConfiguredAgentAuthenticator):
+    """Bearer verifier using only secret references held by the registry."""
+    def __init__(self, registry: AgentRegistry | AgentRegistryProvider, secrets_service) -> None:
+        super().__init__(registry); self._secrets = secrets_service
+
+    async def authenticate(self, request_context: object | None = None) -> AgentIdentity:
+        registry = self._current_registry()
+        if not registry.credential_refs:
+            logger.info("PHOS MCP auth compatibility_no_runtime_credential_refs=true")
+            return await super().authenticate(request_context)
+        headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
+        value = headers.get("authorization") or headers.get("Authorization")
+        header_present = value is not None
+        bearer_format_valid = isinstance(value, str) and value.startswith("Bearer ")
+        logger.info("PHOS MCP auth request header_present=%s bearer_format_valid=%s credential_refs=%s",
+                    header_present, bearer_format_valid, len(registry.credential_refs))
+        if not header_present:
+            logger.info("PHOS MCP auth failed reason=missing_header")
+            raise PermissionError("authentication_failed")
+        if not bearer_format_valid:
+            logger.info("PHOS MCP auth failed reason=invalid_scheme")
+            raise PermissionError("authentication_failed")
+        token = value[7:]
+        if not token:
+            logger.info("PHOS MCP auth failed reason=empty_bearer")
+            raise PermissionError("authentication_failed")
+        secret_present = False
+        for agent_id, secret_ref in registry.credential_refs.items():
+            try:
+                expected = self._secrets.get_secret(secret_ref)
+            except (SecretsError, OSError):
+                logger.info("PHOS MCP auth credential agent=%s secret_ref=%s secret_present=unknown match=false",
+                            agent_id, secret_ref)
+                logger.info("PHOS MCP auth failed reason=secret_store_failure")
+                raise PermissionError("authentication_failed") from None
+            present = bool(expected)
+            secret_present = secret_present or present
+            matched = present and secrets.compare_digest(token, expected)
+            logger.info("PHOS MCP auth credential agent=%s secret_ref=%s secret_present=%s match=%s",
+                        agent_id, secret_ref, present, matched)
+            if matched:
+                identity = registry.get(agent_id)
+                if identity is None:
+                    logger.info("PHOS MCP auth failed reason=registry_agent_missing")
+                    raise PermissionError("authentication_failed")
+                return identity
+        logger.info("PHOS MCP auth failed reason=%s", "no_matching_credential" if secret_present else "secret_missing")
+        raise PermissionError("authentication_failed")

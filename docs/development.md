@@ -97,7 +97,10 @@ never imports boto3, searches for credentials or contacts AWS.
 
 ### MCP agent configuration
 
-`agents` is a restart-only canonical configuration section:
+`agents` is a canonical configuration section. Web Admin agent management uses
+`ConfigRepository` persistence and replaces the validated runtime registry for
+subsequent MCP requests; manual configuration edits still follow the normal
+configuration/reload workflow:
 
 ```yaml
 agents:
@@ -108,11 +111,44 @@ agents:
       permission_profile: standard
 ```
 
-Each entry has only a stable id, optional display name, and one existing
-permission profile. It contains no credential, token, secret, transport, or
-session fields. If the entire section is absent, compatibility resolves
+Each entry has a stable id, optional display name, and one existing permission
+profile. In credential mode it may also contain a non-secret bearer reference:
+
+```yaml
+credential:
+  type: bearer
+  secret_ref: mcp.agent_standard.token
+```
+
+`secret_ref` is resolved only by `SecretsService`; the actual token must never
+appear in this file, `RuntimeConfig`, `AgentIdentity`, logs, test fixtures, or
+Web/API responses. If the entire section is absent, compatibility resolves
 `local-agent`/`standard`; if present, malformed entries, duplicate ids, unknown
-profiles, or an unknown default agent fail configuration loading.
+profiles, duplicate credential references, malformed credential records, or an
+unknown default agent fail configuration loading. When any credential reference
+is configured, MCP requires a matching bearer token for every request.
+
+### MCP credential lifecycle
+
+`AgentCredentialService` is the administration boundary for MCP bearer
+credentials. It uses the existing encrypted `SecretsService` store;
+there is no second credential database and the configured `secret_ref` remains
+stable across rotation. It creates bearer values with `secrets.token_urlsafe(32)`
+(256 bits from the operating-system CSPRNG), returning the new value only from
+the create or rotate operation. Status reports only agent ID, credential type,
+secret reference, and configured/active state; stored values cannot be read
+back through this service.
+
+Create rejects an already-active credential, rotate atomically replaces the
+secret-store value (the old bearer becomes invalid), and revoke removes the
+secret while retaining the configured agent identity and permission profile.
+`SecretsService` is read at authentication time, so these operations take
+effect without a PHOS restart. Expiry and policy controls remain future
+hardening work.
+
+Web Admin lifecycle operations must call `AgentCredentialService` only. They
+may display a freshly issued bearer once for create/rotate, but status/list APIs
+and subsequent HTML responses must never retrieve or serialize stored values.
 
 Startup reads one JSON, applies explicit deprecated CLI overrides, validates
 schema/types/ranges and active paths, then builds typed settings and constructs

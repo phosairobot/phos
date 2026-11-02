@@ -1,5 +1,11 @@
 "use strict";
 (() => {
+  const button = document.querySelector("[data-copy-credential]"), credential = document.getElementById("issued-credential");
+  if (!button || !credential || !navigator.clipboard) return;
+  button.addEventListener("click", () => { navigator.clipboard.writeText(credential.value); });
+})();
+
+(() => {
   const controls = document.querySelector("[data-iris-color-controls]");
   if (!controls) return;
   const preset = controls.querySelector("[data-iris-color-preset]");

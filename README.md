@@ -121,6 +121,13 @@ open a new subscription and re-read current Resources. The separately owned
 `phos-mcp-bridge` has externally validated long-lived stdio subscription
 forwarding for consecutive `phos://status` updates.
 
+For authenticated bridge use, the bridge reads an already-issued PHOS bearer
+from `PHOS_MCP_TOKEN` and transports it to the PHOS Streamable HTTP endpoint.
+PHOS—not the bridge—resolves the `AgentIdentity` and permission profile and
+enforces tool, Resource, and camera permissions. Do not put the bearer in CLI
+arguments; see the [MCP guide](docs/mcp.md#bridge-authentication) for launch,
+rotation, and validation details.
+
 ## Project status & roadmap
 
 ### PHOS 1.8.0 — MCP & Runtime Administration Stabilization
@@ -138,13 +145,31 @@ non-empty `image/jpeg` blob. This validates resource availability and JPEG
 output, not image-content quality. Optional sensor, provider, and deployment
 acceptance remains component-specific.
 
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and MCP credential-backed authentication/per-client authorization. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
+Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and final external multi-agent MCP validation. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
 
 MCP agent configuration is canonical PHOS configuration: `agents.default_agent`
 selects one entry from `agents.entries`, whose `id`, optional `display_name`,
 and `permission_profile` resolve through the existing permission boundary.
 When the whole section is absent, legacy deployments use `local-agent` with
 `standard`; an explicit invalid section fails startup rather than falling back.
+An entry may reference a bearer secret with
+`credential: {type: bearer, secret_ref: mcp.agent.token}`. `SecretsService`
+holds the token; runtime configuration and `AgentIdentity` never do. If any
+such reference exists, each MCP request must present `Authorization: Bearer …`;
+invalid credentials fail closed and separate MCP sessions retain separate,
+request-scoped identities.
+
+Configured MCP credentials have a programmatic lifecycle boundary for future
+administration: create, rotate, and revoke use the encrypted `SecretsService`
+store while retaining the same non-secret reference in configuration. A newly
+created or rotated bearer is shown exactly once; credential status never
+returns stored bearer values. Rotation and revocation take effect immediately
+for subsequent requests without changing the agent's permission profile.
+Web Admin **Settings → Agents** creates, edits, and deletes agents as well as
+managing their credentials. IDs are immutable, profile changes affect the next
+MCP request, and deleting a non-default agent revokes its bearer first. New
+bearers are disclosed once only; configuration and the live registry update
+without a PHOS restart.
 
 See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
 

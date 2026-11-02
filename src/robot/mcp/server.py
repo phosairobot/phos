@@ -357,7 +357,7 @@ class McpHttpServer:
 
         self._semantic_events.start(asyncio.get_running_loop())
         if not ipaddress.ip_address(self.host).is_loopback:
-            logger.warning("PHOS MCP: non-loopback bind host=%s; credential-backed authentication and network authorization are not implemented", self.host)
+            logger.warning("PHOS MCP: non-loopback bind host=%s; require TLS and appropriate network controls", self.host)
         logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
         app = self._mcp_server.streamable_http_app(host=self.host, streamable_http_path=self.path)
         config = uvicorn.Config(app, host=self.host, port=self.port,

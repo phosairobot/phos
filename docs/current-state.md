@@ -57,13 +57,46 @@ and returns a non-empty `image/jpeg` blob. This establishes resource
 availability and JPEG output, not image-content quality. Async semantic change
 cues use SDK `subscriptions/listen`; clients receive URI-only notifications and
 re-read current Resources. Camera snapshots are excluded from notifications.
-Credential-backed MCP authentication remains deferred.
+MCP Stage 3.3 is complete: configured bearer `secret_ref` values resolve only
+through `SecretsService`; valid credentials resolve a request-scoped
+`AgentIdentity` and existing permission profile. Missing, malformed, or invalid
+bearers fail before application execution with no default-agent fallback.
 
 Stage 3.2 loads the canonical `agents` registry at startup. A configured default
 agent resolves to `AgentIdentity`, its existing permission profile, and then the
-agent application facade. Changes are restart-only. No credentials, tokens,
-Web Admin management, bridge credentials, or per-client identity resolution are
-implemented.
+agent application facade. Changes are restart-only. Stage 3.3 adds only
+non-secret credential references, not tokens, Web Admin management, bridge
+credentials, or credential-management UI.
+
+MCP Stage 3.4 supplies `AgentCredentialService` for creation, rotation,
+revocation, and non-secret status of configured bearer references. It uses the
+existing encrypted `SecretsService`; bearer values are generated with the OS
+CSPRNG, disclosed only at create/rotate time, and are never readable through
+the lifecycle service. Rotation preserves `secret_ref` and invalidates the old
+bearer; revocation removes the stored value while retaining the configured
+identity/profile. Stage 3.4 itself did not add Web Admin management, bridge
+transport support, expiry policy, or an external identity provider.
+
+MCP Stage 3.5 adds the authenticated Web Admin **Settings → Agents** page for
+existing configured agents. It displays only identity/profile and non-secret
+credential status, calls `AgentCredentialService` rather than `SecretsService`,
+requires confirmation for rotate/revoke, and renders a newly issued bearer only
+in its immediate create/rotate response. Agent-definition editing remains the
+canonical restart-required configuration workflow.
+
+MCP Stage 3.6 is complete in the separately owned `phos-mcp-bridge`: its stdio
+transport reads `PHOS_MCP_TOKEN` and creates an authenticated Streamable HTTP
+connection to PHOS. The security boundary is deliberate: the bridge transports
+the credential, while PHOS resolves `AgentIdentity` and `PermissionProfile` and
+enforces authorization, including camera and Resource permissions, through
+`BearerAgentAuthenticator` and `AgentApplicationService`. The bridge has no
+identity or permission logic, rejects visible bearer CLI arguments, and does
+not fall back to an unauthenticated/default identity. Credential rotation or
+revocation in PHOS invalidates the old bearer; update `PHOS_MCP_TOKEN` and
+restart/relaunch the bridge if required to create a new authenticated upstream
+connection. Hot credential reload is not claimed. Bridge automated validation
+passed (10 tests); live PHOS/bridge interoperability validation is not yet
+recorded and remains Stage 3.7 work.
 
 MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
 MCP request passes through one authentication middleware hook that resolves an
@@ -72,8 +105,9 @@ then used to create the permission-checked `AgentApplicationService` facade.
 The transitional `LocalAgentAuthenticator` resolves every trusted-local client
 as `local-agent` with the existing `standard` profile and verifies no
 credentials. It preserves prior behavior but is explicitly not production-grade
-authentication. Credential-backed authentication, persisted identities and
-profiles, and per-client authorization remain future work.
+authentication. Credential-backed configuration, per-client authentication,
+and lifecycle operations are now implemented; expiry policy and external
+identity providers remain future work.
 
 Sensor availability/freshness transitions are complete: numeric samples remain
 read-only, while status transitions publish semantic Resource cues. Raspberry
@@ -94,8 +128,8 @@ on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
 boundaries; Raspberry Pi camera-snapshot acceptance has confirmed operation
-with Camera Preview disabled. MCP Stage 2 is complete; authentication and
-per-client authorization remain separate future MCP work.
+with Camera Preview disabled. MCP Stages 2 and 3.3–3.6 are complete; live
+external multi-agent interoperability validation remains Stage 3.7 work.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

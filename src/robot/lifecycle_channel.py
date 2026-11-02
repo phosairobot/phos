@@ -24,6 +24,7 @@ class LifecycleClient:
         application.update({"application.request_admin_password_recovery", "application.verify_admin_recovery_code", "application.clear_admin_overlay", "application.get_admin_network_info", "application.show_admin_access_overlay"})
         application.update({"application.controller_status", "application.controller_serial_ports", "application.controller_recent_messages", "application.clear_controller_recent_messages"})
         application.update({"application.mcp_settings", "application.configure_mcp"})
+        application.update({"application.agents", "application.create_agent", "application.update_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential"})
         if not ((isinstance(request, str) and request in allowed)
                 or (isinstance(request, dict) and request.get("operation") in application)):
             return {"ok": False, "error": "Unsupported lifecycle operation."}
