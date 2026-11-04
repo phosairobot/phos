@@ -198,9 +198,10 @@ together. This foundation does not itself configure or contact a cloud provider.
 ## MCP agents
 
 **Settings → Agents** lists MCP identities, their permission profile, default
-status, and non-secret bearer status. It creates agents, edits display names
-and profiles, and deletes non-default agents through `AgentManagementService`;
-the ID is immutable. It calls `AgentCredentialService`, which uses
+status, and non-secret bearer status in a compact desktop table that becomes
+stacked cards on narrow screens. It creates agents, edits display names and
+profiles, selects the default agent, and deletes non-default agents through
+`AgentManagementService`; the ID is immutable. It calls `AgentCredentialService`, which uses
 `SecretsService`; the page never reads secret-store values directly.
 Create and rotate display a newly issued bearer exactly once with a copy/store
 warning. Refreshing or revisiting the page cannot retrieve it; rotate a lost
@@ -209,6 +210,8 @@ without a PHOS restart, and leave the configured agent identity/profile intact.
 Creating a credential generates its valid non-secret reference automatically.
 Agent changes are persisted through the canonical configuration repository and
 replace the runtime registry for subsequent MCP requests without a restart.
+Only one default agent is allowed. The current default is clearly marked and
+cannot be deleted until another configured agent is selected as default.
 
 **Save** on an editable page converts fields and calls the same model validation and
 atomic persistence used elsewhere. Invalid input leaves the file unchanged,

@@ -483,6 +483,7 @@ class LifecycleService:
                 payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
             "application.update_agent": lambda: self._agent_management_service.update_agent(
                 payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+            "application.set_default_agent": lambda: self._agent_management_service.set_default_agent(payload.get("agent_id", "")),
             "application.delete_agent": lambda: self._agent_management_service.delete_agent(payload.get("agent_id", "")),
             "application.create_agent_credential": lambda: self._agent_management_service.create_credential(payload.get("agent_id", "")),
             "application.rotate_agent_credential": lambda: self._agent_management_service.rotate_credential(payload.get("agent_id", "")),
@@ -543,7 +544,7 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        agent_operation = name in {"application.agents", "application.create_agent", "application.update_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential"}
+        agent_operation = name in {"application.agents", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential"}
         if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",

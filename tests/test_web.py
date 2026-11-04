@@ -79,7 +79,7 @@ def _issued_bearer(response):
 
 
 def _agent_section(page, agent_name):
-    return re.search(rf'<section class="status credential-slot"><h3>{agent_name}</h3>(.*?)</section>',
+    return re.search(rf'<tr class="agent-row" data-agent-name="{agent_name}">(.*?)</tr>',
                      page.get_data(as_text=True), re.DOTALL).group(1)
 
 
@@ -88,7 +88,7 @@ def test_agents_page_lists_non_secret_status_and_requires_admin_authentication(t
     assert app.test_client().get("/agents").location == "/login"
     page = authorize(app).get("/agents")
     text = page.get_data(as_text=True)
-    assert all(value in text for value in ("MCP Agents", "Standard Agent", "Observer Agent", "Uncredentialed Agent", "standard", "observer", "Inactive", "Create credential"))
+    assert all(value in text for value in ("Agents", "Standard Agent", "Observer Agent", "Uncredentialed Agent", "standard", "observer", "Inactive", "Create credential"))
     assert "secret_ref" not in text and "mcp.standard.token" not in text
 
 
@@ -100,10 +100,10 @@ def test_agents_page_renders_credential_actions_from_configured_and_active_statu
     observer = _agent_section(initial, "Observer Agent")
     uncredentialed = _agent_section(initial, "Uncredentialed Agent")
     for section in (standard, observer):
-        assert "Bearer — <strong>Inactive</strong>" in section
+        assert "Inactive" in section
         assert "Create credential" in section
         assert "Rotate credential" not in section and "Revoke credential" not in section
-    assert "Credential not configured" in uncredentialed
+    assert "Not configured" in uncredentialed
     assert "Create credential" in uncredentialed
     assert "Rotate credential" not in uncredentialed and "Revoke credential" not in uncredentialed
 
@@ -120,7 +120,7 @@ def test_agents_page_renders_credential_actions_from_configured_and_active_statu
     assert calls == ["standard"]
     reloaded = client.get("/agents")
     standard = _agent_section(reloaded, "Standard Agent")
-    assert "Bearer — <strong>Active</strong>" in standard
+    assert "Active" in standard
     assert "Create credential" not in standard
     assert "Rotate credential" in standard and "Revoke credential" in standard
     assert bearer not in reloaded.get_data(as_text=True)
@@ -137,9 +137,9 @@ def test_agents_page_safely_distinguishes_secret_store_failure_from_an_inactive_
     page = client.get("/agents")
     standard = _agent_section(page, "Standard Agent")
     uncredentialed = _agent_section(page, "Uncredentialed Agent")
-    assert "Credential status unavailable" in standard
+    assert "Unavailable" in standard
     assert all(action not in standard for action in ("Create credential", "Rotate credential", "Revoke credential"))
-    assert "Credential not configured" in uncredentialed
+    assert "Not configured" in uncredentialed
 
 
 def test_agent_credential_web_lifecycle_discloses_bearer_once_and_preserves_authentication(tmp_path, caplog):
@@ -179,7 +179,7 @@ def test_agents_page_creates_edits_and_deletes_a_live_agent(tmp_path):
     assert created.status_code == 302
     page = client.get("/agents")
     live = _agent_section(page, "Live Agent")
-    assert "Credential not configured" in live and "Create credential" in live
+    assert "Not configured" in live and "Create credential" in live
     issued = post(client, "/agents", {"action": "create", "agent_id": "live-agent"})
     token = _issued_bearer(issued)
     # The local test adapter uses the same provider-backed runtime registry.
@@ -243,6 +243,68 @@ def test_agents_page_uses_lifecycle_agent_management_boundary(tmp_path):
     assert ("application.agents", {}) in lifecycle.calls
     assert ("application.create_agent", {"agent_id": "live-agent", "display_name": "Live Agent",
                                            "permission_profile": "observer"}) in lifecycle.calls
+
+
+def test_agents_page_sets_default_live_and_updates_delete_protection(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    initial = client.get("/agents").get_data(as_text=True)
+    assert "★ Default" in _agent_section(client.get("/agents"), "Standard Agent")
+    assert "Set as default" in _agent_section(client.get("/agents"), "Observer Agent")
+    changed = post(client, "/agents", {"action": "set_default_agent", "agent_id": "observer"})
+    assert changed.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path)
+    assert saved.agent_registry.default_agent == "observer"
+    page = client.get("/agents")
+    observer = _agent_section(page, "Observer Agent")
+    standard = _agent_section(page, "Standard Agent")
+    assert "★ Default" in observer and "Set as default" not in observer
+    assert "Set as default" in standard
+    blocked = post(client, "/agents", {"action": "delete_agent", "agent_id": "observer", "confirm": "yes"})
+    assert blocked.status_code == 400 and "Default agent cannot be deleted" in blocked.get_data(as_text=True)
+    assert post(client, "/agents", {"action": "delete_agent", "agent_id": "standard", "confirm": "yes"}).status_code == 302
+
+
+def test_agents_page_set_default_requires_csrf_and_uses_lifecycle(tmp_path):
+    class Lifecycle:
+        def __init__(self): self.calls = []
+        def execute(self, operation, payload=None):
+            self.calls.append((operation, payload))
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "one", "display_name": "One", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False}, {"agent_id": "two", "display_name": "Two", "permission_profile": "observer", "default": False, "credential_configured": False, "credential_active": False}]}
+            return {"ok": True, "result": {}}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    lifecycle = Lifecycle(); client = authorize(create_app(path, lifecycle=lifecycle))
+    assert client.post("/agents", data={"action": "set_default_agent", "agent_id": "two"}).status_code == 400
+    assert post(client, "/agents", {"action": "set_default_agent", "agent_id": "two"}).status_code == 302
+    assert ("application.set_default_agent", {"agent_id": "two"}) in lifecycle.calls
+
+
+def test_agents_template_uses_compact_table_and_responsive_cards():
+    root = Path(__file__).parents[1]
+    template = (root / "src/robot/web/templates/agents.html").read_text()
+    stylesheet = (root / "src/robot/web/static/admin.css").read_text()
+    assert 'class="agents-table"' in template
+    assert 'data-label="Agent"' in template
+    assert 'class="agent-menu"' in template
+    assert "@media(max-width:680px)" in stylesheet
+    assert ".agents-table thead{display:none}" in stylesheet
+
+
+def test_agents_overlays_use_dialogs_and_unclipped_exclusive_controller():
+    root = Path(__file__).parents[1]
+    template = (root / "src/robot/web/templates/agents.html").read_text()
+    stylesheet = (root / "src/robot/web/static/admin.css").read_text()
+    script = (root / "src/robot/web/static/admin.js").read_text()
+    assert '<dialog id="create-agent-dialog"' in template
+    assert 'data-agent-open-dialog="edit-agent-' in template
+    assert 'data-agent-transient' in template
+    assert '.agents-table-wrap{overflow:visible}' in stylesheet
+    assert '.agent-menu-panel{position:fixed' in stylesheet
+    assert 'closeMenus(menu)' in script
+    assert 'pointerdown' in script and 'event.key === "Escape"' in script
+    assert 'data-agent-close-dialog' in template
+    assert 'aria-label="Edit ' in template and 'aria-label="More actions for ' in template
 
 
 def test_recovery_request_is_public_and_never_returns_the_physical_code(setup):

@@ -1,12 +1,14 @@
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
 
 from robot.secrets import SecretsError, SecretsService
+from robot.config import ConfigRepository, load_document
 from robot.services import (AgentCredentialError, AgentCredentialService, AgentIdentity, AgentRegistry,
-                            AgentRegistryProvider, BearerAgentAuthenticator)
+                            AgentManagementError, AgentManagementService, AgentRegistryProvider, BearerAgentAuthenticator)
 
 
 def _registry():
@@ -131,3 +133,25 @@ def test_bearer_authenticator_resolves_the_current_registry_for_each_request(tmp
     provider.replace(original)
     with pytest.raises(PermissionError, match="authentication_failed"):
         asyncio.run(auth.authenticate(_context(issued.token)))
+
+
+def test_default_agent_change_persists_publishes_and_releases_previous_default(tmp_path):
+    document = load_document()
+    document["agents"] = {"default_agent": "standard", "entries": [
+        {"id": "standard", "display_name": "Standard", "permission_profile": "standard"},
+        {"id": "observer", "display_name": "Observer", "permission_profile": "observer"},
+    ]}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    repository = ConfigRepository(path)
+    provider = AgentRegistryProvider(repository.load().agent_registry)
+    management = AgentManagementService(repository, provider,
+                                        AgentCredentialService(provider, SecretsService(tmp_path / ".phos-secrets")))
+    changed = management.set_default_agent("observer")
+    assert changed["default"] is True
+    assert provider.get().default_agent == "observer"
+    assert repository.load().agent_registry.default_agent == "observer"
+    management.delete_agent("standard")
+    with pytest.raises(AgentManagementError, match="default_agent"):
+        management.delete_agent("observer")
+    with pytest.raises(AgentManagementError, match="unknown_agent"):
+        management.set_default_agent("missing")

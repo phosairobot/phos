@@ -5,6 +5,41 @@
   button.addEventListener("click", () => { navigator.clipboard.writeText(credential.value); });
 })();
 
+// The Agents page keeps all mutations in ordinary CSRF-protected forms.  This
+// controller only manages transient presentation: native dialogs and menus.
+(() => {
+  const page = document.querySelector("[data-agents-page]");
+  if (!page) return;
+  const menus = () => [...page.querySelectorAll("details[data-agent-transient]")];
+  const closeMenus = (except = null) => menus().forEach((menu) => {
+    if (menu !== except) menu.open = false;
+  });
+  const closeDialogs = (except = null) => page.querySelectorAll("dialog[open]").forEach((dialog) => {
+    if (dialog !== except) dialog.close();
+  });
+  page.querySelectorAll("[data-agent-open-dialog]").forEach((button) => button.addEventListener("click", () => {
+    const dialog = document.getElementById(button.dataset.agentOpenDialog);
+    if (!dialog) return;
+    closeMenus(); closeDialogs(dialog);
+    dialog.querySelector("form")?.reset();
+    // Edit forms need their server-rendered values, so reset only restores
+    // defaults; create starts blank because its controls have no defaults.
+    dialog.showModal();
+  }));
+  page.querySelectorAll("[data-agent-close-dialog]").forEach((button) => button.addEventListener("click", () => {
+    button.closest("dialog")?.close();
+  }));
+  menus().forEach((menu) => menu.addEventListener("toggle", () => {
+    if (menu.open) { closeMenus(menu); closeDialogs(); }
+  }));
+  document.addEventListener("pointerdown", (event) => {
+    if (!page.contains(event.target) || !event.target.closest("details[data-agent-transient]")) closeMenus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { closeMenus(); closeDialogs(); }
+  });
+})();
+
 (() => {
   const controls = document.querySelector("[data-iris-color-controls]");
   if (!controls) return;

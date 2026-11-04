@@ -112,6 +112,10 @@ Agent creation, deletion, and permission-profile edits do not require a PHOS
 restart: new MCP authentication resolves the current registry. Already-open MCP
 sessions are not forcibly terminated and may retain their current request or
 session context; clients should establish a new request/session after a change.
+Selecting a different default agent also persists and publishes immediately;
+it changes only trusted-local/default compatibility resolution, never an
+explicitly authenticated agent identity. The selected default is protected from
+deletion until another configured agent becomes default.
 
 ## Bridge authentication
 
