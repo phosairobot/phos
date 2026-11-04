@@ -130,6 +130,16 @@ class AgentManagementService:
             registry = self._replace(entries=tuple(replacement if item.id == agent_id else item for item in current.entries))
             return self._view(registry, replacement)
 
+    def set_default_agent(self, agent_id: str) -> dict:
+        """Persist and publish a new default identity without changing credentials."""
+        with self._lock:
+            current = self._provider.get()
+            identity = current.get(agent_id)
+            if identity is None:
+                raise AgentManagementError("unknown_agent")
+            registry = self._replace(default_agent=agent_id)
+            return self._view(registry, identity)
+
     def create_credential(self, agent_id: str):
         with self._lock:
             current = self._provider.get()

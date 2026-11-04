@@ -99,6 +99,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             "agents": agent_management.list_agents,
             "create_agent": lambda: agent_management.create_agent(**payload),
             "update_agent": lambda: agent_management.update_agent(**payload),
+            "set_default_agent": lambda: agent_management.set_default_agent(payload["agent_id"]),
             "delete_agent": lambda: agent_management.delete_agent(payload["agent_id"]),
             "create_agent_credential": lambda: agent_management.create_credential(payload["agent_id"]),
             "rotate_agent_credential": lambda: agent_management.rotate_credential(payload["agent_id"]),
@@ -284,7 +285,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         if request.method == "POST":
             allowed = {"csrf_token", "action", "agent_id", "display_name", "permission_profile", "confirm"}
             action = request.form.get("action")
-            if set(request.form) - allowed or action not in {"create_agent", "update_agent", "delete_agent", "create", "rotate", "revoke"}:
+            if set(request.form) - allowed or action not in {"create_agent", "update_agent", "set_default_agent", "delete_agent", "create", "rotate", "revoke"}:
                 abort(400)
             agent_id = request.form.get("agent_id", "")
             if action in {"rotate", "revoke", "delete_agent"} and request.form.get("confirm") != "yes":
@@ -298,6 +299,10 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     if action == "update_agent":
                         manage_agents("update_agent", {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")})
                         flash("Agent updated. New permissions apply to subsequent requests.")
+                        return redirect(url_for("agents"))
+                    if action == "set_default_agent":
+                        manage_agents("set_default_agent", {"agent_id": agent_id})
+                        flash("Default agent updated. New compatibility requests use this identity.")
                         return redirect(url_for("agents"))
                     if action == "delete_agent":
                         manage_agents("delete_agent", {"agent_id": agent_id})
@@ -323,7 +328,9 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     }.get(str(exc), "Credential operation could not be completed.")
         try: agent_rows = manage_agents("agents")
         except AgentManagementError: return render_template("error.html", error="Cannot load configured agents."), 503
-        return render_template("agents.html", agents=agent_rows, profiles=[item.value for item in AgentProfile], issued=issued, error=error), 400 if error else 200
+        summary = {"count": len(agent_rows), "active_credentials": sum(agent["credential_active"] is True for agent in agent_rows),
+                   "default": next((agent["display_name"] or agent["agent_id"] for agent in agent_rows if agent["default"]), "Unknown")}
+        return render_template("agents.html", agents=agent_rows, profiles=[item.value for item in AgentProfile], summary=summary, issued=issued, error=error), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():
