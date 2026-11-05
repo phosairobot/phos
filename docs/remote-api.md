@@ -131,7 +131,7 @@ confidence. `observed_expression_changed` SSE events are emitted only when
 availability or label changes, not for confidence jitter alone.
 
 Touch is physical-input telemetry, not a remote command. Its read model reports
-only the last valid completed `tap`, `long_press`, `swipe_left`, or
+only the last valid completed `tap`, `double_tap`, `long_press`, `swipe_left`, or
 `swipe_right`; raw pointer movement and startup-splash input are not recorded.
 The SSE stream emits the matching edge event name once per completed gesture,
 with position, normalized position and duration payload fields.

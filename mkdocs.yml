@@ -1,5 +1,5 @@
 site_name: PHOS
-site_description: An expressive AI-powered robot platform built on Raspberry Pi.
+site_description: A physical companion for AI Agents, built on Raspberry Pi.
 site_url: https://phosairobot.github.io/phos/
 
 repo_url: https://github.com/phosairobot/phos
@@ -69,49 +69,52 @@ extra:
       link: https://www.instagram.com/phosairobot/
       name: PHOS on Instagram
 
+    - icon: fontawesome/brands/youtube
+      link: https://www.youtube.com/@phosairobot
+      name: PHOS on YouTube
+
 extra_css:
   - assets/css/phos.css
 
 nav:
   - Home: index.md
 
-  - Features: features.md
+  - Discover PHOS:
+      - Overview: discover.md
+      - What PHOS can do: features.md
+      - How PHOS works: how-phos-works.md
+      - Visual personality: vision-expressions.md
+      - Environmental awareness: environmental-awareness.md
+      - Motion awareness: motion-awareness.md
+      - MCP & AI Agent Integration: mcp-overview.md
+      - Use cases: use-cases.md
+      - Getting started: installation-overview.md
 
-  - How PHOS Works:
-      - Architecture: how-phos-works.md
-      - Vision & Expressions: vision-expressions.md
-      - Motion Awareness: motion-awareness.md
-      - Environmental Awareness: environmental-awareness.md
-      - Visual System: visual-system.md
-
-  - Hardware: hardware-overview.md
-
-  - Installation: installation-overview.md
-
-  - Web Admin: web-admin-overview.md
-
-  - Appearance:
-      - Creating a PHOS Skin: appearance/creating-skins.md
-
-  - Documentation:
-      - Documentation hub: documentation.md
-      - Architecture reference: architecture.md
-      - Vision reference: vision.md
-      - Vision model evaluation: vision-model-evaluation.md
+  - Technical Documentation:
+      - Installation & setup: installation.md
+      - Configuration & migration: development.md
+      - Architecture: architecture.md
+      - Hardware & sensors: hardware-overview.md
       - Hardware reference: hardware.md
-      - Installation reference: installation.md
-      - Web Admin manual: web-administration.md
-      - Remote API: remote-api.md
-      - MCP semantic adapter: mcp.md
-      - API contract notes: api.md
-      - Development & configuration: development.md
-      - JSON to YAML migration: configuration-migration.md
-      - AI strategy: ai.md
-      - TTS strategy: tts.md
-      - Voice capture and STT: voice.md
+      - External controller / ESP32: hardware-controller.md
+      - Display & expressions: visual-system.md
+      - Vision & presence: vision.md
+      - Vision model evaluation: vision-model-evaluation.md
+      - Voice & speech: voice.md
       - Voice commands: voice-commands.md
+      - Text to speech: tts.md
+      - MCP:
+          - MCP Reference: mcp.md
+          - Agent-connected model: ai.md
+      - REST API: remote-api.md
+      - Web Administration: web-administration.md
+      - Web Admin overview: web-admin-overview.md
+      - Appearance skins: appearance/creating-skins.md
+      - API contract notes: api.md
+      - Development & testing: documentation.md
+      - Configuration migration: configuration-migration.md
       - Architecture decisions: decisions.md
-      - Current implementation handoff: current-state.md
+      - Current implementation state: current-state.md
 
   - Roadmap: roadmap.md
 
@@ -119,6 +122,7 @@ nav:
       - Releases overview: releases.md
       - PHOS 1.8.0: release-1.8.0.md
       - PHOS 1.7.0: release-1.7.0.md
+      - PHOS 1.4.0: release-1.4.0.md
       - PHOS 1.3.0: release-1.3.0.md
       - PHOS 1.2.0: release-1.2.0.md
       - PHOS 1.1.0: release-1.1.0.md

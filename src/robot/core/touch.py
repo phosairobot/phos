@@ -8,12 +8,14 @@ from typing import Optional
 
 TOUCH_EVENT = "touch.event"
 TOUCH_TAP = "touch_tap"
+TOUCH_DOUBLE_TAP = "touch_double_tap"
 TOUCH_LONG_PRESS = "touch_long_press"
 TOUCH_SWIPE_LEFT = "touch_swipe_left"
 TOUCH_SWIPE_RIGHT = "touch_swipe_right"
 
 TOUCH_EVENT_NAMES = {
     "tap": TOUCH_TAP,
+    "double_tap": TOUCH_DOUBLE_TAP,
     "long_press": TOUCH_LONG_PRESS,
     "swipe_left": TOUCH_SWIPE_LEFT,
     "swipe_right": TOUCH_SWIPE_RIGHT,

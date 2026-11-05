@@ -236,11 +236,16 @@ class PhosRuntime:
                 self.clear_admin_overlay()
                 logger.info("PHOS ADMIN: access overlay closed")
             return True
-        if (event.kind.value == "long_press" and event.duration_ms >= 2500
+        if (event.kind.value == "double_tap"
                 and event.normalized_x >= .80 and event.normalized_y <= .20):
+            logger.info("PHOS ADMIN: top-right double-tap recognized")
             try:
                 self.show_admin_access_overlay()
-            except RuntimeError:
+            except RuntimeError as error:
+                logger.info("PHOS ADMIN: access overlay rejected reason=%s", str(error))
+                return False
+            except Exception:
+                logger.exception("PHOS ADMIN: access overlay failed")
                 return False
             return True
         return False

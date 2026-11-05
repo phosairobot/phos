@@ -2,9 +2,14 @@
 
 ![PHOS robot](img/phos.png)
 
-**An open-source expressive robot platform for Raspberry Pi.**
+**A Physical Companion for AI Agents.**
 
-PHOS combines an animated face, camera-based perception, environmental and motion sensing, touch, voice, and LAN administration into a modular physical robot platform. It targets Raspberry Pi 3 today and is developed as a real hardware project: capabilities are designed behind explicit provider boundaries, covered by hardware-free tests where possible, and distinguished from physical Pi validation.
+PHOS gives AI Agents a physical presence while remaining useful on its own. It
+combines an animated face, camera-based perception, environmental and motion
+sensing, touch, voice, and LAN administration into a modular Raspberry Pi
+robot platform. Capabilities are designed behind explicit provider boundaries,
+covered by hardware-free tests where possible, and distinguished from physical
+Pi validation.
 
 **Current release:** PHOS 1.8.0 — MCP & Runtime Administration Stabilization · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
 
@@ -13,6 +18,22 @@ PHOS combines an animated face, camera-based perception, environmental and motio
 PHOS is built around expressive, observable robot behavior rather than a single cloud service or a browser-only demo. Sensors and providers produce observations; the central `BehaviorEngine` turns those into semantic robot state and visual intent. The renderer, LEDs, audio, Web Admin, and API consume those boundaries without reaching into hardware internals.
 
 The project is local-first where practical. Its core display, local vision, local Vosk speech recognition, and local Piper speech synthesis can run on the Pi. Cloud providers are optional, selected explicitly, and kept behind the same provider-neutral interfaces.
+
+## Standalone or agent-connected
+
+**Standalone PHOS** manages implemented visual behavior, state, optional
+sensors, touch, voice services, Web Admin, and REST APIs without an external
+AI Agent. It is not presented as a built-in general-purpose conversational LLM.
+
+**Agent-connected PHOS** gives an external MCP client semantic physical context
+and controlled actions. The agent supplies its own reasoning; PHOS retains
+hardware ownership, authentication, permissions, and physical execution.
+
+Start with the [documentation homepage](https://phosairobot.github.io/phos/),
+[Getting Started](https://phosairobot.github.io/phos/installation-overview/),
+[MCP & AI Agent Integration](https://phosairobot.github.io/phos/mcp-overview/),
+or the
+[Remote API](https://phosairobot.github.io/phos/remote-api/).
 
 ## What PHOS can do today
 
@@ -38,7 +59,7 @@ The project is local-first where practical. Its core display, local vision, loca
 
 ### Sensors & physical interaction
 
-- Recognize local touchscreen taps, long presses, and horizontal swipes as semantic gestures.
+- Recognize local touchscreen taps, double-taps, long presses, and horizontal swipes as semantic gestures.
 - Integrate optional BME280/BMP280 environmental sensing, CCS811 air-quality estimates, MPU-6050/GY-521 motion sensing, and WS2812B LED-ring feedback.
 - Translate confirmed environmental and motion observations into behavioral visual intent rather than letting drivers control the display directly.
 
@@ -159,8 +180,8 @@ such reference exists, each MCP request must present `Authorization: Bearer …`
 invalid credentials fail closed and separate MCP sessions retain separate,
 request-scoped identities.
 
-Configured MCP credentials have a programmatic lifecycle boundary for future
-administration: create, rotate, and revoke use the encrypted `SecretsService`
+Configured MCP credentials have a programmatic lifecycle boundary: create,
+rotate, and revoke use the encrypted `SecretsService`
 store while retaining the same non-secret reference in configuration. A newly
 created or rotated bearer is shown exactly once; credential status never
 returns stored bearer values. Rotation and revocation take effect immediately

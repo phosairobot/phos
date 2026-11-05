@@ -55,8 +55,8 @@ Do not configure router port forwarding or expose this interface to the Internet
 ## Local Admin Access
 
 The Dashboard Network card shows PHOS's selected LAN IPv4 address, interface and
-the effective Admin URL. On the physical display, long-press the top-right 20%
-of the screen for at least 2.5 seconds to open the Admin Access overlay. Scan
+the effective Admin URL. On the physical display, double-tap the top-right 20%
+of the screen to open the Admin Access overlay. Scan
 its QR code with a phone on the **same LAN**, or enter the displayed URL
 manually. A single tap closes the overlay. PHOS uses its current LAN IPv4
 address only; it does not require `phos.local`, mDNS, Internet access, or router

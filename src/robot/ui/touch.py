@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 class TouchKind(str, Enum):
     TAP = "tap"
+    DOUBLE_TAP = "double_tap"
     LONG_PRESS = "long_press"
     SWIPE_LEFT = "swipe_left"
     SWIPE_RIGHT = "swipe_right"
@@ -28,10 +29,13 @@ class TouchInputAdapter:
                  tap_max_duration_ms=350, tap_max_movement_px=20,
                  long_press_min_duration_ms=800, long_press_max_movement_px=20, swipe_min_distance_px=100,
                  swipe_max_vertical_drift_px=80, swipe_max_duration_ms=1000,
+                 double_tap_interval_ms=450, double_tap_max_distance_px=40,
                  clock=time.monotonic) -> None:
         self._emit, self._width, self._height, self._clock = emit, width, height, clock
         self._tap_duration, self._tap_movement, self._long, self._long_movement, self._swipe_distance, self._swipe_drift, self._swipe_duration = tap_max_duration_ms, tap_max_movement_px, long_press_min_duration_ms, long_press_max_movement_px, swipe_min_distance_px, swipe_max_vertical_drift_px, swipe_max_duration_ms
+        self._double_tap_interval, self._double_tap_distance = double_tap_interval_ms / 1000, double_tap_max_distance_px
         self._down: Optional[tuple[int, int, float]] = None
+        self._last_tap: Optional[tuple[int, int, float]] = None
     def down(self, x: int, y: int) -> None: self._down = (x, y, self._clock())
     def release(self, x: int, y: int) -> Optional[TouchEvent]:
         if self._down is None: return None
@@ -40,6 +44,17 @@ class TouchInputAdapter:
         if duration <= self._swipe_duration and abs(dx) >= self._swipe_distance and abs(dy) <= self._swipe_drift: kind = TouchKind.SWIPE_RIGHT if dx > 0 else TouchKind.SWIPE_LEFT
         elif duration >= self._long and max(abs(dx), abs(dy)) <= self._long_movement: kind = TouchKind.LONG_PRESS
         elif duration <= self._tap_duration and max(abs(dx), abs(dy)) <= self._tap_movement: kind = TouchKind.TAP
-        if kind is None: return None
+        if kind is None:
+            self._last_tap = None
+            return None
+        if kind is TouchKind.TAP:
+            previous = self._last_tap
+            if (previous is not None and ended - previous[2] <= self._double_tap_interval
+                    and max(abs(x - previous[0]), abs(y - previous[1])) <= self._double_tap_distance):
+                kind, self._last_tap = TouchKind.DOUBLE_TAP, None
+            else:
+                self._last_tap = (x, y, ended)
+        else:
+            self._last_tap = None
         event = TouchEvent(kind, x, y, min(1,max(0,x/self._width)), min(1,max(0,y/self._height)), started, ended, duration, dx, dy)
         self._emit(event); return event

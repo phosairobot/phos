@@ -85,7 +85,7 @@ supported Voice & Speech provider/output changes activate live and persist.
 <article class="phos-card" markdown>
 <span class="phos-status">IMPLEMENTED</span>
 ### Face-display touch telemetry
-Completed taps, long presses and horizontal swipes are recognized locally as
+Completed taps, double-taps, long presses and horizontal swipes are recognized locally as
 semantic input. The last valid gesture is observable through the shared runtime
 snapshot, Remote API and read-only Web Admin diagnostics; raw pointer events
 are never exposed.
@@ -123,8 +123,9 @@ PHOS exposes a versioned local REST API for robot status, health, environmental 
 <div class="phos-callout" markdown>
 
 Transcript-to-intent/command handling, conversational LLM operation, wake-word
-and continuous listening, Home Assistant, and MCP events/subscriptions are
-explicitly deferred.
+and continuous listening, and Home Assistant are explicitly deferred. MCP
+tools, resources, and resource-change subscriptions are implemented; see
+[MCP & AI Agent Integration](mcp-overview.md) for their bounded semantics.
 Existing interfaces or scaffolding are not evidence of an end-to-end delivered
 feature. [Read the roadmap](roadmap.md).
 
