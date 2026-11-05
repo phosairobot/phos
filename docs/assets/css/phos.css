@@ -100,12 +100,33 @@
 .md-typeset .md-button {
   border-color: rgba(73, 231, 255, 0.52);
   border-radius: 0.45rem;
+  background-color: rgba(11, 23, 48, 0.94);
+  color: var(--phos-text);
   font-weight: 650;
 }
 
 .md-typeset .md-button:hover {
-  background: rgba(25, 118, 255, 0.18);
+  background-color: rgba(16, 31, 62, 1);
+  color: var(--phos-text);
   border-color: var(--phos-cyan);
+}
+
+.md-typeset .md-button--primary {
+  background-color: var(--phos-blue);
+  border-color: var(--phos-blue);
+  color: #ffffff;
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:active {
+  background-color: #0f64df;
+  border-color: #0f64df;
+  color: #ffffff;
+}
+
+.md-typeset .md-button:focus-visible {
+  outline: 0.18rem solid var(--phos-cyan);
+  outline-offset: 0.18rem;
 }
 
 /* =========================================================
@@ -245,11 +266,38 @@
 .phos-actions .md-button {
   border-color: rgba(73, 231, 255, 0.6);
   color: var(--phos-text);
+  background-color: rgba(11, 23, 48, 0.88);
+  text-shadow: none;
 }
 
-.phos-actions .md-button--primary {
+.phos-actions .md-button--primary,
+.phos-media-callout .md-button--primary {
   background: var(--phos-blue);
   border-color: var(--phos-blue);
+  color: #ffffff;
+}
+
+.phos-actions .md-button:hover,
+.phos-actions .md-button:active,
+.phos-media-callout .md-button:hover,
+.phos-media-callout .md-button:active {
+  color: var(--phos-text);
+  background-color: rgba(16, 31, 62, 1);
+}
+
+.phos-actions .md-button--primary:hover,
+.phos-actions .md-button--primary:active,
+.phos-media-callout .md-button--primary:hover,
+.phos-media-callout .md-button--primary:active {
+  color: #ffffff;
+  background-color: #0f64df;
+  border-color: #0f64df;
+}
+
+.phos-actions .md-button:focus-visible,
+.phos-media-callout .md-button:focus-visible {
+  outline: 0.18rem solid var(--phos-cyan);
+  outline-offset: 0.18rem;
 }
 
 /* =========================================================
@@ -615,6 +663,204 @@
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================================
+   Landing and discovery presentation
+   Stronger illumination is intentionally limited to the discovery journey.
+   Technical pages retain the restrained Material reading surface above.
+   ========================================================= */
+
+.phos-landing-hero,
+.phos-discover-hero,
+.phos-use-cases-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(2rem, 6vw, 4.5rem);
+  margin: -0.8rem 0 2.5rem;
+  border: 1px solid rgba(73, 231, 255, 0.19);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.12), transparent 30%),
+    radial-gradient(circle at 84% 82%, rgba(25, 118, 255, 0.16), transparent 37%),
+    linear-gradient(135deg, rgba(11, 27, 56, 0.96), rgba(5, 11, 24, 0.96));
+  box-shadow: 0 1.25rem 3.5rem rgba(0, 0, 0, 0.18);
+}
+
+.phos-landing-hero {
+  text-align: center;
+}
+
+.phos-landing-logo {
+  width: clamp(5rem, 13vw, 8rem);
+  height: auto;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  box-shadow: 0 0 2.2rem rgba(73, 231, 255, 0.34);
+}
+
+.phos-landing-hero h1 {
+  max-width: 13ch;
+  margin: 0 auto 0.65rem;
+  border: 0;
+  color: var(--phos-text);
+  font-size: clamp(2.25rem, 6vw, 4.75rem);
+  line-height: 1.03;
+}
+
+.phos-hero-lede {
+  max-width: 46rem;
+  margin: 0 auto;
+  color: var(--phos-muted) !important;
+  font-size: clamp(1.06rem, 2vw, 1.28rem);
+}
+
+.phos-mode-grid,
+.phos-capability-grid,
+.phos-discover-grid,
+.phos-use-case-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin: 1.4rem 0 2.5rem;
+}
+
+.phos-mode-card,
+.phos-capability-card,
+.phos-discover-grid > h3,
+.phos-discover-grid > p,
+.phos-use-case-grid > h2,
+.phos-use-case-grid > p {
+  min-width: 0;
+}
+
+.phos-mode-card,
+.phos-capability-card {
+  padding: 1.3rem;
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-radius: 0.85rem;
+  background: linear-gradient(145deg, rgba(16, 31, 62, 0.9), rgba(7, 15, 31, 0.92));
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.15);
+}
+
+.phos-mode-card h2,
+.phos-capability-card h3 {
+  margin-top: 0;
+  border: 0;
+}
+
+.phos-capability-card {
+  min-height: 11.5rem;
+}
+
+.phos-capability-card h3 {
+  margin-bottom: 0.45rem;
+  color: #dff7ff;
+}
+
+.phos-capability-icon,
+.phos-media-icon {
+  display: inline-block;
+  margin-bottom: 0.65rem;
+  color: var(--phos-cyan);
+  font-size: 1.65rem;
+}
+
+.phos-discover-hero,
+.phos-use-cases-hero {
+  padding: clamp(1.7rem, 4vw, 3rem);
+}
+
+.phos-discover-hero h1,
+.phos-use-cases-hero h1 {
+  margin-top: 0;
+  border: 0;
+}
+
+.phos-discover-grid > h3,
+.phos-discover-grid > p,
+.phos-use-case-grid > h2,
+.phos-use-case-grid > p {
+  grid-column: 1 / -1;
+}
+
+.phos-discover-grid > h3,
+.phos-use-case-grid > h2 {
+  margin: 0;
+  padding: 1.1rem 1.25rem 0;
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-bottom: 0;
+  border-radius: 0.8rem 0.8rem 0 0;
+  background: rgba(16, 31, 62, 0.7);
+}
+
+.phos-discover-grid > p,
+.phos-use-case-grid > p {
+  margin: -1rem 0 0;
+  padding: 0 1.25rem 1.2rem;
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-top: 0;
+  border-radius: 0 0 0.8rem 0.8rem;
+  background: rgba(16, 31, 62, 0.7);
+}
+
+.phos-media-callout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 1rem;
+  align-items: center;
+  padding: 1.3rem;
+  border: 1px solid rgba(255, 71, 71, 0.38);
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(100deg, rgba(186, 27, 27, 0.18), rgba(25, 118, 255, 0.08)),
+    var(--phos-surface);
+}
+
+.phos-media-callout > p:first-child {
+  grid-row: span 2;
+  margin: 0;
+}
+
+.phos-media-callout .phos-media-icon {
+  color: #ff6b6b;
+  font-size: 2rem;
+}
+
+.phos-media-callout p {
+  margin: 0;
+}
+
+.phos-media-callout .md-button {
+  justify-self: start;
+  margin-top: 0.8rem;
+}
+
+.phos-home-flow,
+.phos-use-case-flow {
+  margin: 1.5rem 0 2.5rem;
+  background:
+    linear-gradient(90deg, rgba(25, 118, 255, 0.1), rgba(73, 231, 255, 0.06)),
+    #08172f;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .phos-landing-hero,
+  .phos-discover-hero,
+  .phos-use-cases-hero {
+    margin-top: 0;
+    border-radius: 0.8rem;
+  }
+
+  .phos-media-callout {
+    grid-template-columns: 1fr;
+  }
+
+  .phos-media-callout > p:first-child {
+    grid-row: auto;
+    margin-bottom: 0.6rem;
   }
 }
 

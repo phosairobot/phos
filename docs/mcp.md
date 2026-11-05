@@ -1,5 +1,8 @@
 # MCP Semantic Adapter
 
+New to MCP with PHOS? Start with [PHOS & MCP — Give AI Agents a Physical
+Presence](mcp-overview.md) for the user-facing capabilities guide.
+
 PHOS starts its trusted-local MCP Streamable HTTP endpoint as part of normal
 runtime startup. Install the `mcp` optional dependency, configure `mcp` in the
 canonical PHOS configuration, then start PHOS normally:
@@ -81,8 +84,8 @@ external identity providers remain deferred.
 
 ## Credential lifecycle
 
-Stage 3.4 provides `AgentCredentialService` as the application/service boundary
-for future management surfaces:
+`AgentCredentialService` is the application/service boundary for credential
+management surfaces:
 
 ```text
 create / rotate / revoke
@@ -116,6 +119,24 @@ Selecting a different default agent also persists and publishes immediately;
 it changes only trusted-local/default compatibility resolution, never an
 explicitly authenticated agent identity. The selected default is protected from
 deletion until another configured agent becomes default.
+
+## Permission profiles
+
+`standard` agents can use the complete currently exposed semantic tool set and
+the protected camera snapshot Resource. `observer` agents retain read-only
+semantic context but cannot request control actions such as sleep, wake,
+speech, expression changes, or user signals; they also cannot read the camera
+snapshot. Permissions are enforced by PHOS on every authenticated request.
+
+## Connecting a client
+
+Use Streamable HTTP directly when the client supports it. Otherwise a separate
+transport bridge may be required; `phos-mcp-bridge` is separately owned and is
+not configured or modified by this repository. For a generic compatible client,
+connect to the configured endpoint (default `http://127.0.0.1:8001/mcp`) and
+send an already-issued bearer through an HTTP Authorization header when
+credential mode is enabled. See [Bridge authentication](#bridge-authentication)
+for the verified boundary and keep bearer values out of command lines.
 
 ## Bridge authentication
 

@@ -677,6 +677,6 @@ bounded cached result every 30 seconds. Web Admin obtains that read model only
 through `RemoteApplicationService` and lifecycle. The physical Admin overlay is
 a separate top display layer. It receives only the effective LAN Admin URL and
 a cached `qrcode` matrix; Tk renders individual square canvas modules, so Pillow
-and image resampling are unnecessary. A 2.5-second long press in the top-right
+and image resampling are unnecessary. A top-right double-tap
 20% of the display opens it, and a tap closes it. This never changes
 `FaceState`, `RobotState`, or `BehaviorEngine` state.
