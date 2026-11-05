@@ -49,6 +49,18 @@ def test_short_top_left_tap_uses_the_existing_tap_threshold_and_rejects_drag_or_
     assert adapter.release(20, 20).kind is TouchKind.LONG_PRESS
 
 
+def test_double_tap_is_bounded_and_emits_a_distinct_second_gesture():
+    clock, emitted = [0.0], []
+    adapter = _adapter(clock=clock, emitted=emitted)
+    adapter.down(760, 20); clock[0] = .1
+    assert adapter.release(760, 20).kind is TouchKind.TAP
+    adapter.down(770, 25); clock[0] = .25
+    assert adapter.release(770, 25).kind is TouchKind.DOUBLE_TAP
+    clock[0] = .9; adapter.down(760, 20); clock[0] = 1.0
+    assert adapter.release(760, 20).kind is TouchKind.TAP
+    assert [event.kind for event in emitted] == [TouchKind.TAP, TouchKind.DOUBLE_TAP, TouchKind.TAP]
+
+
 class _Runtime:
     def __init__(self):
         self.core = RobotCore()

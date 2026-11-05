@@ -437,7 +437,7 @@ if (ttsProvider) {
     else if (event.type === "touch_changed") state.touch = payload;
     else if (event.type === "voice_changed") state.voice = payload;
     else if (event.type.startsWith("voice_")) state.voice = {...(state.voice || {}), ...(event.type === "voice_transcription_completed" ? {last_transcript: payload.text, last_confidence: payload.confidence, language: payload.language, state: "idle"} : {})};
-    else if (["touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right"].includes(event.type)) {
+    else if (["touch_tap", "touch_double_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right"].includes(event.type)) {
       state.touch = {...(state.touch || {}), last_event: payload.kind, x: payload.x, y: payload.y,
         normalized_x: payload.normalized_x, normalized_y: payload.normalized_y, duration_ms: payload.duration_ms,
         last_event_at: event.timestamp};
@@ -446,7 +446,7 @@ if (ttsProvider) {
     else if (["person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost"].includes(event.type)) {
       snapshot(); return;
     }
-    else if (!["sensors_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
+    else if (!["sensors_changed", "touch_changed", "touch_tap", "touch_double_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
     render(); syncControls();
   };
   const fallback = () => { if (!fallbackTimer) fallbackTimer = window.setInterval(snapshot, 30000); };
@@ -455,7 +455,7 @@ if (ttsProvider) {
     stream.onopen = async () => { const reconnect = opened; opened = true; retries = 0; setConnection("connected"); window.clearInterval(fallbackTimer); fallbackTimer = undefined; if (reconnect) await snapshot(); };
     // The SSE adapter uses named semantic events, so listen explicitly rather
     // than relying on EventSource's unnamed-message default.
-    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "sensors_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
+    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "sensors_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_double_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
       stream.addEventListener(type, (message) => { try { applyEvent(JSON.parse(message.data)); } catch (_) {} });
     }
     stream.onerror = () => { stream.close(); setConnection("reconnecting"); fallback(); const delay = Math.min(30000, 1000 * 2 ** Math.min(retries++, 5)); retryTimer = window.setTimeout(connect, delay); };
