@@ -312,7 +312,8 @@ class CloudExpressionConfig:
 # live only in phos.json; this mapping is schema, not a second set of defaults.
 _SCHEMA = {
     "web": {"enabled": "web_enabled", "host": "web_host", "port": "web_port"},
-    "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path"},
+    "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
+            "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
     "agents": "agent_registry",
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
@@ -585,6 +586,8 @@ class RuntimeConfig:
     mcp_host: str
     mcp_port: int
     mcp_path: str
+    mcp_authentication_mode: str
+    mcp_anonymous_permission_profile: str
     agent_registry: object
     display_width: int
     display_height: int
@@ -699,7 +702,10 @@ class RuntimeConfig:
             if overrides[name] is not None:
                 overrides[name] = Path(overrides[name]).resolve()
         repository = ConfigRepository()
-        self._assign(_decode(repository.document()), repository.active_path.parent, overrides)
+        document = repository.document()
+        if isinstance(document.get("mcp"), dict):
+            document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
+        self._assign(_decode(document), repository.active_path.parent, overrides)
 
     def _assign(self, values, base_dir, overrides=None):
         values = dict(values)
@@ -756,6 +762,8 @@ class RuntimeConfig:
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
+            if isinstance(document.get("mcp"), dict):
+                document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
             document.setdefault("agents", {"default_agent": "local-agent", "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]})
             document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
                 "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
@@ -933,6 +941,10 @@ class RuntimeConfig:
             raise ConfigurationError("mcp.host must be an IP address string")
         if not isinstance(self.mcp_path, str) or not self.mcp_path.startswith("/") or self.mcp_path == "/" or "?" in self.mcp_path or "#" in self.mcp_path:
             raise ConfigurationError("mcp.path must be a non-root absolute URL path without query or fragment")
+        if self.mcp_authentication_mode not in {"bearer", "none", "mixed"}:
+            raise ConfigurationError("mcp.authentication.mode must be bearer, none, or mixed")
+        if self.mcp_anonymous_permission_profile not in {"standard", "observer"}:
+            raise ConfigurationError("mcp.authentication.anonymous_permission_profile must be standard or observer")
 
         for name in ("display_width", "display_height", "display_fps", "expression_minimum_observations"):
             number(name, integer=True)

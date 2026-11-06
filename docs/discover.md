@@ -72,4 +72,5 @@ Explore videos, demonstrations and development updates from the PHOS project.
 - [Install PHOS](installation.md)
 - [Explore use cases](use-cases.md)
 - [Configure Web Admin](web-administration.md)
+- [Connect external AI agents with MCP](mcp-overview.md)
 - [Understand the architecture](architecture.md)

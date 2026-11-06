@@ -8,7 +8,11 @@
     "enabled": true,
     "host": "127.0.0.1",
     "port": 8001,
-    "path": "/mcp"
+    "path": "/mcp",
+    "authentication": {
+      "mode": "bearer",
+      "anonymous_permission_profile": "standard"
+    }
   },
   "agents": {
     "default_agent": "local-agent",

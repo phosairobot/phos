@@ -855,33 +855,64 @@ class PhosApplicationService:
     def mcp_settings(self) -> dict:
         if self._lifecycle is None or self._mcp_manager is None:
             raise ApplicationError("service_unavailable", "MCP runtime service is unavailable.", status=503)
-        return self._mcp_manager.status()
+        result = self._mcp_manager.status()
+        result["authentication"] = self._lifecycle.config_repository.load().to_dict()["mcp"]["authentication"]
+        result["authentication_restart_required"] = False
+        return result
 
     def configure_mcp(self, patch: dict) -> dict:
         if (self._lifecycle is None or self._mcp_manager is None or not isinstance(patch, dict)
-                or set(patch) - {"enabled", "port"}):
+                or set(patch) - {"enabled", "port", "authentication", "confirm_anonymous_mcp"}):
             raise ApplicationError("invalid_mcp_settings", "MCP settings are invalid.")
         if type(patch.get("enabled")) is not bool or type(patch.get("port")) is not int or not 1 <= patch["port"] <= 65535:
             raise ApplicationError("invalid_mcp_settings", "MCP port must be an integer between 1 and 65535.")
         previous = self._lifecycle.config_repository.load()
         document = previous.to_dict()
-        document["mcp"].update(patch)
+        authentication = patch.get("authentication")
+        if authentication is not None and (not isinstance(authentication, dict)
+                                           or set(authentication) != {"mode", "anonymous_permission_profile"}):
+            raise ApplicationError("invalid_mcp_settings", "MCP authentication settings are invalid.")
+        if authentication and previous.mcp_authentication_mode == "bearer" and authentication["mode"] in {"none", "mixed"}:
+            if patch.get("confirm_anonymous_mcp") is not True:
+                raise ApplicationError("anonymous_mcp_confirmation_required", "Confirm anonymous MCP access before saving.", status=400)
+        document["mcp"].update({key: value for key, value in patch.items() if key in {"enabled", "port"}})
+        if authentication is not None:
+            document["mcp"]["authentication"] = authentication
         candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
-        try:
-            result = self._mcp_manager.apply(enabled=candidate.mcp_enabled, port=candidate.mcp_port)
-        except Exception as error:
-            current = self._mcp_manager.status()
-            message = (f"MCP could not start on port {patch['port']}. "
-                       f"MCP remains available on port {current['bound_port']}." if current.get("bound_port")
-                       else "MCP could not start on the requested port.")
-            raise ApplicationError("port_in_use", message, status=409) from error
+        listener_changed = (candidate.mcp_enabled != previous.mcp_enabled or candidate.mcp_port != previous.mcp_port)
+        if listener_changed:
+            try:
+                result = self._mcp_manager.apply(enabled=candidate.mcp_enabled, port=candidate.mcp_port)
+            except Exception as error:
+                current = self._mcp_manager.status()
+                message = (f"MCP could not start on port {patch['port']}. "
+                           f"MCP remains available on port {current['bound_port']}." if current.get("bound_port")
+                           else "MCP could not start on the requested port.")
+                raise ApplicationError("port_in_use", message, status=409) from error
+        else:
+            result = self._mcp_manager.status()
         try:
             self._lifecycle.config_repository.save(candidate)
         except OSError as error:
             # Keep runtime and persistence coherent if storage fails.
-            self._mcp_manager.apply(enabled=previous.mcp_enabled, port=previous.mcp_port)
+            if listener_changed:
+                self._mcp_manager.apply(enabled=previous.mcp_enabled, port=previous.mcp_port)
             raise ApplicationError("configuration_unavailable", "MCP settings could not be saved.", status=503) from error
+        if authentication is not None:
+            try:
+                self._mcp_manager.configure_authentication(
+                    mode=candidate.mcp_authentication_mode,
+                    anonymous_permission_profile=candidate.mcp_anonymous_permission_profile,
+                )
+            except Exception as error:
+                # The candidate was fully validated before persistence; an
+                # activation failure is nevertheless surfaced rather than
+                # falsely claiming the running policy changed.
+                raise ApplicationError("mcp_authentication_unavailable",
+                                       "MCP authentication settings were saved but could not be activated.", status=503) from error
         self._lifecycle.active["mcp"] = candidate.to_dict()["mcp"]
+        result.update({"authentication": candidate.to_dict()["mcp"]["authentication"],
+                       "restart_required": False})
         return result
 
     def request_admin_password_recovery(self):

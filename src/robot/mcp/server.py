@@ -406,6 +406,14 @@ class McpServerManager:
         return {"enabled": self._enabled, "port": self._configured_port, "status": self._status,
                 "bound_port": bound, "endpoint": endpoint, "error": self._error}
 
+    def configure_authentication(self, *, mode: str, anonymous_permission_profile: str) -> dict[str, Any]:
+        """Apply request-bound authentication policy without rebinding MCP."""
+        configure = getattr(self._authenticator, "configure", None)
+        if not callable(configure):
+            raise RuntimeError("MCP authentication runtime is unavailable")
+        configure(mode=mode, anonymous_permission_profile=anonymous_permission_profile)
+        return self.status()
+
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         if self._enabled:

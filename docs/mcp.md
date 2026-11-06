@@ -82,6 +82,137 @@ and never fall back to `default_agent`. Without credential references, Stage
 secret comparison. Tokens are not logged or returned in MCP errors. Expiry and
 external identity providers remain deferred.
 
+## Configurable authentication modes
+
+The canonical `mcp.authentication` configuration defaults to `bearer`, which
+preserves bearer-only operation. `none` resolves every request as the internal,
+non-persistent `anonymous-mcp` principal using the configured anonymous profile;
+a well-formed Bearer header is ignored for identity selection, while malformed
+or unsupported Authorization headers are rejected. `mixed` resolves a missing
+Authorization header as that anonymous principal and a valid Bearer header as
+its configured agent. An explicitly invalid or revoked Bearer is always
+rejected—PHOS never falls back to anonymous access after an invalid credential.
+
+Anonymous access is enabled only when `none` or `mixed` is selected. It uses
+the existing `standard` or `observer` permission profile and does not create an
+agent record or credential. In mixed mode, revoking a bearer prevents use of
+that authenticated identity, but does not prevent a client from reconnecting
+without a token when anonymous access is enabled.
+
+| Mode | Without token | With valid Bearer token |
+| --- | --- | --- |
+| Bearer | Rejected | Registered authenticated agent |
+| None | `anonymous-mcp` | `anonymous-mcp` |
+| Mixed | `anonymous-mcp` | Registered authenticated agent |
+
+Bearer Token Only is the default. It resolves the registered agent identity and
+its configured permission profile; credentials can be rotated or revoked. No
+Authentication uses the shared `anonymous-mcp` principal, so callers are not
+individually identifiable through MCP authentication. Mixed permits both: a
+missing token selects the anonymous principal, while a valid token selects its
+registered agent. Explicitly invalid or revoked Bearer tokens are rejected and
+never fall back to anonymous access.
+
+### Anonymous permissions
+
+Both anonymous profiles use the same PHOS authorization boundary as registered
+agents. `observer` is read-only. `standard` can use the semantic reads and
+currently exposed actions permitted to a standard agent, including supported
+expression, speech, sleep/wake, and user-signal requests, subject to runtime,
+capability, privacy, and safety checks. It may also access Resources available
+to the standard profile. Anonymous access never bypasses semantic arbitration
+or PHOS safety protections.
+
+## MCP Authentication & Security
+
+Configure authentication in **Settings → MCP**. Select **Bearer Token Only**,
+**No Authentication**, or **Mixed Authentication**. For No Authentication and
+Mixed, choose the anonymous Standard or Observer profile. Web Administration
+shows a security warning and requires explicit confirmation before enabling
+unauthenticated access.
+
+The validated authentication policy is applied to new MCP HTTP requests without
+rebinding the listener or restarting PHOS. Clients affected by a mode change
+should reconnect. Requests already being processed retain the policy snapshot
+with which they started; PHOS does not claim targeted termination of SDK-owned
+transport sessions or subscriptions.
+
+### Security considerations for unauthenticated MCP access
+
+An endpoint without token enforcement can be used by any client that can reach
+it. With the Standard profile, an unintended caller may make PHOS speak, change
+expressions, request sleep or wake, trigger semantic signals, and read allowed
+environmental or presence-related context. This matters because PHOS is a
+physical robot.
+
+HTTPS encrypts traffic; it does **not** authenticate callers. A public HTTPS
+tunnel can make a local MCP endpoint reachable from the Internet, and a URL is
+not an adequate access control. A tunnel or reverse proxy with its own enforced
+access restrictions is different from a publicly reachable tunnel, but PHOS
+still applies its configured MCP authentication and authorization.
+
+Anonymous callers share one internal identity. PHOS cannot reliably distinguish
+anonymous applications, individual bearer revocation does not block anonymous
+access, and audit attribution is limited. Existing safety arbitration is not a
+substitute for authentication.
+
+Recommended safeguards:
+
+1. Keep Bearer Token Only as the default.
+2. Enable anonymous access only when it is required.
+3. Restrict access at the tunnel, reverse proxy, or network boundary.
+4. Use Observer when actions are unnecessary; use Standard only when needed.
+5. Monitor unexpected MCP access and disable anonymous access when finished.
+6. Do not expose Web Administration or unrelated PHOS services through an MCP tunnel.
+
+## Connecting Remote MCP Clients
+
+PHOS exposes Streamable HTTP at its configured endpoint, for example
+`http://<PHOS_IP>:8001/mcp`. An HTTPS tunnel or reverse proxy can provide a
+remote endpoint such as `https://example.ngrok-free.app/mcp`; these URLs are
+illustrative. The tunnel provides connectivity, while PHOS performs configured
+authentication and permission checks.
+
+```text
+External MCP Client → HTTPS tunnel / reverse proxy → PHOS MCP Server
+                                                    → authentication + permissions
+                                                    → AgentApplicationService
+                                                    → PHOS semantic services
+```
+
+For a remote client, verify transport reachability, MCP initialization, tool
+discovery, Resource access, tool execution, and subscriptions separately. A
+successful connection alone does not prove every capability is available.
+
+### Example: connecting an AI assistant through an HTTPS tunnel
+
+ChatGPT is one example of a compatible MCP client; the same approach applies to
+other clients that support Streamable HTTP and the chosen authentication method.
+
+1. Enable the PHOS MCP listener.
+2. In **Settings → MCP**, select Mixed Authentication only if anonymous access is needed.
+3. Select the least-privileged anonymous profile for the use case.
+4. Configure an HTTPS tunnel to forward to the PHOS MCP port.
+5. Configure the client with the resulting URL ending in `/mcp`.
+6. Use its supported authentication option, connect, and verify tool discovery.
+7. Test a read-only operation before requesting an authorized action.
+
+Not every MCP client supports unauthenticated Streamable HTTP, and client setup
+screens vary. In Bearer mode, supply an issued credential through the client's
+safe credential mechanism rather than a URL or command line.
+
+### Troubleshooting remote access
+
+- Confirm the URL ends in `/mcp`, the tunnel forwards to the correct PHOS host
+  and port, and the MCP listener is running.
+- A Bearer-only endpoint rejects missing credentials. In Mixed mode, an invalid
+  or revoked supplied Bearer is rejected; omit it only when anonymous access is
+  intentionally enabled.
+- Check tunnel, reverse-proxy, and client protocol-header errors separately from
+  PHOS MCP errors. A tunnel `502`, timeout, or connection failure usually does
+  not identify an MCP application problem.
+- Reconnect clients after authentication configuration changes.
+
 ## Credential lifecycle
 
 `AgentCredentialService` is the application/service boundary for credential
