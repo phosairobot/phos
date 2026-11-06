@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from threading import RLock
 import secrets
 from threading import RLock
 from types import MappingProxyType
@@ -47,6 +48,11 @@ class AgentAuthenticator(Protocol):
 LOCAL_AGENT_IDENTITY = AgentIdentity(
     id="local-agent", display_name="Local MCP agent", permission_profile=AgentProfile.STANDARD,
 )
+
+
+def anonymous_mcp_identity(profile: AgentProfile | str) -> AgentIdentity:
+    """Create the non-persistent principal used only for anonymous MCP access."""
+    return AgentIdentity("anonymous-mcp", profile, "Anonymous MCP client")
 
 
 class LocalAgentAuthenticator:
@@ -176,3 +182,52 @@ class BearerAgentAuthenticator(ConfiguredAgentAuthenticator):
                 return identity
         logger.info("PHOS MCP auth failed reason=%s", "no_matching_credential" if secret_present else "secret_missing")
         raise PermissionError("authentication_failed")
+
+
+class McpAuthenticationModeAuthenticator:
+    """Resolve MCP principals once per request for bearer, none, or mixed mode.
+
+    An explicit malformed or invalid credential is always rejected; only an
+    absent header may select the anonymous principal in mixed mode.
+    """
+    def __init__(self, bearer: BearerAgentAuthenticator, *, mode: str = "bearer",
+                 anonymous_permission_profile: AgentProfile | str = AgentProfile.STANDARD) -> None:
+        if mode not in {"bearer", "none", "mixed"}:
+            raise ValueError("unsupported MCP authentication mode")
+        self._bearer, self._mode = bearer, mode
+        self._anonymous = anonymous_mcp_identity(anonymous_permission_profile)
+        self._lock = RLock()
+
+    def configure(self, *, mode: str, anonymous_permission_profile: AgentProfile | str) -> None:
+        """Atomically publish validated MCP authentication settings for new requests."""
+        if mode not in {"bearer", "none", "mixed"}:
+            raise ValueError("unsupported MCP authentication mode")
+        anonymous = anonymous_mcp_identity(anonymous_permission_profile)
+        with self._lock:
+            self._mode, self._anonymous = mode, anonymous
+
+    def settings(self) -> dict[str, str]:
+        with self._lock:
+            return {"mode": self._mode, "anonymous_permission_profile": self._anonymous.permission_profile.value}
+
+    @staticmethod
+    def _authorization(request_context: object | None):
+        headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
+        return headers.get("authorization") or headers.get("Authorization")
+
+    async def authenticate(self, request_context: object | None = None) -> AgentIdentity:
+        # Snapshot the pair together: a request never observes a mode and
+        # anonymous profile from different configuration generations.
+        with self._lock:
+            mode, anonymous = self._mode, self._anonymous
+        value = self._authorization(request_context)
+        if mode == "bearer":
+            return await self._bearer.authenticate(request_context)
+        if mode == "none":
+            if value is not None and (not isinstance(value, str) or not value.startswith("Bearer ") or not value[7:]):
+                raise PermissionError("authentication_failed")
+            return anonymous
+        if value is None:
+            return anonymous
+        # Do not downgrade an explicitly supplied invalid/revoked bearer.
+        return await self._bearer.authenticate(request_context)

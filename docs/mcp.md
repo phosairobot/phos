@@ -82,6 +82,24 @@ and never fall back to `default_agent`. Without credential references, Stage
 secret comparison. Tokens are not logged or returned in MCP errors. Expiry and
 external identity providers remain deferred.
 
+## Configurable authentication modes
+
+The canonical `mcp.authentication` configuration defaults to `bearer`, which
+preserves bearer-only operation. `none` resolves every request as the internal,
+non-persistent `anonymous-mcp` principal using the configured anonymous profile;
+a well-formed Bearer header is ignored for identity selection, while malformed
+or unsupported Authorization headers are rejected. `mixed` resolves a missing
+Authorization header as that anonymous principal and a valid Bearer header as
+its configured agent. An explicitly invalid or revoked Bearer is always
+rejected—PHOS never falls back to anonymous access after an invalid credential.
+
+Anonymous access is enabled only when `none` or `mixed` is selected. It uses
+the existing `standard` or `observer` permission profile and does not create an
+agent record or credential. In mixed mode, revoking a bearer prevents use of
+that authenticated identity, but does not prevent a client from reconnecting
+without a token when anonymous access is enabled. Changing authentication mode
+or anonymous profile requires a PHOS restart; reconnect MCP clients afterward.
+
 ## Credential lifecycle
 
 `AgentCredentialService` is the application/service boundary for credential

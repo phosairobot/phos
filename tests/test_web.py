@@ -17,8 +17,11 @@ import pytest
 import yaml
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
+from robot.core import RobotCore
+from robot.core.behavior_engine import BehaviorEngine
 from robot.secrets import SecretsError, SecretsService
-from robot.services import AgentCredentialService, AgentIdentity, AgentRegistry, BearerAgentAuthenticator
+from robot.services import (AgentCredentialService, AgentIdentity, AgentRegistry, BearerAgentAuthenticator,
+                            PhosApplicationService)
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
@@ -83,6 +86,44 @@ def _agent_section(page, agent_name):
                      page.get_data(as_text=True), re.DOTALL).group(1)
 
 
+class _McpConfigurationRuntime:
+    """The smallest composition-owned runtime needed by the MCP settings service."""
+
+    def __init__(self):
+        self.core = RobotCore()
+        self._behavior_engine = BehaviorEngine(self.core.events)
+
+
+class _McpConfigurationManager:
+    def status(self):
+        return {"enabled": True, "port": 8001, "status": "running", "bound_port": 8001,
+                "endpoint": "http://127.0.0.1:8001/mcp", "error": None}
+
+    def apply(self, *, enabled, port):
+        return {**self.status(), "enabled": enabled, "port": port,
+                "bound_port": port if enabled else None,
+                "endpoint": f"http://127.0.0.1:{port}/mcp" if enabled else None}
+
+    def configure_authentication(self, *, mode, anonymous_permission_profile):
+        self.authentication = {"mode": mode, "anonymous_permission_profile": anonymous_permission_profile}
+        return self.status()
+
+
+def _mcp_configuration_admin(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    repository = ConfigRepository(path)
+    active = repository.load()
+    lifecycle = SimpleNamespace(config_repository=repository, path=path, active=active.to_dict())
+    service = PhosApplicationService(_McpConfigurationRuntime(), lifecycle=lifecycle)
+    service.register_mcp_manager(_McpConfigurationManager())
+    app = create_app(path, active_document=active.to_dict(), application_service=service)
+    app.testing = True
+    return app, path
+
+
 def test_agents_page_lists_non_secret_status_and_requires_admin_authentication(tmp_path):
     app, _ = _agent_admin(tmp_path)
     assert app.test_client().get("/agents").location == "/login"
@@ -90,6 +131,35 @@ def test_agents_page_lists_non_secret_status_and_requires_admin_authentication(t
     text = page.get_data(as_text=True)
     assert all(value in text for value in ("Agents", "Standard Agent", "Observer Agent", "Uncredentialed Agent", "standard", "observer", "Inactive", "Create credential"))
     assert "secret_ref" not in text and "mcp.standard.token" not in text
+
+
+def test_agents_page_distinguishes_registered_bearer_agents_from_global_anonymous_mcp_access(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+
+    bearer = client.get("/agents").get_data(as_text=True)
+    assert "Authentication" in bearer and "Bearer Token" in bearer
+    assert "Anonymous MCP Access" in bearer and "Disabled." in bearer
+    assert 'data-agent-name="anonymous-mcp"' not in bearer
+    assert 'id="create-agent-dialog"' in bearer and "This agent is identified by its individual PHOS Bearer Token." in bearer
+    assert "Authentication</h4>" in bearer and "(read-only)" in bearer
+
+    configuration = app.extensions["phos_config"]
+    document = configuration.read()
+    document["mcp"]["authentication"] = {"mode": "mixed", "anonymous_permission_profile": "observer"}
+    configuration.repository.save(RuntimeConfig.from_dict(document, base_dir=configuration.path.parent))
+    mixed = client.get("/agents").get_data(as_text=True)
+    assert "Identity</dt><dd><code>anonymous-mcp</code>" in mixed
+    assert "Permission profile</dt><dd>Observer" in mixed
+    assert "Availability</dt><dd>Enabled" in mixed
+    assert "Valid Bearer Tokens retain their registered identity; invalid or revoked Bearer Tokens are rejected." in mixed
+    assert 'data-agent-name="anonymous-mcp"' not in mixed
+    assert "Rotate Token" not in mixed and "Delete Agent" not in mixed
+
+    document["mcp"]["authentication"] = {"mode": "none", "anonymous_permission_profile": "standard"}
+    configuration.repository.save(RuntimeConfig.from_dict(document, base_dir=configuration.path.parent))
+    none = client.get("/agents").get_data(as_text=True)
+    assert "Registered Bearer identities and credentials are preserved but are not selected in No Authentication mode." in none
 
 
 def test_agents_page_renders_credential_actions_from_configured_and_active_status(tmp_path, monkeypatch):
@@ -736,6 +806,68 @@ def test_mcp_settings_navigation_is_visible_active_and_uses_the_responsive_sideb
     assert network.status_code == 200
     assert '<a href="/configuration/network" aria-current="page"><i>⌁</i>General</a>' in network_text
     assert '<a href="/configuration/mcp" ><i>⌘</i>MCP</a>' in network_text
+
+
+def test_mcp_authentication_controls_render_inside_the_real_configuration_form(tmp_path):
+    app, _ = _mcp_configuration_admin(tmp_path)
+    page = authorize(app).get("/configuration/mcp")
+    text = page.get_data(as_text=True)
+
+    assert page.status_code == 200
+    assert "MCP Authentication Mode" in text
+    assert "Anonymous Client Permissions" in text
+    assert '<select id="mcp.authentication.mode" name="mcp.authentication.mode">' in text
+    assert '<option value="bearer" selected' in text
+    assert '<option value="none"' in text
+    assert '<option value="mixed"' in text
+    assert '<select id="mcp.authentication.anonymous_permission_profile" name="mcp.authentication.anonymous_permission_profile">' in text
+    assert 'class="fields mcp-configuration-fields"' in text
+    assert 'mcp-authentication-field" data-mcp-authentication-mode' in text
+    assert 'data-mcp-anonymous-confirm><input type="checkbox" name="confirm_anonymous_mcp"' in text
+    form_start = text.index('<form method="post" action="/configuration/mcp">')
+    confirmation = text.index('name="confirm_anonymous_mcp"')
+    form_end = text.index("</form>", confirmation)
+    assert form_start < confirmation < form_end
+    assert "data-mcp-anonymous-profile" in text
+    assert "data-mcp-anonymous-warning" in text
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+    assert ".mcp-configuration-fields { grid-template-columns: repeat(2, minmax(0, 1fr));" in stylesheet
+    assert ".mcp-configuration-fields:has([data-mcp-anonymous-profile][hidden]) [data-mcp-authentication-mode]" in stylesheet
+
+
+def test_mcp_authentication_form_persists_confirmed_mixed_mode_and_rejects_missing_confirmation(tmp_path):
+    app, path = _mcp_configuration_admin(tmp_path)
+    client = authorize(app)
+
+    initial = client.get("/configuration/mcp")
+    rejected = client.post("/configuration/mcp", data={
+        "csrf_token": csrf(initial), "area": "mcp",
+        "revision": re.search(r'name="revision" value="([^"]+)"', initial.get_data(as_text=True)).group(1),
+        "mcp.enabled": "on", "mcp.port": "8001",
+        "mcp.authentication.mode": "mixed",
+        "mcp.authentication.anonymous_permission_profile": "standard",
+    })
+    assert rejected.status_code == 400
+    assert "Confirm anonymous MCP access before saving." in rejected.get_data(as_text=True)
+    assert RuntimeConfig.from_dict(load_document(path), base_dir=path.parent).mcp_authentication_mode == "bearer"
+
+    retry = client.get("/configuration/mcp")
+    saved = client.post("/configuration/mcp", data={
+        "csrf_token": csrf(retry), "area": "mcp",
+        "revision": re.search(r'name="revision" value="([^"]+)"', retry.get_data(as_text=True)).group(1),
+        "mcp.enabled": "on", "mcp.port": "8001",
+        "mcp.authentication.mode": "mixed",
+        "mcp.authentication.anonymous_permission_profile": "standard",
+        "confirm_anonymous_mcp": "on",
+    })
+    assert saved.status_code == 302
+    persisted = RuntimeConfig.from_dict(load_document(path), base_dir=path.parent)
+    assert persisted.mcp_authentication_mode == "mixed"
+    assert persisted.mcp_anonymous_permission_profile == "standard"
+
+    reloaded = client.get("/configuration/mcp").get_data(as_text=True)
+    assert '<option value="mixed" selected' in reloaded
+    assert '<option value="standard" selected' in reloaded
 
 
 @pytest.mark.parametrize(

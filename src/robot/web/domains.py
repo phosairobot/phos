@@ -76,7 +76,7 @@ GROUPS["voice"] = [("stt", "Speech-to-text", ("voice.enabled", "voice.stt.provid
                     ("cartesia", "Cartesia", ("tts.cartesia.",), "cartesia"),
                     ("audio", "Audio output", ("tts.audio_output.",), None)]
 GROUPS["controller"] = [("controller", "External hardware controller", ("hardware_controller.",), None)]
-GROUPS["mcp"] = [("mcp", "MCP", ("mcp.enabled", "mcp.port"), None)]
+GROUPS["mcp"] = [("mcp", "MCP", ("mcp.enabled", "mcp.port", "mcp.authentication."), None)]
 
 
 def domain_sections(document, area):

@@ -44,7 +44,7 @@ class ConfigurationService:
                 from robot.web.domains import domain_sections
                 groups = domain_sections(document, area)
             allowed = {item["name"] for group in groups for item in group["fields"]}
-            if not allowed or set(form) - allowed - {"csrf_token", "revision", "area"}:
+            if not allowed or set(form) - allowed - {"csrf_token", "revision", "area", "confirm_anonymous_mcp"}:
                 raise ConfigurationError("Unexpected fields for this configuration area.")
             edited = deepcopy(document)
             for group in groups:
@@ -130,7 +130,9 @@ CHOICES = {"sensors.imu.motion.lateral_axis": ("x", "-x", "y", "-y", "z", "-z"),
            "display.base_visual_source": ("manual", "environment", "state"),
            "led_ring.base_color": LED_RING_COLOR_CHOICES,
            "led_ring.imu_animation_color": LED_RING_COLOR_CHOICES,
-           "vision.camera_preview.position": ("bottom_right", "bottom_left", "top_right", "top_left")}
+           "vision.camera_preview.position": ("bottom_right", "bottom_left", "top_right", "top_left"),
+           "mcp.authentication.mode": ("bearer", "none", "mixed"),
+           "mcp.authentication.anonymous_permission_profile": ("standard", "observer")}
 HELP = {
     "behavior.environmental": "Environmental reactions use confirmed, hysteretic BMP280/BME280 temperature and CCS811 eCO2/TVOC readings. eCO2 is estimated equivalent CO2, not direct NDIR CO2. These behavior thresholds apply after configuration reload; sensor hardware settings still require restart.",
     "sensors.ccs811": "Air quality source: local reads Raspberry I2C; controller accepts semantic eCO2/TVOC pushes through the configured hardware controller and does not open local I2C. stale_after_seconds is this sensor family's freshness limit for either provider; for controller pushes, set it comfortably above the configured controller publication interval. eCO2 is estimated equivalent CO2 (ppm), not direct NDIR CO2. Save, then Restart PHOS for every hardware change.",

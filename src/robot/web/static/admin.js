@@ -74,6 +74,26 @@
   updateMode();
 })();
 
+// MCP authentication remains an ordinary server-validated form. This only
+// reveals the anonymous-only controls; hidden controls keep their values.
+(() => {
+  const mode = document.getElementById("mcp.authentication.mode");
+  if (!mode) return;
+  const profile = document.querySelector("[data-mcp-anonymous-profile]");
+  const warning = document.querySelector("[data-mcp-anonymous-warning]");
+  const confirmation = document.querySelector("[data-mcp-anonymous-confirm]");
+  const mixedNote = document.querySelector("[data-mcp-mixed-note]");
+  const update = () => {
+    const anonymous = mode.value === "none" || mode.value === "mixed";
+    if (profile) profile.hidden = !anonymous;
+    if (warning) warning.hidden = !anonymous;
+    if (confirmation) confirmation.hidden = !anonymous;
+    if (mixedNote) mixedNote.hidden = mode.value !== "mixed";
+  };
+  mode.addEventListener("change", update);
+  update();
+})();
+
 const provider = document.getElementById("expression.provider");
 if (provider) {
   const update = () => {

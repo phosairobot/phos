@@ -330,7 +330,9 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         except AgentManagementError: return render_template("error.html", error="Cannot load configured agents."), 503
         summary = {"count": len(agent_rows), "active_credentials": sum(agent["credential_active"] is True for agent in agent_rows),
                    "default": next((agent["display_name"] or agent["agent_id"] for agent in agent_rows if agent["default"]), "Unknown")}
-        return render_template("agents.html", agents=agent_rows, profiles=[item.value for item in AgentProfile], summary=summary, issued=issued, error=error), 400 if error else 200
+        mcp_authentication = config.read()["mcp"]["authentication"]
+        return render_template("agents.html", agents=agent_rows, profiles=[item.value for item in AgentProfile], summary=summary,
+                               mcp_authentication=mcp_authentication, issued=issued, error=error), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():
@@ -619,8 +621,10 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                             raise ApplicationError("service_unavailable", "MCP configuration service is unavailable.", status=503)
                         prepared = config.prepare_form_update(request.form, area=area)
                         mcp = prepared.document["mcp"]
-                        application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"]})
-                        flash("MCP settings saved and applied live.")
+                        application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"],
+                            "authentication": mcp["authentication"],
+                            "confirm_anonymous_mcp": request.form.get("confirm_anonymous_mcp") == "on"})
+                        flash("MCP listener settings saved. Authentication changes apply immediately; affected clients must reconnect.")
                         return redirect(url_for("configuration", area=area))
                     if area in {"runtime_vision", "runtime_camera_preview", "runtime_expression", "runtime_logging"}:
                         prepared = config.prepare_form_update(request.form, area=area)

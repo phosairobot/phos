@@ -16,6 +16,10 @@ fieldset, .status, .account { border: 1px solid #45616a; border-radius: .5rem; p
 legend { font-weight: bold; color: #b2f4f1; }
 p { line-height: 1.5; }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1.2rem; }
+.mcp-configuration-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.mcp-authentication-field { min-width: 0; }
+.mcp-configuration-fields:has([data-mcp-anonymous-profile][hidden]) [data-mcp-authentication-mode] { grid-column: 1 / -1; }
+@media (max-width: 680px) { .mcp-configuration-fields { grid-template-columns: minmax(0, 1fr); } }
 label { display: block; margin: .4rem 0; }
 input, select, button { font: inherit; border-radius: .3rem; padding: .7rem; }
 input, select { width: 100%; background: #1e3038; color: #fff; border: 1px solid #72919b; }

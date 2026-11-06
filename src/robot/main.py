@@ -119,6 +119,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             from robot.secrets import SecretsError, SecretsService
             from robot.services import (AgentApplicationService, AgentCredentialService, AgentManagementService,
                                         AgentRegistryProvider, BearerAgentAuthenticator, ConfiguredAgentAuthenticator,
+                                        McpAuthenticationModeAuthenticator,
                                         PhosApplicationService)
             application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
             if config is not None:
@@ -147,7 +148,11 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                 # BearerAgentAuthenticator retains trusted-local compatibility
                 # for an empty directory, then begins enforcing bearer auth as
                 # soon as Web Admin publishes the first credential reference.
-                authenticator = BearerAgentAuthenticator(registry_provider, secret_store)
+                authenticator = McpAuthenticationModeAuthenticator(
+                    BearerAgentAuthenticator(registry_provider, secret_store),
+                    mode=config.mcp_authentication_mode,
+                    anonymous_permission_profile=config.mcp_anonymous_permission_profile,
+                )
                 mcp_manager = McpServerManager(
                     AgentApplicationService(application_service, config.agent_registry.default_identity),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
