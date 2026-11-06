@@ -394,6 +394,16 @@ behavior or voice settings. Custom skins live in internal `skins.json` storage b
 configuration. A skin may retain a deleted background asset reference; the
 background safely falls back until that asset is available again.
 
+Administrators may additionally configure a read-only declarative catalog with
+`appearance.config_file` in `phos.yaml` (for example `skins.yaml`). Catalog
+skins use schema version 1, inherit from a built-in or catalog skin, and support
+only the current procedural appearance fields: iris color, state backgrounds,
+Eye Safe Layer, and State Effects. The catalog is validated when it is used;
+invalid, missing, duplicate, cyclic, or unsafe entries are rejected rather than
+partially applied. Manual catalog edits require PHOS restart before they are
+used. This does not replace `skins.json`, package import/export, or the global
+Appearance workflow. Agent-to-skin assignment is not implemented yet.
+
 Portable PHOS Skin packages use the `.phos-skin` ZIP-compatible archive format
 with a `skin.yaml` schema-version-`2` manifest and optional `assets/` PNG/JPEG
 backgrounds. `.zip` is accepted as a compatible upload format, but

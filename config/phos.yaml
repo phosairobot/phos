@@ -16,6 +16,8 @@ agents:
     - id: local-agent
       display_name: Local MCP agent
       permission_profile: standard
+appearance:
+  config_file: skins.yaml
 display:
   width: 800
   height: 600

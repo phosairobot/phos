@@ -43,6 +43,43 @@ def test_built_in_default_reproduces_the_canonical_default_appearance():
     assert apply_appearance_snapshot(default, skin.appearance)["display"] == default["display"]
 
 
+def test_yaml_catalog_inherits_builtin_and_preserves_custom_skin_workflow(tmp_path):
+    catalog = tmp_path / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: aurora
+    display_name: Aurora
+    inherits: phos-default
+    appearance:
+      eyes:
+        iris_color: '#B38CFF'
+""")
+    repository = SkinRepository(tmp_path / "phos.yaml", catalog_file=catalog)
+    aurora = repository.get("aurora")
+    assert aurora.appearance["eyes"]["iris_color"] == "#B38CFF"
+    assert aurora.appearance["backgrounds"] == next(item for item in built_in_skins() if item.id == "phos-default").appearance["backgrounds"]
+    assert repository.create("Existing workflow", "", appearance_snapshot(load_document())).id.startswith("custom-")
+
+
+@pytest.mark.parametrize("source", [
+    "schema_version: 2\nskins: []\n",
+    "schema_version: 1\nskins:\n  - id: phos-default\n    display_name: Duplicate\n    inherits: null\n    appearance: {}\n",
+    "schema_version: 1\nskins:\n  - id: one\n    display_name: One\n    inherits: missing\n    appearance: {}\n",
+    "schema_version: 1\nskins:\n  - id: one\n    display_name: One\n    inherits: two\n    appearance: {}\n  - id: two\n    display_name: Two\n    inherits: one\n    appearance: {}\n",
+])
+def test_yaml_catalog_rejects_invalid_schema_conflicts_and_inheritance(tmp_path, source):
+    catalog = tmp_path / "skins.yaml"; catalog.write_text(source)
+    with pytest.raises(ConfigurationError):
+        SkinRepository(tmp_path / "phos.yaml", catalog_file=catalog).list()
+
+
+def test_yaml_catalog_rejects_missing_or_outside_catalog_paths(tmp_path):
+    with pytest.raises(ConfigurationError):
+        SkinRepository(tmp_path / "phos.yaml", catalog_file=tmp_path / "missing.yaml").list()
+    with pytest.raises(ConfigurationError):
+        SkinRepository(tmp_path / "phos.yaml", catalog_file=tmp_path.parent / "outside.yaml").list()
+
+
 def test_custom_skin_persists_rename_keeps_id_and_builtin_cannot_be_deleted(tmp_path):
     repository = SkinRepository(tmp_path / "phos.yaml")
     skin = repository.create("My look", "", appearance_snapshot(load_document()))

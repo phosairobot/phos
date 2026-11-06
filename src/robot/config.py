@@ -315,6 +315,7 @@ _SCHEMA = {
     "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
             "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
     "agents": "agent_registry",
+    "appearance": {"config_file": "appearance_catalog_file"},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
                 "iris_color": "iris_color", "base_visual_source": "base_visual_source",
@@ -408,7 +409,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
+_PATH_FIELDS = {"appearance_catalog_file", "expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size",
                  "interaction_supported_languages"}
@@ -589,6 +590,7 @@ class RuntimeConfig:
     mcp_authentication_mode: str
     mcp_anonymous_permission_profile: str
     agent_registry: object
+    appearance_catalog_file: Optional[Path]
     display_width: int
     display_height: int
     display_fps: int
@@ -703,6 +705,7 @@ class RuntimeConfig:
                 overrides[name] = Path(overrides[name]).resolve()
         repository = ConfigRepository()
         document = repository.document()
+        document.setdefault("appearance", {"config_file": None})
         if isinstance(document.get("mcp"), dict):
             document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
         self._assign(_decode(document), repository.active_path.parent, overrides)
@@ -759,6 +762,7 @@ class RuntimeConfig:
                 display["state_effects"].pop("smooth_transitions", None)
                 display["state_effects"].setdefault("palette", "phos")
         if isinstance(document, dict):
+            document.setdefault("appearance", {"config_file": None})
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})

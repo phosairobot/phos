@@ -1154,7 +1154,8 @@ class PhosApplicationService:
     def _skins(self) -> SkinRepository:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Skin service is unavailable.", status=503)
-        return SkinRepository(self._lifecycle.path)
+        config = self._lifecycle.config_repository.load()
+        return SkinRepository(self._lifecycle.path, catalog_file=config.resolve_path(config.appearance_catalog_file))
 
     @staticmethod
     def _owns_live_backgrounds(skin_id: str, backgrounds: dict) -> bool:
