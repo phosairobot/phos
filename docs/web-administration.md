@@ -6,6 +6,23 @@ from the web worker. Runtime-page saves apply camera-preview settings and loggin
 the parent runtime boundary; other Runtime settings are saved as Restart PHOS pending changes.
 System Reload remains available for the other documented reloadable settings.
 
+## Presentation Owner and skin resolution
+
+PHOS stores an explicit optional **Presentation Owner** in
+`appearance.presentation_owner.agent_id`. It is a manual administrator
+preference, independent of the Default Agent: no MCP request, connection,
+anonymous client, credential rotation, or last caller can select it. The
+selection persists across restart. Removing the selected agent clears the owner
+in the same configuration update; removing another agent does not affect it.
+
+The read-only effective-skin resolver uses the selected owner's existing skin
+assignment. An enabled, available assignment resolves to that skin. No owner,
+no assignment, a disabled assignment, or a missing assigned skin resolves to
+the existing global appearance; a missing assignment retains its ID and is
+reported diagnostically. Selecting an owner never overwrites the canonical
+global `display` appearance. Runtime visual activation and Web Admin owner
+controls remain deferred to later skin milestones.
+
 ## Install and enable
 
 Use the [PHOS 1.3.0 installation procedure](installation.md#recommended-unified-installer)

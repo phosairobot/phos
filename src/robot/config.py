@@ -315,7 +315,8 @@ _SCHEMA = {
     "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
             "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
     "agents": "agent_registry",
-    "appearance": {"config_file": "appearance_catalog_file"},
+    "appearance": {"config_file": "appearance_catalog_file",
+                   "presentation_owner": {"agent_id": "presentation_owner_agent_id"}},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
                 "iris_color": "iris_color", "base_visual_source": "base_visual_source",
@@ -591,6 +592,7 @@ class RuntimeConfig:
     mcp_anonymous_permission_profile: str
     agent_registry: object
     appearance_catalog_file: Optional[Path]
+    presentation_owner_agent_id: Optional[str]
     display_width: int
     display_height: int
     display_fps: int
@@ -705,7 +707,9 @@ class RuntimeConfig:
                 overrides[name] = Path(overrides[name]).resolve()
         repository = ConfigRepository()
         document = repository.document()
-        document.setdefault("appearance", {"config_file": None})
+        appearance = document.setdefault("appearance", {"config_file": None})
+        if isinstance(appearance, dict):
+            appearance.setdefault("presentation_owner", {"agent_id": None})
         if isinstance(document.get("mcp"), dict):
             document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
         self._assign(_decode(document), repository.active_path.parent, overrides)
@@ -762,7 +766,9 @@ class RuntimeConfig:
                 display["state_effects"].pop("smooth_transitions", None)
                 display["state_effects"].setdefault("palette", "phos")
         if isinstance(document, dict):
-            document.setdefault("appearance", {"config_file": None})
+            appearance = document.setdefault("appearance", {"config_file": None})
+            if isinstance(appearance, dict):
+                appearance.setdefault("presentation_owner", {"agent_id": None})
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
@@ -950,6 +956,12 @@ class RuntimeConfig:
             raise ConfigurationError("mcp.authentication.mode must be bearer, none, or mixed")
         if self.mcp_anonymous_permission_profile not in {"standard", "observer"}:
             raise ConfigurationError("mcp.authentication.anonymous_permission_profile must be standard or observer")
+        if self.presentation_owner_agent_id is not None:
+            if (not isinstance(self.presentation_owner_agent_id, str)
+                    or not self.presentation_owner_agent_id.strip()):
+                raise ConfigurationError("appearance.presentation_owner.agent_id must be a nonempty agent ID or null")
+            if self.agent_registry.get(self.presentation_owner_agent_id) is None:
+                raise ConfigurationError("appearance.presentation_owner.agent_id must reference a configured agent")
 
         for name in ("display_width", "display_height", "display_fps", "expression_minimum_observations"):
             number(name, integer=True)

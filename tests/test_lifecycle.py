@@ -46,6 +46,24 @@ def update(path, edit):
     path.write_text(json.dumps(document))
 
 
+def test_presentation_owner_operations_use_the_lifecycle_agent_service(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    lifecycle.register_agent_management_service(management)
+
+    selected = lifecycle.execute({
+        "operation": "application.set_presentation_owner", "payload": {"agent_id": "local-agent"},
+    })
+    assert selected == {"ok": True, "result": {"agent_id": "local-agent", "display_name": "Local MCP agent"}}
+    resolved = lifecycle.execute({"operation": "application.effective_skin", "payload": {}})
+    assert resolved["ok"] and resolved["result"]["configured_owner_id"] == "local-agent"
+    cleared = lifecycle.execute({"operation": "application.clear_presentation_owner", "payload": {}})
+    assert cleared == {"ok": True, "result": {"agent_id": None, "display_name": None}}
+
+
 @pytest.mark.parametrize("assignment", [{"enabled": True, "id": "placeholder"}, {"enabled": False, "id": "placeholder"}])
 def test_assigned_custom_skin_cannot_be_deleted_through_application_service(runtime, assignment):
     path, lifecycle, _, _ = runtime

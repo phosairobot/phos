@@ -12,6 +12,9 @@ from .agent_permissions import AgentProfile
 from robot.ui.skins import SkinRepository
 
 
+_UNSET = object()
+
+
 class AgentManagementError(ValueError):
     """Sanitized management error suitable for an administration adapter."""
 
@@ -61,7 +64,7 @@ class AgentManagementService:
             segment = f"agent_{segment}"
         return f"mcp.agents.{segment}.token"
 
-    def _save_and_publish(self, registry: AgentRegistry) -> None:
+    def _save_and_publish(self, registry: AgentRegistry, *, presentation_owner_agent_id=_UNSET) -> None:
         document = self._repository.document()
         document["agents"] = {"default_agent": registry.default_agent, "entries": [
             {"id": item.id, "display_name": item.display_name,
@@ -71,16 +74,22 @@ class AgentManagementService:
                 if item.id in registry.credential_refs else {})}
             for item in registry.entries
         ]}
+        if presentation_owner_agent_id is not _UNSET:
+            appearance = document.setdefault("appearance", {"config_file": None})
+            appearance.setdefault("config_file", None)
+            appearance["presentation_owner"] = {
+                "agent_id": presentation_owner_agent_id,
+            }
         candidate = self._repository.load(document)
         self._repository.save(candidate)
         self._provider.replace(candidate.agent_registry)
 
-    def _replace(self, *, entries=None, refs=None, default_agent=None) -> AgentRegistry:
+    def _replace(self, *, entries=None, refs=None, default_agent=None, presentation_owner_agent_id=_UNSET) -> AgentRegistry:
         current = self._provider.get()
         registry = AgentRegistry(default_agent or current.default_agent,
                                  tuple(entries if entries is not None else current.entries),
                                  refs if refs is not None else current.credential_refs)
-        self._save_and_publish(registry)
+        self._save_and_publish(registry, presentation_owner_agent_id=presentation_owner_agent_id)
         return registry
 
     @staticmethod
@@ -99,6 +108,56 @@ class AgentManagementService:
         try: skin = self._skin_repository().get(identity.skin["id"])
         except ConfigurationError: return {"state": "missing", "id": identity.skin["id"]}
         return {"state": "assigned", "id": skin.id, "display_name": skin.name}
+
+    def presentation_owner(self) -> dict:
+        """Return the explicit owner preference; it is unrelated to MCP sessions."""
+        with self._lock:
+            config = self._repository.load()
+            owner_id = config.presentation_owner_agent_id
+            owner = self._provider.get().get(owner_id) if owner_id is not None else None
+            return {"agent_id": owner_id,
+                    "display_name": None if owner is None else owner.display_name}
+
+    def effective_skin(self) -> dict:
+        """Resolve intended presentation without changing global display configuration."""
+        with self._lock:
+            config = self._repository.load()
+            owner_id = config.presentation_owner_agent_id
+            if owner_id is None:
+                return {"configured_owner_id": None, "owner_display_name": None,
+                        "assigned_skin_id": None, "state": "global",
+                        "effective_skin_id": None, "fallback_reason": "no_owner"}
+            owner = self._provider.get().get(owner_id)
+            # RuntimeConfig rejects a dangling persisted owner.  Retain a safe
+            # degraded result here if a concurrent external replacement occurs.
+            if owner is None:
+                return {"configured_owner_id": owner_id, "owner_display_name": None,
+                        "assigned_skin_id": None, "state": "global",
+                        "effective_skin_id": None, "fallback_reason": "owner_unavailable"}
+            assignment = self._skin_view(owner)
+            result = {"configured_owner_id": owner.id, "owner_display_name": owner.display_name,
+                      "assigned_skin_id": assignment["id"]}
+            if assignment["state"] == "assigned":
+                return {**result, "state": "assigned", "effective_skin_id": assignment["id"],
+                        "skin_display_name": assignment["display_name"], "fallback_reason": None}
+            reason = {"global": "no_skin_assignment", "disabled": "assignment_disabled",
+                      "missing": "missing_skin"}[assignment["state"]]
+            return {**result, "state": "global", "effective_skin_id": None,
+                    "fallback_reason": reason,
+                    **({"missing_skin_id": assignment["id"]} if assignment["state"] == "missing" else {})}
+
+    def set_presentation_owner(self, agent_id: str) -> dict:
+        with self._lock:
+            current = self._provider.get()
+            if not isinstance(agent_id, str) or current.get(agent_id) is None:
+                raise AgentManagementError("unknown_agent")
+            self._save_and_publish(current, presentation_owner_agent_id=agent_id)
+            return self.presentation_owner()
+
+    def clear_presentation_owner(self) -> dict:
+        with self._lock:
+            self._save_and_publish(self._provider.get(), presentation_owner_agent_id=None)
+            return self.presentation_owner()
 
     def list_agents(self) -> list[dict]:
         with self._lock:
@@ -201,7 +260,9 @@ class AgentManagementService:
                 # configured identity and its bearer intact; success fails closed.
                 self.revoke_credential(agent_id)
             self._replace(entries=tuple(item for item in current.entries if item.id != agent_id),
-                          refs={key: value for key, value in current.credential_refs.items() if key != agent_id})
+                          refs={key: value for key, value in current.credential_refs.items() if key != agent_id},
+                          presentation_owner_agent_id=(None if self._repository.load().presentation_owner_agent_id == agent_id
+                                                       else _UNSET))
 
     def skin_references(self, skin_id: str) -> tuple[str, ...]:
         return tuple(item.id for item in self._provider.get().entries

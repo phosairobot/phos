@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from robot.secrets import SecretsError, SecretsService
-from robot.config import ConfigRepository, RuntimeConfig, load_document
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
 from robot.services import (AgentCredentialError, AgentCredentialService, AgentIdentity, AgentRegistry,
                             AgentManagementError, AgentManagementService, AgentRegistryProvider, BearerAgentAuthenticator)
 
@@ -56,6 +56,117 @@ def test_credential_lifecycle_preserves_persisted_agent_skin_assignment(tmp_path
         persisted = RuntimeConfig.from_file(path).agent_registry.default_identity
         assert persisted.skin == expected and persisted.permission_profile.value == "standard"
         assert management.get_agent("local-agent")["skin"] == expected
+
+
+def test_presentation_owner_configuration_is_backward_compatible_and_validates_registered_agents(tmp_path):
+    document = load_document()
+    document.pop("appearance", None)
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert config.presentation_owner_agent_id is None
+    assert config.to_dict()["appearance"]["presentation_owner"] == {"agent_id": None}
+
+    document["appearance"] = {"config_file": None, "presentation_owner": {"agent_id": "missing"}}
+    with pytest.raises(ConfigurationError, match="presentation_owner.agent_id"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
+def test_presentation_owner_persists_and_effective_skin_uses_assignment_projection(tmp_path):
+    management, path = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    before_display = RuntimeConfig.from_file(path).to_dict()["display"]
+
+    assert management.presentation_owner() == {"agent_id": None, "display_name": None}
+    assert management.effective_skin()["fallback_reason"] == "no_owner"
+    assert management.set_presentation_owner("local-agent") == {
+        "agent_id": "local-agent", "display_name": "Local MCP agent"}
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "local-agent"
+    assert management.effective_skin() == {
+        "configured_owner_id": "local-agent", "owner_display_name": "Local MCP agent",
+        "assigned_skin_id": "ambient", "state": "assigned", "effective_skin_id": "ambient",
+        "skin_display_name": "Ambient", "fallback_reason": None,
+    }
+    assert RuntimeConfig.from_file(path).to_dict()["display"] == before_display
+    assert management.clear_presentation_owner() == {"agent_id": None, "display_name": None}
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id is None
+
+
+@pytest.mark.parametrize(("skin", "reason"), [
+    ({"enabled": False, "id": "ambient"}, "assignment_disabled"),
+    (None, "no_skin_assignment"),
+    ({"enabled": True, "id": "removed-skin"}, "missing_skin"),
+])
+def test_presentation_owner_global_fallbacks_preserve_assignment(tmp_path, skin, reason):
+    management, path = _skin_management(tmp_path, skin)
+    before = path.read_bytes()
+    management.set_presentation_owner("local-agent")
+
+    resolved = management.effective_skin()
+    assert resolved["state"] == "global"
+    assert resolved["effective_skin_id"] is None
+    assert resolved["fallback_reason"] == reason
+    if reason == "missing_skin":
+        assert resolved["missing_skin_id"] == "removed-skin"
+    # Selection changes only the owner field; it never normalizes or rewrites
+    # the retained skin assignment while resolving a fallback.
+    assert RuntimeConfig.from_file(path).agent_registry.default_identity.skin == skin
+    assert path.read_bytes() != before
+
+
+def test_owner_deletion_clears_owner_in_the_same_registry_persistence_update(tmp_path):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer", {"enabled": True, "id": "ambient"})
+    management.set_presentation_owner("presentation")
+    management.delete_agent("presentation")
+
+    reloaded = RuntimeConfig.from_file(path)
+    assert reloaded.presentation_owner_agent_id is None
+    assert reloaded.agent_registry.get("presentation") is None
+    assert management.presentation_owner() == {"agent_id": None, "display_name": None}
+    assert management.effective_skin()["fallback_reason"] == "no_owner"
+
+
+def test_deleting_an_unrelated_agent_preserves_presentation_owner(tmp_path):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer")
+    management.create_agent("other", "Other", "observer")
+    management.set_presentation_owner("presentation")
+    management.delete_agent("other")
+
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "presentation"
+    assert management.presentation_owner() == {"agent_id": "presentation", "display_name": "Presentation"}
+
+
+def test_failed_owner_update_and_failed_owner_deletion_preserve_persisted_owner(tmp_path, monkeypatch):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer")
+    management.set_presentation_owner("presentation")
+    original_save = management._repository.save
+
+    def fail_save(_candidate):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(management._repository, "save", fail_save)
+    with pytest.raises(OSError):
+        management.clear_presentation_owner()
+    with pytest.raises(OSError):
+        management.delete_agent("presentation")
+    monkeypatch.setattr(management._repository, "save", original_save)
+
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "presentation"
+    assert management._provider.get().get("presentation") is not None
+
+
+def test_owner_is_independent_of_credentials_and_default_agent(tmp_path):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer")
+    management.set_presentation_owner("presentation")
+    management.create_credential("presentation")
+    management.rotate_credential("presentation")
+    management.revoke_credential("presentation")
+    management.set_default_agent("presentation")
+
+    reloaded = RuntimeConfig.from_file(path)
+    assert reloaded.presentation_owner_agent_id == "presentation"
+    assert reloaded.agent_registry.default_agent == "presentation"
 
 
 def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, caplog):
