@@ -14,10 +14,12 @@ import pytest
 import yaml
 from flask import Flask
 
-from robot.config import RuntimeConfig, load_document
+from robot.config import ConfigurationError, RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
 from robot.services.application import ApplicationError, PhosApplicationService, RemoteApplicationService
+from robot.services import AgentCredentialService, AgentManagementService, AgentRegistryProvider
+from robot.secrets import SecretsService
 from robot.ui.skins import SkinRepository, appearance_snapshot
 from robot.web.api import create_api
 
@@ -25,6 +27,9 @@ from robot.web.api import create_api
 @pytest.fixture
 def runtime(tmp_path):
     document = load_document()
+    # The isolated legacy fixture intentionally has no colocated declarative
+    # catalog; absence remains a supported configuration.
+    document.pop("appearance", None)
     document["logging"]["file"] = None
     path = tmp_path / "phos.json"
     path.write_text(json.dumps(document))
@@ -39,6 +44,36 @@ def update(path, edit):
     document = load_document(path)
     edit(document)
     path.write_text(json.dumps(document))
+
+
+@pytest.mark.parametrize("assignment", [{"enabled": True, "id": "placeholder"}, {"enabled": False, "id": "placeholder"}])
+def test_assigned_custom_skin_cannot_be_deleted_through_application_service(runtime, assignment):
+    path, lifecycle, _, _ = runtime
+    repository = SkinRepository(path)
+    skin = repository.create("Assigned", "", appearance_snapshot(load_document()))
+    assignment["id"] = skin.id
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    management.create_agent("skin-agent", "Skin Agent", "observer", assignment)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+    before = path.read_bytes()
+    with pytest.raises(ApplicationError) as error:
+        application.delete_skin(skin.id)
+    assert error.value.code == "skin_in_use" and error.value.status == 409
+    assert repository.get(skin.id).id == skin.id
+    assert management.get_agent("skin-agent")["skin"] == assignment
+    assert path.read_bytes() == before
+
+
+def test_unreferenced_custom_skin_deletes_through_application_service(runtime):
+    path, lifecycle, _, _ = runtime
+    skin = SkinRepository(path).create("Unused", "", appearance_snapshot(load_document()))
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+    assert application.delete_skin(skin.id) == {"deleted": skin.id}
+    with pytest.raises(ConfigurationError): SkinRepository(path).get(skin.id)
 
 
 def test_reload_applies_only_safe_changes_and_reports_pending(runtime):

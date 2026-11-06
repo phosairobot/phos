@@ -434,8 +434,8 @@ def _decode(document, schema=_SCHEMA, location="config"):
             if not isinstance(value["entries"], list):
                 raise ConfigurationError(f"{name}.entries must be an array")
             try:
-                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"))
-                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential"})
+                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"), item.get("skin"))
+                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential", "skin"})
                 if len(entries) != len(value["entries"]):
                     raise ValueError("malformed agent entry")
                 refs = {}
@@ -798,6 +798,7 @@ class RuntimeConfig:
                     elif key == "agents":
                         value = {"default_agent": value.default_agent, "entries": [
                             {"id": item.id, "display_name": item.display_name, "permission_profile": item.permission_profile.value,
+                             **({"skin": item.skin} if item.skin is not None else {}),
                              **({"credential": {"type": "bearer", "secret_ref": value.credential_refs[item.id]}} if item.id in value.credential_refs else {})}
                             for item in value.entries]}
                     elif isinstance(value, Path):

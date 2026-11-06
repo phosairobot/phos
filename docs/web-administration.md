@@ -394,6 +394,14 @@ behavior or voice settings. Custom skins live in internal `skins.json` storage b
 configuration. A skin may retain a deleted background asset reference; the
 background safely falls back until that asset is available again.
 
+PHOS can retain internal, explicit agent skin-assignment metadata for future
+administration workflows. Enabled references are validated against built-in,
+declarative YAML, or custom skins. `global`, `disabled`, `assigned`, and
+`missing` are distinct assignment states; a missing reference retains its ID
+and falls back to global appearance. Referenced custom skins cannot be deleted.
+WebUI assignment controls, Presentation Owner, runtime agent-skin switching,
+and MCP-driven assignment changes are not implemented.
+
 Administrators may additionally configure a read-only declarative catalog with
 `appearance.config_file` in `phos.yaml` (for example `skins.yaml`). Catalog
 skins use schema version 1, inherit from a built-in or catalog skin, and support

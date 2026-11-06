@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from robot.secrets import SecretsError, SecretsService
-from robot.config import ConfigRepository, load_document
+from robot.config import ConfigRepository, RuntimeConfig, load_document
 from robot.services import (AgentCredentialError, AgentCredentialService, AgentIdentity, AgentRegistry,
                             AgentManagementError, AgentManagementService, AgentRegistryProvider, BearerAgentAuthenticator)
 
@@ -19,6 +19,43 @@ def _registry():
 
 def _context(token):
     return SimpleNamespace(request=SimpleNamespace(headers={"Authorization": f"Bearer {token}"}))
+
+
+def _skin_management(tmp_path, skin=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    document = load_document(); document.pop("appearance", None); document["logging"]["file"] = None
+    if skin is not None: document["agents"]["entries"][0]["skin"] = skin
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    repository = ConfigRepository(path); config = repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    return AgentManagementService(repository, provider, AgentCredentialService(provider, SecretsService(tmp_path / ".secrets"))), path
+
+
+def test_agent_skin_assignment_read_model_distinguishes_global_disabled_assigned_and_missing(tmp_path):
+    global_management, _ = _skin_management(tmp_path / "global")
+    assert global_management.get_agent("local-agent")["skin_assignment"] == {"state": "global", "id": None}
+
+    disabled_management, _ = _skin_management(tmp_path / "disabled", {"enabled": False, "id": "ambient"})
+    assert disabled_management.get_agent("local-agent")["skin_assignment"] == {"state": "disabled", "id": "ambient"}
+
+    assigned_management, _ = _skin_management(tmp_path / "assigned", {"enabled": True, "id": "ambient"})
+    assert assigned_management.get_agent("local-agent")["skin_assignment"] == {"state": "assigned", "id": "ambient", "display_name": "Ambient"}
+
+    missing_management, missing_path = _skin_management(tmp_path / "missing", {"enabled": True, "id": "removed-skin"})
+    before = missing_path.read_bytes()
+    assert missing_management.get_agent("local-agent")["skin_assignment"] == {"state": "missing", "id": "removed-skin"}
+    assert missing_management.get_agent("local-agent")["skin"] == {"enabled": True, "id": "removed-skin"}
+    assert missing_path.read_bytes() == before
+
+
+def test_credential_lifecycle_preserves_persisted_agent_skin_assignment(tmp_path):
+    management, path = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    expected = {"enabled": True, "id": "ambient"}
+    for operation in (management.create_credential, management.rotate_credential, management.revoke_credential):
+        operation("local-agent")
+        persisted = RuntimeConfig.from_file(path).agent_registry.default_identity
+        assert persisted.skin == expected and persisted.permission_profile.value == "standard"
+        assert management.get_agent("local-agent")["skin"] == expected
 
 
 def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, caplog):

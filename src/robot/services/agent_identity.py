@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import logging
 from threading import RLock
 import secrets
-from threading import RLock
 from types import MappingProxyType
 from typing import Mapping, Protocol
 
@@ -23,6 +22,7 @@ class AgentIdentity:
     id: str
     permission_profile: AgentProfile | str
     display_name: str | None = None
+    skin: dict | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -36,6 +36,14 @@ class AgentIdentity:
         object.__setattr__(self, "id", self.id.strip())
         object.__setattr__(self, "display_name", self.display_name.strip() if self.display_name else None)
         object.__setattr__(self, "permission_profile", profile)
+        if self.skin is not None:
+            if (not isinstance(self.skin, dict) or set(self.skin) != {"enabled", "id"}
+                    or type(self.skin["enabled"]) is not bool
+                    or self.skin["id"] is not None and (not isinstance(self.skin["id"], str) or not self.skin["id"].strip())
+                    or self.skin["enabled"] and self.skin["id"] is None):
+                raise ValueError("Invalid agent skin assignment.")
+            object.__setattr__(self, "skin", {"enabled": self.skin["enabled"],
+                                                "id": self.skin["id"].strip() if self.skin["id"] else None})
 
 
 class AgentAuthenticator(Protocol):

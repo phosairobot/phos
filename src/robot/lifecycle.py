@@ -243,6 +243,11 @@ class LifecycleService:
         with self._lock:
             self._agent_management_service = service
 
+    def agent_skin_references(self, skin_id):
+        if self._agent_management_service is None:
+            return ()
+        return self._agent_management_service.skin_references(skin_id)
+
     def mark_application_ready(self):
         """Publish that the registered service can safely enter the runtime loop."""
         with self._lock:

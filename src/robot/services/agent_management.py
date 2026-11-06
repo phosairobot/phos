@@ -9,6 +9,7 @@ from robot.config import ConfigRepository, ConfigurationError
 from .agent_credentials import AgentCredentialError, AgentCredentialService
 from .agent_identity import AgentIdentity, AgentRegistry, AgentRegistryProvider
 from .agent_permissions import AgentProfile
+from robot.ui.skins import SkinRepository
 
 
 class AgentManagementError(ValueError):
@@ -33,6 +34,19 @@ class AgentManagementService:
         self._provider = registry_provider
         self._credentials = credentials
         self._lock = RLock()
+        self._skins = None
+
+    def _skin_repository(self):
+        if self._skins is None:
+            config = self._repository.load()
+            self._skins = SkinRepository(self._repository.active_path,
+                                         catalog_file=config.resolve_path(config.appearance_catalog_file))
+        return self._skins
+
+    def _validate_skin(self, skin) -> None:
+        if skin is not None and skin["enabled"]:
+            try: self._skin_repository().get(skin["id"])
+            except ConfigurationError as error: raise AgentManagementError("unknown_skin") from error
 
     @staticmethod
     def profiles() -> tuple[str, ...]:
@@ -52,6 +66,7 @@ class AgentManagementService:
         document["agents"] = {"default_agent": registry.default_agent, "entries": [
             {"id": item.id, "display_name": item.display_name,
              "permission_profile": item.permission_profile.value,
+             **({"skin": item.skin} if item.skin is not None else {}),
              **({"credential": {"type": "bearer", "secret_ref": registry.credential_refs[item.id]}}
                 if item.id in registry.credential_refs else {})}
             for item in registry.entries
@@ -73,9 +88,17 @@ class AgentManagementService:
         configured = identity.id in registry.credential_refs
         return {"agent_id": identity.id, "display_name": identity.display_name,
                 "permission_profile": identity.permission_profile.value,
+                "skin": identity.skin,
                 "default": identity.id == registry.default_agent,
                 "credential_configured": configured if status is None else status.configured,
                 "credential_active": None if not configured or status is None else status.active}
+
+    def _skin_view(self, identity):
+        if identity.skin is None: return {"state": "global", "id": None}
+        if not identity.skin["enabled"]: return {"state": "disabled", "id": identity.skin["id"]}
+        try: skin = self._skin_repository().get(identity.skin["id"])
+        except ConfigurationError: return {"state": "missing", "id": identity.skin["id"]}
+        return {"state": "assigned", "id": skin.id, "display_name": skin.name}
 
     def list_agents(self) -> list[dict]:
         with self._lock:
@@ -89,7 +112,7 @@ class AgentManagementService:
                     except AgentCredentialError as error:
                         if str(error) != "credential_status_failed":
                             raise
-                result.append(self._view(registry, identity, status))
+                item = self._view(registry, identity, status); item["skin_assignment"] = self._skin_view(identity); result.append(item)
             return result
 
     def get_agent(self, agent_id: str) -> dict:
@@ -103,28 +126,31 @@ class AgentManagementService:
                 try: status = self._credentials.status(agent_id)
                 except AgentCredentialError as error:
                     if str(error) != "credential_status_failed": raise
-            return self._view(registry, identity, status)
+            item = self._view(registry, identity, status); item["skin_assignment"] = self._skin_view(identity); return item
 
-    def create_agent(self, agent_id: str, display_name: str, permission_profile: str) -> dict:
+    def create_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None) -> dict:
         with self._lock:
             current = self._provider.get()
             if current.get(agent_id) is not None:
                 raise AgentManagementError("duplicate_agent")
             try:
-                identity = AgentIdentity(agent_id, permission_profile, display_name)
+                identity = AgentIdentity(agent_id, permission_profile, display_name, skin)
+                self._validate_skin(identity.skin)
             except ValueError as error:
                 raise AgentManagementError("invalid_agent") from error
             registry = self._replace(entries=(*current.entries, identity))
             return self._view(registry, identity)
 
-    def update_agent(self, agent_id: str, display_name: str, permission_profile: str) -> dict:
+    def update_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None) -> dict:
         with self._lock:
             current = self._provider.get()
             existing = current.get(agent_id)
             if existing is None:
                 raise AgentManagementError("unknown_agent")
             try:
-                replacement = AgentIdentity(agent_id, permission_profile, display_name)
+                replacement = AgentIdentity(agent_id, permission_profile, display_name,
+                                            existing.skin if skin is None else skin)
+                self._validate_skin(replacement.skin)
             except ValueError as error:
                 raise AgentManagementError("invalid_agent") from error
             registry = self._replace(entries=tuple(replacement if item.id == agent_id else item for item in current.entries))
@@ -176,3 +202,7 @@ class AgentManagementService:
                 self.revoke_credential(agent_id)
             self._replace(entries=tuple(item for item in current.entries if item.id != agent_id),
                           refs={key: value for key, value in current.credential_refs.items() if key != agent_id})
+
+    def skin_references(self, skin_id: str) -> tuple[str, ...]:
+        return tuple(item.id for item in self._provider.get().entries
+                     if item.skin is not None and item.skin.get("id") == skin_id)
