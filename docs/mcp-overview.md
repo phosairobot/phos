@@ -74,4 +74,6 @@ PHOS provides an authorized current snapshot. The agent performs any further vis
 3. Connect a compatible client to the endpoint and provide the bearer through its safe credential mechanism.
 4. Start with status or physical context, then request only capabilities your configured agent is allowed to use.
 
-For connection details, profiles, bearer handling, full tool/resource contracts, and bridge setup, continue to the [technical MCP reference](mcp.md).
+For connection details, profiles, bearer handling, full tool/resource contracts,
+remote HTTPS-tunnel guidance, and security considerations for anonymous access,
+continue to the [technical MCP reference](mcp.md#mcp-authentication-security).
