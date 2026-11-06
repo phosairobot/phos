@@ -4,15 +4,16 @@ from __future__ import annotations
 import re
 from threading import RLock
 
-from robot.config import ConfigRepository, ConfigurationError
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig
 
 from .agent_credentials import AgentCredentialError, AgentCredentialService
 from .agent_identity import AgentIdentity, AgentRegistry, AgentRegistryProvider
 from .agent_permissions import AgentProfile
-from robot.ui.skins import SkinRepository
+from robot.ui.skins import SkinRepository, apply_appearance_snapshot, available_appearance_snapshot
 
 
 _UNSET = object()
+DEFAULT_APPEARANCE_POLICY = {"participate": True, "priority": 50, "activity_timeout_seconds": 30}
 
 
 class AgentManagementError(ValueError):
@@ -38,6 +39,15 @@ class AgentManagementService:
         self._credentials = credentials
         self._lock = RLock()
         self._skins = None
+        self._effective_appearance_applier = None
+
+    def register_effective_appearance_applier(self, applier) -> None:
+        """Install the lifecycle-owned transient display update callback."""
+        self._effective_appearance_applier = applier
+
+    def _refresh_effective_appearance(self) -> None:
+        if self._effective_appearance_applier is not None:
+            self._effective_appearance_applier()
 
     def _skin_repository(self):
         if self._skins is None:
@@ -70,6 +80,7 @@ class AgentManagementService:
             {"id": item.id, "display_name": item.display_name,
              "permission_profile": item.permission_profile.value,
              **({"skin": item.skin} if item.skin is not None else {}),
+             **({"appearance": item.appearance} if item.appearance is not None else {}),
              **({"credential": {"type": "bearer", "secret_ref": registry.credential_refs[item.id]}}
                 if item.id in registry.credential_refs else {})}
             for item in registry.entries
@@ -109,6 +120,23 @@ class AgentManagementService:
         except ConfigurationError: return {"state": "missing", "id": identity.skin["id"]}
         return {"state": "assigned", "id": skin.id, "display_name": skin.name}
 
+    def _appearance_policy_view(self, identity):
+        policy = dict(DEFAULT_APPEARANCE_POLICY if identity.appearance is None else identity.appearance)
+        assignment = self._skin_view(identity)
+        if not policy["participate"]: reason = "participation_disabled"
+        elif assignment["state"] == "disabled": reason = "skin_disabled"
+        elif assignment["state"] == "global": reason = "skin_not_assigned"
+        elif assignment["state"] == "missing": reason = "skin_missing"
+        else: reason = "eligible"
+        return {**policy, "assigned_skin_id": assignment["id"], "skin_assignment": assignment["state"],
+                "static_eligible": reason == "eligible", "reason": reason}
+
+    def available_skins(self) -> list[dict]:
+        """Project the canonical catalog for administration selectors."""
+        with self._lock:
+            return [{"id": skin.id, "display_name": skin.name}
+                    for skin in self._skin_repository().list()]
+
     def presentation_owner(self) -> dict:
         """Return the explicit owner preference; it is unrelated to MCP sessions."""
         with self._lock:
@@ -146,17 +174,38 @@ class AgentManagementService:
                     "fallback_reason": reason,
                     **({"missing_skin_id": assignment["id"]} if assignment["state"] == "missing" else {})}
 
+    def effective_appearance_config(self) -> tuple[RuntimeConfig, dict]:
+        """Build a transient runtime config from the current global base and owner.
+
+        This never persists the resolved skin; callers apply it only through the
+        lifecycle render-loop boundary.
+        """
+        with self._lock:
+            global_config = self._repository.load()
+            resolved = self.effective_skin()
+            if resolved["state"] != "assigned":
+                return global_config, resolved
+            skin = self._skin_repository().get(resolved["effective_skin_id"])
+            snapshot, missing = available_appearance_snapshot(skin.appearance, self._repository.active_path.parent)
+            if missing:
+                return global_config, {**resolved, "state": "global", "effective_skin_id": None,
+                                       "fallback_reason": "missing_skin_assets", "missing_assets": missing}
+            return RuntimeConfig.from_dict(apply_appearance_snapshot(global_config.to_dict(), snapshot),
+                                           base_dir=self._repository.active_path.parent), resolved
+
     def set_presentation_owner(self, agent_id: str) -> dict:
         with self._lock:
             current = self._provider.get()
             if not isinstance(agent_id, str) or current.get(agent_id) is None:
                 raise AgentManagementError("unknown_agent")
             self._save_and_publish(current, presentation_owner_agent_id=agent_id)
+            self._refresh_effective_appearance()
             return self.presentation_owner()
 
     def clear_presentation_owner(self) -> dict:
         with self._lock:
             self._save_and_publish(self._provider.get(), presentation_owner_agent_id=None)
+            self._refresh_effective_appearance()
             return self.presentation_owner()
 
     def list_agents(self) -> list[dict]:
@@ -171,7 +220,7 @@ class AgentManagementService:
                     except AgentCredentialError as error:
                         if str(error) != "credential_status_failed":
                             raise
-                item = self._view(registry, identity, status); item["skin_assignment"] = self._skin_view(identity); result.append(item)
+                item = self._view(registry, identity, status); item["skin_assignment"] = self._skin_view(identity); item["appearance_policy"] = self._appearance_policy_view(identity); result.append(item)
             return result
 
     def get_agent(self, agent_id: str) -> dict:
@@ -185,22 +234,24 @@ class AgentManagementService:
                 try: status = self._credentials.status(agent_id)
                 except AgentCredentialError as error:
                     if str(error) != "credential_status_failed": raise
-            item = self._view(registry, identity, status); item["skin_assignment"] = self._skin_view(identity); return item
+            item = self._view(registry, identity, status); item["skin_assignment"] = self._skin_view(identity); item["appearance_policy"] = self._appearance_policy_view(identity); return item
 
-    def create_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None) -> dict:
+    def create_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None, appearance=None) -> dict:
         with self._lock:
             current = self._provider.get()
             if current.get(agent_id) is not None:
                 raise AgentManagementError("duplicate_agent")
             try:
-                identity = AgentIdentity(agent_id, permission_profile, display_name, skin)
+                identity = AgentIdentity(agent_id, permission_profile, display_name, skin, appearance)
                 self._validate_skin(identity.skin)
+            except AgentManagementError:
+                raise
             except ValueError as error:
                 raise AgentManagementError("invalid_agent") from error
             registry = self._replace(entries=(*current.entries, identity))
             return self._view(registry, identity)
 
-    def update_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None) -> dict:
+    def update_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None, appearance=None) -> dict:
         with self._lock:
             current = self._provider.get()
             existing = current.get(agent_id)
@@ -208,12 +259,17 @@ class AgentManagementService:
                 raise AgentManagementError("unknown_agent")
             try:
                 replacement = AgentIdentity(agent_id, permission_profile, display_name,
-                                            existing.skin if skin is None else skin)
+                                            existing.skin if skin is None else skin,
+                                            existing.appearance if appearance is None else appearance)
                 self._validate_skin(replacement.skin)
+            except AgentManagementError:
+                raise
             except ValueError as error:
                 raise AgentManagementError("invalid_agent") from error
             registry = self._replace(entries=tuple(replacement if item.id == agent_id else item for item in current.entries))
-            return self._view(registry, replacement)
+            if self._repository.load().presentation_owner_agent_id == agent_id:
+                self._refresh_effective_appearance()
+            item = self._view(registry, replacement); item["appearance_policy"] = self._appearance_policy_view(replacement); return item
 
     def set_default_agent(self, agent_id: str) -> dict:
         """Persist and publish a new default identity without changing credentials."""
@@ -263,6 +319,8 @@ class AgentManagementService:
                           refs={key: value for key, value in current.credential_refs.items() if key != agent_id},
                           presentation_owner_agent_id=(None if self._repository.load().presentation_owner_agent_id == agent_id
                                                        else _UNSET))
+            if self._repository.load().presentation_owner_agent_id is None:
+                self._refresh_effective_appearance()
 
     def skin_references(self, skin_id: str) -> tuple[str, ...]:
         return tuple(item.id for item in self._provider.get().entries

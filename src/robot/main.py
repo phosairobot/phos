@@ -177,7 +177,13 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                     lifecycle.register_agent_management_service(agent_management)
             register_started = getattr(runtime, "register_started_callback", None)
             if callable(register_started):
-                register_started(lifecycle.mark_application_ready)
+                def mark_started_and_reconcile() -> None:
+                    lifecycle.mark_application_ready()
+                    if config is not None:
+                        result = lifecycle.reconcile_effective_appearance()
+                        if not result.get("ok"):
+                            logger.warning("PHOS APPEARANCE: startup reconciliation pending reason=%s", result.get("error"))
+                register_started(mark_started_and_reconcile)
             lifecycle.register_appearance_applier(runtime.apply_appearance)
             backgrounds_applier = getattr(runtime, "apply_backgrounds", None)
             if backgrounds_applier is not None:
@@ -194,6 +200,12 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             overlay_applier = getattr(runtime, "apply_environment_overlays", None)
             if overlay_applier is not None:
                 lifecycle.register_environment_overlays_applier(overlay_applier)
+            if config is not None:
+                # Restore an explicitly persisted Presentation Owner only after
+                # every render-loop applier has been registered.
+                result = lifecycle.reconcile_effective_appearance()
+                if not result.get("ok"):
+                    logger.warning("PHOS APPEARANCE: effective presentation pending reason=%s", result.get("error"))
             preview_applier = getattr(runtime, "apply_camera_preview", None)
             if preview_applier is not None:
                 lifecycle.register_camera_preview_applier(preview_applier)

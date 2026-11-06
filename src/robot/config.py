@@ -315,7 +315,7 @@ _SCHEMA = {
     "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
             "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
     "agents": "agent_registry",
-    "appearance": {"config_file": "appearance_catalog_file",
+    "appearance": {"config_file": "appearance_catalog_file", "mode": "appearance_mode",
                    "presentation_owner": {"agent_id": "presentation_owner_agent_id"}},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
@@ -435,8 +435,8 @@ def _decode(document, schema=_SCHEMA, location="config"):
             if not isinstance(value["entries"], list):
                 raise ConfigurationError(f"{name}.entries must be an array")
             try:
-                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"), item.get("skin"))
-                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential", "skin"})
+                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"), item.get("skin"), item.get("appearance"))
+                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential", "skin", "appearance"})
                 if len(entries) != len(value["entries"]):
                     raise ValueError("malformed agent entry")
                 refs = {}
@@ -592,6 +592,7 @@ class RuntimeConfig:
     mcp_anonymous_permission_profile: str
     agent_registry: object
     appearance_catalog_file: Optional[Path]
+    appearance_mode: str
     presentation_owner_agent_id: Optional[str]
     display_width: int
     display_height: int
@@ -709,7 +710,7 @@ class RuntimeConfig:
         document = repository.document()
         appearance = document.setdefault("appearance", {"config_file": None})
         if isinstance(appearance, dict):
-            appearance.setdefault("presentation_owner", {"agent_id": None})
+            appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
         if isinstance(document.get("mcp"), dict):
             document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
         self._assign(_decode(document), repository.active_path.parent, overrides)
@@ -768,7 +769,7 @@ class RuntimeConfig:
         if isinstance(document, dict):
             appearance = document.setdefault("appearance", {"config_file": None})
             if isinstance(appearance, dict):
-                appearance.setdefault("presentation_owner", {"agent_id": None})
+                appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
@@ -805,6 +806,7 @@ class RuntimeConfig:
                         value = {"default_agent": value.default_agent, "entries": [
                             {"id": item.id, "display_name": item.display_name, "permission_profile": item.permission_profile.value,
                              **({"skin": item.skin} if item.skin is not None else {}),
+                             **({"appearance": item.appearance} if item.appearance is not None else {}),
                              **({"credential": {"type": "bearer", "secret_ref": value.credential_refs[item.id]}} if item.id in value.credential_refs else {})}
                             for item in value.entries]}
                     elif isinstance(value, Path):
@@ -962,6 +964,8 @@ class RuntimeConfig:
                 raise ConfigurationError("appearance.presentation_owner.agent_id must be a nonempty agent ID or null")
             if self.agent_registry.get(self.presentation_owner_agent_id) is None:
                 raise ConfigurationError("appearance.presentation_owner.agent_id must reference a configured agent")
+        if self.appearance_mode not in {"global", "follow_agent"}:
+            raise ConfigurationError("appearance.mode must be global or follow_agent")
 
         for name in ("display_width", "display_height", "display_fps", "expression_minimum_observations"):
             number(name, integer=True)

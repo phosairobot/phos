@@ -20,6 +20,7 @@
   },
   "appearance": {
     "config_file": "skins.yaml",
+    "mode": "global",
     "presentation_owner": {
       "agent_id": null
     }

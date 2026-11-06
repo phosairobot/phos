@@ -169,6 +169,33 @@ def test_owner_is_independent_of_credentials_and_default_agent(tmp_path):
     assert reloaded.agent_registry.default_agent == "presentation"
 
 
+def test_appearance_mode_and_policy_validation_round_trip(tmp_path):
+    document = load_document(); document["appearance"]["mode"] = "follow_agent"
+    document["agents"]["entries"][0]["appearance"] = {"participate": True, "priority": 100, "activity_timeout_seconds": 3600}
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert config.appearance_mode == "follow_agent"
+    assert config.to_dict()["agents"]["entries"][0]["appearance"]["priority"] == 100
+    for key, value in (("participate", "true"), ("priority", True), ("priority", 101),
+                       ("activity_timeout_seconds", 4), ("activity_timeout_seconds", 5.0)):
+        invalid = load_document(); invalid["agents"]["entries"][0]["appearance"] = {"participate": True, "priority": 50, "activity_timeout_seconds": 30}; invalid["agents"]["entries"][0]["appearance"][key] = value
+        with pytest.raises(Exception): RuntimeConfig.from_dict(invalid, base_dir=tmp_path, check_paths=False)
+
+
+@pytest.mark.parametrize(("skin", "policy", "reason", "eligible"), [
+    ({"enabled": True, "id": "ambient"}, {"participate": True, "priority": 50, "activity_timeout_seconds": 30}, "eligible", True),
+    ({"enabled": True, "id": "ambient"}, {"participate": False, "priority": 50, "activity_timeout_seconds": 30}, "participation_disabled", False),
+    ({"enabled": False, "id": "ambient"}, None, "skin_disabled", False),
+    (None, None, "skin_not_assigned", False),
+    ({"enabled": True, "id": "missing"}, None, "skin_missing", False),
+])
+def test_static_appearance_policy_eligibility(tmp_path, skin, policy, reason, eligible):
+    management, _ = _skin_management(tmp_path, skin)
+    if policy is not None:
+        management.update_agent("local-agent", "Local MCP agent", "standard", appearance=policy)
+    view = management.get_agent("local-agent")["appearance_policy"]
+    assert (view["reason"], view["static_eligible"]) == (reason, eligible)
+
+
 def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, caplog):
     service = AgentCredentialService(_registry(), SecretsService(tmp_path / ".phos-secrets"))
     issued = service.create("standard")

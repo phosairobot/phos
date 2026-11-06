@@ -25,6 +25,18 @@ from robot.web.secrets import WebSecretsService
 logger = logging.getLogger(__name__)
 
 
+def _agent_skin_payload(form, *, existing: bool):
+    """Translate the write-only form controls into canonical skin metadata."""
+    skin_id = form.get("skin_id", "").strip()
+    if form.get("skin_enabled") == "yes":
+        if not skin_id:
+            raise AgentManagementError("unknown_skin")
+        return {"enabled": True, "id": skin_id}
+    if existing:
+        return {"enabled": False, "id": skin_id or None}
+    return None
+
+
 class AuthenticationState:
     """Bounded server-side revocation and a single-account attempt budget."""
     lifetime = 1800
@@ -97,6 +109,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             return reply.get("result")
         handlers = {
             "agents": agent_management.list_agents,
+            "agent_skins": agent_management.available_skins,
             "create_agent": lambda: agent_management.create_agent(**payload),
             "update_agent": lambda: agent_management.update_agent(**payload),
             "set_default_agent": lambda: agent_management.set_default_agent(payload["agent_id"]),
@@ -104,6 +117,11 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             "create_agent_credential": lambda: agent_management.create_credential(payload["agent_id"]),
             "rotate_agent_credential": lambda: agent_management.rotate_credential(payload["agent_id"]),
             "revoke_agent_credential": lambda: agent_management.revoke_credential(payload["agent_id"]),
+            "presentation_owner": agent_management.presentation_owner,
+            "set_presentation_owner": lambda: agent_management.set_presentation_owner(payload["agent_id"]),
+            "clear_presentation_owner": agent_management.clear_presentation_owner,
+            "effective_skin": agent_management.effective_skin,
+            "presentation_activation": lambda: {"state": "unavailable", "message": "Runtime lifecycle is not attached."},
         }
         return handlers[operation]()
     csrf = CSRFProtect(app)
@@ -281,11 +299,12 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
     @app.route("/agents", methods=["GET", "POST"])
     def agents():
         """Manage live MCP identities and write-only bearer lifecycle."""
-        error = issued = None
+        error = issued = appearance_warning = None
         if request.method == "POST":
-            allowed = {"csrf_token", "action", "agent_id", "display_name", "permission_profile", "confirm"}
+            allowed = {"csrf_token", "action", "agent_id", "display_name", "permission_profile", "confirm",
+                       "skin_enabled", "skin_id", "skin_present", "presentation_owner"}
             action = request.form.get("action")
-            if set(request.form) - allowed or action not in {"create_agent", "update_agent", "set_default_agent", "delete_agent", "create", "rotate", "revoke"}:
+            if set(request.form) - allowed or action not in {"create_agent", "update_agent", "set_default_agent", "delete_agent", "create", "rotate", "revoke", "set_presentation_owner"}:
                 abort(400)
             agent_id = request.form.get("agent_id", "")
             if action in {"rotate", "revoke", "delete_agent"} and request.form.get("confirm") != "yes":
@@ -293,12 +312,26 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             else:
                 try:
                     if action == "create_agent":
-                        manage_agents("create_agent", {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")})
+                        skin = _agent_skin_payload(request.form, existing=False)
+                        payload = {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")}
+                        if skin is not None:
+                            payload["skin"] = skin
+                        manage_agents("create_agent", payload)
                         flash("Agent created. Create a credential when this identity should authenticate.")
                         return redirect(url_for("agents"))
                     if action == "update_agent":
-                        manage_agents("update_agent", {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")})
+                        skin = _agent_skin_payload(request.form, existing=request.form.get("skin_present") == "yes")
+                        payload = {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")}
+                        if skin is not None:
+                            payload["skin"] = skin
+                        manage_agents("update_agent", payload)
                         flash("Agent updated. New permissions apply to subsequent requests.")
+                        return redirect(url_for("agents"))
+                    if action == "set_presentation_owner":
+                        selected = request.form.get("presentation_owner", "")
+                        manage_agents("clear_presentation_owner" if not selected else "set_presentation_owner",
+                                      {} if not selected else {"agent_id": selected})
+                        flash("Presentation owner updated. Runtime appearance will reconcile through the display lifecycle.")
                         return redirect(url_for("agents"))
                     if action == "set_default_agent":
                         manage_agents("set_default_agent", {"agent_id": agent_id})
@@ -317,6 +350,9 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         flash("Credential revoked. This agent can no longer authenticate until a new credential is created.")
                         return redirect(url_for("agents"))
                 except (AgentCredentialError, AgentManagementError) as exc:
+                    fallback_error = ("Presentation Owner could not be updated."
+                                      if action == "set_presentation_owner"
+                                      else "Credential operation could not be completed.")
                     error = {
                         "unknown_agent": "Unknown configured agent.",
                         "duplicate_agent": "Agent ID already exists.",
@@ -325,14 +361,33 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         "credential_not_configured": "This agent has no configured credential reference.",
                         "credential_already_exists": "A credential is already active; rotate it instead.",
                         "credential_not_active": "No active credential is available to rotate.",
-                    }.get(str(exc), "Credential operation could not be completed.")
-        try: agent_rows = manage_agents("agents")
-        except AgentManagementError: return render_template("error.html", error="Cannot load configured agents."), 503
+                        "unknown_skin": "Select a skin from the available catalog.",
+                    }.get(str(exc), fallback_error)
+        try:
+            # Listing identities is the only essential read for this page.
+            # Optional appearance metadata must degrade locally: a missing
+            # external catalog or unavailable renderer must never hide agents.
+            agent_rows = manage_agents("agents")
+        except AgentManagementError:
+            return render_template("error.html", error="Cannot load configured agents."), 503
+        skins = []
+        presentation_owner = {"agent_id": None, "display_name": None}
+        effective_skin = {"state": "global", "fallback_reason": "no_owner"}
+        activation = {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
+        try:
+            skins = manage_agents("agent_skins")
+            presentation_owner = manage_agents("presentation_owner")
+            effective_skin = manage_agents("effective_skin")
+            activation = manage_agents("presentation_activation")
+        except AgentManagementError:
+            appearance_warning = "Appearance details are unavailable. Agents and credentials remain manageable."
         summary = {"count": len(agent_rows), "active_credentials": sum(agent["credential_active"] is True for agent in agent_rows),
                    "default": next((agent["display_name"] or agent["agent_id"] for agent in agent_rows if agent["default"]), "Unknown")}
         mcp_authentication = config.read()["mcp"]["authentication"]
-        return render_template("agents.html", agents=agent_rows, profiles=[item.value for item in AgentProfile], summary=summary,
-                               mcp_authentication=mcp_authentication, issued=issued, error=error), 400 if error else 200
+        return render_template("agents.html", agents=agent_rows, skins=skins, presentation_owner=presentation_owner,
+                               effective_skin=effective_skin, profiles=[item.value for item in AgentProfile], summary=summary,
+                               mcp_authentication=mcp_authentication, activation=activation, issued=issued, error=error,
+                               appearance_warning=appearance_warning), 400 if error else 200
 
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():

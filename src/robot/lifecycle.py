@@ -106,6 +106,7 @@ class LifecycleService:
         self._application_status = None
         self._application_service = None
         self._agent_management_service = None
+        self._presentation_activation = {"state": "pending", "message": "Presentation runtime is not ready."}
         self._application_ready = False
         self._clock = clock
         self._lock = RLock()
@@ -242,6 +243,32 @@ class LifecycleService:
         """Register the owner-process boundary for live MCP agent updates."""
         with self._lock:
             self._agent_management_service = service
+            service.register_effective_appearance_applier(self.reconcile_effective_appearance)
+
+    def reconcile_effective_appearance(self) -> dict:
+        """Apply the latest owner-resolved appearance without saving display config."""
+        with self._lock:
+            self._presentation_activation = {"state": "applying", "message": "Applying resolved appearance."}
+            if self._agent_management_service is None:
+                self._presentation_activation = {"state": "unavailable", "message": "Presentation service is not ready."}
+                return {"ok": False, "error": self._presentation_activation["message"]}
+            try:
+                candidate, resolved = self._agent_management_service.effective_appearance_config()
+            except (ConfigurationError, OSError):
+                self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
+                return {"ok": False, "error": self._presentation_activation["message"]}
+            result = self.apply_temporary_appearance(candidate)
+            if result.get("ok"):
+                state = "agent_skin_active" if resolved.get("state") == "assigned" else (
+                    "fallback_active" if resolved.get("fallback_reason") not in {None, "no_owner"} else "global_active")
+                self._presentation_activation = {"state": state, "message": "Runtime appearance applied.", "resolved": resolved}
+            else:
+                self._presentation_activation = {"state": "unavailable", "message": result.get("error", "Runtime appearance was not applied."), "resolved": resolved}
+            return {**result, "resolved": resolved}
+
+    def presentation_activation_status(self) -> dict:
+        with self._lock:
+            return deepcopy(self._presentation_activation)
 
     def agent_skin_references(self, skin_id):
         if self._agent_management_service is None:
@@ -477,6 +504,11 @@ class LifecycleService:
                     self._set_log_level(saved["logging"]["level"])
                     self.active["logging"]["level"] = saved["logging"]["level"]
                     applied.append("logging.level")
+                if self._agent_management_service is not None:
+                    presentation = self.reconcile_effective_appearance()
+                    if not presentation.get("ok"):
+                        return {"ok": False, **self._snapshot(saved), "applied": applied,
+                                "error": presentation.get("error", "Effective appearance could not be applied.")}
                 self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             return {"ok": True, **self._snapshot(saved), "applied": applied}
 
@@ -484,10 +516,13 @@ class LifecycleService:
         name, payload = request.get("operation"), request.get("payload")
         handlers = {
             "application.agents": lambda: self._agent_management_service.list_agents(),
+            "application.agent_skins": lambda: self._agent_management_service.available_skins(),
             "application.create_agent": lambda: self._agent_management_service.create_agent(
-                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", ""),
+                skin=payload.get("skin"), appearance=payload.get("appearance")),
             "application.update_agent": lambda: self._agent_management_service.update_agent(
-                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", ""),
+                skin=payload.get("skin"), appearance=payload.get("appearance")),
             "application.set_default_agent": lambda: self._agent_management_service.set_default_agent(payload.get("agent_id", "")),
             "application.delete_agent": lambda: self._agent_management_service.delete_agent(payload.get("agent_id", "")),
             "application.create_agent_credential": lambda: self._agent_management_service.create_credential(payload.get("agent_id", "")),
@@ -497,6 +532,7 @@ class LifecycleService:
             "application.set_presentation_owner": lambda: self._agent_management_service.set_presentation_owner(payload.get("agent_id", "")),
             "application.clear_presentation_owner": lambda: self._agent_management_service.clear_presentation_owner(),
             "application.effective_skin": lambda: self._agent_management_service.effective_skin(),
+            "application.presentation_activation": lambda: self.presentation_activation_status(),
             "application.status": lambda: self._application_service.status(),
             "application.state": lambda: self._application_service.robot_state(),
             "application.environment": lambda: self._application_service.environment(),
@@ -553,7 +589,7 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        agent_operation = name in {"application.agents", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin"}
+        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation"}
         if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",

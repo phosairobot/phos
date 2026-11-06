@@ -20,8 +20,49 @@ assignment. An enabled, available assignment resolves to that skin. No owner,
 no assignment, a disabled assignment, or a missing assigned skin resolves to
 the existing global appearance; a missing assignment retains its ID and is
 reported diagnostically. Selecting an owner never overwrites the canonical
-global `display` appearance. Runtime visual activation and Web Admin owner
-controls remain deferred to later skin milestones.
+global `display` appearance. The resolved appearance is applied transiently
+through the render-loop lifecycle boundary and is restored to the global
+appearance when the owner is cleared.
+
+## Agent appearance administration
+
+**Settings → Agents** can assign an available built-in, declarative, or custom
+skin while creating or editing an agent. Select **Use agent-specific skin** and
+choose an entry from the catalog. Clearing that checkbox disables an existing
+assignment while retaining its skin ID, so it can be re-enabled later; agents
+without assignment metadata remain **Global**. The list identifies Global,
+Disabled, Assigned, and Missing assignments. A missing reference is preserved
+and safely falls back to the global appearance until an administrator selects a
+replacement.
+
+The same page provides **Active Presentation**. Choose **Global PHOS
+Appearance** to clear the Presentation Owner, or choose a registered agent to
+set it explicitly. The Default Agent is a separate MCP compatibility setting;
+changing it, authenticating, connecting, or making an MCP request never
+changes the Presentation Owner. The page shows the intended resolved skin and
+any fallback diagnostic. Saving an owner applies its supported appearance
+properties transiently to the display; clearing it restores the current global
+appearance without rewriting that global preference.
+
+The Active Presentation panel separates configured intent from runtime result:
+**Presentation Owner** is the saved administrator choice, **Resolved
+appearance** is the currently valid skin or fallback, and **Runtime activation**
+reports whether the running display accepted that temporary update. An
+unavailable or failed runtime leaves the saved owner and global display
+configuration unchanged; a later reconciliation, including startup, can recover
+when the renderer becomes available.
+
+## Agent appearance policy foundation
+
+`appearance.mode` defaults to `global`; `follow_agent` is a persisted policy
+mode for the forthcoming automatic selector and does not activate automatic
+switching yet. Agents may carry optional appearance policy metadata:
+`participate` (default `true`), `priority` (default `50`, `0`–`100`), and
+`activity_timeout_seconds` (default `30`, `5`–`3600`). This timeout will be a
+future monotonic appearance-activity window, not an MCP session, credential, or
+transport timeout. Static eligibility requires participation and a valid enabled
+skin; it never implies that an agent is currently active. Manual Presentation
+Owner remains the compatibility path until automatic selection is implemented.
 
 ## Install and enable
 

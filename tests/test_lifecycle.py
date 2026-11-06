@@ -64,6 +64,32 @@ def test_presentation_owner_operations_use_the_lifecycle_agent_service(runtime):
     assert cleared == {"ok": True, "result": {"agent_id": None, "display_name": None}}
 
 
+def test_presentation_owner_applies_transient_skin_and_restores_global_appearance(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append(("iris", value.iris_color)))
+    lifecycle.register_backgrounds_applier(lambda value: applied.append(("backgrounds", value.backgrounds_enabled)))
+    lifecycle.register_eye_safe_layer_applier(lambda value: applied.append(("safe", value.eye_safe_layer_mode)))
+    lifecycle.register_state_effects_applier(lambda value: applied.append(("effects", value.state_effects_palette)))
+    lifecycle.register_agent_management_service(management)
+    management.update_agent("local-agent", "Local MCP agent", "standard", {"enabled": True, "id": "ambient"})
+    before_display = lifecycle.config_repository.load().to_dict()["display"]
+
+    management.set_presentation_owner("local-agent")
+    assert ("iris", "#A670F5") in applied
+    assert lifecycle.config_repository.load().to_dict()["display"] == before_display
+
+    management.clear_presentation_owner()
+    assert applied[-4:] == [("iris", before_display["iris_color"]),
+                            ("backgrounds", before_display["backgrounds"]["enabled"]),
+                            ("safe", before_display["eye_safe_layer"]["mode"]),
+                            ("effects", before_display["state_effects"]["palette"])]
+
+
 @pytest.mark.parametrize("assignment", [{"enabled": True, "id": "placeholder"}, {"enabled": False, "id": "placeholder"}])
 def test_assigned_custom_skin_cannot_be_deleted_through_application_service(runtime, assignment):
     path, lifecycle, _, _ = runtime
@@ -458,6 +484,73 @@ def test_lifecycle_channel_dispatches_runtime_configuration_and_rejects_unrelate
         child.close()
         thread.join(timeout=2)
         assert not thread.is_alive()
+
+
+def test_lifecycle_channel_forwards_agent_presentation_reads_and_owner_updates(runtime):
+    path, service, _, _ = runtime
+    config = service.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(service.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    service.register_agent_management_service(management)
+    parent, child = multiprocessing.Pipe(); stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop)); thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert any(item["id"] == "ambient" for item in client.execute("application.agent_skins", {})["result"])
+        assert client.execute("application.set_presentation_owner", {"agent_id": "local-agent"})["ok"]
+        assert client.execute("application.presentation_owner", {})["result"]["agent_id"] == "local-agent"
+        assert client.execute("application.effective_skin", {})["ok"]
+        assert client.execute("application.presentation_activation", {})["ok"]
+    finally:
+        stop.set(); child.close(); thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_persists_agent_skin_metadata(runtime):
+    path, service, _, _ = runtime
+    config = service.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(service.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    service.register_agent_management_service(management)
+    parent, child = multiprocessing.Pipe(); stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop)); thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"agent_id": "styled", "display_name": "Styled", "permission_profile": "observer",
+                   "skin": {"enabled": True, "id": "ambient"}}
+        assert client.execute("application.create_agent", payload)["ok"]
+        assert RuntimeConfig.from_file(path).agent_registry.get("styled").skin == payload["skin"]
+        updated = {**payload, "display_name": "Styled Again", "skin": {"enabled": False, "id": "ambient"}}
+        assert client.execute("application.update_agent", updated)["ok"]
+        assert RuntimeConfig.from_file(path).agent_registry.get("styled").skin == updated["skin"]
+    finally:
+        stop.set(); child.close(); thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_persists_and_validates_appearance_policy(runtime):
+    path, service, _, _ = runtime
+    config = service.config_repository.load(); provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(service.config_repository, provider, AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    service.register_agent_management_service(management)
+    parent, child = multiprocessing.Pipe(); stop = Event(); thread = Thread(target=serve_lifecycle, args=(parent, service, stop)); thread.start()
+    try:
+        client = LifecycleClient(child)
+        create = {"agent_id": "policy", "display_name": "Policy", "permission_profile": "observer", "skin": {"enabled": True, "id": "ambient"}, "appearance": {"participate": True, "priority": 85, "activity_timeout_seconds": 10}}
+        assert client.execute("application.create_agent", create)["ok"]
+        update = {**create, "appearance": {"participate": False, "priority": 25, "activity_timeout_seconds": 80}}
+        assert client.execute("application.update_agent", update)["ok"]
+        assert RuntimeConfig.from_file(path).agent_registry.get("policy").appearance == update["appearance"]
+        omitted = {"agent_id": "policy", "display_name": "Policy Updated", "permission_profile": "observer"}
+        assert client.execute("application.update_agent", omitted)["ok"]
+        before = path.read_bytes()
+        invalid = {**update, "appearance": {"participate": True, "priority": 101, "activity_timeout_seconds": 80}}
+        assert not client.execute("application.update_agent", invalid)["ok"]
+        assert path.read_bytes() == before
+    finally:
+        stop.set(); child.close(); thread.join(timeout=2)
 
 
 def test_lifecycle_channel_dispatches_eyes_configuration(runtime):

@@ -23,6 +23,7 @@ class AgentIdentity:
     permission_profile: AgentProfile | str
     display_name: str | None = None
     skin: dict | None = None
+    appearance: dict | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -44,6 +45,13 @@ class AgentIdentity:
                 raise ValueError("Invalid agent skin assignment.")
             object.__setattr__(self, "skin", {"enabled": self.skin["enabled"],
                                                 "id": self.skin["id"].strip() if self.skin["id"] else None})
+        if self.appearance is not None:
+            if (not isinstance(self.appearance, dict) or set(self.appearance) != {"participate", "priority", "activity_timeout_seconds"}
+                    or type(self.appearance["participate"]) is not bool
+                    or type(self.appearance["priority"]) is not int or not 0 <= self.appearance["priority"] <= 100
+                    or type(self.appearance["activity_timeout_seconds"]) is not int or not 5 <= self.appearance["activity_timeout_seconds"] <= 3600):
+                raise ValueError("Invalid agent appearance policy.")
+            object.__setattr__(self, "appearance", dict(self.appearance))
 
 
 class AgentAuthenticator(Protocol):
