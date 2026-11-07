@@ -59,6 +59,23 @@ def test_line_decoder_retains_only_the_rejected_raw_frame_for_debugging():
     assert raised.value.frame == frame
 
 
+@pytest.mark.parametrize(("frame", "category"), [(b'\xff\xfebroken', "invalid_utf8"),
+                                                     (b'{"protocol":', "invalid_json")])
+def test_malformed_frames_distinguish_utf8_from_json_for_bounded_diagnostics(frame, category):
+    with pytest.raises(ProtocolError) as raised:
+        decode_frame(frame)
+    assert raised.value.code == "malformed_frame"
+    assert raised.value.parse_category == category
+
+
+def test_decoder_retains_valid_frames_after_a_rejected_line_in_the_same_read():
+    decoder = JsonLinesDecoder()
+    valid = b'{"protocol":"phos-hw","version":1,"type":"heartbeat","payload":{}}\n'
+    with pytest.raises(ProtocolError) as raised:
+        decoder.feed(b'\xffbroken\n' + valid)
+    assert [message.type for message in raised.value.recovered_messages] == ["heartbeat"]
+
+
 def test_led_animation_validation_includes_breathe_and_rejects_bad_parameters():
     validate_led_animation({"animation": "breathe", "color": "#6F5CFF", "brightness": .65, "period_ms": 3200, "min_intensity": .08, "max_intensity": 1, "duration_ms": 0})
     with pytest.raises(ProtocolError): validate_led_animation({"animation": "breathe", "brightness": 2})

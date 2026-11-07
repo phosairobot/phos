@@ -48,6 +48,14 @@ transport failure using the configured delay. A controller `heartbeat` updates
 the recorded heartbeat status. On disconnect, PHOS retains bounded diagnostics
 but disables active controller LED output.
 
+Malformed lines remain rejected. Their bounded diagnostics identify whether
+UTF-8 or JSON parsing failed, the frame length, a short hexadecimal prefix, and
+the connection generation; complete untrusted frames are not retained. Valid
+later lines received in the same serial read continue through normal protocol
+validation. ESP32 boot/debug output must not share the protocol UART, and every
+firmware protocol write must emit one complete UTF-8 JSON object followed by a
+newline.
+
 The protocol recognizes the following vocabulary. “Recognized” is not the same
 as “currently emitted by PHOS”: the current serial adapter transmits only
 `request_capabilities`, `ping`, and resolved `set_led_animation`.

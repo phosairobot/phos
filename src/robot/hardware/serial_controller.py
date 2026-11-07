@@ -191,6 +191,18 @@ class ControllerService(Behavior):
                                "direction": direction, "type": message_type, "summary": summary[:240],
                                "raw": raw_text})
 
+    def _record_rejected_frame(self, error: ProtocolError) -> None:
+        """Keep bounded, opt-in-safe evidence without retaining raw input."""
+        frame = error.frame or b""
+        prefix = frame[:24].hex()
+        category = error.parse_category or "validation"
+        summary = (f"category={category} length={len(frame)} prefix_hex={prefix or '-'} "
+                   f"generation={self._session_generation}")
+        self._record("RX", "rejected_frame", summary)
+        # Debug logging is opt-in through the existing logging-level setting;
+        # never emit complete untrusted frames at warning level.
+        logger.debug("PHOS CONTROLLER: rejected frame diagnostics %s", summary)
+
     async def start(self) -> None:
         if self._enabled and (self._task is None or self._task.done()):
             self._task = self._core.tasks.create(self._run(), name="hardware-controller")
@@ -344,10 +356,15 @@ class ControllerService(Behavior):
             try:
                 messages = decoder.feed(data)
             except ProtocolError as error:
+                self._record_rejected_frame(error)
                 logger.warning("PHOS CONTROLLER: rejected input code=%s type=%s reason=%s",
                                error.code, error.message_type or "unparseable", self._safe_error_message(error))
                 if error.frame is not None:
                     logger.debug("PHOS CONTROLLER: rejected frame=%s", safe_frame_repr(error.frame))
+                for message in getattr(error, "recovered_messages", ()):
+                    self._last_peer_activity = time.monotonic()
+                    peer_seen = True
+                    await self._message(message)
                 continue
             for message in messages:
                 self._last_peer_activity = time.monotonic()

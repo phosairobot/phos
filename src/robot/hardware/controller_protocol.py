@@ -37,6 +37,7 @@ class ProtocolError(ValueError):
         self.code = code
         self.frame: bytes | None = None
         self.message_type: str | None = None
+        self.parse_category: str | None = None
 
 
 def safe_frame_repr(frame: bytes, *, limit: int = 512) -> str:
@@ -65,7 +66,14 @@ class ControllerMessage:
 def decode_frame(frame: bytes) -> ControllerMessage:
     if len(frame) > MAX_FRAME_BYTES: raise ProtocolError("frame_too_large", "Frame exceeds protocol limit.")
     try: value = json.loads(frame.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error: raise ProtocolError("malformed_frame", "Frame is not valid UTF-8 JSON.") from error
+    except UnicodeDecodeError as cause:
+        error = ProtocolError("malformed_frame", "Frame is not valid UTF-8 JSON.")
+        error.parse_category = "invalid_utf8"
+        raise error from cause
+    except json.JSONDecodeError as cause:
+        error = ProtocolError("malformed_frame", "Frame is not valid UTF-8 JSON.")
+        error.parse_category = "invalid_json"
+        raise error from cause
     message_type = value.get("type") if isinstance(value, dict) and isinstance(value.get("type"), str) else None
     try:
         if not isinstance(value, dict) or value.get("protocol") != PROTOCOL: raise ProtocolError("invalid_envelope", "protocol must be phos-hw.")
@@ -111,7 +119,7 @@ class JsonLinesDecoder:
         if len(self._buffer) > MAX_FRAME_BYTES and b"\n" not in self._buffer: self._buffer = b""; raise ProtocolError("frame_too_large", "Unterminated frame exceeds protocol limit.")
         frames, self._buffer = self._buffer.split(b"\n")[:-1], self._buffer.rsplit(b"\n", 1)[-1]
         messages = []
-        for frame in frames:
+        for index, frame in enumerate(frames):
             if not frame:
                 continue
             try:
@@ -119,6 +127,18 @@ class JsonLinesDecoder:
                 messages.append(replace(decode_frame(frame), raw_frame=frame))
             except ProtocolError as error:
                 error.frame = frame
+                # One noisy/debug line must not discard later valid JSONL
+                # frames delivered by the same serial read.  The transport
+                # reports this rejection, then consumes these safe messages.
+                recovered = list(messages)
+                for later in frames[index + 1:]:
+                    if not later:
+                        continue
+                    try:
+                        recovered.append(replace(decode_frame(later), raw_frame=later))
+                    except ProtocolError:
+                        continue
+                error.recovered_messages = recovered
                 raise
         return messages
 
