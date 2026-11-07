@@ -106,6 +106,9 @@ class LifecycleService:
         self._application_status = None
         self._application_service = None
         self._agent_management_service = None
+        self._appearance_activity_tracker = None
+        self._presentation_activation = {"state": "pending", "message": "Presentation runtime is not ready."}
+        self._applied_appearance_key = None
         self._application_ready = False
         self._clock = clock
         self._lock = RLock()
@@ -164,7 +167,8 @@ class LifecycleService:
                         ("eye safe layer", self._apply_eye_safe_layer), ("state effects", self._apply_state_effects))
             unavailable = next((name for name, applier in appliers if applier is None), None)
             if unavailable is not None:
-                return {"ok": False, "error": f"Runtime {unavailable} service is not ready. Try again shortly."}
+                return {"ok": False, "state": "unavailable",
+                        "error": f"Runtime {unavailable} service is not ready. Try again shortly."}
             try:
                 for _, applier in appliers: applier(config)
             except Exception:
@@ -173,7 +177,8 @@ class LifecycleService:
                 for _, applier in appliers:
                     try: applier(baseline)
                     except Exception: logger.exception("Temporary appearance preview rollback failed")
-                return {"ok": False, "error": "The running display could not accept the temporary preview."}
+                return {"ok": False, "state": "failed",
+                        "error": "The running display could not accept the temporary preview."}
             return {"ok": True, "applied": ["temporary_appearance"]}
 
     def apply_eyes(self, config: RuntimeConfig) -> dict:
@@ -242,6 +247,67 @@ class LifecycleService:
         """Register the owner-process boundary for live MCP agent updates."""
         with self._lock:
             self._agent_management_service = service
+            service.register_effective_appearance_applier(self.reconcile_effective_appearance)
+
+    def register_appearance_activity_tracker(self, tracker):
+        """Attach automatic arbitration without changing renderer behavior."""
+        with self._lock:
+            self._appearance_activity_tracker = tracker
+            tracker.set_change_callback(self._appearance_arbitration_changed)
+
+    def _appearance_arbitration_changed(self, result) -> None:
+        """Apply a new automatic intent; the tracker calls this after its lock."""
+        self.reconcile_effective_appearance(arbitration=result)
+
+    def appearance_arbitration_status(self) -> dict:
+        if self._appearance_activity_tracker is None:
+            return {"mode": "global", "selected_agent_id": None,
+                    "selection_reason": "activity_tracker_unavailable", "agents": []}
+        return self._appearance_activity_tracker.status()
+
+    def reconcile_effective_appearance(self, *, arbitration=None) -> dict:
+        """Apply mode-authoritative appearance without saving display config."""
+        with self._lock:
+            if self._agent_management_service is None:
+                self._presentation_activation = {"state": "unavailable", "message": "Presentation service is not ready."}
+                return {"ok": False, "error": self._presentation_activation["message"]}
+            try:
+                if arbitration is None:
+                    arbitration = self.appearance_arbitration_status()
+                candidate, resolved = self._agent_management_service.automatic_appearance_config(arbitration)
+            except (ConfigurationError, OSError):
+                self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
+                return {"ok": False, "error": self._presentation_activation["message"]}
+            key = (resolved.get("mode"), resolved.get("selected_agent_id"), resolved.get("effective_skin_id"),
+                   repr(candidate.to_dict().get("display")))
+            if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
+                    "global_active", "agent_skin_active", "fallback_active"}:
+                return {"ok": True, "applied": [], "resolved": resolved}
+            self._presentation_activation = {"state": "applying", "message": "Applying resolved appearance.",
+                                             "mode": resolved.get("mode"), "arbitration": arbitration}
+            result = self.apply_temporary_appearance(candidate)
+            if result.get("ok"):
+                self._applied_appearance_key = key
+                state = "agent_skin_active" if resolved.get("state") == "assigned" else (
+                    "global_active" if resolved.get("mode") == "global" else "fallback_active")
+                self._presentation_activation = {"state": state, "message": "Runtime appearance applied.",
+                                                 "mode": resolved.get("mode"), "resolved": resolved,
+                                                 "arbitration": arbitration}
+            else:
+                self._presentation_activation = {"state": result.get("state", "unavailable"),
+                                                 "message": result.get("error", "Runtime appearance was not applied."),
+                                                 "mode": resolved.get("mode"), "resolved": resolved,
+                                                 "arbitration": arbitration}
+            return {**result, "resolved": resolved}
+
+    def presentation_activation_status(self) -> dict:
+        with self._lock:
+            return deepcopy(self._presentation_activation)
+
+    def agent_skin_references(self, skin_id):
+        if self._agent_management_service is None:
+            return ()
+        return self._agent_management_service.skin_references(skin_id)
 
     def mark_application_ready(self):
         """Publish that the registered service can safely enter the runtime loop."""
@@ -472,6 +538,13 @@ class LifecycleService:
                     self._set_log_level(saved["logging"]["level"])
                     self.active["logging"]["level"] = saved["logging"]["level"]
                     applied.append("logging.level")
+                if self._agent_management_service is not None:
+                    presentation = self.reconcile_effective_appearance()
+                    if not presentation.get("ok"):
+                        return {"ok": False, **self._snapshot(saved), "applied": applied,
+                                "error": presentation.get("error", "Effective appearance could not be applied.")}
+                if self._appearance_activity_tracker is not None:
+                    self._appearance_activity_tracker.recompute()
                 self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             return {"ok": True, **self._snapshot(saved), "applied": applied}
 
@@ -479,15 +552,26 @@ class LifecycleService:
         name, payload = request.get("operation"), request.get("payload")
         handlers = {
             "application.agents": lambda: self._agent_management_service.list_agents(),
+            "application.agent_skins": lambda: self._agent_management_service.available_skins(),
             "application.create_agent": lambda: self._agent_management_service.create_agent(
-                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", ""),
+                skin=payload.get("skin"), appearance=payload.get("appearance")),
             "application.update_agent": lambda: self._agent_management_service.update_agent(
-                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", "")),
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", ""),
+                skin=payload.get("skin"), appearance=payload.get("appearance")),
             "application.set_default_agent": lambda: self._agent_management_service.set_default_agent(payload.get("agent_id", "")),
             "application.delete_agent": lambda: self._agent_management_service.delete_agent(payload.get("agent_id", "")),
             "application.create_agent_credential": lambda: self._agent_management_service.create_credential(payload.get("agent_id", "")),
             "application.rotate_agent_credential": lambda: self._agent_management_service.rotate_credential(payload.get("agent_id", "")),
             "application.revoke_agent_credential": lambda: self._agent_management_service.revoke_credential(payload.get("agent_id", "")),
+            "application.presentation_owner": lambda: self._agent_management_service.presentation_owner(),
+            "application.set_presentation_owner": lambda: self._agent_management_service.set_presentation_owner(payload.get("agent_id", "")),
+            "application.clear_presentation_owner": lambda: self._agent_management_service.clear_presentation_owner(),
+            "application.effective_skin": lambda: self._agent_management_service.effective_skin(),
+            "application.presentation_activation": lambda: self.presentation_activation_status(),
+            "application.appearance_arbitration": lambda: self.appearance_arbitration_status(),
+            "application.appearance_mode": lambda: self._agent_management_service.appearance_mode(),
+            "application.set_appearance_mode": lambda: self._agent_management_service.set_appearance_mode(payload.get("mode")),
             "application.status": lambda: self._application_service.status(),
             "application.state": lambda: self._application_service.robot_state(),
             "application.environment": lambda: self._application_service.environment(),
@@ -544,7 +628,7 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        agent_operation = name in {"application.agents", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential"}
+        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation", "application.appearance_arbitration", "application.appearance_mode", "application.set_appearance_mode"}
         if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",

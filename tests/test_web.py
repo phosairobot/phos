@@ -64,6 +64,8 @@ def authorize(app):
 
 def _agent_admin(tmp_path):
     document = load_document()
+    # Isolated Web fixtures intentionally use the built-in catalog only.
+    document.pop("appearance", None)
     document["agents"] = {"default_agent": "standard", "entries": [
         {"id": "standard", "display_name": "Standard Agent", "permission_profile": "standard",
          "credential": {"type": "bearer", "secret_ref": "mcp.standard.token"}},
@@ -267,6 +269,147 @@ def test_agents_page_creates_edits_and_deletes_a_live_agent(tmp_path):
         asyncio.run(authenticator.authenticate(context(token)))
 
 
+def test_agents_page_assigns_and_disables_skins_without_touching_credentials(tmp_path):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+    page = client.get("/agents").get_data(as_text=True)
+    assert "Use agent-specific skin" in page and "Assigned Skin" in page
+    assert 'value="ambient"' in page and "Ambient" in page
+
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "styled-agent",
+                                         "display_name": "Styled Agent", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "ambient"})
+    assert created.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path)
+    assert saved.agent_registry.get("styled-agent").skin == {"enabled": True, "id": "ambient"}
+    issued = post(client, "/agents", {"action": "create", "agent_id": "styled-agent"})
+    assert _issued_bearer(issued)
+
+    disabled = post(client, "/agents", {"action": "update_agent", "agent_id": "styled-agent",
+                                          "display_name": "Styled Agent", "permission_profile": "observer",
+                                          "skin_present": "yes", "skin_id": "ambient"})
+    assert disabled.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path)
+    assert saved.agent_registry.get("styled-agent").skin == {"enabled": False, "id": "ambient"}
+    assert "Disabled" in _agent_section(client.get("/agents"), "Styled Agent")
+    assert SecretsService(app.extensions["phos_config"].path.parent / ".phos-secrets").has_secret("mcp.agents.styled_agent.token")
+
+
+def test_agents_page_persists_automatic_appearance_policy(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "policy-agent",
+                                         "display_name": "Policy Agent", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "ambient",
+                                         "appearance_participate": "yes", "appearance_priority": "85",
+                                         "appearance_timeout": "10"})
+    assert created.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path).agent_registry.get("policy-agent")
+    assert saved.appearance == {"participate": True, "priority": 85, "activity_timeout_seconds": 10}
+    page = client.get("/agents").get_data(as_text=True)
+    assert 'value="85"' in page and 'value="10"' in page
+    invalid = post(client, "/agents", {"action": "update_agent", "agent_id": "policy-agent",
+                                         "display_name": "Policy Agent", "permission_profile": "observer",
+                                         "skin_present": "yes", "skin_id": "ambient",
+                                         "appearance_participate": "yes", "appearance_priority": "101",
+                                         "appearance_timeout": "10"})
+    assert invalid.status_code == 400
+
+
+def test_agents_template_keeps_compact_accessible_credential_actions():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/agents.html").read_text()
+
+    assert 'class="agent-icon-form"' in template
+    assert 'aria-label="Create credential for' in template
+    assert 'title="Create credential"' in template
+    assert 'aria-label="Edit ' in template
+    assert 'aria-label="More actions for' in template
+    assert 'data-agent-open-dialog="rotate-agent-' in template
+    assert 'data-agent-open-dialog="revoke-agent-' in template
+    assert 'data-agent-open-dialog="delete-agent-' in template
+    assert 'Confirm rotation' in template and 'Confirm revocation' in template and 'Confirm deletion' in template
+
+
+def test_agents_page_rejects_unknown_skin_and_renders_missing_assignment(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    invalid = post(client, "/agents", {"action": "create_agent", "agent_id": "bad-skin",
+                                         "display_name": "Bad Skin", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "not-a-skin"})
+    assert invalid.status_code == 400
+    assert "Select a skin from the available catalog" in invalid.get_data(as_text=True)
+
+    missing_dir = tmp_path / "missing"; missing_dir.mkdir()
+    document = load_document(); document.pop("appearance", None)
+    document["agents"] = {"default_agent": "standard", "entries": [
+        {"id": "standard", "display_name": "Standard", "permission_profile": "standard"},
+        {"id": "missing", "display_name": "Missing Skin", "permission_profile": "observer",
+         "skin": {"enabled": True, "id": "removed-skin"}},
+    ]}
+    path = missing_dir / "phos.json"; path.write_text(json.dumps(document))
+    page = authorize(create_app(path)).get("/agents").get_data(as_text=True)
+    assert "Missing: removed-skin" in page
+    assert "saved reference <code>removed-skin</code> is unavailable" in page
+
+
+def test_agents_page_selects_and_clears_presentation_owner_without_changing_display(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    path = app.extensions["phos_config"].path
+    before_display = RuntimeConfig.from_file(path).to_dict()["display"]
+
+    selected = post(client, "/agents", {"action": "set_presentation_owner", "presentation_owner": "observer"})
+    assert selected.status_code == 302
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "observer"
+    page = client.get("/agents").get_data(as_text=True)
+    assert "Presentation Owner" in _agent_section(client.get("/agents"), "Observer Agent")
+    assert "Global PHOS Appearance" in page
+    assert RuntimeConfig.from_file(path).to_dict()["display"] == before_display
+
+    cleared = post(client, "/agents", {"action": "set_presentation_owner", "presentation_owner": ""})
+    assert cleared.status_code == 302
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id is None
+    assert client.post("/agents", data={"action": "set_presentation_owner", "presentation_owner": "observer"}).status_code == 400
+
+
+@pytest.mark.parametrize(("state", "message", "expected"), [
+    ("global_active", "Runtime appearance applied.", "Global active"),
+    ("agent_skin_active", "Runtime appearance applied.", "Agent skin active"),
+    ("fallback_active", "Runtime appearance applied.", "Fallback active"),
+    ("applying", "Applying resolved appearance.", "Applying"),
+    ("unavailable", "Runtime appearance is not ready.", "Unavailable"),
+    ("failed", "Display update rejected.", "Failed"),
+])
+def test_agents_page_renders_lifecycle_owned_presentation_activation_status(tmp_path, state, message, expected):
+    class Lifecycle:
+        def execute(self, operation, payload=None):
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "owner", "display_name": "Owner", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": {"enabled": True, "id": "ambient"}, "skin_assignment": {"state": "assigned", "id": "ambient", "display_name": "Ambient"}}]}
+            if operation == "application.agent_skins": return {"ok": True, "result": [{"id": "ambient", "display_name": "Ambient"}]}
+            if operation == "application.presentation_owner": return {"ok": True, "result": {"agent_id": "owner", "display_name": "Owner"}}
+            if operation == "application.effective_skin": return {"ok": True, "result": {"state": "assigned", "skin_display_name": "Ambient", "fallback_reason": None}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": state, "message": message}}
+            return {"ok": True, "result": {}}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    page = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents").get_data(as_text=True)
+    assert "Runtime activation" in page and expected in page and message in page
+    assert "Owner" in page and "Ambient" in page
+
+
+def test_agents_page_lists_agents_when_optional_lifecycle_appearance_reads_fail(tmp_path):
+    class Lifecycle:
+        def execute(self, operation, payload=None):
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": None, "skin": {"enabled": True, "id": "missing"}, "skin_assignment": {"state": "missing", "id": "missing"}}]}
+            return {"ok": False, "error": {"code": "service_unavailable"}}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    response = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents")
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Local MCP agent" in text and "Missing: missing" in text
+    assert "Appearance details are unavailable" in text
+
+
 def test_agents_page_rejects_default_deletion_and_csrf(tmp_path):
     app, _ = _agent_admin(tmp_path)
     client = authorize(app)
@@ -299,7 +442,14 @@ def test_agents_page_uses_lifecycle_agent_management_boundary(tmp_path):
             if operation == "application.agents":
                 return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local",
                     "permission_profile": "standard", "default": True,
-                    "credential_configured": False, "credential_active": None}]}
+                    "credential_configured": False, "credential_active": None,
+                    "skin": None, "skin_assignment": {"state": "global", "id": None}}]}
+            if operation == "application.agent_skins":
+                return {"ok": True, "result": []}
+            if operation == "application.presentation_owner":
+                return {"ok": True, "result": {"agent_id": None, "display_name": None}}
+            if operation == "application.effective_skin":
+                return {"ok": True, "result": {"state": "global", "fallback_reason": "no_owner"}}
             return {"ok": True, "result": {}}
 
     path = tmp_path / "phos.json"
@@ -341,7 +491,10 @@ def test_agents_page_set_default_requires_csrf_and_uses_lifecycle(tmp_path):
         def execute(self, operation, payload=None):
             self.calls.append((operation, payload))
             if operation == "application.agents":
-                return {"ok": True, "result": [{"agent_id": "one", "display_name": "One", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False}, {"agent_id": "two", "display_name": "Two", "permission_profile": "observer", "default": False, "credential_configured": False, "credential_active": False}]}
+                return {"ok": True, "result": [{"agent_id": "one", "display_name": "One", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}}, {"agent_id": "two", "display_name": "Two", "permission_profile": "observer", "default": False, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}}]}
+            if operation == "application.agent_skins": return {"ok": True, "result": []}
+            if operation == "application.presentation_owner": return {"ok": True, "result": {"agent_id": None, "display_name": None}}
+            if operation == "application.effective_skin": return {"ok": True, "result": {"state": "global", "fallback_reason": "no_owner"}}
             return {"ok": True, "result": {}}
     path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
     lifecycle = Lifecycle(); client = authorize(create_app(path, lifecycle=lifecycle))

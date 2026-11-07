@@ -120,9 +120,16 @@ class McpSemanticEventBridge:
 class McpSemanticAdapter:
     """Maps Stage 1 tools to an existing ``AgentApplicationService`` only."""
 
-    def __init__(self, agent_service: AgentApplicationService, *, authenticator=None) -> None:
+    def __init__(self, agent_service: AgentApplicationService, *, authenticator=None, activity_tracker=None) -> None:
         self._agent_service = agent_service
         self._authenticator = authenticator or LocalAgentAuthenticator()
+        self._activity_tracker = activity_tracker
+
+    def _record_accepted_activity(self) -> None:
+        """Refresh only a trusted identity after authorization accepted work."""
+        identity = _REQUEST_IDENTITY.get()
+        if identity is not None and self._activity_tracker is not None:
+            self._activity_tracker.record(identity)
 
     def _request_agent_service(self) -> AgentApplicationService:
         """Bind the facade to the identity resolved once by MCP middleware."""
@@ -133,27 +140,35 @@ class McpSemanticAdapter:
 
     def _call(self, operation: str, handler: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         try:
-            return handler()
+            result = handler()
         except AgentPermissionDenied as error:
             raise McpToolError(
                 f"permission_denied: operation={error.operation.value} required_permission={error.permission.value}"
             ) from None
         except ApplicationError as error:
+            # Authorization already passed; a domain rejection still represents
+            # an accepted MCP interaction, not a transport keepalive.
+            self._record_accepted_activity()
             raise McpToolError(_application_error_message(error)) from None
         except Exception:
             raise McpToolError("internal_error: PHOS could not complete the requested operation.") from None
+        self._record_accepted_activity()
+        return result
 
     async def _call_async(self, handler) -> dict[str, Any]:
         try:
-            return await handler()
+            result = await handler()
         except AgentPermissionDenied as error:
             raise McpToolError(
                 f"permission_denied: operation={error.operation.value} required_permission={error.permission.value}"
             ) from None
         except ApplicationError as error:
+            self._record_accepted_activity()
             raise McpToolError(_application_error_message(error)) from None
         except Exception:
             raise McpToolError("internal_error: PHOS could not complete the requested operation.") from None
+        self._record_accepted_activity()
+        return result
 
     def get_status(self) -> dict[str, Any]:
         return self._call("phos_get_status", self._request_agent_service().status)
@@ -213,7 +228,8 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=None, authenticator=None):
+def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=None, authenticator=None,
+                      activity_tracker=None):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
         from mcp.server.mcpserver import MCPServer
@@ -221,7 +237,8 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     except ImportError as error:
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
-    adapter = McpSemanticAdapter(agent_service, authenticator=authenticator)
+    adapter = McpSemanticAdapter(agent_service, authenticator=authenticator,
+                                 activity_tracker=activity_tracker)
 
     async def authenticate_request(request_context, call_next):
         identity = await adapter._authenticator.authenticate(request_context)
@@ -337,10 +354,12 @@ def _resource_bytes_result(handler: Callable[[], bytes]) -> bytes:
 class McpHttpServer:
     """One Streamable HTTP listener owned by the normal PHOS process."""
 
-    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str, authenticator=None) -> None:
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str,
+                 authenticator=None, activity_tracker=None) -> None:
         self.host, self.port, self.path = host, port, path
         self._semantic_events = McpSemanticEventBridge(agent_service)
-        self._mcp_server = create_mcp_server(agent_service, subscriptions=self._semantic_events.bus, authenticator=authenticator)
+        self._mcp_server = create_mcp_server(agent_service, subscriptions=self._semantic_events.bus,
+                                             authenticator=authenticator, activity_tracker=activity_tracker)
         self._uvicorn_server = None
 
     @property
@@ -392,9 +411,10 @@ class McpServerManager:
     """Own only the MCP listener, never the PHOS runtime or service graph."""
 
     def __init__(self, agent_service: AgentApplicationService, *, host: str, path: str,
-                 enabled: bool, port: int, authenticator=None) -> None:
+                 enabled: bool, port: int, authenticator=None, activity_tracker=None) -> None:
         self._agent_service, self._host, self._path = agent_service, host, path
         self._enabled, self._configured_port, self._authenticator = enabled, port, authenticator
+        self._activity_tracker = activity_tracker
         self._server = self._task = self._loop = None
         self._status, self._error = ("disabled" if not enabled else "starting"), None
         self._lock = asyncio.Lock()
@@ -435,7 +455,8 @@ class McpServerManager:
         # Resolve through the package at start time so deployments/tests can
         # provide the listener adapter without changing lifecycle semantics.
         from robot.mcp import McpHttpServer as Listener
-        server = Listener(self._agent_service, host=self._host, port=port, path=self._path, authenticator=self._authenticator)
+        server = Listener(self._agent_service, host=self._host, port=port, path=self._path,
+                          authenticator=self._authenticator, activity_tracker=self._activity_tracker)
         task = asyncio.create_task(server.serve(), name="mcp-streamable-http")
         for _ in range(200):
             if server.started:

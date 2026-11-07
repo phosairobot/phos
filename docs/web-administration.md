@@ -6,6 +6,68 @@ from the web worker. Runtime-page saves apply camera-preview settings and loggin
 the parent runtime boundary; other Runtime settings are saved as Restart PHOS pending changes.
 System Reload remains available for the other documented reloadable settings.
 
+## Presentation Owner migration and skin resolution
+
+PHOS retains the legacy optional **Presentation Owner** in
+`appearance.presentation_owner.agent_id`. It remains readable and is preserved
+when configuration is saved, but it is no longer a runtime appearance authority:
+`appearance.mode` is authoritative. This explicit migration rule prevents a
+stale manual owner from competing with automatic activity selection. Existing
+files without `appearance.mode` load as `global`, so their canonical global
+appearance remains safe and predictable; no legacy owner data is deleted.
+
+The legacy read-only resolver can still describe that owner's assignment. It is
+not used for visual activation. Selecting or clearing an owner never overwrites
+the canonical global `display` appearance.
+
+## Agent appearance administration
+
+**Settings → Agents** can assign an available built-in, declarative, or custom
+skin while creating or editing an agent. Select **Use agent-specific skin** and
+choose an entry from the catalog. Clearing that checkbox disables an existing
+assignment while retaining its skin ID, so it can be re-enabled later; agents
+without assignment metadata remain **Global**. The list identifies Global,
+Disabled, Assigned, and Missing assignments. A missing reference is preserved
+and safely falls back to the global appearance until an administrator selects a
+replacement.
+
+The same page retains the legacy **Active Presentation** controls during the
+migration. They preserve or clear the legacy value only; they do not activate a
+skin. The Default Agent is a separate MCP compatibility setting.
+
+The Active Presentation panel separates configured intent from runtime result:
+**Presentation Owner** is the saved administrator choice, **Resolved
+appearance** is the currently valid skin or fallback, and **Runtime activation**
+reports whether the running display accepted that temporary update. An
+unavailable or failed runtime leaves the saved owner and global display
+configuration unchanged; a later reconciliation, including startup, can recover
+when the renderer becomes available.
+
+## Agent appearance policy foundation
+
+`appearance.mode` defaults to `global`. In `global`, PHOS always applies the
+latest persisted global appearance. In `follow_agent`, it applies the complete
+skin snapshot of the highest-priority recently active eligible agent. Agents
+may carry optional appearance policy metadata:
+`participate` (default `true`), `priority` (default `50`, `0`–`100`), and
+`activity_timeout_seconds` (default `30`, `5`–`3600`). This timeout will be a
+monotonic appearance-activity window, not an MCP session, credential, or
+transport timeout. Static eligibility requires participation and a valid enabled
+skin; it never implies that an agent is currently active. When no active agent
+qualifies, PHOS restores the latest global appearance. Runtime status reports
+the mode, automatic selected identity, resolved skin, fallback reason, and
+whether the display accepted the temporary update.
+
+Configure this without editing YAML: open **Appearance → Skins** and select
+**Global Appearance** or **Follow Active Agent**. The same page reports the
+selected agent, runtime activation and any fallback. In **Settings → Agents**,
+enable an assigned complete skin, then set participation, priority and activity
+timeout. For example, an Ambient skin at priority 100 with a 10-second timeout
+temporarily wins over a Minimal skin at priority 50 with an 80-second timeout.
+Recent authenticated MCP semantic activity—not merely an MCP connection—starts
+or renews the timer. The Agents page shows configured policy; Appearance →
+Skins shows current runtime arbitration.
+
 ## Install and enable
 
 Use the [PHOS 1.3.0 installation procedure](installation.md#recommended-unified-installer)
@@ -394,6 +456,24 @@ behavior or voice settings. Custom skins live in internal `skins.json` storage b
 configuration. A skin may retain a deleted background asset reference; the
 background safely falls back until that asset is available again.
 
+PHOS can retain internal, explicit agent skin-assignment metadata for future
+administration workflows. Enabled references are validated against built-in,
+declarative YAML, or custom skins. `global`, `disabled`, `assigned`, and
+`missing` are distinct assignment states; a missing reference retains its ID
+and falls back to global appearance. Referenced custom skins cannot be deleted.
+WebUI assignment controls, Presentation Owner, runtime agent-skin switching,
+and MCP-driven assignment changes are not implemented.
+
+Administrators may additionally configure a read-only declarative catalog with
+`appearance.config_file` in `phos.yaml` (for example `skins.yaml`). Catalog
+skins use schema version 1, inherit from a built-in or catalog skin, and support
+only the current procedural appearance fields: iris color, state backgrounds,
+Eye Safe Layer, and State Effects. The catalog is validated when it is used;
+invalid, missing, duplicate, cyclic, or unsafe entries are rejected rather than
+partially applied. Manual catalog edits require PHOS restart before they are
+used. This does not replace `skins.json`, package import/export, or the global
+Appearance workflow. Agent-to-skin assignment is not implemented yet.
+
 Portable PHOS Skin packages use the `.phos-skin` ZIP-compatible archive format
 with a `skin.yaml` schema-version-`2` manifest and optional `assets/` PNG/JPEG
 backgrounds. `.zip` is accepted as a compatible upload format, but
@@ -556,3 +636,30 @@ alert overlays followed by smooth decay. `imu_tilt_eye_asymmetry_strength`
 mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
 the strongest alert remains unambiguous. Robot states such as
 sleeping, speaking and error retain priority.
+
+## Authenticated MCP appearance activity
+
+PHOS can retain per-agent appearance policy metadata: participation, priority,
+and an activity timeout. In `appearance.mode: follow_agent`, the runtime records
+an in-memory lease only after a registered agent has authenticated and completed
+an accepted MCP semantic tool or resource interaction. A successful MCP
+connection, transport keepalive, health check, anonymous request, invalid token,
+or permission-denied request does not renew a registered agent lease.
+
+Leases use a monotonic clock and are never persisted. They expire after the
+agent's configured timeout, including when no new requests arrive. A restart
+therefore begins with no active leases. Eligible agents must participate and
+have an enabled, available assigned skin. The selector chooses the highest
+priority active eligible agent; equal priorities retain the previous winner
+while it remains eligible, otherwise their canonical IDs provide a stable tie
+break. The Default Agent does not affect this decision.
+
+The arbitration result is lifecycle-owned and safe for later administration
+read models; it contains identities, selected skin IDs, priorities and lease
+state, never bearer values or secret references. Anonymous MCP clients retain
+their configured permissions but never become an appearance owner. Multiple
+authenticated sessions for one agent share one lease.
+
+SKIN-02d.2 deliberately does not apply this result to the physical display.
+Existing manual Presentation Owner behavior remains unchanged; runtime visual
+activation is deferred to SKIN-02d.3.

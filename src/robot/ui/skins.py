@@ -29,6 +29,8 @@ MAX_SKIN_UNPACKED_BYTES = 32 * 1024 * 1024
 MAX_SKIN_PACKAGE_FILES = 16
 MAX_SKIN_ENTRY_BYTES = 4 * 1024 * 1024
 MAX_SKIN_IMAGE_BYTES = MAX_SKIN_ENTRY_BYTES
+CATALOG_SCHEMA_VERSION = 1
+MAX_CATALOG_INHERITANCE_DEPTH = 8
 logger = logging.getLogger(__name__)
 
 
@@ -166,8 +168,85 @@ def built_in_skins() -> tuple[SkinDefinition, ...]:
 
 
 class SkinRepository:
-    """Persistent custom skins beside the canonical runtime configuration."""
-    def __init__(self, config_path: Path): self.path = Path(config_path).parent / "skins.json"
+    """Built-in, declarative, and persistent custom skins in one catalog."""
+    def __init__(self, config_path: Path, *, catalog_file: Path | None = None):
+        self.path = Path(config_path).parent / "skins.json"
+        self.catalog_file = None if catalog_file is None else Path(catalog_file)
+
+    @staticmethod
+    def _merge(base: dict, override: dict) -> dict:
+        result = copy.deepcopy(base)
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(result.get(key), dict):
+                result[key] = SkinRepository._merge(result[key], value)
+            else:
+                result[key] = copy.deepcopy(value)
+        return result
+
+    def _catalog(self) -> list[SkinDefinition]:
+        if self.catalog_file is None:
+            return []
+        root = self.path.parent.resolve()
+        catalog = self.catalog_file.resolve()
+        if root not in catalog.parents or catalog.suffix.lower() not in {".yaml", ".yml"}:
+            raise ConfigurationError("Skin catalog must be a YAML file beneath the PHOS configuration directory")
+        try:
+            raw = yaml.safe_load(catalog.read_text(encoding="utf-8"))
+        except FileNotFoundError as error:
+            raise ConfigurationError(f"Configured skin catalog is missing: {catalog.name}") from error
+        except (OSError, UnicodeError, yaml.YAMLError) as error:
+            raise ConfigurationError("Configured skin catalog is unreadable or invalid YAML") from error
+        if not isinstance(raw, dict) or set(raw) != {"schema_version", "skins"} or raw["schema_version"] != CATALOG_SCHEMA_VERSION or not isinstance(raw["skins"], list):
+            raise ConfigurationError("Skin catalog must contain schema_version: 1 and a skins list")
+        definitions = {}
+        for item in raw["skins"]:
+            if not isinstance(item, dict) or set(item) != {"id", "display_name", "inherits", "appearance"}:
+                raise ConfigurationError("Skin catalog definition has unsupported fields")
+            skin_id = item["id"]
+            if not isinstance(skin_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", skin_id):
+                raise ConfigurationError("Skin catalog identifiers must be lowercase stable IDs")
+            if skin_id in definitions:
+                raise ConfigurationError(f"Duplicate skin catalog identifier: {skin_id}")
+            if (not isinstance(item["display_name"], str) or not item["display_name"].strip()
+                    or len(item["display_name"].strip()) > 80 or item["inherits"] is not None and not isinstance(item["inherits"], str)
+                    or not isinstance(item["appearance"], dict)):
+                raise ConfigurationError(f"Skin catalog definition is invalid: {skin_id}")
+            definitions[skin_id] = item
+        bases = {skin.id: skin for skin in built_in_skins()}
+        resolved, resolving = {}, set()
+
+        def resolve(skin_id: str, depth: int = 0) -> SkinDefinition:
+            if skin_id in resolved:
+                return resolved[skin_id]
+            if depth > MAX_CATALOG_INHERITANCE_DEPTH:
+                raise ConfigurationError("Skin catalog inheritance exceeds the maximum depth")
+            if skin_id in resolving:
+                raise ConfigurationError("Skin catalog inheritance contains a cycle")
+            item = definitions.get(skin_id)
+            if item is None:
+                if skin_id in bases:
+                    return bases[skin_id]
+                raise ConfigurationError(f"Skin catalog parent is unknown: {skin_id}")
+            resolving.add(skin_id)
+            parent_id = item["inherits"] or "phos-default"
+            parent = resolve(parent_id, depth + 1)
+            appearance = validate_appearance_snapshot(self._merge(parent.appearance, item["appearance"]))
+            resolving.remove(skin_id)
+            value = SkinDefinition(skin_id, item["display_name"].strip(), "", appearance)
+            resolved[skin_id] = value
+            return value
+
+        catalog = [resolve(skin_id) for skin_id in definitions]
+        for skin in catalog:
+            for state in _STATES:
+                asset = skin.appearance["backgrounds"][state]
+                if asset is None:
+                    continue
+                target = (root / asset).resolve()
+                backgrounds = (root / "backgrounds").resolve()
+                if backgrounds not in target.parents or not target.is_file():
+                    raise ConfigurationError(f"Skin catalog background is unavailable: {skin.id}/{state}")
+        return catalog
 
     def _custom(self) -> list[SkinDefinition]:
         if not self.path.exists(): return []
@@ -190,7 +269,12 @@ class SkinRepository:
         payload = {"skins": [{"id": skin.id, "name": skin.name, "description": skin.description, "appearance": skin.appearance} for skin in skins]}
         atomic_write_text(self.path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
-    def list(self) -> list[SkinDefinition]: return [*built_in_skins(), *self._custom()]
+    def list(self) -> list[SkinDefinition]:
+        skins = [*built_in_skins(), *self._catalog(), *self._custom()]
+        ids = [skin.id for skin in skins]
+        if len(ids) != len(set(ids)):
+            raise ConfigurationError("Skin identifiers conflict between built-in, catalog, or custom skins")
+        return skins
     def _asset_dir(self, skin_id: str) -> Path:
         if not re.fullmatch(r"custom-[a-f0-9]+", skin_id): raise ConfigurationError("Invalid custom skin identifier")
         return self.path.parent / "backgrounds" / "skins" / skin_id

@@ -1154,7 +1154,8 @@ class PhosApplicationService:
     def _skins(self) -> SkinRepository:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Skin service is unavailable.", status=503)
-        return SkinRepository(self._lifecycle.path)
+        config = self._lifecycle.config_repository.load()
+        return SkinRepository(self._lifecycle.path, catalog_file=config.resolve_path(config.appearance_catalog_file))
 
     @staticmethod
     def _owns_live_backgrounds(skin_id: str, backgrounds: dict) -> bool:
@@ -1188,6 +1189,9 @@ class PhosApplicationService:
 
     def delete_skin(self, skin_id: str) -> dict:
         try:
+            references = getattr(self._lifecycle, "agent_skin_references", lambda _skin_id: ())(skin_id)
+            if references:
+                raise ApplicationError("skin_in_use", "Skin is assigned to one or more agents. Remove or replace those assignments before deleting it.", status=409)
             current = self._lifecycle.config_repository.load().to_dict()["display"]["backgrounds"]
             if self._owns_live_backgrounds(skin_id, current):
                 raise ApplicationError("skin_in_use", "This skin is currently used by PHOS. Apply another skin before deleting it.", status=409)

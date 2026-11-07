@@ -6,9 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from robot.secrets import SecretsError, SecretsService
-from robot.config import ConfigRepository, load_document
+from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
 from robot.services import (AgentCredentialError, AgentCredentialService, AgentIdentity, AgentRegistry,
-                            AgentManagementError, AgentManagementService, AgentRegistryProvider, BearerAgentAuthenticator)
+                            AgentAppearanceActivityTracker, AgentManagementError, AgentManagementService,
+                            AgentRegistryProvider, BearerAgentAuthenticator)
 
 
 def _registry():
@@ -19,6 +20,252 @@ def _registry():
 
 def _context(token):
     return SimpleNamespace(request=SimpleNamespace(headers={"Authorization": f"Bearer {token}"}))
+
+
+def _skin_management(tmp_path, skin=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    document = load_document(); document.pop("appearance", None); document["logging"]["file"] = None
+    if skin is not None: document["agents"]["entries"][0]["skin"] = skin
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    repository = ConfigRepository(path); config = repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    return AgentManagementService(repository, provider, AgentCredentialService(provider, SecretsService(tmp_path / ".secrets"))), path
+
+
+def test_agent_skin_assignment_read_model_distinguishes_global_disabled_assigned_and_missing(tmp_path):
+    global_management, _ = _skin_management(tmp_path / "global")
+    assert global_management.get_agent("local-agent")["skin_assignment"] == {"state": "global", "id": None}
+
+    disabled_management, _ = _skin_management(tmp_path / "disabled", {"enabled": False, "id": "ambient"})
+    assert disabled_management.get_agent("local-agent")["skin_assignment"] == {"state": "disabled", "id": "ambient"}
+
+    assigned_management, _ = _skin_management(tmp_path / "assigned", {"enabled": True, "id": "ambient"})
+    assert assigned_management.get_agent("local-agent")["skin_assignment"] == {"state": "assigned", "id": "ambient", "display_name": "Ambient"}
+
+    missing_management, missing_path = _skin_management(tmp_path / "missing", {"enabled": True, "id": "removed-skin"})
+    before = missing_path.read_bytes()
+    assert missing_management.get_agent("local-agent")["skin_assignment"] == {"state": "missing", "id": "removed-skin"}
+    assert missing_management.get_agent("local-agent")["skin"] == {"enabled": True, "id": "removed-skin"}
+    assert missing_path.read_bytes() == before
+
+
+def test_credential_lifecycle_preserves_persisted_agent_skin_assignment(tmp_path):
+    management, path = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    expected = {"enabled": True, "id": "ambient"}
+    for operation in (management.create_credential, management.rotate_credential, management.revoke_credential):
+        operation("local-agent")
+        persisted = RuntimeConfig.from_file(path).agent_registry.default_identity
+        assert persisted.skin == expected and persisted.permission_profile.value == "standard"
+        assert management.get_agent("local-agent")["skin"] == expected
+
+
+def test_presentation_owner_configuration_is_backward_compatible_and_validates_registered_agents(tmp_path):
+    document = load_document()
+    document.pop("appearance", None)
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert config.presentation_owner_agent_id is None
+    assert config.to_dict()["appearance"]["presentation_owner"] == {"agent_id": None}
+
+    document["appearance"] = {"config_file": None, "presentation_owner": {"agent_id": "missing"}}
+    with pytest.raises(ConfigurationError, match="presentation_owner.agent_id"):
+        RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+
+
+def test_presentation_owner_persists_and_effective_skin_uses_assignment_projection(tmp_path):
+    management, path = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    before_display = RuntimeConfig.from_file(path).to_dict()["display"]
+
+    assert management.presentation_owner() == {"agent_id": None, "display_name": None}
+    assert management.effective_skin()["fallback_reason"] == "no_owner"
+    assert management.set_presentation_owner("local-agent") == {
+        "agent_id": "local-agent", "display_name": "Local MCP agent"}
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "local-agent"
+    assert management.effective_skin() == {
+        "configured_owner_id": "local-agent", "owner_display_name": "Local MCP agent",
+        "assigned_skin_id": "ambient", "state": "assigned", "effective_skin_id": "ambient",
+        "skin_display_name": "Ambient", "fallback_reason": None,
+    }
+    assert RuntimeConfig.from_file(path).to_dict()["display"] == before_display
+    assert management.clear_presentation_owner() == {"agent_id": None, "display_name": None}
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id is None
+
+
+@pytest.mark.parametrize(("skin", "reason"), [
+    ({"enabled": False, "id": "ambient"}, "assignment_disabled"),
+    (None, "no_skin_assignment"),
+    ({"enabled": True, "id": "removed-skin"}, "missing_skin"),
+])
+def test_presentation_owner_global_fallbacks_preserve_assignment(tmp_path, skin, reason):
+    management, path = _skin_management(tmp_path, skin)
+    before = path.read_bytes()
+    management.set_presentation_owner("local-agent")
+
+    resolved = management.effective_skin()
+    assert resolved["state"] == "global"
+    assert resolved["effective_skin_id"] is None
+    assert resolved["fallback_reason"] == reason
+    if reason == "missing_skin":
+        assert resolved["missing_skin_id"] == "removed-skin"
+    # Selection changes only the owner field; it never normalizes or rewrites
+    # the retained skin assignment while resolving a fallback.
+    assert RuntimeConfig.from_file(path).agent_registry.default_identity.skin == skin
+    assert path.read_bytes() != before
+
+
+def test_owner_deletion_clears_owner_in_the_same_registry_persistence_update(tmp_path):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer", {"enabled": True, "id": "ambient"})
+    management.set_presentation_owner("presentation")
+    management.delete_agent("presentation")
+
+    reloaded = RuntimeConfig.from_file(path)
+    assert reloaded.presentation_owner_agent_id is None
+    assert reloaded.agent_registry.get("presentation") is None
+    assert management.presentation_owner() == {"agent_id": None, "display_name": None}
+    assert management.effective_skin()["fallback_reason"] == "no_owner"
+
+
+def test_deleting_an_unrelated_agent_preserves_presentation_owner(tmp_path):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer")
+    management.create_agent("other", "Other", "observer")
+    management.set_presentation_owner("presentation")
+    management.delete_agent("other")
+
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "presentation"
+    assert management.presentation_owner() == {"agent_id": "presentation", "display_name": "Presentation"}
+
+
+def test_failed_owner_update_and_failed_owner_deletion_preserve_persisted_owner(tmp_path, monkeypatch):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer")
+    management.set_presentation_owner("presentation")
+    original_save = management._repository.save
+
+    def fail_save(_candidate):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(management._repository, "save", fail_save)
+    with pytest.raises(OSError):
+        management.clear_presentation_owner()
+    with pytest.raises(OSError):
+        management.delete_agent("presentation")
+    monkeypatch.setattr(management._repository, "save", original_save)
+
+    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "presentation"
+    assert management._provider.get().get("presentation") is not None
+
+
+def test_owner_is_independent_of_credentials_and_default_agent(tmp_path):
+    management, path = _skin_management(tmp_path)
+    management.create_agent("presentation", "Presentation", "observer")
+    management.set_presentation_owner("presentation")
+    management.create_credential("presentation")
+    management.rotate_credential("presentation")
+    management.revoke_credential("presentation")
+    management.set_default_agent("presentation")
+
+    reloaded = RuntimeConfig.from_file(path)
+    assert reloaded.presentation_owner_agent_id == "presentation"
+    assert reloaded.agent_registry.default_agent == "presentation"
+
+
+def test_appearance_mode_and_policy_validation_round_trip(tmp_path):
+    document = load_document(); document["appearance"]["mode"] = "follow_agent"
+    document["agents"]["entries"][0]["appearance"] = {"participate": True, "priority": 100, "activity_timeout_seconds": 3600}
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path, check_paths=False)
+    assert config.appearance_mode == "follow_agent"
+    assert config.to_dict()["agents"]["entries"][0]["appearance"]["priority"] == 100
+    for key, value in (("participate", "true"), ("priority", True), ("priority", 101),
+                       ("activity_timeout_seconds", 4), ("activity_timeout_seconds", 5.0)):
+        invalid = load_document(); invalid["agents"]["entries"][0]["appearance"] = {"participate": True, "priority": 50, "activity_timeout_seconds": 30}; invalid["agents"]["entries"][0]["appearance"][key] = value
+        with pytest.raises(Exception): RuntimeConfig.from_dict(invalid, base_dir=tmp_path, check_paths=False)
+
+
+@pytest.mark.parametrize(("skin", "policy", "reason", "eligible"), [
+    ({"enabled": True, "id": "ambient"}, {"participate": True, "priority": 50, "activity_timeout_seconds": 30}, "eligible", True),
+    ({"enabled": True, "id": "ambient"}, {"participate": False, "priority": 50, "activity_timeout_seconds": 30}, "participation_disabled", False),
+    ({"enabled": False, "id": "ambient"}, None, "skin_disabled", False),
+    (None, None, "skin_not_assigned", False),
+    ({"enabled": True, "id": "missing"}, None, "skin_missing", False),
+])
+def test_static_appearance_policy_eligibility(tmp_path, skin, policy, reason, eligible):
+    management, _ = _skin_management(tmp_path, skin)
+    if policy is not None:
+        management.update_agent("local-agent", "Local MCP agent", "standard", appearance=policy)
+    view = management.get_agent("local-agent")["appearance_policy"]
+    assert (view["reason"], view["static_eligible"]) == (reason, eligible)
+
+
+class _Clock:
+    def __init__(self): self.now = 0.0
+    def __call__(self): return self.now
+
+
+class _Timer:
+    """Deterministic timer stand-in; tests explicitly advance and reconcile."""
+    instances = []
+    def __init__(self, delay, callback):
+        self.delay, self.callback, self.daemon, self.cancelled = delay, False, False, False
+        self.instances.append(self)
+    def start(self): pass
+    def cancel(self): self.cancelled = True
+
+
+def test_follow_agent_arbitration_uses_authenticated_leases_priority_and_stable_ties(tmp_path):
+    management, _ = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    management.create_agent("high", "High", "observer", {"enabled": True, "id": "minimal"},
+                            {"participate": True, "priority": 100, "activity_timeout_seconds": 10})
+    management.update_agent("local-agent", "Local MCP agent", "standard", appearance={
+        "participate": True, "priority": 50, "activity_timeout_seconds": 80})
+    document = management._repository.document(); document["appearance"] = {"config_file": None, "mode": "follow_agent", "presentation_owner": {"agent_id": None}}
+    management._repository.save(management._repository.load(document))
+    clock = _Clock()
+    tracker = AgentAppearanceActivityTracker(management._provider, management.appearance_arbitration_candidates,
+                                             clock=clock, timer_factory=_Timer)
+    management.register_appearance_activity_tracker(tracker)
+    local, high = management._provider.get().get("local-agent"), management._provider.get().get("high")
+
+    assert tracker.status()["selection_reason"] == "no_active_eligible_agents"
+    assert tracker.record(local) is True
+    assert tracker.status()["selected_agent_id"] == "local-agent"
+    # A lower priority refresh cannot preempt the current higher-priority lease.
+    assert tracker.record(high) is True
+    assert tracker.status()["selected_agent_id"] == "high"
+    clock.now = 10.0
+    assert tracker.status()["selected_agent_id"] == "local-agent"
+    clock.now = 80.0
+    assert tracker.status()["selected_agent_id"] is None
+
+    # Equal priority is deterministic, then preserves the existing winner.
+    management.update_agent("high", "High", "observer", appearance={
+        "participate": True, "priority": 50, "activity_timeout_seconds": 10})
+    high = management._provider.get().get("high")
+    tracker.record(high); tracker.record(local)
+    assert tracker.status()["selected_agent_id"] == "high"  # retained from the prior winner
+    assert tracker.record(AgentIdentity("local-agent", "observer", "forged")) is False
+    pending_timer = tracker._timer
+    tracker.close()
+    assert pending_timer.cancelled is True
+
+
+def test_global_mode_exposes_activity_without_selecting_and_deletion_forgets_lease(tmp_path):
+    management, _ = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    clock = _Clock()
+    tracker = AgentAppearanceActivityTracker(management._provider, management.appearance_arbitration_candidates,
+                                             clock=clock, timer_factory=_Timer)
+    management.register_appearance_activity_tracker(tracker)
+    identity = management._provider.get().default_identity
+    tracker.record(identity)
+    assert tracker.record(AgentIdentity("anonymous-mcp", "standard", "Anonymous MCP client")) is False
+    result = tracker.status()
+    assert result["mode"] == "global" and result["selected_agent_id"] is None
+    assert result["agents"][0]["activity_active"] is True
+    management.create_agent("temporary", "Temporary", "observer", {"enabled": True, "id": "minimal"})
+    tracker.record(management._provider.get().get("temporary"))
+    management.delete_agent("temporary")
+    assert all(item["agent_id"] != "temporary" for item in tracker.status()["agents"])
+    tracker.close()
 
 
 def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, caplog):

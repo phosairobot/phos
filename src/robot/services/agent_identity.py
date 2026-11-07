@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import logging
 from threading import RLock
 import secrets
-from threading import RLock
 from types import MappingProxyType
 from typing import Mapping, Protocol
 
@@ -23,6 +22,8 @@ class AgentIdentity:
     id: str
     permission_profile: AgentProfile | str
     display_name: str | None = None
+    skin: dict | None = None
+    appearance: dict | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -36,6 +37,21 @@ class AgentIdentity:
         object.__setattr__(self, "id", self.id.strip())
         object.__setattr__(self, "display_name", self.display_name.strip() if self.display_name else None)
         object.__setattr__(self, "permission_profile", profile)
+        if self.skin is not None:
+            if (not isinstance(self.skin, dict) or set(self.skin) != {"enabled", "id"}
+                    or type(self.skin["enabled"]) is not bool
+                    or self.skin["id"] is not None and (not isinstance(self.skin["id"], str) or not self.skin["id"].strip())
+                    or self.skin["enabled"] and self.skin["id"] is None):
+                raise ValueError("Invalid agent skin assignment.")
+            object.__setattr__(self, "skin", {"enabled": self.skin["enabled"],
+                                                "id": self.skin["id"].strip() if self.skin["id"] else None})
+        if self.appearance is not None:
+            if (not isinstance(self.appearance, dict) or set(self.appearance) != {"participate", "priority", "activity_timeout_seconds"}
+                    or type(self.appearance["participate"]) is not bool
+                    or type(self.appearance["priority"]) is not int or not 0 <= self.appearance["priority"] <= 100
+                    or type(self.appearance["activity_timeout_seconds"]) is not int or not 5 <= self.appearance["activity_timeout_seconds"] <= 3600):
+                raise ValueError("Invalid agent appearance policy.")
+            object.__setattr__(self, "appearance", dict(self.appearance))
 
 
 class AgentAuthenticator(Protocol):
