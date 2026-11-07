@@ -117,7 +117,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         if hasattr(runtime, "core"):
             from pathlib import Path
             from robot.secrets import SecretsError, SecretsService
-            from robot.services import (AgentApplicationService, AgentCredentialService, AgentManagementService,
+            from robot.services import (AgentApplicationService, AgentAppearanceActivityTracker, AgentCredentialService, AgentManagementService,
                                         AgentRegistryProvider, BearerAgentAuthenticator, ConfiguredAgentAuthenticator,
                                         McpAuthenticationModeAuthenticator,
                                         PhosApplicationService)
@@ -130,6 +130,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                 agent_management = AgentManagementService(
                     lifecycle.config_repository if lifecycle is not None else ConfigRepository(),
                     registry_provider, AgentCredentialService(registry_provider, secret_store))
+                appearance_activity = AgentAppearanceActivityTracker(
+                    registry_provider, agent_management.appearance_arbitration_candidates)
+                agent_management.register_appearance_activity_tracker(appearance_activity)
                 logger.info("PHOS MCP: agent registry loaded agents=%s credential_agents=%s",
                             len(config.agent_registry.entries), len(config.agent_registry.credential_refs))
                 for agent_id, secret_ref in config.agent_registry.credential_refs.items():
@@ -158,6 +161,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
                     authenticator=authenticator,
                     enabled=config.mcp_enabled,
+                    activity_tracker=appearance_activity,
                 )
                 application_service.register_mcp_manager(mcp_manager)
 
@@ -175,6 +179,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                 lifecycle.register_application_service(application_service)
                 if config is not None:
                     lifecycle.register_agent_management_service(agent_management)
+                    lifecycle.register_appearance_activity_tracker(appearance_activity)
             register_started = getattr(runtime, "register_started_callback", None)
             if callable(register_started):
                 def mark_started_and_reconcile() -> None:
@@ -240,6 +245,8 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             await asyncio.gather(mcp_start_task, return_exceptions=True)
         if mcp_manager is not None:
             await mcp_manager.close()
+        if 'appearance_activity' in locals():
+            appearance_activity.close()
         if application_service is not None and lifecycle is None:
             application_service.close()
         if lifecycle is not None:

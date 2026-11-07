@@ -106,6 +106,7 @@ class LifecycleService:
         self._application_status = None
         self._application_service = None
         self._agent_management_service = None
+        self._appearance_activity_tracker = None
         self._presentation_activation = {"state": "pending", "message": "Presentation runtime is not ready."}
         self._application_ready = False
         self._clock = clock
@@ -244,6 +245,22 @@ class LifecycleService:
         with self._lock:
             self._agent_management_service = service
             service.register_effective_appearance_applier(self.reconcile_effective_appearance)
+
+    def register_appearance_activity_tracker(self, tracker):
+        """Attach automatic arbitration without changing renderer behavior."""
+        with self._lock:
+            self._appearance_activity_tracker = tracker
+            tracker.set_change_callback(self._appearance_arbitration_changed)
+
+    def _appearance_arbitration_changed(self, _result) -> None:
+        # SKIN-02d.2 publishes only; SKIN-02d.3 will reconcile the renderer.
+        return None
+
+    def appearance_arbitration_status(self) -> dict:
+        if self._appearance_activity_tracker is None:
+            return {"mode": "global", "selected_agent_id": None,
+                    "selection_reason": "activity_tracker_unavailable", "agents": []}
+        return self._appearance_activity_tracker.status()
 
     def reconcile_effective_appearance(self) -> dict:
         """Apply the latest owner-resolved appearance without saving display config."""
@@ -509,6 +526,8 @@ class LifecycleService:
                     if not presentation.get("ok"):
                         return {"ok": False, **self._snapshot(saved), "applied": applied,
                                 "error": presentation.get("error", "Effective appearance could not be applied.")}
+                if self._appearance_activity_tracker is not None:
+                    self._appearance_activity_tracker.recompute()
                 self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             return {"ok": True, **self._snapshot(saved), "applied": applied}
 
@@ -533,6 +552,7 @@ class LifecycleService:
             "application.clear_presentation_owner": lambda: self._agent_management_service.clear_presentation_owner(),
             "application.effective_skin": lambda: self._agent_management_service.effective_skin(),
             "application.presentation_activation": lambda: self.presentation_activation_status(),
+            "application.appearance_arbitration": lambda: self.appearance_arbitration_status(),
             "application.status": lambda: self._application_service.status(),
             "application.state": lambda: self._application_service.robot_state(),
             "application.environment": lambda: self._application_service.environment(),
@@ -589,7 +609,7 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation"}
+        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation", "application.appearance_arbitration"}
         if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",

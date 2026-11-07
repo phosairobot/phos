@@ -632,3 +632,30 @@ alert overlays followed by smooth decay. `imu_tilt_eye_asymmetry_strength`
 mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
 the strongest alert remains unambiguous. Robot states such as
 sleeping, speaking and error retain priority.
+
+## Authenticated MCP appearance activity
+
+PHOS can retain per-agent appearance policy metadata: participation, priority,
+and an activity timeout. In `appearance.mode: follow_agent`, the runtime records
+an in-memory lease only after a registered agent has authenticated and completed
+an accepted MCP semantic tool or resource interaction. A successful MCP
+connection, transport keepalive, health check, anonymous request, invalid token,
+or permission-denied request does not renew a registered agent lease.
+
+Leases use a monotonic clock and are never persisted. They expire after the
+agent's configured timeout, including when no new requests arrive. A restart
+therefore begins with no active leases. Eligible agents must participate and
+have an enabled, available assigned skin. The selector chooses the highest
+priority active eligible agent; equal priorities retain the previous winner
+while it remains eligible, otherwise their canonical IDs provide a stable tie
+break. The Default Agent does not affect this decision.
+
+The arbitration result is lifecycle-owned and safe for later administration
+read models; it contains identities, selected skin IDs, priorities and lease
+state, never bearer values or secret references. Anonymous MCP clients retain
+their configured permissions but never become an appearance owner. Multiple
+authenticated sessions for one agent share one lease.
+
+SKIN-02d.2 deliberately does not apply this result to the physical display.
+Existing manual Presentation Owner behavior remains unchanged; runtime visual
+activation is deferred to SKIN-02d.3.

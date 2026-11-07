@@ -157,6 +157,71 @@ def test_bearer_middleware_isolates_profiles_and_sanitizes_failed_authentication
     assert application.calls == [("set_state", "sleeping")]
 
 
+def test_mcp_activity_is_recorded_after_authorization_not_authentication_or_keepalive():
+    standard = AgentIdentity("standard", "standard")
+    observer = AgentIdentity("observer", "observer")
+
+    class Authenticator:
+        async def authenticate(self, context):
+            token = context.request.headers.get("Authorization")
+            if token == "Bearer standard": return standard
+            if token == "Bearer observer": return observer
+            raise PermissionError("authentication_failed")
+
+    class Tracker:
+        def __init__(self): self.identities = []
+        def record(self, identity): self.identities.append(identity); return True
+
+    tracker = Tracker()
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service, authenticator=Authenticator(), activity_tracker=tracker)
+    middleware = server.middleware[-1]
+    def context(token):
+        return type("Context", (), {"request": type("Request", (), {"headers": {"Authorization": token}})()})()
+
+    async def exercise():
+        # Authentication alone (the transport's initialization path) has no
+        # semantic adapter call and therefore does not renew a lease.
+        await Authenticator().authenticate(context("Bearer standard"))
+        await middleware(context("Bearer standard"), lambda _: server.call_tool("phos_get_status", {}))
+        with pytest.raises(Exception, match="permission_denied"):
+            await middleware(context("Bearer observer"), lambda _: server.call_tool("phos_sleep", {}))
+        with pytest.raises(PermissionError, match="authentication_failed"):
+            await middleware(context("Bearer invalid"), lambda _: server.call_tool("phos_get_status", {}))
+
+    asyncio.run(exercise())
+    assert tracker.identities == [standard]
+
+
+def test_revoked_bearer_cannot_renew_mcp_activity(tmp_path):
+    registry = AgentRegistry("standard", (AgentIdentity("standard", "standard"),),
+                             {"standard": "mcp.standard.token"})
+    secrets = SecretsService(tmp_path / ".secrets")
+    issued = AgentCredentialService(registry, secrets).create("standard")
+
+    class Tracker:
+        def __init__(self): self.identities = []
+        def record(self, identity): self.identities.append(identity); return True
+
+    tracker = Tracker()
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service,
+                               authenticator=BearerAgentAuthenticator(registry, secrets),
+                               activity_tracker=tracker)
+    middleware = server.middleware[-1]
+    context = lambda: type("Context", (), {"request": type("Request", (), {
+        "headers": {"Authorization": f"Bearer {issued.token}"}})()})()
+
+    async def exercise():
+        await middleware(context(), lambda _: server.call_tool("phos_get_status", {}))
+        AgentCredentialService(registry, secrets).revoke("standard")
+        with pytest.raises(PermissionError, match="authentication_failed"):
+            await middleware(context(), lambda _: server.call_tool("phos_get_status", {}))
+
+    asyncio.run(exercise())
+    assert [identity.id for identity in tracker.identities] == ["standard"]
+
+
 def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(tmp_path, caplog):
     from mcp.client import ClientSession
     from mcp.client.streamable_http import httpx2 as httpx, streamable_http_client

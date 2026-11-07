@@ -8,7 +8,8 @@ import pytest
 from robot.secrets import SecretsError, SecretsService
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
 from robot.services import (AgentCredentialError, AgentCredentialService, AgentIdentity, AgentRegistry,
-                            AgentManagementError, AgentManagementService, AgentRegistryProvider, BearerAgentAuthenticator)
+                            AgentAppearanceActivityTracker, AgentManagementError, AgentManagementService,
+                            AgentRegistryProvider, BearerAgentAuthenticator)
 
 
 def _registry():
@@ -194,6 +195,77 @@ def test_static_appearance_policy_eligibility(tmp_path, skin, policy, reason, el
         management.update_agent("local-agent", "Local MCP agent", "standard", appearance=policy)
     view = management.get_agent("local-agent")["appearance_policy"]
     assert (view["reason"], view["static_eligible"]) == (reason, eligible)
+
+
+class _Clock:
+    def __init__(self): self.now = 0.0
+    def __call__(self): return self.now
+
+
+class _Timer:
+    """Deterministic timer stand-in; tests explicitly advance and reconcile."""
+    instances = []
+    def __init__(self, delay, callback):
+        self.delay, self.callback, self.daemon, self.cancelled = delay, False, False, False
+        self.instances.append(self)
+    def start(self): pass
+    def cancel(self): self.cancelled = True
+
+
+def test_follow_agent_arbitration_uses_authenticated_leases_priority_and_stable_ties(tmp_path):
+    management, _ = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    management.create_agent("high", "High", "observer", {"enabled": True, "id": "minimal"},
+                            {"participate": True, "priority": 100, "activity_timeout_seconds": 10})
+    management.update_agent("local-agent", "Local MCP agent", "standard", appearance={
+        "participate": True, "priority": 50, "activity_timeout_seconds": 80})
+    document = management._repository.document(); document["appearance"] = {"config_file": None, "mode": "follow_agent", "presentation_owner": {"agent_id": None}}
+    management._repository.save(management._repository.load(document))
+    clock = _Clock()
+    tracker = AgentAppearanceActivityTracker(management._provider, management.appearance_arbitration_candidates,
+                                             clock=clock, timer_factory=_Timer)
+    management.register_appearance_activity_tracker(tracker)
+    local, high = management._provider.get().get("local-agent"), management._provider.get().get("high")
+
+    assert tracker.status()["selection_reason"] == "no_active_eligible_agents"
+    assert tracker.record(local) is True
+    assert tracker.status()["selected_agent_id"] == "local-agent"
+    # A lower priority refresh cannot preempt the current higher-priority lease.
+    assert tracker.record(high) is True
+    assert tracker.status()["selected_agent_id"] == "high"
+    clock.now = 10.0
+    assert tracker.status()["selected_agent_id"] == "local-agent"
+    clock.now = 80.0
+    assert tracker.status()["selected_agent_id"] is None
+
+    # Equal priority is deterministic, then preserves the existing winner.
+    management.update_agent("high", "High", "observer", appearance={
+        "participate": True, "priority": 50, "activity_timeout_seconds": 10})
+    high = management._provider.get().get("high")
+    tracker.record(high); tracker.record(local)
+    assert tracker.status()["selected_agent_id"] == "high"  # retained from the prior winner
+    assert tracker.record(AgentIdentity("local-agent", "observer", "forged")) is False
+    pending_timer = tracker._timer
+    tracker.close()
+    assert pending_timer.cancelled is True
+
+
+def test_global_mode_exposes_activity_without_selecting_and_deletion_forgets_lease(tmp_path):
+    management, _ = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    clock = _Clock()
+    tracker = AgentAppearanceActivityTracker(management._provider, management.appearance_arbitration_candidates,
+                                             clock=clock, timer_factory=_Timer)
+    management.register_appearance_activity_tracker(tracker)
+    identity = management._provider.get().default_identity
+    tracker.record(identity)
+    assert tracker.record(AgentIdentity("anonymous-mcp", "standard", "Anonymous MCP client")) is False
+    result = tracker.status()
+    assert result["mode"] == "global" and result["selected_agent_id"] is None
+    assert result["agents"][0]["activity_active"] is True
+    management.create_agent("temporary", "Temporary", "observer", {"enabled": True, "id": "minimal"})
+    tracker.record(management._provider.get().get("temporary"))
+    management.delete_agent("temporary")
+    assert all(item["agent_id"] != "temporary" for item in tracker.status()["agents"])
+    tracker.close()
 
 
 def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, caplog):

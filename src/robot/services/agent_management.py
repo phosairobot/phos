@@ -40,6 +40,7 @@ class AgentManagementService:
         self._lock = RLock()
         self._skins = None
         self._effective_appearance_applier = None
+        self._appearance_activity_tracker = None
 
     def register_effective_appearance_applier(self, applier) -> None:
         """Install the lifecycle-owned transient display update callback."""
@@ -48,6 +49,15 @@ class AgentManagementService:
     def _refresh_effective_appearance(self) -> None:
         if self._effective_appearance_applier is not None:
             self._effective_appearance_applier()
+
+    def register_appearance_activity_tracker(self, tracker) -> None:
+        """Attach the lifecycle-owned, non-persistent activity tracker."""
+        self._appearance_activity_tracker = tracker
+        tracker.recompute()
+
+    def _refresh_appearance_arbitration(self) -> None:
+        if self._appearance_activity_tracker is not None:
+            self._appearance_activity_tracker.recompute()
 
     def _skin_repository(self):
         if self._skins is None:
@@ -130,6 +140,22 @@ class AgentManagementService:
         else: reason = "eligible"
         return {**policy, "assigned_skin_id": assignment["id"], "skin_assignment": assignment["state"],
                 "static_eligible": reason == "eligible", "reason": reason}
+
+    def appearance_arbitration_candidates(self) -> dict:
+        """Read-only configuration projection consumed by activity arbitration."""
+        with self._lock:
+            return {"mode": self._repository.load().appearance_mode,
+                    "agents": [{"agent_id": item.id, "display_name": item.display_name,
+                                "appearance_policy": self._appearance_policy_view(item)}
+                               for item in self._provider.get().entries]}
+
+    def appearance_arbitration(self) -> dict:
+        if self._appearance_activity_tracker is None:
+            return {"mode": self._repository.load().appearance_mode, "selected_agent_id": None,
+                    "selected_display_name": None, "selected_skin_id": None,
+                    "selection_reason": "activity_tracker_unavailable", "effective_priority": None,
+                    "remaining_lease_seconds": None, "next_expiry_monotonic": None, "agents": []}
+        return self._appearance_activity_tracker.status()
 
     def available_skins(self) -> list[dict]:
         """Project the canonical catalog for administration selectors."""
@@ -249,6 +275,7 @@ class AgentManagementService:
             except ValueError as error:
                 raise AgentManagementError("invalid_agent") from error
             registry = self._replace(entries=(*current.entries, identity))
+            self._refresh_appearance_arbitration()
             return self._view(registry, identity)
 
     def update_agent(self, agent_id: str, display_name: str, permission_profile: str, skin=None, appearance=None) -> dict:
@@ -267,6 +294,7 @@ class AgentManagementService:
             except ValueError as error:
                 raise AgentManagementError("invalid_agent") from error
             registry = self._replace(entries=tuple(replacement if item.id == agent_id else item for item in current.entries))
+            self._refresh_appearance_arbitration()
             if self._repository.load().presentation_owner_agent_id == agent_id:
                 self._refresh_effective_appearance()
             item = self._view(registry, replacement); item["appearance_policy"] = self._appearance_policy_view(replacement); return item
@@ -279,6 +307,7 @@ class AgentManagementService:
             if identity is None:
                 raise AgentManagementError("unknown_agent")
             registry = self._replace(default_agent=agent_id)
+            self._refresh_appearance_arbitration()
             return self._view(registry, identity)
 
     def create_credential(self, agent_id: str):
@@ -319,6 +348,8 @@ class AgentManagementService:
                           refs={key: value for key, value in current.credential_refs.items() if key != agent_id},
                           presentation_owner_agent_id=(None if self._repository.load().presentation_owner_agent_id == agent_id
                                                        else _UNSET))
+            if self._appearance_activity_tracker is not None:
+                self._appearance_activity_tracker.forget(agent_id)
             if self._repository.load().presentation_owner_agent_id is None:
                 self._refresh_effective_appearance()
 

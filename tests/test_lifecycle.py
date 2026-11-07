@@ -18,7 +18,8 @@ from robot.config import ConfigurationError, RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
 from robot.services.application import ApplicationError, PhosApplicationService, RemoteApplicationService
-from robot.services import AgentCredentialService, AgentManagementService, AgentRegistryProvider
+from robot.services import (AgentAppearanceActivityTracker, AgentCredentialService, AgentManagementService,
+                            AgentRegistryProvider)
 from robot.secrets import SecretsService
 from robot.ui.skins import SkinRepository, appearance_snapshot
 from robot.web.api import create_api
@@ -62,6 +63,24 @@ def test_presentation_owner_operations_use_the_lifecycle_agent_service(runtime):
     assert resolved["ok"] and resolved["result"]["configured_owner_id"] == "local-agent"
     cleared = lifecycle.execute({"operation": "application.clear_presentation_owner", "payload": {}})
     assert cleared == {"ok": True, "result": {"agent_id": None, "display_name": None}}
+
+
+def test_lifecycle_exposes_read_only_appearance_arbitration_without_renderer_changes(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    tracker = AgentAppearanceActivityTracker(provider, management.appearance_arbitration_candidates)
+    management.register_appearance_activity_tracker(tracker)
+    lifecycle.register_agent_management_service(management)
+    lifecycle.register_appearance_activity_tracker(tracker)
+
+    result = lifecycle.execute({"operation": "application.appearance_arbitration", "payload": {}})
+    assert result["ok"] is True
+    assert result["result"]["selected_agent_id"] is None
+    assert result["result"]["selection_reason"] == "global_mode"
+    tracker.close()
 
 
 def test_presentation_owner_applies_transient_skin_and_restores_global_appearance(runtime):
