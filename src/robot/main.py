@@ -22,6 +22,23 @@ from robot.lifecycle import RESTART_EXIT_CODE
 logger = logging.getLogger(__name__)
 
 
+def _configure_controller_debug_from_environment() -> bool:
+    """Configure independent controller-frame and high-rate IMU diagnostics."""
+    enabled = os.environ.get("PHOS_CONTROLLER_DEBUG", "").strip().lower() in {"1", "true", "yes"}
+    imu_enabled = os.environ.get("PHOS_CONTROLLER_IMU_DEBUG", "").strip().lower() in {"1", "true", "yes"}
+    controller_logger = logging.getLogger("robot.hardware.serial_controller")
+    imu_logger = logging.getLogger("robot.hardware.serial_controller.imu")
+    if enabled:
+        controller_logger.setLevel(logging.DEBUG)
+        logger.info("PHOS CONTROLLER: targeted debug diagnostics enabled")
+    # A child otherwise inherits controller DEBUG.  Give IMU telemetry an
+    # explicit floor so malformed-frame investigation stays quiet.
+    imu_logger.setLevel(logging.DEBUG if imu_enabled else logging.WARNING)
+    if imu_enabled:
+        logger.info("PHOS CONTROLLER: targeted IMU debug diagnostics enabled")
+    return enabled
+
+
 def _log_graphical_session() -> None:
     """Log only safe, deployment-bound graphical-session identifiers."""
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
@@ -347,6 +364,7 @@ def main() -> None:
         except OSError:
             parser.error("Cannot open logging.file; check its path and permissions")
     logging.basicConfig(level=config.log_level, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
+    _configure_controller_debug_from_environment()
     # Prevent SDK debug logs from exposing credential/signature details even when
     # PHOS diagnostics are enabled. Adapter logs contain only sanitized metadata.
     logging.getLogger("boto3").setLevel(logging.WARNING)

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
                                                  decode_frame, validate_led_animation)
 from robot.hardware.serial_controller import ControllerConnection, ControllerService, SerialControllerTransport
+from robot import main
 from robot.core.events import EventBus
 from robot.core.semantic_led import SemanticLedService
 from robot.core.state import RobotState
@@ -74,6 +75,134 @@ def test_decoder_retains_valid_frames_after_a_rejected_line_in_the_same_read():
     with pytest.raises(ProtocolError) as raised:
         decoder.feed(b'\xffbroken\n' + valid)
     assert [message.type for message in raised.value.recovered_messages] == ["heartbeat"]
+
+
+def test_controller_debug_environment_changes_only_the_named_controller_logger(monkeypatch):
+    import logging
+    named, root = logging.getLogger("robot.hardware.serial_controller"), logging.getLogger()
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_named, original_root, original_imu = named.level, root.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    try:
+        assert main._configure_controller_debug_from_environment() is True
+        assert named.level == logging.DEBUG
+        assert root.level == original_root
+    finally:
+        named.setLevel(original_named)
+        imu.setLevel(original_imu)
+
+
+def test_controller_debug_keeps_high_rate_imu_logger_quiet_unless_explicitly_enabled(monkeypatch):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.delenv("PHOS_CONTROLLER_IMU_DEBUG", raising=False)
+    try:
+        main._configure_controller_debug_from_environment()
+        assert controller.level == logging.DEBUG
+        assert imu.level == logging.WARNING
+        monkeypatch.setenv("PHOS_CONTROLLER_IMU_DEBUG", "1")
+        main._configure_controller_debug_from_environment()
+        assert imu.level == logging.DEBUG
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_normal_controller_logging_does_not_emit_orientation_raw_telemetry(caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    try:
+        controller.setLevel(logging.INFO)
+        imu.setLevel(logging.WARNING)
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        message = ControllerMessage("orientation_update", {
+            "acceleration_m_s2": {"x": 1, "y": 2, "z": 3},
+            "angular_velocity_dps": {"x": 4, "y": 5, "z": 6},
+        }, raw_frame=b'{"orientation":"normal-info"}')
+        with caplog.at_level(logging.DEBUG):
+            asyncio.run(service._message(message))
+        assert "PHOS CONTROLLER RX IMU raw=" not in caplog.text
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_controller_debug_does_not_emit_orientation_raw_telemetry_without_imu_opt_in(monkeypatch, caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.delenv("PHOS_CONTROLLER_IMU_DEBUG", raising=False)
+    try:
+        main._configure_controller_debug_from_environment()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        message = ControllerMessage("orientation_update", {
+            "acceleration_m_s2": {"x": 1, "y": 2, "z": 3},
+            "angular_velocity_dps": {"x": 4, "y": 5, "z": 6},
+        }, raw_frame=b'{"orientation":"high-frequency"}')
+        with caplog.at_level(logging.DEBUG):
+            asyncio.run(service._message(message))
+        assert "PHOS CONTROLLER RX IMU raw=" not in caplog.text
+        assert service.recent_messages()[-1]["type"] == "orientation_update"
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_controller_debug_emits_bounded_malformed_frame_diagnostics(monkeypatch, caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.delenv("PHOS_CONTROLLER_IMU_DEBUG", raising=False)
+    try:
+        main._configure_controller_debug_from_environment()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        error = ProtocolError("malformed_frame", "Frame is not valid UTF-8 JSON.")
+        error.frame, error.parse_category = b"\xffbroken", "invalid_utf8"
+        with caplog.at_level(logging.DEBUG):
+            service._record_rejected_frame(error)
+        assert "category=invalid_utf8 length=7 prefix_hex=ff62726f6b656e generation=0" in caplog.text
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_imu_debug_requires_its_own_opt_in(monkeypatch, caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.setenv("PHOS_CONTROLLER_IMU_DEBUG", "1")
+    try:
+        main._configure_controller_debug_from_environment()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        message = ControllerMessage("orientation_update", {
+            "acceleration_m_s2": {"x": 1, "y": 2, "z": 3},
+            "angular_velocity_dps": {"x": 4, "y": 5, "z": 6},
+        }, raw_frame=b'{"orientation":"explicit-debug"}')
+        with caplog.at_level(logging.DEBUG):
+            asyncio.run(service._message(message))
+        assert "PHOS CONTROLLER RX IMU raw=" in caplog.text
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
 
 
 def test_led_animation_validation_includes_breathe_and_rejects_bad_parameters():
@@ -307,6 +436,25 @@ def test_serial_transport_reports_pyserial_write_result_after_flush():
     assert result == 5
     assert serial.writes == [b"test\n"]
     assert serial.flushed
+
+
+def test_serial_transport_returns_a_short_jsonl_frame_without_waiting_for_the_read_buffer_to_fill():
+    class Serial:
+        def __init__(self): self.buffer, self.read_sizes = bytearray(b'{"type":"heartbeat"}\n'), []
+        @property
+        def in_waiting(self): return len(self.buffer)
+        def read(self, size):
+            self.read_sizes.append(size)
+            result, self.buffer = bytes(self.buffer[:size]), self.buffer[size:]
+            return result
+        def close(self): pass
+
+    serial = Serial()
+    transport = SerialControllerTransport("/dev/ttyUSB0", 115200, serial_factory=lambda *_args, **_kwargs: serial)
+    transport.open()
+
+    assert transport.read() == b'{"type":"heartbeat"}\n'
+    assert serial.read_sizes == [1, len(b'{"type":"heartbeat"}\n') - 1]
 
 
 def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
@@ -557,7 +705,7 @@ def test_controller_imu_telemetry_and_semantic_motion_share_one_snapshot():
     assert snapshot["measurements"]["acceleration_x_m_s2"] == 1
     assert snapshot["motion_state"] == "moving"
     assert snapshot["motion_intensity"] == "medium"
-    assert states == [MotionState.MOVING]
+    assert states == [MotionState.STILL, MotionState.MOVING]
 
 
 def test_controller_sensor_families_keep_independent_canonical_availability_and_values():
@@ -597,6 +745,32 @@ def test_controller_air_quality_freshness_is_refreshed_by_each_partial_push_only
     assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
     now[0] = 12
     assert air.snapshot()["status"] == "stale"
+
+
+def test_controller_environmental_identical_periodic_samples_refresh_only_its_own_freshness():
+    now = [0.0]
+    environmental = EnvironmentalSensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=10, externally_managed=True,
+                                               clock=lambda: now[0])
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=10, externally_managed=True,
+                                  clock=lambda: now[0])
+    environmental.accept_controller_update("temperature", 24.8)
+    environmental.accept_controller_update("pressure", 991.6)
+    now[0] = 9
+    # A changed-value optimization in firmware must still emit this periodic
+    # identical sample to prove the environmental provider remains fresh.
+    environmental.accept_controller_update("temperature", 24.8)
+    assert environmental.snapshot()["available"]
+    assert air.snapshot()["status"] == "starting"
+    now[0] = 18
+    assert environmental.snapshot()["available"]
+    now[0] = 19
+    assert environmental.snapshot()["status"] == "stale"
+    environmental.mark_external_unavailable()
+    assert environmental.snapshot()["status"] == "unavailable"
+    environmental.accept_controller_update("pressure", 991.6)
+    assert environmental.snapshot()["available"]
 
 
 def test_controller_air_quality_disconnect_is_immediate_and_next_push_restores_availability():
