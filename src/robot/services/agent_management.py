@@ -157,6 +157,25 @@ class AgentManagementService:
                     "remaining_lease_seconds": None, "next_expiry_monotonic": None, "agents": []}
         return self._appearance_activity_tracker.status()
 
+    def appearance_mode(self) -> dict:
+        with self._lock:
+            return {"mode": self._repository.load().appearance_mode}
+
+    def set_appearance_mode(self, mode: str) -> dict:
+        """Persist mode through the canonical repository and reconcile live."""
+        if mode not in {"global", "follow_agent"}:
+            raise AgentManagementError("invalid_appearance_mode")
+        with self._lock:
+            document = self._repository.document()
+            appearance = document.setdefault("appearance", {"config_file": None})
+            appearance.setdefault("config_file", None)
+            appearance["mode"] = mode
+            candidate = self._repository.load(document)
+            self._repository.save(candidate)
+            self._refresh_appearance_arbitration()
+            self._refresh_effective_appearance()
+            return {"mode": candidate.appearance_mode}
+
     def available_skins(self) -> list[dict]:
         """Project the canonical catalog for administration selectors."""
         with self._lock:
@@ -218,6 +237,42 @@ class AgentManagementService:
                                        "fallback_reason": "missing_skin_assets", "missing_assets": missing}
             return RuntimeConfig.from_dict(apply_appearance_snapshot(global_config.to_dict(), snapshot),
                                            base_dir=self._repository.active_path.parent), resolved
+
+    def automatic_appearance_config(self, arbitration: dict) -> tuple[RuntimeConfig, dict]:
+        """Resolve the mode-authoritative transient appearance.
+
+        The legacy Presentation Owner remains persisted/readable, but never
+        participates in automatic runtime selection.  This method does not
+        mutate either the global display configuration or that legacy value.
+        """
+        with self._lock:
+            global_config = self._repository.load()
+            mode = global_config.appearance_mode
+            selected_id = arbitration.get("selected_agent_id") if mode == "follow_agent" else None
+            base = {"authority": "automatic", "mode": mode,
+                    "legacy_presentation_owner_id": global_config.presentation_owner_agent_id,
+                    "selected_agent_id": selected_id,
+                    "selected_display_name": arbitration.get("selected_display_name") if selected_id else None,
+                    "selection_reason": arbitration.get("selection_reason")}
+            if selected_id is None:
+                reason = "global_mode" if mode == "global" else arbitration.get("selection_reason", "no_active_eligible_agents")
+                return global_config, {**base, "state": "global", "effective_skin_id": None,
+                                       "fallback_reason": reason}
+            identity = self._provider.get().get(selected_id)
+            assignment = self._skin_view(identity) if identity is not None else {"state": "missing", "id": None}
+            if assignment["state"] != "assigned":
+                return global_config, {**base, "state": "global", "effective_skin_id": None,
+                                       "fallback_reason": "selection_skin_unavailable"}
+            skin = self._skin_repository().get(assignment["id"])
+            snapshot, missing = available_appearance_snapshot(skin.appearance, self._repository.active_path.parent)
+            if missing:
+                return global_config, {**base, "state": "global", "effective_skin_id": None,
+                                       "fallback_reason": "missing_skin_assets", "missing_assets": missing}
+            return RuntimeConfig.from_dict(apply_appearance_snapshot(global_config.to_dict(), snapshot),
+                                           base_dir=self._repository.active_path.parent), {
+                **base, "state": "assigned", "effective_skin_id": skin.id,
+                "skin_display_name": skin.name, "fallback_reason": None,
+            }
 
     def set_presentation_owner(self, agent_id: str) -> dict:
         with self._lock:

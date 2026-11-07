@@ -295,6 +295,41 @@ def test_agents_page_assigns_and_disables_skins_without_touching_credentials(tmp
     assert SecretsService(app.extensions["phos_config"].path.parent / ".phos-secrets").has_secret("mcp.agents.styled_agent.token")
 
 
+def test_agents_page_persists_automatic_appearance_policy(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "policy-agent",
+                                         "display_name": "Policy Agent", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "ambient",
+                                         "appearance_participate": "yes", "appearance_priority": "85",
+                                         "appearance_timeout": "10"})
+    assert created.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path).agent_registry.get("policy-agent")
+    assert saved.appearance == {"participate": True, "priority": 85, "activity_timeout_seconds": 10}
+    page = client.get("/agents").get_data(as_text=True)
+    assert 'value="85"' in page and 'value="10"' in page
+    invalid = post(client, "/agents", {"action": "update_agent", "agent_id": "policy-agent",
+                                         "display_name": "Policy Agent", "permission_profile": "observer",
+                                         "skin_present": "yes", "skin_id": "ambient",
+                                         "appearance_participate": "yes", "appearance_priority": "101",
+                                         "appearance_timeout": "10"})
+    assert invalid.status_code == 400
+
+
+def test_agents_template_keeps_compact_accessible_credential_actions():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/agents.html").read_text()
+
+    assert 'class="agent-icon-form"' in template
+    assert 'aria-label="Create credential for' in template
+    assert 'title="Create credential"' in template
+    assert 'aria-label="Edit ' in template
+    assert 'aria-label="More actions for' in template
+    assert 'data-agent-open-dialog="rotate-agent-' in template
+    assert 'data-agent-open-dialog="revoke-agent-' in template
+    assert 'data-agent-open-dialog="delete-agent-' in template
+    assert 'Confirm rotation' in template and 'Confirm revocation' in template and 'Confirm deletion' in template
+
+
 def test_agents_page_rejects_unknown_skin_and_renders_missing_assignment(tmp_path):
     app, _ = _agent_admin(tmp_path)
     client = authorize(app)

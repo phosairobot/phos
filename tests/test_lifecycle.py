@@ -83,7 +83,27 @@ def test_lifecycle_exposes_read_only_appearance_arbitration_without_renderer_cha
     tracker.close()
 
 
-def test_presentation_owner_applies_transient_skin_and_restores_global_appearance(runtime):
+def test_lifecycle_persists_appearance_mode_without_rewriting_agents_or_display(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    lifecycle.register_agent_management_service(management)
+    before = lifecycle.config_repository.load().to_dict()
+
+    changed = lifecycle.execute({"operation": "application.set_appearance_mode",
+                                 "payload": {"mode": "follow_agent"}})
+    assert changed == {"ok": True, "result": {"mode": "follow_agent"}}
+    reloaded = RuntimeConfig.from_file(path)
+    assert reloaded.appearance_mode == "follow_agent"
+    assert reloaded.to_dict()["display"] == before["display"]
+    assert reloaded.agent_registry == RuntimeConfig.from_dict(before, base_dir=path.parent).agent_registry
+    invalid = lifecycle.execute({"operation": "application.set_appearance_mode", "payload": {"mode": "invalid"}})
+    assert invalid["ok"] is False and invalid["error"]["code"] == "invalid_appearance_mode"
+
+
+def test_legacy_presentation_owner_remains_readable_but_does_not_override_global_mode(runtime):
     path, lifecycle, _, _ = runtime
     config = lifecycle.config_repository.load()
     provider = AgentRegistryProvider(config.agent_registry)
@@ -99,14 +119,64 @@ def test_presentation_owner_applies_transient_skin_and_restores_global_appearanc
     before_display = lifecycle.config_repository.load().to_dict()["display"]
 
     management.set_presentation_owner("local-agent")
-    assert ("iris", "#A670F5") in applied
+    assert applied == [("iris", before_display["iris_color"]),
+                       ("backgrounds", before_display["backgrounds"]["enabled"]),
+                       ("safe", before_display["eye_safe_layer"]["mode"]),
+                       ("effects", before_display["state_effects"]["palette"])]
+    assert management.presentation_owner()["agent_id"] == "local-agent"
     assert lifecycle.config_repository.load().to_dict()["display"] == before_display
 
     management.clear_presentation_owner()
-    assert applied[-4:] == [("iris", before_display["iris_color"]),
-                            ("backgrounds", before_display["backgrounds"]["enabled"]),
-                            ("safe", before_display["eye_safe_layer"]["mode"]),
-                            ("effects", before_display["state_effects"]["palette"])]
+    assert lifecycle.config_repository.load().to_dict()["display"] == before_display
+
+
+def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_global(runtime):
+    path, lifecycle, _, now = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    management.update_agent("local-agent", "Local MCP agent", "standard", {"enabled": True, "id": "ambient"}, {
+        "participate": True, "priority": 100, "activity_timeout_seconds": 10})
+    management.create_agent("lower", "Lower", "observer", {"enabled": True, "id": "minimal"}, {
+        "participate": True, "priority": 50, "activity_timeout_seconds": 80})
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": None, "mode": "follow_agent", "presentation_owner": {"agent_id": "local-agent"}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append(value.iris_color))
+    lifecycle.register_backgrounds_applier(lambda value: None)
+    lifecycle.register_eye_safe_layer_applier(lambda value: None)
+    lifecycle.register_state_effects_applier(lambda value: None)
+    lifecycle.register_agent_management_service(management)
+    tracker = AgentAppearanceActivityTracker(provider, management.appearance_arbitration_candidates,
+                                             clock=lambda: now[0])
+    management.register_appearance_activity_tracker(tracker)
+    lifecycle.register_appearance_activity_tracker(tracker)
+    before_display = lifecycle.config_repository.load().to_dict()["display"]
+
+    tracker.record(provider.get().get("lower"))
+    tracker.record(provider.get().get("local-agent"))
+    assert applied[-1] == "#A670F5"
+    first_count = len(applied)
+    tracker.record(provider.get().get("local-agent"))
+    assert len(applied) == first_count  # same winner/snapshot is not re-applied
+    now[0] = 10.0
+    tracker.recompute()  # deterministic stand-in for the scheduled expiry callback
+    assert applied[-1] == "#DAECF6"
+    # Fallback resolves the current canonical configuration, not the startup
+    # snapshot that existed while an agent skin was active.
+    document = lifecycle.config_repository.document()
+    document["display"]["iris_color"] = "#00FF00"
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    now[0] = 80.0
+    tracker.recompute()
+    assert applied[-1] == "#00FF00"
+    status = lifecycle.presentation_activation_status()
+    assert status["state"] == "fallback_active"
+    assert status["resolved"]["legacy_presentation_owner_id"] == "local-agent"
+    assert lifecycle.config_repository.load().to_dict()["display"]["iris_color"] == "#00FF00"
+    tracker.close()
 
 
 @pytest.mark.parametrize("assignment", [{"enabled": True, "id": "placeholder"}, {"enabled": False, "id": "placeholder"}])

@@ -129,17 +129,19 @@ class AgentAppearanceActivityTracker:
                 "remaining_lease_seconds": max(0.0, expiry - now),
                 "next_expiry_monotonic": next_expiry, "agents": agents}
 
-    def recompute(self) -> dict:
+    def recompute(self, *, notify=True) -> dict:
         with self._lock:
             self._result = self._compute_locked()
             self._schedule_locked(self._result["next_expiry_monotonic"])
-            result, callback = dict(self._result), self._on_change
+            result, callback = dict(self._result), self._on_change if notify else None
         if callback is not None:
             callback(result)
         return result
 
     def status(self) -> dict:
-        return self.recompute()
+        # Status must also be useful with a controllable test clock, but a
+        # lifecycle read is not itself an appearance-change notification.
+        return self.recompute(notify=False)
 
     def close(self) -> None:
         with self._lock:
