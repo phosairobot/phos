@@ -29,6 +29,20 @@
   page.querySelectorAll("[data-agent-close-dialog]").forEach((button) => button.addEventListener("click", () => {
     button.closest("dialog")?.close();
   }));
+  page.querySelectorAll("[data-agent-skin-controls]").forEach((controls) => {
+    const enabled = controls.querySelector("[data-agent-skin-enabled]");
+    const select = controls.querySelector("[data-agent-skin-select]");
+    const stored = controls.querySelector("[data-agent-skin-id]");
+    if (!enabled || !select || !stored) return;
+    const sync = () => {
+      select.disabled = !enabled.checked;
+      if (select.value) stored.value = select.value;
+    };
+    enabled.addEventListener("change", sync);
+    select.addEventListener("change", sync);
+    controls.closest("form")?.addEventListener("reset", () => setTimeout(sync));
+    sync();
+  });
   menus().forEach((menu) => menu.addEventListener("toggle", () => {
     if (menu.open) { closeMenus(menu); closeDialogs(); }
   }));

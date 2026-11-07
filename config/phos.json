@@ -18,6 +18,13 @@
     "default_agent": "local-agent",
     "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]
   },
+  "appearance": {
+    "config_file": "skins.yaml",
+    "mode": "global",
+    "presentation_owner": {
+      "agent_id": null
+    }
+  },
   "display": {
     "width": 800,
     "height": 600,
