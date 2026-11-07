@@ -403,6 +403,12 @@ class IMUSensorService(_SensorService):
                          externally_managed=externally_managed, status_sink=status_sink)
         self._motion = MotionInterpreter(motion_settings)
         self._motion_state = None
+        # The interpreter and a controller semantic message may report the
+        # same physical transition at slightly different times.  Keep the
+        # interpreter's own last result separately so an in-progress
+        # confirmation cannot re-publish its historical state over a newer
+        # controller motion_update.
+        self._interpreted_motion_state = None
         self._motion_intensity = None
         self._motion_last_event = None
         self._motion_state_sink = motion_state_sink
@@ -416,21 +422,36 @@ class IMUSensorService(_SensorService):
         reading = provider.read()
         if not isinstance(reading, IMUReading):
             raise ValueError("Provider did not return an IMU reading")
-        with self._lock:
-            state, event = self._motion.observe(reading, self._clock())
-            changed = state is not self._motion_state
-            self._motion_state = state
-            if event is not None:
-                self._motion_last_event = {"state": event.state.value,
-                                           "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        changed, state = self._observe_motion(reading)
         if changed:
             self._motion_state_sink(state)
         return reading
 
+    def _observe_motion(self, reading: IMUReading) -> tuple[bool, MotionState]:
+        """Classify a current acceleration sample without relying on event history."""
+        with self._lock:
+            state, event = self._motion.observe(reading, self._clock())
+            interpreter_changed = state is not self._interpreted_motion_state
+            self._interpreted_motion_state = state
+            changed = interpreter_changed and state is not self._motion_state
+            if changed:
+                self._motion_state = state
+            if event is not None:
+                self._motion_last_event = {"state": event.state.value,
+                                           "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        return changed, state
+
     def accept_controller_orientation(self, reading: IMUReading) -> None:
         if not isinstance(reading, IMUReading):
             raise ValueError("Controller orientation must be an IMU reading")
+        # Controller orientation is a continuous physical observation.  It
+        # must therefore classify both entering and leaving a tilt; treating
+        # only motion_update as authoritative leaves a stale tilt latched when
+        # firmware suppresses an unchanged/neutral semantic event.
+        changed, state = self._observe_motion(reading)
         self._accept_external_fields(asdict(reading))
+        if changed:
+            self._motion_state_sink(state)
 
     def accept_controller_motion(self, state: MotionState, intensity: str) -> None:
         if not isinstance(state, MotionState) or intensity not in {"low", "medium", "high"}:

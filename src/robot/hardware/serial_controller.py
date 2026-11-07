@@ -18,6 +18,7 @@ from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDeco
 from robot.ui.touch import TouchEvent, TouchKind
 
 logger = logging.getLogger(__name__)
+imu_logger = logging.getLogger(f"{__name__}.imu")
 
 OPEN_SETTLE_SECONDS = .5
 
@@ -68,7 +69,17 @@ class SerialControllerTransport:
         if self._serial is None:
             raise OSError("serial transport is closed")
         try:
-            return self._serial.read(size)
+            # pyserial's read(size) waits for *size* bytes or its timeout.
+            # JSONL telemetry frames are much smaller than this adapter's
+            # bounded read size, so waiting for 1024 bytes adds up to 250 ms
+            # of avoidable motion-status latency.  Block only until the first
+            # byte, then immediately drain bytes already buffered by the OS.
+            first = self._serial.read(1)
+            if not first or size <= 1:
+                return first
+            waiting = getattr(self._serial, "in_waiting", 0)
+            waiting = int(waiting) if isinstance(waiting, (int, float)) else 0
+            return first + (self._serial.read(min(size - 1, waiting)) if waiting > 0 else b"")
         except OSError as error:
             raise SerialTransportError("read", self.device, error) from error
 
@@ -190,6 +201,18 @@ class ControllerService(Behavior):
         self._messages.append({"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                "direction": direction, "type": message_type, "summary": summary[:240],
                                "raw": raw_text})
+
+    def _record_rejected_frame(self, error: ProtocolError) -> None:
+        """Keep bounded, opt-in-safe evidence without retaining raw input."""
+        frame = error.frame or b""
+        prefix = frame[:24].hex()
+        category = error.parse_category or "validation"
+        summary = (f"category={category} length={len(frame)} prefix_hex={prefix or '-'} "
+                   f"generation={self._session_generation}")
+        self._record("RX", "rejected_frame", summary)
+        # Debug logging is opt-in through the existing logging-level setting;
+        # never emit complete untrusted frames at warning level.
+        logger.debug("PHOS CONTROLLER: rejected frame diagnostics %s", summary)
 
     async def start(self) -> None:
         if self._enabled and (self._task is None or self._task.done()):
@@ -344,10 +367,13 @@ class ControllerService(Behavior):
             try:
                 messages = decoder.feed(data)
             except ProtocolError as error:
+                self._record_rejected_frame(error)
                 logger.warning("PHOS CONTROLLER: rejected input code=%s type=%s reason=%s",
                                error.code, error.message_type or "unparseable", self._safe_error_message(error))
-                if error.frame is not None:
-                    logger.debug("PHOS CONTROLLER: rejected frame=%s", safe_frame_repr(error.frame))
+                for message in getattr(error, "recovered_messages", ()):
+                    self._last_peer_activity = time.monotonic()
+                    peer_seen = True
+                    await self._message(message)
                 continue
             for message in messages:
                 self._last_peer_activity = time.monotonic()
@@ -391,7 +417,11 @@ class ControllerService(Behavior):
                    else "accel + gyro" if message.type == "orientation_update" else message.type.replace("_", " "))
         self._record("RX", message.type, summary, message.raw_frame)
         if message.type in {"motion_update", "orientation_update"}:
-            logger.debug("PHOS CONTROLLER RX IMU raw=%s", safe_frame_repr(message.raw_frame or b"", limit=8192))
+            # IMU frames can arrive at high frequency.  Do not format raw
+            # telemetry merely because malformed-frame diagnostics are enabled.
+            if imu_logger.isEnabledFor(logging.DEBUG):
+                imu_logger.debug("PHOS CONTROLLER RX IMU raw=%s",
+                                 safe_frame_repr(message.raw_frame or b"", limit=8192))
             try:
                 self._imu_update_sink(message)
             except Exception as error:

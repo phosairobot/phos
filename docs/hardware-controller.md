@@ -48,6 +48,53 @@ transport failure using the configured delay. A controller `heartbeat` updates
 the recorded heartbeat status. On disconnect, PHOS retains bounded diagnostics
 but disables active controller LED output.
 
+Malformed lines remain rejected. Their bounded diagnostics identify whether
+UTF-8 or JSON parsing failed, the frame length, a short hexadecimal prefix, and
+the connection generation; complete untrusted frames are not retained. Valid
+later lines received in the same serial read continue through normal protocol
+validation. ESP32 boot/debug output must not share the protocol UART, and every
+firmware protocol write must emit one complete UTF-8 JSON object followed by a
+newline.
+
+For every enabled controller-provided environmental sensor, firmware must also
+send a valid `sensor_update` periodically when its value is unchanged. PHOS
+uses each accepted sensor-family update as freshness evidence and marks the
+family stale after its configured `stale_after_seconds`; a heartbeat or IMU
+frame cannot refresh environmental data. Use a refresh interval comfortably
+below that timeout (at most half the timeout is recommended; 15 seconds or
+less for the standard 30-second setting). This preserves truthful detection of
+a stopped sensor while allowing a stable temperature or pressure value to stay
+available.
+
+### Targeted malformed-frame diagnostics
+
+PHOS normally keeps controller debug logging disabled. To enable bounded serial
+diagnostics only (without changing global `logging.level`), create a temporary
+user-service override on the Pi:
+
+```bash
+mkdir -p ~/.config/systemd/user/phos.service.d
+printf '[Service]\nEnvironment=PHOS_CONTROLLER_DEBUG=1\n' > ~/.config/systemd/user/phos.service.d/controller-debug.conf
+systemctl --user daemon-reload
+systemctl --user restart phos.service
+journalctl --user -u phos.service -f --no-pager
+```
+
+Look for `PHOS CONTROLLER: rejected frame diagnostics` entries. They contain
+only parse category, frame length, a 24-byte hexadecimal prefix, and connection
+generation. To restore ordinary logging:
+
+```bash
+rm ~/.config/systemd/user/phos.service.d/controller-debug.conf
+systemctl --user daemon-reload
+systemctl --user restart phos.service
+```
+
+High-rate orientation telemetry remains off when `PHOS_CONTROLLER_DEBUG=1`.
+For a separate, temporary IMU investigation only, add
+`Environment=PHOS_CONTROLLER_IMU_DEBUG=1` to the same override, reload systemd
+and restart; remove that line again afterward.
+
 The protocol recognizes the following vocabulary. “Recognized” is not the same
 as “currently emitted by PHOS”: the current serial adapter transmits only
 `request_capabilities`, `ping`, and resolved `set_led_animation`.
