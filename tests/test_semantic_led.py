@@ -156,3 +156,30 @@ def test_semantic_led_reapplies_the_same_winner_after_controller_session_change(
         assert sent[-1]["animation"] == "breathe"
 
     asyncio.run(exercise())
+
+
+def test_skin_palette_recolors_only_themeable_current_winner_without_changing_lease_or_effect():
+    now, sent = [0.0], []
+    async def sender(command): sent.append(dict(command)); return True
+    service = SemanticLedService(EventBus(), sender, lambda: RobotState.IDLE, clock=lambda: now[0])
+
+    async def exercise():
+        await service.set_intent("robot_state", "listening")
+        await service.set_palette({"listening": "#112233", "success": "#445566"})
+        assert service.status()["active_intent"] == "listening"
+        assert service.status()["resolved_animation"] == {"animation": "breathe", "color": "#112233", "brightness": .45,
+                                                            "period_ms": 1600, "min_intensity": .15, "max_intensity": 1.0, "duration_ms": 0}
+        before = len(sent)
+        assert await service.set_palette({"listening": "#112233", "success": "#445566"}) is False
+        assert len(sent) == before
+        await service.signal_user("success")
+        assert service.status()["resolved_animation"]["color"] == "#445566"
+        now[0] = 2
+        await service._reconcile()
+        assert service.status()["active_intent"] == "listening"
+        await service.signal_user("error")
+        assert service.status()["resolved_animation"]["color"] == "#FF1A1A"
+        assert service.status()["palette"]["color_source"] == "protected"
+        with pytest.raises(ValueError): await service.set_palette({"error": "#000000"})
+
+    asyncio.run(exercise())

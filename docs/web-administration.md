@@ -649,11 +649,11 @@ mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
 the strongest alert remains unambiguous. Robot states such as
 sleeping, speaking and error retain priority.
 
-## Skin LED palettes (SKIN-03a)
+## Skin LED palettes (SKIN-03)
 
 A skin may optionally carry an `led_palette` alongside its eye appearance. It
-is declarative theme metadata only: SKIN-03a does not apply it to physical LEDs
-and it adds no Appearance UI editor. The external-controller `SemanticLedService`
+is declarative theme metadata applied only through the existing runtime
+`SemanticLedService`; there is no Appearance UI editor yet. The external-controller `SemanticLedService`
 remains the exclusive authority for intent, priority, animation, expiry, safety
 signals, and controller capability fallback.
 
@@ -673,9 +673,15 @@ imports remain compatible with schema version 2 packages. Read-only resolution
 follows the currently effective agent/default-agent skin, but no global LED
 settings are mutated.
 
-SKIN-03b can feed this resolved metadata into the existing semantic LED service
-as a color-theme input, preserving its protected warning/error colors and all
-existing arbitration behavior.
+The runtime supplies the resolved palette only after the corresponding visual
+appearance has been accepted. `SemanticLedService` then re-evaluates its current
+winner: a configured themeable color replaces that command's default color;
+missing/disabled/global palettes clear theme colors and use the existing command
+color; warning/error always use protected colors. This does not create, cancel,
+or extend an intent, so priorities, effects and expiries are unchanged. A
+controller reconnection still uses the existing arbiter reapply path, now with
+the current themed command. Read-only LED status includes palette metadata and
+whether the active color is palette, fallback, or protected.
 
 ## Authenticated MCP appearance activity
 

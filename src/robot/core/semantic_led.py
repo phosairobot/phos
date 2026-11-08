@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -51,6 +52,11 @@ _COMMANDS = {
     SemanticLedIntent.ATTENTION: {"animation": "pulse", "color": "#00E5FF", "brightness": .50, "period_ms": 700, "duration_ms": 0},
     SemanticLedIntent.AMBIENT: {"animation": "solid", "color": "#FF7A00", "brightness": .20, "duration_ms": 0},
 }
+_THEMEABLE_INTENTS = frozenset({SemanticLedIntent.IDLE, SemanticLedIntent.LISTENING,
+                                SemanticLedIntent.THINKING, SemanticLedIntent.SPEAKING,
+                                SemanticLedIntent.SLEEPING, SemanticLedIntent.SUCCESS,
+                                SemanticLedIntent.ATTENTION, SemanticLedIntent.AMBIENT})
+_COLOR = re.compile(r"#[0-9A-F]{6}")
 
 
 @dataclass(frozen=True)
@@ -67,6 +73,7 @@ class SemanticLedService(Behavior):
         self._events, self._sender, self._state_supplier, self._clock = events, sender, state_supplier, clock
         self._requests: dict[str, _Request] = {}
         self._last_command = None
+        self._palette_colors: dict[SemanticLedIntent, str] = {}
         self._task = None
         self._unsubscribers = []
 
@@ -111,10 +118,34 @@ class SemanticLedService(Behavior):
         self._last_command = None
         await self._reconcile()
 
+    async def set_palette(self, colors: dict | None) -> bool:
+        """Set a transient skin theme and re-evaluate the current winner."""
+        if colors is None:
+            colors = {}
+        if not isinstance(colors, dict):
+            raise ValueError("LED palette colors are invalid")
+        normalized = {}
+        for name, color in colors.items():
+            try: intent = SemanticLedIntent(name)
+            except (TypeError, ValueError) as error: raise ValueError("LED palette intent is invalid") from error
+            if intent not in _THEMEABLE_INTENTS or not isinstance(color, str) or not _COLOR.fullmatch(color.upper()):
+                raise ValueError("LED palette color is invalid")
+            normalized[intent] = color.upper()
+        if normalized == self._palette_colors:
+            return False
+        self._palette_colors = normalized
+        await self._reconcile()
+        return True
+
     def status(self):
         request = self._effective()
+        intent = request.intent if request else None
+        command = None if intent is None else self._command(intent)
         return {"active_intent": request.intent.value if request else None,
-                "winning_source": self._winner_source(), "resolved_animation": None if request is None else dict(_COMMANDS[request.intent])}
+                "winning_source": self._winner_source(), "resolved_animation": None if command is None else dict(command),
+                "palette": {"enabled": bool(self._palette_colors), "colors": {key.value: value for key, value in self._palette_colors.items()},
+                            "color_source": "protected" if intent in {SemanticLedIntent.WARNING, SemanticLedIntent.ERROR}
+                            else "palette" if intent in self._palette_colors else "fallback"}}
 
     async def _robot_state(self, event: Event):
         try: await self.set_intent("robot_state", _STATE_INTENTS[RobotState(event.data["current"])])
@@ -139,9 +170,15 @@ class SemanticLedService(Behavior):
         source = self._winner_source()
         return None if source is None else self._requests[source]
 
+    def _command(self, intent: SemanticLedIntent) -> dict:
+        command = dict(_COMMANDS[intent])
+        if intent in _THEMEABLE_INTENTS and intent in self._palette_colors:
+            command["color"] = self._palette_colors[intent]
+        return command
+
     async def _reconcile(self):
         request = self._effective()
-        command = None if request is None else _COMMANDS[request.intent]
+        command = None if request is None else self._command(request.intent)
         if command == self._last_command:
             logger.debug("PHOS SEMANTIC LED: send suppressed reason=deduplicated winner=%s command=%s",
                          self._winner_source(), command)

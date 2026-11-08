@@ -166,6 +166,8 @@ def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_
     lifecycle.register_backgrounds_applier(lambda value: None)
     lifecycle.register_eye_safe_layer_applier(lambda value: None)
     lifecycle.register_state_effects_applier(lambda value: None)
+    palettes = []
+    lifecycle.register_semantic_led_palette_applier(lambda value: palettes.append(value))
     lifecycle.register_agent_management_service(management)
     tracker = AgentAppearanceActivityTracker(provider, management.appearance_arbitration_candidates,
                                              clock=lambda: now[0])
@@ -176,12 +178,14 @@ def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_
     tracker.record(provider.get().get("lower"))
     tracker.record(provider.get().get("local-agent"))
     assert applied[-1] == "#A670F5"
+    assert palettes[-1]["state"] == "configured" and palettes[-1]["skin_id"] == "ambient"
     first_count = len(applied)
     tracker.record(provider.get().get("local-agent"))
     assert len(applied) == first_count  # same winner/snapshot is not re-applied
     now[0] = 10.0
     tracker.recompute()  # deterministic stand-in for the scheduled expiry callback
     assert applied[-1] == "#DAECF6"
+    assert palettes[-1]["state"] == "missing" and palettes[-1]["skin_id"] == "minimal"
     # Fallback resolves the current canonical configuration, not the startup
     # snapshot that existed while an agent skin was active.
     document = lifecycle.config_repository.document()
@@ -190,6 +194,7 @@ def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_
     now[0] = 80.0
     tracker.recompute()
     assert applied[-1] == "#00FF00"
+    assert palettes[-1]["state"] == "global"
     status = lifecycle.presentation_activation_status()
     assert status["state"] == "fallback_active"
     assert status["resolved"]["legacy_presentation_owner_id"] == "local-agent"

@@ -106,6 +106,8 @@ class PhosRuntime:
         self._interaction_coordinator = interaction_coordinator
         self._controller = controller
         self._semantic_led = semantic_led
+        self._pending_semantic_led_palette = None
+        self._semantic_led_palette_metadata = {"state": "global", "skin_id": None, "colors": {}}
         self._semantic_overlay = semantic_overlay
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
@@ -370,7 +372,17 @@ class PhosRuntime:
     def led_status(self) -> dict:
         status = self._semantic_led.status() if self._semantic_led is not None else {"active_intent": None, "winning_source": None, "resolved_animation": None}
         status["available"] = bool(self._controller and self._controller.led_output_available())
+        status["effective_skin_palette"] = dict(self._semantic_led_palette_metadata)
         return status
+
+    def apply_semantic_led_palette(self, palette: dict) -> None:
+        """Queue lifecycle-resolved skin colors on the runtime event loop."""
+        colors = dict(palette.get("colors", {})) if isinstance(palette, dict) and palette.get("state") == "configured" else {}
+        self._semantic_led_palette_metadata = dict(palette) if isinstance(palette, dict) else {"state": "global", "skin_id": None, "colors": {}}
+        self._pending_semantic_led_palette = colors
+        if self._semantic_led is None or self._loop is None or self._stopping:
+            return
+        self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._semantic_led.set_palette(colors)))
 
     async def signal_user(self, signal: str) -> dict:
         if self._semantic_led is None: raise RuntimeError("Semantic LED service is unavailable")
@@ -682,6 +694,8 @@ class PhosRuntime:
         self._unsubscribers = [self.core.events.subscribe(STATE_CHANGED, self._log_state_transition)]
         self._stopping = False
         self._loop = asyncio.get_running_loop()
+        if self._semantic_led is not None and self._pending_semantic_led_palette is not None:
+            await self._semantic_led.set_palette(self._pending_semantic_led_palette)
         self._vision_changed = asyncio.Event()
         splash = self._config.resolve_startup_splash_image() if self._config else None
         sound = self._config.resolve_startup_ready_sound() if self._config else None

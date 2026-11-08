@@ -216,6 +216,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             effects_applier = getattr(runtime, "apply_state_effects", None)
             if effects_applier is not None:
                 lifecycle.register_state_effects_applier(effects_applier)
+            palette_applier = getattr(runtime, "apply_semantic_led_palette", None)
+            if palette_applier is not None:
+                lifecycle.register_semantic_led_palette_applier(palette_applier)
             source_applier = getattr(runtime, "apply_base_visual_source", None)
             if source_applier is not None:
                 lifecycle.register_base_visual_source_applier(source_applier)
