@@ -10,7 +10,8 @@ import pytest
 from robot.config import ConfigurationError, load_document
 from robot.ui.skins import (SkinRepository, apply_appearance_snapshot, appearance_snapshot,
                             appearance_semantically_matches, available_appearance_snapshot, built_in_skins, validate_appearance_snapshot,
-                            MAX_SKIN_IMPORT_BYTES, MAX_SKIN_PACKAGE_BYTES)
+                            MAX_SKIN_IMPORT_BYTES, MAX_SKIN_PACKAGE_BYTES, LED_PALETTE_STATES,
+                            validate_led_palette)
 
 
 def test_package_limit_is_32_mib():
@@ -141,11 +142,55 @@ def test_builtin_skin_export_manifest_and_import_round_trip(tmp_path, skin_id, s
     imported = repository.import_package(exported)
     expected = next(skin for skin in built_in_skins() if skin.id == skin_id)
 
-    assert manifest == {"schema_version": 2, "name": expected.name, "description": expected.description,
-                        "appearance": expected.appearance}
+    assert manifest == {"schema_version": 3, "name": expected.name, "description": expected.description,
+                        "appearance": expected.appearance,
+                        **({"led_palette": expected.led_palette} if expected.led_palette is not None else {})}
     assert imported.id.startswith("custom-") and imported.id != skin_id
     assert imported.appearance == expected.appearance
     assert imported.appearance["state_effects"] == state_effects
+    assert imported.led_palette == expected.led_palette
+
+
+def test_led_palette_is_optional_strict_and_resolves_without_touching_appearance(tmp_path):
+    repository = SkinRepository(tmp_path / "phos.yaml")
+    appearance = appearance_snapshot(load_document())
+    custom = repository.create("Palette", "", appearance, {"enabled": True, "colors": {"idle": "#38bdf8"}})
+    assert custom.led_palette == {"enabled": True, "colors": {"idle": "#38BDF8"}}
+    assert repository.resolve_led_palette(custom.id) == {"state": "configured", "skin_id": custom.id,
+                                                         "colors": {"idle": "#38BDF8"}}
+    assert repository.resolve_led_palette("phos-default")["state"] == "missing"
+    assert repository.create("Disabled", "", appearance, {"enabled": False, "colors": {}}).led_palette["enabled"] is False
+    for palette in ({"enabled": True, "colors": {"error": "#FF0000"}},
+                    {"enabled": True, "colors": {"idle": "red"}},
+                    {"enabled": False, "colors": {"idle": "#FFFFFF"}}):
+        with pytest.raises(ConfigurationError): validate_led_palette(palette)
+    assert "error" not in LED_PALETTE_STATES and "warning" not in LED_PALETTE_STATES
+
+
+def test_catalog_led_palette_inherits_partial_overrides_and_can_disable(tmp_path):
+    catalog = tmp_path / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: themed
+    display_name: Themed
+    inherits: ambient
+    appearance: {}
+    led_palette:
+      enabled: true
+      colors:
+        idle: '#112233'
+  - id: no-leds
+    display_name: No LEDs
+    inherits: themed
+    appearance: {}
+    led_palette:
+      enabled: false
+      colors: {}
+""")
+    repository = SkinRepository(tmp_path / "phos.yaml", catalog_file=catalog)
+    themed = repository.get("themed")
+    assert themed.led_palette["colors"] == {**next(s for s in built_in_skins() if s.id == "ambient").led_palette["colors"], "idle": "#112233"}
+    assert repository.resolve_led_palette("no-leds")["state"] == "disabled"
 
 
 def test_custom_skin_export_import_preserves_appearance_and_state_effects(tmp_path):

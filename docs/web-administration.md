@@ -649,6 +649,34 @@ mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
 the strongest alert remains unambiguous. Robot states such as
 sleeping, speaking and error retain priority.
 
+## Skin LED palettes (SKIN-03a)
+
+A skin may optionally carry an `led_palette` alongside its eye appearance. It
+is declarative theme metadata only: SKIN-03a does not apply it to physical LEDs
+and it adds no Appearance UI editor. The external-controller `SemanticLedService`
+remains the exclusive authority for intent, priority, animation, expiry, safety
+signals, and controller capability fallback.
+
+The palette shape is `{"enabled": true, "colors": {...}}`. Colors must be
+canonical `#RRGGBB` values. Supported semantic keys are `idle`, `listening`,
+`thinking`, `speaking`, `sleeping`, `success`, `attention`, and `ambient`.
+`warning` and `error` are deliberately excluded: their safety colours remain
+arbiter-owned. A palette may be partial; omitted colors fall back to the
+arbiter's existing command colors. `{"enabled": false, "colors": {}}`
+explicitly disables a palette.
+
+For catalog skins, an omitted `led_palette` inherits the parent palette; an
+enabled palette overlays only named colors; `null` removes an inherited palette;
+and a disabled palette stops inheritance. Built-in and custom skins without a
+palette are unchanged. Package exports now use manifest schema version 3 while
+imports remain compatible with schema version 2 packages. Read-only resolution
+follows the currently effective agent/default-agent skin, but no global LED
+settings are mutated.
+
+SKIN-03b can feed this resolved metadata into the existing semantic LED service
+as a color-theme input, preserving its protected warning/error colors and all
+existing arbitration behavior.
+
 ## Authenticated MCP appearance activity
 
 PHOS can retain per-agent appearance policy metadata: participation, priority,
