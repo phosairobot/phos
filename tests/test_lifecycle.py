@@ -103,6 +103,24 @@ def test_lifecycle_persists_appearance_mode_without_rewriting_agents_or_display(
     assert invalid["ok"] is False and invalid["error"]["code"] == "invalid_appearance_mode"
 
 
+def test_lifecycle_channel_persists_anonymous_mcp_appearance_without_touching_display(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    lifecycle.register_agent_management_service(management)
+    before = lifecycle.config_repository.load().to_dict()["display"]
+    changed = lifecycle.execute({"operation": "application.set_anonymous_mcp_appearance",
+                                 "payload": {"enabled": True}})
+    assert changed["ok"] is True and changed["result"]["enabled"] is True
+    assert RuntimeConfig.from_file(path).anonymous_mcp_use_default_agent_skin is True
+    assert RuntimeConfig.from_file(path).to_dict()["display"] == before
+    invalid = lifecycle.execute({"operation": "application.set_anonymous_mcp_appearance",
+                                 "payload": {"enabled": "true"}})
+    assert invalid["ok"] is False and invalid["error"]["code"] == "invalid_anonymous_mcp_appearance"
+
+
 def test_legacy_presentation_owner_remains_readable_but_does_not_override_global_mode(runtime):
     path, lifecycle, _, _ = runtime
     config = lifecycle.config_repository.load()

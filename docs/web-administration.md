@@ -68,6 +68,18 @@ Recent authenticated MCP semantic activity—not merely an MCP connection—star
 or renews the timer. The Agents page shows configured policy; Appearance →
 Skins shows current runtime arbitration.
 
+Appearance → Skins also offers **Use default agent skin for anonymous MCP
+activity**, stored as `appearance.anonymous_mcp_use_default_agent_skin` and
+disabled by default. In Follow Active Agent mode, a permitted request with no
+authorization header can start a separate 30-second monotonic anonymous lease.
+It uses the configured default agent's enabled, valid, participating skin only
+as a transient visual fallback; it does not authenticate or authorize the
+caller as that agent. The anonymous candidate has lower precedence than every
+eligible authenticated agent. A missing/disabled default skin, global mode,
+connection/discovery traffic, denied requests, or any supplied invalid bearer
+falls back to the canonical global appearance. The page displays the resolved
+default skin, diagnostics, current source, and remaining lease.
+
 ## Install and enable
 
 Use the [PHOS 1.3.0 installation procedure](installation.md#recommended-unified-installer)
@@ -657,8 +669,10 @@ break. The Default Agent does not affect this decision.
 The arbitration result is lifecycle-owned and safe for later administration
 read models; it contains identities, selected skin IDs, priorities and lease
 state, never bearer values or secret references. Anonymous MCP clients retain
-their configured permissions but never become an appearance owner. Multiple
-authenticated sessions for one agent share one lease.
+their configured permissions and are never mapped to the default agent; when
+the explicit Appearance → Skins fallback is enabled they can select only its
+low-priority temporary skin candidate. Multiple authenticated sessions for one
+agent share one lease.
 
 SKIN-02d.2 deliberately does not apply this result to the physical display.
 Existing manual Presentation Owner behavior remains unchanged; runtime visual

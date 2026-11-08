@@ -316,6 +316,7 @@ _SCHEMA = {
             "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
     "agents": "agent_registry",
     "appearance": {"config_file": "appearance_catalog_file", "mode": "appearance_mode",
+                   "anonymous_mcp_use_default_agent_skin": "anonymous_mcp_use_default_agent_skin",
                    "presentation_owner": {"agent_id": "presentation_owner_agent_id"}},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
@@ -593,6 +594,7 @@ class RuntimeConfig:
     agent_registry: object
     appearance_catalog_file: Optional[Path]
     appearance_mode: str
+    anonymous_mcp_use_default_agent_skin: bool
     presentation_owner_agent_id: Optional[str]
     display_width: int
     display_height: int
@@ -711,6 +713,7 @@ class RuntimeConfig:
         appearance = document.setdefault("appearance", {"config_file": None})
         if isinstance(appearance, dict):
             appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
+            appearance.setdefault("anonymous_mcp_use_default_agent_skin", False)
         if isinstance(document.get("mcp"), dict):
             document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
         self._assign(_decode(document), repository.active_path.parent, overrides)
@@ -770,6 +773,7 @@ class RuntimeConfig:
             appearance = document.setdefault("appearance", {"config_file": None})
             if isinstance(appearance, dict):
                 appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
+                appearance.setdefault("anonymous_mcp_use_default_agent_skin", False)
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
@@ -966,6 +970,8 @@ class RuntimeConfig:
                 raise ConfigurationError("appearance.presentation_owner.agent_id must reference a configured agent")
         if self.appearance_mode not in {"global", "follow_agent"}:
             raise ConfigurationError("appearance.mode must be global or follow_agent")
+        if type(self.anonymous_mcp_use_default_agent_skin) is not bool:
+            raise ConfigurationError("appearance.anonymous_mcp_use_default_agent_skin must be a boolean")
 
         for name in ("display_width", "display_height", "display_fps", "expression_minimum_observations"):
             number(name, integer=True)

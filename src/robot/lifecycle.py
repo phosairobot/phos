@@ -572,6 +572,8 @@ class LifecycleService:
             "application.appearance_arbitration": lambda: self.appearance_arbitration_status(),
             "application.appearance_mode": lambda: self._agent_management_service.appearance_mode(),
             "application.set_appearance_mode": lambda: self._agent_management_service.set_appearance_mode(payload.get("mode")),
+            "application.anonymous_mcp_appearance": lambda: self._agent_management_service.anonymous_mcp_appearance(),
+            "application.set_anonymous_mcp_appearance": lambda: self._agent_management_service.set_anonymous_mcp_appearance(payload.get("enabled")),
             "application.status": lambda: self._application_service.status(),
             "application.state": lambda: self._application_service.robot_state(),
             "application.environment": lambda: self._application_service.environment(),
@@ -628,7 +630,7 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation", "application.appearance_arbitration", "application.appearance_mode", "application.set_appearance_mode"}
+        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation", "application.appearance_arbitration", "application.appearance_mode", "application.set_appearance_mode", "application.anonymous_mcp_appearance", "application.set_anonymous_mcp_appearance"}
         if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",

@@ -144,10 +144,25 @@ class AgentManagementService:
     def appearance_arbitration_candidates(self) -> dict:
         """Read-only configuration projection consumed by activity arbitration."""
         with self._lock:
-            return {"mode": self._repository.load().appearance_mode,
-                    "agents": [{"agent_id": item.id, "display_name": item.display_name,
-                                "appearance_policy": self._appearance_policy_view(item)}
-                               for item in self._provider.get().entries]}
+            config, registry = self._repository.load(), self._provider.get()
+            agents = [{"agent_id": item.id, "display_name": item.display_name,
+                       "appearance_policy": self._appearance_policy_view(item)}
+                      for item in registry.entries]
+            default = registry.default_identity
+            default_policy = self._appearance_policy_view(default)
+            anonymous_reason = ("anonymous_mcp_disabled" if not config.anonymous_mcp_use_default_agent_skin
+                                else default_policy["reason"])
+            # Fixed priority -1 keeps this fallback below every eligible
+            # authenticated agent (whose validated priority range begins at 0;
+            # a tie is resolved in favour of a real agent by the tracker).
+            agents.append({"agent_id": "anonymous-mcp", "display_name": "Anonymous MCP",
+                           "appearance_policy": {**default_policy, "priority": -1,
+                                                 "activity_timeout_seconds": 30,
+                                                 "static_eligible": anonymous_reason == "eligible",
+                                                 "reason": anonymous_reason,
+                                                 "default_agent_id": default.id,
+                                                 "default_agent_display_name": default.display_name}})
+            return {"mode": config.appearance_mode, "agents": agents}
 
     def appearance_arbitration(self) -> dict:
         if self._appearance_activity_tracker is None:
@@ -175,6 +190,29 @@ class AgentManagementService:
             self._refresh_appearance_arbitration()
             self._refresh_effective_appearance()
             return {"mode": candidate.appearance_mode}
+
+    def anonymous_mcp_appearance(self) -> dict:
+        with self._lock:
+            config = self._repository.load()
+            default = self._provider.get().default_identity
+            assignment = self._skin_view(default)
+            return {"enabled": config.anonymous_mcp_use_default_agent_skin,
+                    "default_agent_id": default.id, "default_agent_display_name": default.display_name,
+                    "skin": assignment}
+
+    def set_anonymous_mcp_appearance(self, enabled: bool) -> dict:
+        if type(enabled) is not bool:
+            raise AgentManagementError("invalid_anonymous_mcp_appearance")
+        with self._lock:
+            document = self._repository.document()
+            appearance = document.setdefault("appearance", {"config_file": None})
+            appearance.setdefault("config_file", None)
+            appearance["anonymous_mcp_use_default_agent_skin"] = enabled
+            candidate = self._repository.load(document)
+            self._repository.save(candidate)
+            self._refresh_appearance_arbitration()
+            self._refresh_effective_appearance()
+            return self.anonymous_mcp_appearance()
 
     def available_skins(self) -> list[dict]:
         """Project the canonical catalog for administration selectors."""
@@ -258,7 +296,8 @@ class AgentManagementService:
                 reason = "global_mode" if mode == "global" else arbitration.get("selection_reason", "no_active_eligible_agents")
                 return global_config, {**base, "state": "global", "effective_skin_id": None,
                                        "fallback_reason": reason}
-            identity = self._provider.get().get(selected_id)
+            identity = (self._provider.get().default_identity if selected_id == "anonymous-mcp"
+                        else self._provider.get().get(selected_id))
             assignment = self._skin_view(identity) if identity is not None else {"state": "missing", "id": None}
             if assignment["state"] != "assigned":
                 return global_config, {**base, "state": "global", "effective_skin_id": None,

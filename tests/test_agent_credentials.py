@@ -268,6 +268,39 @@ def test_global_mode_exposes_activity_without_selecting_and_deletion_forgets_lea
     tracker.close()
 
 
+def test_anonymous_mcp_uses_only_default_skin_as_a_low_priority_transient_fallback(tmp_path):
+    management, path = _skin_management(tmp_path, {"enabled": True, "id": "ambient"})
+    management.create_agent("authenticated", "Authenticated", "observer", {"enabled": True, "id": "minimal"},
+                            {"participate": True, "priority": 0, "activity_timeout_seconds": 60})
+    document = management._repository.document()
+    document["appearance"].update({"mode": "follow_agent", "anonymous_mcp_use_default_agent_skin": True})
+    management._repository.save(management._repository.load(document))
+    clock = _Clock()
+    tracker = AgentAppearanceActivityTracker(management._provider, management.appearance_arbitration_candidates,
+                                             clock=clock, timer_factory=_Timer)
+    management.register_appearance_activity_tracker(tracker)
+
+    assert tracker.record_anonymous_mcp() is True
+    anonymous = tracker.status()
+    assert anonymous["selected_agent_id"] == "anonymous-mcp"
+    assert anonymous["selected_skin_id"] == "ambient"
+    assert anonymous["effective_priority"] == -1
+    assert management.automatic_appearance_config(anonymous)[1]["effective_skin_id"] == "ambient"
+    assert tracker.record(management._provider.get().get("authenticated")) is True
+    assert tracker.status()["selected_agent_id"] == "authenticated"
+    clock.now = 30
+    assert tracker.status()["selected_agent_id"] == "authenticated"
+    clock.now = 60
+    assert tracker.status()["selected_agent_id"] is None
+
+    # Switching default agents changes the fallback target without changing
+    # anonymous identity or its permissions.
+    management.set_default_agent("authenticated")
+    assert management.appearance_arbitration_candidates()["agents"][-1]["appearance_policy"]["assigned_skin_id"] == "minimal"
+    assert RuntimeConfig.from_file(path).anonymous_mcp_use_default_agent_skin is True
+    tracker.close()
+
+
 def test_create_discloses_a_new_secret_once_and_status_never_does(tmp_path, caplog):
     service = AgentCredentialService(_registry(), SecretsService(tmp_path / ".phos-secrets"))
     issued = service.create("standard")

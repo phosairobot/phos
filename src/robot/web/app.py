@@ -139,6 +139,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             "appearance_arbitration": agent_management.appearance_arbitration,
             "appearance_mode": agent_management.appearance_mode,
             "set_appearance_mode": lambda: agent_management.set_appearance_mode(payload["mode"]),
+            "anonymous_mcp_appearance": agent_management.anonymous_mcp_appearance,
+            "set_anonymous_mcp_appearance": lambda: agent_management.set_anonymous_mcp_appearance(payload["enabled"]),
         }
         return handlers[operation]()
     csrf = CSRFProtect(app)
@@ -536,6 +538,11 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                         if set(request.form) - {"csrf_token", "action", "appearance_mode"}: abort(400)
                         manage_agents("set_appearance_mode", {"mode": request.form.get("appearance_mode")})
                         flash("Appearance mode saved and runtime reconciliation requested.")
+                    elif action == "set_anonymous_mcp_appearance":
+                        if set(request.form) - {"csrf_token", "action", "anonymous_mcp_use_default_agent_skin"}: abort(400)
+                        manage_agents("set_anonymous_mcp_appearance", {
+                            "enabled": request.form.get("anonymous_mcp_use_default_agent_skin") == "on"})
+                        flash("Anonymous MCP appearance fallback saved and runtime reconciliation requested.")
                     elif action == "create": application_service.create_skin({"name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin created from current appearance.")
                     elif action == "import":
                         upload = request.files.get("skin")
@@ -551,12 +558,14 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         try:
             skins = application_service.skins() if application_service is not None else []
             appearance_mode = manage_agents("appearance_mode")
+            anonymous_mcp_appearance = manage_agents("anonymous_mcp_appearance")
             arbitration = manage_agents("appearance_arbitration")
             activation = manage_agents("presentation_activation")
         except Exception as exc:
-            skins, appearance_mode, arbitration, activation = [], {"mode": "global"}, {"selected_agent_id": None, "selection_reason": "unavailable"}, {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
+            skins, appearance_mode, anonymous_mcp_appearance, arbitration, activation = [], {"mode": "global"}, {"enabled": False, "skin": {"state": "unavailable"}}, {"selected_agent_id": None, "selection_reason": "unavailable"}, {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
             error = getattr(exc, "message", "Skins are unavailable.")
         return render_template("skins.html", skins=skins, error=error, appearance_mode=appearance_mode,
+                               anonymous_mcp_appearance=anonymous_mcp_appearance,
                                arbitration=arbitration, activation=activation)
 
     @app.get("/appearance/skins/<skin_id>/export")

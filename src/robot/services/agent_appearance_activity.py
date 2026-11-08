@@ -56,6 +56,19 @@ class AgentAppearanceActivityTracker:
         self.recompute()
         return True
 
+    def record_anonymous_mcp(self) -> bool:
+        """Refresh the separate anonymous lease after accepted semantic work.
+
+        The MCP adapter invokes this only for its request-scoped anonymous
+        principal.  It deliberately accepts no caller supplied identity, so an
+        anonymous request can never be promoted to the configured default
+        agent.
+        """
+        with self._lock:
+            self._leases["anonymous-mcp"] = self._clock()
+        self.recompute()
+        return True
+
     def forget(self, agent_id: str) -> None:
         with self._lock:
             self._leases.pop(agent_id, None)

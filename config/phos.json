@@ -21,6 +21,7 @@
   "appearance": {
     "config_file": "skins.yaml",
     "mode": "global",
+    "anonymous_mcp_use_default_agent_skin": false,
     "presentation_owner": {
       "agent_id": null
     }

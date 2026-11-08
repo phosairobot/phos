@@ -16,6 +16,7 @@ from robot.services.application import COMMANDS
 
 logger = logging.getLogger(__name__)
 _REQUEST_IDENTITY: ContextVar[AgentIdentity | None] = ContextVar("mcp_request_identity", default=None)
+_REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_without_authorization", default=False)
 
 
 MCP_TOOL_NAMES = frozenset({
@@ -129,7 +130,14 @@ class McpSemanticAdapter:
         """Refresh only a trusted identity after authorization accepted work."""
         identity = _REQUEST_IDENTITY.get()
         if identity is not None and self._activity_tracker is not None:
-            self._activity_tracker.record(identity)
+            is_anonymous = getattr(self._authenticator, "is_anonymous_identity", lambda _: False)
+            # A supplied bearer must never become an appearance-eligible
+            # anonymous request, even under an authentication mode that treats
+            # it as an anonymous principal for compatibility.
+            if is_anonymous(identity) and _REQUEST_WITHOUT_AUTHORIZATION.get():
+                self._activity_tracker.record_anonymous_mcp()
+            else:
+                self._activity_tracker.record(identity)
 
     def _request_agent_service(self) -> AgentApplicationService:
         """Bind the facade to the identity resolved once by MCP middleware."""
@@ -243,9 +251,13 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     async def authenticate_request(request_context, call_next):
         identity = await adapter._authenticator.authenticate(request_context)
         token = _REQUEST_IDENTITY.set(identity)
+        headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
+        authorization_token = _REQUEST_WITHOUT_AUTHORIZATION.set(
+            (headers.get("authorization") or headers.get("Authorization")) is None)
         try:
             return await call_next(request_context)
         finally:
+            _REQUEST_WITHOUT_AUTHORIZATION.reset(authorization_token)
             _REQUEST_IDENTITY.reset(token)
 
     server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",

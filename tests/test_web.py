@@ -1157,6 +1157,23 @@ def test_skins_page_renders_compact_cards_without_open_custom_edit_fields(setup)
     assert 'class="skin-delete" open' not in page
 
 
+def test_skins_page_persists_anonymous_mcp_default_skin_fallback(tmp_path):
+    document = load_document(); document["logging"]["file"] = None
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    repository = ConfigRepository(path)
+    lifecycle = SimpleNamespace(config_repository=repository, path=path,
+                                active=repository.load().to_dict())
+    app = create_app(path, application_service=PhosApplicationService(_McpConfigurationRuntime(), lifecycle=lifecycle))
+    app.testing = True
+    client = authorize(app)
+    page = client.get("/appearance/skins").get_data(as_text=True)
+    assert "Use default agent skin for anonymous MCP activity" in page
+    response = post(client, "/appearance/skins", {"action": "set_anonymous_mcp_appearance",
+                                                     "anonymous_mcp_use_default_agent_skin": "on"})
+    assert response.status_code == 302
+    assert RuntimeConfig.from_file(path).anonymous_mcp_use_default_agent_skin is True
+
+
 @pytest.mark.parametrize(("filename", "accepted"), [("skin.phos-skin", True), ("skin.zip", True), ("skin.yaml", False), ("skin.yml", False)])
 def test_skin_upload_route_accepts_only_packages(setup, filename, accepted):
     class Skins:

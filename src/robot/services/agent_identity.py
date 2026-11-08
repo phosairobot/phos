@@ -226,6 +226,11 @@ class McpAuthenticationModeAuthenticator:
         with self._lock:
             return {"mode": self._mode, "anonymous_permission_profile": self._anonymous.permission_profile.value}
 
+    def is_anonymous_identity(self, identity: AgentIdentity) -> bool:
+        """True only for the current internally-created anonymous principal."""
+        with self._lock:
+            return identity is self._anonymous
+
     @staticmethod
     def _authorization(request_context: object | None):
         headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
