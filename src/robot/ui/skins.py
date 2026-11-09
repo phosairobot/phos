@@ -8,7 +8,7 @@ import uuid
 import io
 import zipfile
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import yaml
 
@@ -158,6 +158,7 @@ class SkinDefinition:
     appearance: dict
     built_in: bool = False
     led_palette: dict | None = None
+    led_palette_origins: dict[str, str] = field(default_factory=dict, repr=False)
 
     def document(self) -> dict:
         return {"id": self.id, "name": self.name, "description": self.description,
@@ -204,7 +205,8 @@ def built_in_skins() -> tuple[SkinDefinition, ...]:
                       "ambient": "#F59E0B"}}
     return (SkinDefinition("phos-default", "PHOS Default", "The standard PHOS appearance.", default, True),
             SkinDefinition("minimal", "Minimal", "Reduced visual complexity.", minimal, True),
-            SkinDefinition("ambient", "Ambient", "A calm PHOS effect palette.", ambient, True, ambient_palette))
+            SkinDefinition("ambient", "Ambient", "A calm PHOS effect palette.", ambient, True, ambient_palette,
+                           {state: "override" for state in ambient_palette["colors"]}))
 
 
 class SkinRepository:
@@ -274,18 +276,23 @@ class SkinRepository:
             appearance = validate_appearance_snapshot(self._merge(parent.appearance, item["appearance"]))
             if "led_palette" not in item:
                 led_palette = parent.led_palette
+                palette_origins = {state: "inherited" for state in parent.led_palette_origins}
             elif item["led_palette"] is None:
                 led_palette = None
+                palette_origins = {}
             else:
                 child_palette = validate_led_palette(item["led_palette"])
                 if not child_palette["enabled"]:
                     led_palette = child_palette
+                    palette_origins = {}
                 else:
                     inherited = parent.led_palette or {"enabled": True, "colors": {}}
                     led_palette = validate_led_palette({"enabled": True,
                         "colors": {**(inherited["colors"] if inherited["enabled"] else {}), **child_palette["colors"]}})
+                    palette_origins = {state: "inherited" for state in (inherited["colors"] if inherited["enabled"] else {})}
+                    palette_origins.update({state: "override" for state in child_palette["colors"]})
             resolving.remove(skin_id)
-            value = SkinDefinition(skin_id, item["display_name"].strip(), "", appearance, False, led_palette)
+            value = SkinDefinition(skin_id, item["display_name"].strip(), "", appearance, False, led_palette, palette_origins)
             resolved[skin_id] = value
             return value
 
@@ -315,7 +322,9 @@ class SkinRepository:
             if (not isinstance(item["id"], str) or not item["id"].startswith("custom-") or not isinstance(item["name"], str)
                     or not item["name"].strip() or len(item["name"]) > 80 or not isinstance(item["description"], str) or len(item["description"]) > 240):
                 raise ConfigurationError("Skin definition has invalid metadata")
-            result.append(SkinDefinition(item["id"], item["name"].strip(), item["description"].strip(), validate_appearance_snapshot(item["appearance"]), False, validate_led_palette(item.get("led_palette"))))
+            palette = validate_led_palette(item.get("led_palette"))
+            result.append(SkinDefinition(item["id"], item["name"].strip(), item["description"].strip(), validate_appearance_snapshot(item["appearance"]), False, palette,
+                                         {} if palette is None else {state: "override" for state in palette["colors"]}))
         if len({skin.id for skin in result}) != len(result): raise ConfigurationError("Skin identifiers must be unique")
         return result
 
@@ -338,6 +347,13 @@ class SkinRepository:
         for skin in self.list():
             if skin.id == skin_id: return skin
         raise ConfigurationError("Skin was not found")
+
+    def get_custom(self, skin_id: str) -> SkinDefinition:
+        """Read a writable custom skin without requiring an optional catalog."""
+        for skin in self._custom():
+            if skin.id == skin_id:
+                return skin
+        raise ConfigurationError("Built-in skins cannot be edited or skin was not found")
 
     def resolve_led_palette(self, skin_id: str) -> dict:
         """Return read-only palette metadata; never alters LED configuration.
@@ -372,7 +388,8 @@ class SkinRepository:
                     copied_name = f"{len(copied)}-{path.name}"; destination = target / copied_name
                     destination.write_bytes(path.read_bytes()); copied[path] = destination
                 snapshot["backgrounds"][state] = f"backgrounds/skins/{skin_id}/{copied[path].name}"
-            skin = SkinDefinition(skin_id, name.strip(), description.strip(), snapshot, False, led_palette)
+            skin = SkinDefinition(skin_id, name.strip(), description.strip(), snapshot, False, led_palette,
+                                  {} if led_palette is None else {state: "override" for state in led_palette["colors"]})
             skins = self._custom(); skins.append(skin); self._save(skins); return skin
         except Exception:
             for item in target.glob("*"): item.unlink()
@@ -381,10 +398,24 @@ class SkinRepository:
         skins = self._custom()
         for index, skin in enumerate(skins):
             if skin.id == skin_id:
-                replacement = SkinDefinition(skin.id, name.strip() if isinstance(name, str) else "", description.strip() if isinstance(description, str) else "", skin.appearance, skin.built_in, skin.led_palette)
+                replacement = SkinDefinition(skin.id, name.strip() if isinstance(name, str) else "", description.strip() if isinstance(description, str) else "", skin.appearance, skin.built_in, skin.led_palette, skin.led_palette_origins)
                 if not replacement.name or len(replacement.name) > 80 or len(replacement.description) > 240: raise ConfigurationError("Skin name or description is invalid")
                 skins[index] = replacement; self._save(skins); return replacement
         raise ConfigurationError("Built-in skins cannot be renamed or skin was not found")
+
+    def update_led_palette(self, skin_id: str, led_palette: dict | None) -> SkinDefinition:
+        """Persist palette metadata for a custom skin without touching appearance."""
+        palette = validate_led_palette(led_palette)
+        skins = self._custom()
+        for index, skin in enumerate(skins):
+            if skin.id == skin_id:
+                replacement = SkinDefinition(skin.id, skin.name, skin.description, skin.appearance,
+                                             skin.built_in, palette,
+                                             {} if palette is None else {state: "override" for state in palette["colors"]})
+                skins[index] = replacement
+                self._save(skins)
+                return replacement
+        raise ConfigurationError("Built-in skins cannot be edited or skin was not found")
     def delete(self, skin_id: str) -> None:
         skins = self._custom(); remaining = [skin for skin in skins if skin.id != skin_id]
         if len(remaining) == len(skins): raise ConfigurationError("Built-in skins cannot be deleted or skin was not found")
@@ -508,7 +539,8 @@ class SkinRepository:
                 filename = Path(asset).name
                 with open(target / filename, "xb") as output: output.write(data)
                 backgrounds[state] = f"backgrounds/skins/{skin_id}/{filename}"
-            skin = SkinDefinition(skin_id, name.strip(), description.strip(), validate_appearance_snapshot(appearance), False, led_palette)
+            skin = SkinDefinition(skin_id, name.strip(), description.strip(), validate_appearance_snapshot(appearance), False, led_palette,
+                                  {} if led_palette is None else {state: "override" for state in led_palette["colors"]})
             skins = self._custom(); skins.append(skin); self._save(skins); return skin
         except Exception:
             for path in target.glob("*"): path.unlink()

@@ -461,7 +461,7 @@ shown as a representative static frame.
 **Appearance → Skins** provides named presets for the existing eyes,
 backgrounds, Eye Safe Layer and State Effects settings. Built-in PHOS Default,
 Minimal and Ambient skins are read-only. Create a custom skin from the current
-appearance, then apply, preview, rename or delete it. Preview updates only the
+appearance by importing a complete Skin package, then apply, preview, rename or delete it. Preview updates only the
 live appearance temporarily and does not save configuration. Apply validates,
 saves, and updates the canonical display configuration; it never changes robot
 behavior or voice settings. Custom skins live in internal `skins.json` storage beside the active
@@ -653,7 +653,14 @@ sleeping, speaking and error retain priority.
 
 A skin may optionally carry an `led_palette` alongside its eye appearance. It
 is declarative theme metadata applied only through the existing runtime
-`SemanticLedService`; there is no Appearance UI editor yet. The external-controller `SemanticLedService`
+`SemanticLedService`. Configure this metadata directly in a skin YAML/package
+definition; **Appearance → Skins** does not edit palettes. Its Active LED
+Palette status reports the current runtime skin, palette state, semantic state,
+and available colors without creating a second palette selection or draft.
+Supported semantic states are `idle`, `listening`, `thinking`, `speaking`,
+`sleeping`, `success`, `attention`, and `ambient`. Omitted colors use the
+semantic LED fallback; catalog palettes may inherit parent colors. Warning and
+error remain protected system colors. The external-controller `SemanticLedService`
 remains the exclusive authority for intent, priority, animation, expiry, safety
 signals, and controller capability fallback.
 

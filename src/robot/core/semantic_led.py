@@ -59,6 +59,15 @@ _THEMEABLE_INTENTS = frozenset({SemanticLedIntent.IDLE, SemanticLedIntent.LISTEN
 _COLOR = re.compile(r"#[0-9A-F]{6}")
 
 
+def fallback_colors() -> dict[str, str]:
+    """Return the command colours used when a skin does not theme an intent.
+
+    This is a read model for administration surfaces; command ownership stays
+    with :class:`SemanticLedService`.
+    """
+    return {intent.value: _COMMANDS[intent]["color"] for intent in _THEMEABLE_INTENTS}
+
+
 @dataclass(frozen=True)
 class _Request:
     intent: SemanticLedIntent

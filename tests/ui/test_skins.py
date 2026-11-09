@@ -190,7 +190,42 @@ skins:
     repository = SkinRepository(tmp_path / "phos.yaml", catalog_file=catalog)
     themed = repository.get("themed")
     assert themed.led_palette["colors"] == {**next(s for s in built_in_skins() if s.id == "ambient").led_palette["colors"], "idle": "#112233"}
+    assert themed.led_palette_origins["idle"] == "override"
+    assert themed.led_palette_origins["listening"] == "inherited"
     assert repository.resolve_led_palette("no-leds")["state"] == "disabled"
+
+
+def test_schema_v3_import_preserves_chatgpt_emerald_palette_after_reload(tmp_path):
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"]["iris_color"] = "#4EE5C4"
+    manifest = {"schema_version": 3, "name": "ChatGPT Emerald", "description": "", "appearance": appearance,
+                "led_palette": {"enabled": True, "colors": {"idle": "#4EE5C4", "listening": "#22D3C5",
+                "thinking": "#5BBDE6", "speaking": "#74F7D8", "sleeping": "#145A60", "ambient": "#0D9488"}}}
+    repository = SkinRepository(tmp_path / "phos.yaml")
+    imported = repository.import_package(_package(manifest))
+    reloaded = SkinRepository(tmp_path / "phos.yaml").get_custom(imported.id)
+    assert reloaded.led_palette == manifest["led_palette"]
+    assert reloaded.led_palette_origins == {state: "override" for state in manifest["led_palette"]["colors"]}
+
+
+@pytest.mark.parametrize(("name", "iris", "palette"), [
+    ("ChatGPT Neural", "#6EC9FF", {"idle": "#6EC9FF", "listening": "#22D3EE", "thinking": "#A78BFA",
+     "speaking": "#60A5FA", "sleeping": "#28356E", "ambient": "#6366F1"}),
+    ("ChatGPT Emerald", "#4EE5C4", {"idle": "#4EE5C4", "listening": "#22D3C5", "thinking": "#5BBDE6",
+     "speaking": "#74F7D8", "sleeping": "#145A60", "ambient": "#0D9488"}),
+])
+def test_schema_v3_import_retains_each_explicit_palette_color_through_reload_and_export(tmp_path, name, iris, palette):
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"]["iris_color"] = iris
+    manifest = {"schema_version": 3, "name": name, "description": "fixture", "appearance": appearance,
+                "led_palette": {"enabled": True, "colors": palette}}
+    repository = SkinRepository(tmp_path / "phos.yaml")
+    imported = repository.import_package(_package(manifest))
+    reloaded = SkinRepository(tmp_path / "phos.yaml").get_custom(imported.id)
+    assert reloaded.led_palette == manifest["led_palette"]
+    assert repository.resolve_led_palette(imported.id)["colors"] == palette
+    with zipfile.ZipFile(io.BytesIO(repository.export(imported.id))) as package:
+        assert yaml.safe_load(package.read("skin.yaml"))["led_palette"] == manifest["led_palette"]
 
 
 def test_custom_skin_export_import_preserves_appearance_and_state_effects(tmp_path):
