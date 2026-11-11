@@ -461,7 +461,7 @@ shown as a representative static frame.
 **Appearance → Skins** provides named presets for the existing eyes,
 backgrounds, Eye Safe Layer and State Effects settings. Built-in PHOS Default,
 Minimal and Ambient skins are read-only. Create a custom skin from the current
-appearance, then apply, preview, rename or delete it. Preview updates only the
+appearance by importing a complete Skin package, then apply, preview, rename or delete it. Preview updates only the
 live appearance temporarily and does not save configuration. Apply validates,
 saves, and updates the canonical display configuration; it never changes robot
 behavior or voice settings. Custom skins live in internal `skins.json` storage beside the active
@@ -648,6 +648,47 @@ alert overlays followed by smooth decay. `imu_tilt_eye_asymmetry_strength`
 mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
 the strongest alert remains unambiguous. Robot states such as
 sleeping, speaking and error retain priority.
+
+## Skin LED palettes (SKIN-03)
+
+A skin may optionally carry an `led_palette` alongside its eye appearance. It
+is declarative theme metadata applied only through the existing runtime
+`SemanticLedService`. Configure this metadata directly in a skin YAML/package
+definition; **Appearance → Skins** does not edit palettes. Its Active LED
+Palette status reports the current runtime skin, palette state, semantic state,
+and available colors without creating a second palette selection or draft.
+Supported semantic states are `idle`, `listening`, `thinking`, `speaking`,
+`sleeping`, `success`, `attention`, and `ambient`. Omitted colors use the
+semantic LED fallback; catalog palettes may inherit parent colors. Warning and
+error remain protected system colors. The external-controller `SemanticLedService`
+remains the exclusive authority for intent, priority, animation, expiry, safety
+signals, and controller capability fallback.
+
+The palette shape is `{"enabled": true, "colors": {...}}`. Colors must be
+canonical `#RRGGBB` values. Supported semantic keys are `idle`, `listening`,
+`thinking`, `speaking`, `sleeping`, `success`, `attention`, and `ambient`.
+`warning` and `error` are deliberately excluded: their safety colours remain
+arbiter-owned. A palette may be partial; omitted colors fall back to the
+arbiter's existing command colors. `{"enabled": false, "colors": {}}`
+explicitly disables a palette.
+
+For catalog skins, an omitted `led_palette` inherits the parent palette; an
+enabled palette overlays only named colors; `null` removes an inherited palette;
+and a disabled palette stops inheritance. Built-in and custom skins without a
+palette are unchanged. Package exports now use manifest schema version 3 while
+imports remain compatible with schema version 2 packages. Read-only resolution
+follows the currently effective agent/default-agent skin, but no global LED
+settings are mutated.
+
+The runtime supplies the resolved palette only after the corresponding visual
+appearance has been accepted. `SemanticLedService` then re-evaluates its current
+winner: a configured themeable color replaces that command's default color;
+missing/disabled/global palettes clear theme colors and use the existing command
+color; warning/error always use protected colors. This does not create, cancel,
+or extend an intent, so priorities, effects and expiries are unchanged. A
+controller reconnection still uses the existing arbiter reapply path, now with
+the current themed command. Read-only LED status includes palette metadata and
+whether the active color is palette, fallback, or protected.
 
 ## Authenticated MCP appearance activity
 

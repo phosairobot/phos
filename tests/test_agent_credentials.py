@@ -286,8 +286,17 @@ def test_anonymous_mcp_uses_only_default_skin_as_a_low_priority_transient_fallba
     assert anonymous["selected_skin_id"] == "ambient"
     assert anonymous["effective_priority"] == -1
     assert management.automatic_appearance_config(anonymous)[1]["effective_skin_id"] == "ambient"
+    assert management.effective_led_palette(anonymous)["state"] == "configured"
+    assert management.effective_led_palette(anonymous)["selected_agent_id"] == "anonymous-mcp"
+    # A palette follows the appearance actually applied, not merely an
+    # arbitration winner that has fallen back to global presentation.
+    assert management.effective_led_palette(anonymous, resolved={"state": "global", "fallback_reason": "missing_skin_assets"}) == {
+        "state": "global", "skin_id": None, "colors": {}, "fallback_reason": "missing_skin_assets"}
     assert tracker.record(management._provider.get().get("authenticated")) is True
     assert tracker.status()["selected_agent_id"] == "authenticated"
+    assert management.effective_led_palette(tracker.status()) == {
+        "state": "missing", "skin_id": "minimal", "colors": {},
+        "selected_agent_id": "authenticated", "fallback_reason": "missing"}
     clock.now = 30
     assert tracker.status()["selected_agent_id"] == "authenticated"
     clock.now = 60
@@ -298,6 +307,9 @@ def test_anonymous_mcp_uses_only_default_skin_as_a_low_priority_transient_fallba
     management.set_default_agent("authenticated")
     assert management.appearance_arbitration_candidates()["agents"][-1]["appearance_policy"]["assigned_skin_id"] == "minimal"
     assert RuntimeConfig.from_file(path).anonymous_mcp_use_default_agent_skin is True
+    document = management._repository.document(); document["appearance"]["mode"] = "global"
+    management._repository.save(management._repository.load(document))
+    assert management.effective_led_palette()["state"] == "global"
     tracker.close()
 
 

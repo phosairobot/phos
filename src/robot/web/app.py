@@ -11,6 +11,7 @@ import time
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
+from werkzeug.exceptions import HTTPException
 
 from robot import __version__
 from robot.config import ConfigurationError, RuntimeConfig
@@ -553,6 +554,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     elif action == "delete": application_service.delete_skin(skin_id); flash("Skin deleted.")
                     else: raise ConfigurationError("Unsupported skin action.")
                     return redirect(url_for("appearance_skins"))
+                except HTTPException:
+                    raise
                 except Exception as exc:
                     error = getattr(exc, "message", str(exc))
         try:
@@ -561,12 +564,17 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             anonymous_mcp_appearance = manage_agents("anonymous_mcp_appearance")
             arbitration = manage_agents("appearance_arbitration")
             activation = manage_agents("presentation_activation")
+            try:
+                runtime_status = application_service.status() if application_service is not None else {}
+                semantic_led = runtime_status.get("semantic_led", {}) if isinstance(runtime_status, dict) else {}
+            except Exception:
+                semantic_led = {}
         except Exception as exc:
-            skins, appearance_mode, anonymous_mcp_appearance, arbitration, activation = [], {"mode": "global"}, {"enabled": False, "skin": {"state": "unavailable"}}, {"selected_agent_id": None, "selection_reason": "unavailable"}, {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
+            skins, appearance_mode, anonymous_mcp_appearance, arbitration, activation, semantic_led = [], {"mode": "global"}, {"enabled": False, "skin": {"state": "unavailable"}}, {"selected_agent_id": None, "selection_reason": "unavailable"}, {"state": "unavailable", "message": "Runtime appearance status is unavailable."}, {}
             error = getattr(exc, "message", "Skins are unavailable.")
         return render_template("skins.html", skins=skins, error=error, appearance_mode=appearance_mode,
                                anonymous_mcp_appearance=anonymous_mcp_appearance,
-                               arbitration=arbitration, activation=activation)
+                               arbitration=arbitration, activation=activation, semantic_led=semantic_led)
 
     @app.get("/appearance/skins/<skin_id>/export")
     def appearance_skin_export(skin_id):

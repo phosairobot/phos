@@ -128,6 +128,10 @@ class ControllerService(Behavior):
         self._active_capabilities = None
         self._session_generation = 0
         self._last_led_availability = None
+        # Read-only, bounded evidence for the most recent semantic LED
+        # dispatch.  phos-hw v1 does not acknowledge animation application,
+        # so a successful write is deliberately not represented as an ACK.
+        self._last_led_dispatch = None
         self._capabilities_request_attempt = 0
         self._open_settle_seconds = OPEN_SETTLE_SECONDS
         self._sleep = asyncio.sleep
@@ -157,6 +161,7 @@ class ControllerService(Behavior):
                 "last_heartbeat": self._last_heartbeat, "capabilities": self._capabilities,
                 "active_capabilities": self._active_capabilities,
                 "led_output": self.led_output_status(),
+                "last_led_dispatch": self._last_led_dispatch,
                 "session_generation": self._session_generation}
 
     def recent_messages(self) -> list[dict]: return list(self._messages)
@@ -190,10 +195,23 @@ class ControllerService(Behavior):
 
     async def set_led_animation(self, payload: dict) -> bool:
         """Transport boundary for the semantic arbiter; never exposes a UI command."""
+        color = payload.get("color") if isinstance(payload, dict) else None
+        dispatch = {"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "color": color, "animation": payload.get("animation") if isinstance(payload, dict) else None,
+                    "session_generation": self._session_generation, "acknowledged": None}
         if not self.led_output_available() or self._transport is None:
+            self._last_led_dispatch = {**dispatch, "state": "unavailable"}
             self._log_led_availability("set_led_animation_unavailable")
             return False
-        await self._send("set_led_animation", payload)
+        try:
+            await self._send("set_led_animation", payload)
+        except Exception as error:
+            self._last_led_dispatch = {**dispatch, "state": "write_failed",
+                                       "error": type(error).__name__}
+            raise
+        self._last_led_dispatch = {**dispatch, "state": "written"}
+        logger.debug("PHOS CONTROLLER LED OUTPUT: dispatch=written color=%s animation=%s generation=%s",
+                     color, dispatch["animation"], self._session_generation)
         return True
 
     def _record(self, direction: str, message_type: str, summary: str, raw: bytes | None = None) -> None:

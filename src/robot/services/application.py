@@ -1200,6 +1200,20 @@ class PhosApplicationService:
             raise
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
 
+    def update_skin_led_palette(self, skin_id: str, palette: dict | None) -> dict:
+        if not isinstance(skin_id, str):
+            raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        try:
+            skin = self._skins().update_led_palette(skin_id, palette)
+            # This is safe and transient: reconciliation applies the palette
+            # only when this skin is actually the active appearance.
+            reconcile = getattr(self._lifecycle, "reconcile_effective_appearance", None)
+            if callable(reconcile):
+                reconcile()
+            return skin.document()
+        except (ConfigurationError, OSError) as error:
+            raise ApplicationError("invalid_skin", str(error)) from error
+
     def preview_skin(self, skin_id: str) -> dict:
         """Apply a Skin only to the live display; never save configuration."""
         if not isinstance(skin_id, str): raise ApplicationError("invalid_skin", "Skin identifier is invalid.")

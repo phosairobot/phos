@@ -102,6 +102,7 @@ class LifecycleService:
         self._apply_backgrounds = None
         self._apply_eye_safe_layer = None
         self._apply_state_effects = None
+        self._apply_semantic_led_palette = None
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
@@ -157,6 +158,9 @@ class LifecycleService:
 
     def register_state_effects_applier(self, applier):
         with self._lock: self._apply_state_effects = applier
+
+    def register_semantic_led_palette_applier(self, applier):
+        with self._lock: self._apply_semantic_led_palette = applier
 
     def apply_temporary_appearance(self, config: RuntimeConfig) -> dict:
         """Apply validated visual settings without changing saved or active config."""
@@ -275,11 +279,15 @@ class LifecycleService:
                 if arbitration is None:
                     arbitration = self.appearance_arbitration_status()
                 candidate, resolved = self._agent_management_service.automatic_appearance_config(arbitration)
+                # Resolve the LED palette from the *applied* appearance.  A
+                # selected agent whose appearance has fallen back to global
+                # must not leave a mismatched LED theme behind.
+                palette = self._agent_management_service.effective_led_palette(arbitration, resolved=resolved)
             except (ConfigurationError, OSError):
                 self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
                 return {"ok": False, "error": self._presentation_activation["message"]}
             key = (resolved.get("mode"), resolved.get("selected_agent_id"), resolved.get("effective_skin_id"),
-                   repr(candidate.to_dict().get("display")))
+                   repr(candidate.to_dict().get("display")), repr(palette))
             if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
                     "global_active", "agent_skin_active", "fallback_active"}:
                 return {"ok": True, "applied": [], "resolved": resolved}
@@ -287,12 +295,14 @@ class LifecycleService:
                                              "mode": resolved.get("mode"), "arbitration": arbitration}
             result = self.apply_temporary_appearance(candidate)
             if result.get("ok"):
+                if self._apply_semantic_led_palette is not None:
+                    self._apply_semantic_led_palette(palette)
                 self._applied_appearance_key = key
                 state = "agent_skin_active" if resolved.get("state") == "assigned" else (
                     "global_active" if resolved.get("mode") == "global" else "fallback_active")
                 self._presentation_activation = {"state": state, "message": "Runtime appearance applied.",
                                                  "mode": resolved.get("mode"), "resolved": resolved,
-                                                 "arbitration": arbitration}
+                                                 "arbitration": arbitration, "led_palette": palette}
             else:
                 self._presentation_activation = {"state": result.get("state", "unavailable"),
                                                  "message": result.get("error", "Runtime appearance was not applied."),

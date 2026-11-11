@@ -1157,6 +1157,90 @@ def test_skins_page_renders_compact_cards_without_open_custom_edit_fields(setup)
     assert 'class="skin-delete" open' not in page
 
 
+def test_skins_page_does_not_render_the_removed_led_palette_editor(lifecycle_setup):
+    app, path, _ = lifecycle_setup
+    client = authorize(app)
+    page = client.get("/appearance/skins").get_data(as_text=True)
+    assert "LED Palette Editor" not in page and "led-palette-skin" not in page
+    return
+    assert post(client, "/appearance/skins", {"action": "create", "name": "Palette one", "description": ""}).status_code == 302
+    assert post(client, "/appearance/skins", {"action": "create", "name": "Palette two", "description": ""}).status_code == 302
+    skins = json.loads((path.parent / "skins.json").read_text())["skins"]
+    first, second = (skin["id"] for skin in skins)
+    colors = {"idle": "#123456", "listening": "#234567", "thinking": "#345678", "speaking": "#456789",
+              "sleeping": "#56789A", "success": "#6789AB", "attention": "#789ABC", "ambient": "#89ABCD"}
+    saved = post(client, "/appearance/skins", {"action": "save_led_palette", "skin_id": first,
+                                                   "led_palette_enabled": "on", **{f"led_{state}": color for state, color in colors.items()}})
+    assert saved.status_code == 302
+    stored = {skin["id"]: skin for skin in json.loads((path.parent / "skins.json").read_text())["skins"]}
+    assert stored[first]["led_palette"] == {"enabled": True, "colors": colors}
+    assert "led_palette" not in stored[second]
+
+
+def test_skins_page_keeps_the_read_only_active_led_palette_status(lifecycle_setup):
+    app, path, _ = lifecycle_setup
+    client = authorize(app)
+    page = client.get("/appearance/skins").get_data(as_text=True)
+    assert "Active LED Palette" in page and "Semantic state" in page
+    return
+    assert post(client, "/appearance/skins", {"action": "create", "name": "Palette", "description": ""}).status_code == 302
+    skin_id = json.loads((path.parent / "skins.json").read_text())["skins"][0]["id"]
+    assert post(client, "/appearance/skins", {"action": "save_led_palette", "skin_id": skin_id}).status_code == 302
+    palette = json.loads((path.parent / "skins.json").read_text())["skins"][0]["led_palette"]
+    assert palette == {"enabled": False, "colors": {}}
+
+
+def test_skin_catalog_still_lists_imported_palette_skins(lifecycle_setup):
+    from robot.ui.skins import SkinRepository, appearance_snapshot
+    _, path, lifecycle = lifecycle_setup
+    (path.parent / "skins.yaml").write_text("""schema_version: 1
+skins:
+  - id: catalog-teal
+    display_name: Catalog Teal
+    inherits: ambient
+    appearance: {}
+""")
+    appearance = appearance_snapshot(load_document())
+    emerald = SkinRepository(path, catalog_file=path.parent / "skins.yaml").create(
+        "ChatGPT Emerald", "", appearance, {"enabled": True, "colors": {"idle": "#4EE5C4",
+        "listening": "#22D3C5", "thinking": "#5BBDE6", "speaking": "#74F7D8",
+        "sleeping": "#145A60", "ambient": "#0D9488"}})
+    neural = SkinRepository(path, catalog_file=path.parent / "skins.yaml").create(
+        "ChatGPT Neural", "", appearance, {"enabled": True, "colors": {"idle": "#6EC9FF",
+        "listening": "#22D3EE", "thinking": "#A78BFA", "speaking": "#60A5FA",
+        "sleeping": "#28356E", "ambient": "#6366F1"}})
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = SimpleNamespace(application_status=lambda: {})
+    app = create_app(path, application_service=application)
+    app.testing = True
+    page = authorize(app).get("/appearance/skins").get_data(as_text=True)
+    assert "LED Palette Editor" not in page and "ChatGPT Emerald" in page and "ChatGPT Neural" in page
+    return
+    assert all(name in page for name in ("PHOS Default", "Minimal", "Ambient", "Catalog Teal", "ChatGPT Emerald", "ChatGPT Neural"))
+    assert all(skin_id in page for skin_id in ("phos-default", "minimal", "ambient", "catalog-teal", emerald.id, neural.id))
+    assert '"effective": "#4EE5C4"' in page and '"effective": "#22D3C5"' in page
+    assert '"origin": "override"' in page and '"origin": "inherited"' in page
+    assert "read-only" in page
+    payload = json.loads(re.search(r'<script type="application/json" id="led-palette-skins">(.*?)</script>', page,
+                                   re.DOTALL).group(1))
+    palette = next(item for item in payload if item["skin_id"] == emerald.id)
+    assert palette["editable"] is True
+    assert {state: palette["colors"][state]["effective"] for state in
+            ("idle", "listening", "thinking", "speaking", "sleeping", "ambient")} == {
+                "idle": "#4EE5C4", "listening": "#22D3C5", "thinking": "#5BBDE6",
+                "speaking": "#74F7D8", "sleeping": "#145A60", "ambient": "#0D9488"}
+    assert all(palette["colors"][state]["origin"] == "override" for state in
+               ("idle", "listening", "thinking", "speaking", "sleeping", "ambient"))
+    assert palette["colors"]["success"]["origin"] == palette["colors"]["attention"]["origin"] == "fallback"
+    neural_payload = next(item for item in payload if item["skin_id"] == neural.id)
+    assert {state: neural_payload["colors"][state]["effective"] for state in
+            ("idle", "listening", "thinking", "speaking", "sleeping", "ambient")} == {
+                "idle": "#6EC9FF", "listening": "#22D3EE", "thinking": "#A78BFA",
+                "speaking": "#60A5FA", "sleeping": "#28356E", "ambient": "#6366F1"}
+    assert neural_payload["colors"] != palette["colors"]
+
+
 def test_skins_page_persists_anonymous_mcp_default_skin_fallback(tmp_path):
     document = load_document(); document["logging"]["file"] = None
     path = tmp_path / "phos.json"; path.write_text(json.dumps(document))

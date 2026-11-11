@@ -166,6 +166,8 @@ def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_
     lifecycle.register_backgrounds_applier(lambda value: None)
     lifecycle.register_eye_safe_layer_applier(lambda value: None)
     lifecycle.register_state_effects_applier(lambda value: None)
+    palettes = []
+    lifecycle.register_semantic_led_palette_applier(lambda value: palettes.append(value))
     lifecycle.register_agent_management_service(management)
     tracker = AgentAppearanceActivityTracker(provider, management.appearance_arbitration_candidates,
                                              clock=lambda: now[0])
@@ -176,12 +178,14 @@ def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_
     tracker.record(provider.get().get("lower"))
     tracker.record(provider.get().get("local-agent"))
     assert applied[-1] == "#A670F5"
+    assert palettes[-1]["state"] == "configured" and palettes[-1]["skin_id"] == "ambient"
     first_count = len(applied)
     tracker.record(provider.get().get("local-agent"))
     assert len(applied) == first_count  # same winner/snapshot is not re-applied
     now[0] = 10.0
     tracker.recompute()  # deterministic stand-in for the scheduled expiry callback
     assert applied[-1] == "#DAECF6"
+    assert palettes[-1]["state"] == "missing" and palettes[-1]["skin_id"] == "minimal"
     # Fallback resolves the current canonical configuration, not the startup
     # snapshot that existed while an agent skin was active.
     document = lifecycle.config_repository.document()
@@ -190,6 +194,7 @@ def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_
     now[0] = 80.0
     tracker.recompute()
     assert applied[-1] == "#00FF00"
+    assert palettes[-1]["state"] == "global"
     status = lifecycle.presentation_activation_status()
     assert status["state"] == "fallback_active"
     assert status["resolved"]["legacy_presentation_owner_id"] == "local-agent"
@@ -1156,6 +1161,26 @@ def test_lifecycle_dispatcher_survives_one_unexpected_service_failure(caplog):
         child.close()
         thread.join(timeout=2)
         assert not thread.is_alive()
+
+
+def test_lifecycle_client_uses_the_web_request_budget_and_does_not_repeat_a_timed_out_write():
+    class Connection:
+        def __init__(self): self.sent, self.poll_timeouts = [], []
+        def send(self, request): self.sent.append(request)
+        def poll(self, timeout): self.poll_timeouts.append(timeout); return False
+
+    connection = Connection()
+    client = LifecycleClient(connection)
+    request = {"operation": "application.apply_skin", "payload": {"id": "neural"}}
+    expected = {"ok": False,
+                "error": "Runtime lifecycle service is unavailable. An in-flight request may have completed; check PHOS locally before retrying."}
+
+    assert client.execute(request) == expected
+    assert connection.poll_timeouts == [30]
+    # The timeout may occur after the owner process accepted the operation.
+    # Retiring this client prevents a browser retry from applying a skin twice.
+    assert client.execute(request) == expected
+    assert connection.sent == [request]
 
 
 def test_lifecycle_channel_forwards_presence_and_attention_read_models(runtime):
