@@ -59,11 +59,13 @@ def test_normal_startup_creates_one_mcp_server_from_the_existing_application(mon
         async def run(self, stop_event):
             for callback in self.callbacks:
                 callback()
-            await asyncio.sleep(0)
+            # Let the runtime-start callback schedule and start the listener
+            # before this short-lived composition fixture stops PHOS.
+            await asyncio.sleep(.02)
             stop_event.set()
 
     class FakeMcpHttpServer:
-        def __init__(self, agent_service, *, host, port, path, authenticator=None):
+        def __init__(self, agent_service, *, host, port, path, authenticator=None, activity_tracker=None):
             self.agent_service, self.host, self.port, self.path = agent_service, host, port, path
             self.started, self.stopped = False, False
             created.append(self)
@@ -78,9 +80,44 @@ def test_normal_startup_creates_one_mcp_server_from_the_existing_application(mon
     monkeypatch.setattr("robot.mcp.McpHttpServer", FakeMcpHttpServer)
     monkeypatch.setattr(main, "_install_shutdown_handlers", lambda *args: None)
 
-    asyncio.run(main.async_main(config=RuntimeConfig(mcp_port=8123, mcp_path="/robot-mcp")))
+    asyncio.run(main.async_main(config=RuntimeConfig(mcp_enabled=True, mcp_port=8123, mcp_path="/robot-mcp")))
 
     assert len(created) == 1
     assert created[0].host == "127.0.0.1" and created[0].port == 8123 and created[0].path == "/robot-mcp"
     assert created[0].agent_service._application._runtime is runtime
     assert created[0].stopped
+
+
+def test_normal_startup_does_not_create_an_mcp_server_when_mcp_is_disabled(monkeypatch):
+    from robot import main
+    from robot.core import RobotCore
+    from robot.core.behavior_engine import BehaviorEngine
+
+    class Runtime:
+        def __init__(self):
+            self.core = RobotCore()
+            self._behavior_engine = BehaviorEngine(self.core.events)
+            self.callbacks = []
+
+        def register_started_callback(self, callback):
+            self.callbacks.append(callback)
+
+        async def run(self, stop_event):
+            for callback in self.callbacks:
+                callback()
+            await asyncio.sleep(0)
+            stop_event.set()
+
+    created = []
+
+    class FakeMcpHttpServer:
+        def __init__(self, *_args, **_kwargs):
+            created.append(self)
+
+    monkeypatch.setattr(main, "build_application", lambda **kwargs: Runtime())
+    monkeypatch.setattr("robot.mcp.McpHttpServer", FakeMcpHttpServer)
+    monkeypatch.setattr(main, "_install_shutdown_handlers", lambda *args: None)
+
+    asyncio.run(main.async_main(config=RuntimeConfig(mcp_enabled=False)))
+
+    assert created == []

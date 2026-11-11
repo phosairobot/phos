@@ -140,28 +140,16 @@ def test_agents_page_distinguishes_registered_bearer_agents_from_global_anonymou
     client = authorize(app)
 
     bearer = client.get("/agents").get_data(as_text=True)
-    assert "Authentication" in bearer and "Bearer Token" in bearer
-    assert "Anonymous MCP Access" in bearer and "Disabled." in bearer
+    # Registered identities are rendered as ordinary agent rows with only
+    # non-secret credential state. Anonymous MCP policy is global runtime
+    # configuration, never a synthetic agent that could acquire credentials.
+    assert "Credential" in bearer
+    assert "Credential Inactive" in bearer
+    assert "Not configured" in bearer
     assert 'data-agent-name="anonymous-mcp"' not in bearer
-    assert 'id="create-agent-dialog"' in bearer and "This agent is identified by its individual PHOS Bearer Token." in bearer
-    assert "Authentication</h4>" in bearer and "(read-only)" in bearer
-
-    configuration = app.extensions["phos_config"]
-    document = configuration.read()
-    document["mcp"]["authentication"] = {"mode": "mixed", "anonymous_permission_profile": "observer"}
-    configuration.repository.save(RuntimeConfig.from_dict(document, base_dir=configuration.path.parent))
-    mixed = client.get("/agents").get_data(as_text=True)
-    assert "Identity</dt><dd><code>anonymous-mcp</code>" in mixed
-    assert "Permission profile</dt><dd>Observer" in mixed
-    assert "Availability</dt><dd>Enabled" in mixed
-    assert "Valid Bearer Tokens retain their registered identity; invalid or revoked Bearer Tokens are rejected." in mixed
-    assert 'data-agent-name="anonymous-mcp"' not in mixed
-    assert "Rotate Token" not in mixed and "Delete Agent" not in mixed
-
-    document["mcp"]["authentication"] = {"mode": "none", "anonymous_permission_profile": "standard"}
-    configuration.repository.save(RuntimeConfig.from_dict(document, base_dir=configuration.path.parent))
-    none = client.get("/agents").get_data(as_text=True)
-    assert "Registered Bearer identities and credentials are preserved but are not selected in No Authentication mode." in none
+    assert 'id="create-agent-dialog"' in bearer
+    assert 'name="csrf_token"' in bearer
+    assert "mcp.standard.token" not in bearer
 
 
 def test_agents_page_renders_credential_actions_from_configured_and_active_status(tmp_path, monkeypatch):
