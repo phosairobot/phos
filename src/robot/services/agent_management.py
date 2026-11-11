@@ -313,7 +313,7 @@ class AgentManagementService:
                 "skin_display_name": skin.name, "fallback_reason": None,
             }
 
-    def effective_led_palette(self, arbitration: dict | None = None) -> dict:
+    def effective_led_palette(self, arbitration: dict | None = None, *, resolved: dict | None = None) -> dict:
         """Read the skin palette selected by appearance arbitration only.
 
         This is intentionally a metadata projection for SKIN-03a.  It does
@@ -323,6 +323,13 @@ class AgentManagementService:
             config = self._repository.load()
             arbitration = arbitration or self.appearance_arbitration()
             selected = arbitration.get("selected_agent_id") if config.appearance_mode == "follow_agent" else None
+            # The LED theme is part of the transient appearance, not a second
+            # arbitration result.  If resolving the selected skin fell back to
+            # global appearance (for example because an image asset is gone),
+            # keep the semantic LEDs global too.
+            if resolved is not None and resolved.get("state") != "assigned":
+                return {"state": "global", "skin_id": None, "colors": {},
+                        "fallback_reason": resolved.get("fallback_reason", "appearance_not_applied")}
             if selected is None:
                 return {"state": "global", "skin_id": None, "colors": {},
                         "fallback_reason": "global_mode" if config.appearance_mode == "global" else arbitration.get("selection_reason")}

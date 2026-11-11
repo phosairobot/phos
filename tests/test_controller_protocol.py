@@ -399,6 +399,65 @@ def test_capability_callback_reapplies_current_led_winner_on_every_session_witho
     asyncio.run(exercise())
 
 
+def test_controller_records_the_exact_resolved_led_payload_written_to_transport():
+    class Transport:
+        def __init__(self): self.device, self.writes = "/dev/ttyUSB0", []
+        async def write(self, raw): self.writes.append(raw)
+
+    async def exercise():
+        controller = ControllerService(
+            SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+            reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+            touch_sink=lambda _event: None,
+        )
+        controller._transport = Transport()
+        controller._state = ControllerConnection.CONNECTED
+        controller._active_capabilities = {"led_count": 12}
+        controller._session_generation = 4
+        assert await controller.set_led_animation({"animation": "solid", "color": "#4EE5C4",
+                                                   "brightness": .2, "duration_ms": 0})
+        return controller
+
+    controller = asyncio.run(exercise())
+    dispatch = controller.status()["last_led_dispatch"]
+    assert dispatch["state"] == "written"
+    assert dispatch["color"] == "#4EE5C4"
+    assert dispatch["animation"] == "solid"
+    assert dispatch["session_generation"] == 4
+    assert dispatch["acknowledged"] is None
+
+
+def test_semantic_palette_switch_reaches_the_controller_transport_with_idle_still_active():
+    class Transport:
+        def __init__(self): self.device, self.writes = "/dev/ttyUSB0", []
+        async def write(self, raw): self.writes.append(raw)
+
+    async def exercise():
+        controller = ControllerService(
+            SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+            reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+            touch_sink=lambda _event: None,
+        )
+        controller._transport = Transport()
+        controller._state = ControllerConnection.CONNECTED
+        controller._active_capabilities = {"led_count": 12}
+        semantic = SemanticLedService(EventBus(), controller.set_led_animation, lambda: RobotState.IDLE)
+        await semantic.set_intent("robot_state", "idle")
+        await semantic.set_palette({"idle": "#6EC9FF"})
+        await semantic.set_palette({"idle": "#4EE5C4"})
+        before = len(controller._transport.writes)
+        assert await semantic.set_palette({"idle": "#4EE5C4"}) is False
+        return semantic, controller, before
+
+    semantic, controller, before = asyncio.run(exercise())
+    messages = [json.loads(raw) for raw in controller._transport.writes]
+    commands = [message["payload"] for message in messages if message["type"] == "set_led_animation"]
+    assert [command["color"] for command in commands] == ["#00E5FF", "#6EC9FF", "#4EE5C4"]
+    assert len(controller._transport.writes) == before
+    assert semantic.status()["active_intent"] == "idle"
+    assert controller.status()["last_led_dispatch"]["color"] == "#4EE5C4"
+
+
 def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder():
     class Serial:
         def __init__(self): self.input_reset = self.output_reset = False

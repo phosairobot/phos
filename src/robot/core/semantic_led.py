@@ -141,8 +141,16 @@ class SemanticLedService(Behavior):
                 raise ValueError("LED palette color is invalid")
             normalized[intent] = color.upper()
         if normalized == self._palette_colors:
+            logger.debug("PHOS SEMANTIC LED: palette unchanged; active_state=%s winner=%s",
+                         self._effective().intent.value if self._effective() else None, self._winner_source())
             return False
         self._palette_colors = normalized
+        request = self._effective()
+        logger.debug("PHOS SEMANTIC LED: palette applied colors=%s active_state=%s winner=%s color_source=%s",
+                     {key.value: value for key, value in normalized.items()},
+                     request.intent.value if request else None, self._winner_source(),
+                     "protected" if request and request.intent in {SemanticLedIntent.WARNING, SemanticLedIntent.ERROR}
+                     else "palette" if request and request.intent in normalized else "fallback")
         await self._reconcile()
         return True
 
@@ -188,17 +196,19 @@ class SemanticLedService(Behavior):
     async def _reconcile(self):
         request = self._effective()
         command = None if request is None else self._command(request.intent)
+        source = ("protected" if request and request.intent in {SemanticLedIntent.WARNING, SemanticLedIntent.ERROR}
+                  else "palette" if request and request.intent in self._palette_colors else "fallback")
         if command == self._last_command:
-            logger.debug("PHOS SEMANTIC LED: send suppressed reason=deduplicated winner=%s command=%s",
-                         self._winner_source(), command)
+            logger.debug("PHOS SEMANTIC LED: send suppressed reason=deduplicated winner=%s state=%s color_source=%s command=%s",
+                         self._winner_source(), request.intent.value if request else None, source, command)
             return
         if command is None:
             self._last_command = None
             return
         if await self._sender(command):
             self._last_command = dict(command)
-            logger.debug("PHOS SEMANTIC LED: command sent winner=%s command=%s",
-                         self._winner_source(), command)
+            logger.debug("PHOS SEMANTIC LED: command sent winner=%s state=%s color_source=%s command=%s",
+                         self._winner_source(), request.intent.value if request else None, source, command)
         else:
             logger.debug("PHOS SEMANTIC LED: command not sent reason=controller_output_unavailable winner=%s command=%s",
                          self._winner_source(), command)

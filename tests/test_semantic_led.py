@@ -183,3 +183,33 @@ def test_skin_palette_recolors_only_themeable_current_winner_without_changing_le
         with pytest.raises(ValueError): await service.set_palette({"error": "#000000"})
 
     asyncio.run(exercise())
+
+
+def test_switching_agent_palettes_reissues_the_active_idle_command_once():
+    """The controller sees a new command even though the semantic intent is unchanged."""
+    sent = []
+
+    async def sender(command):
+        sent.append(dict(command))
+        return True
+
+    service = SemanticLedService(EventBus(), sender, lambda: RobotState.IDLE)
+
+    async def exercise():
+        await service.set_intent("robot_state", "idle")
+        await service.set_palette({"idle": "#6EC9FF", "listening": "#22D3EE",
+                                   "thinking": "#A78BFA", "speaking": "#60A5FA",
+                                   "sleeping": "#28356E", "ambient": "#6366F1"})
+        assert sent[-1]["color"] == "#6EC9FF"
+        before = len(sent)
+        await service.set_palette({"idle": "#4EE5C4", "listening": "#22D3C5",
+                                   "thinking": "#5BBDE6", "speaking": "#74F7D8",
+                                   "sleeping": "#145A60", "ambient": "#0D9488"})
+        assert len(sent) == before + 1
+        assert sent[-1]["color"] == "#4EE5C4"
+        assert await service.set_palette({"idle": "#4EE5C4", "listening": "#22D3C5",
+                                          "thinking": "#5BBDE6", "speaking": "#74F7D8",
+                                          "sleeping": "#145A60", "ambient": "#0D9488"}) is False
+        assert len(sent) == before + 1
+
+    asyncio.run(exercise())

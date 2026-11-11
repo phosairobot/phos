@@ -33,6 +33,16 @@ def test_runtime_start_callback_runs_only_after_runtime_startup():
     assert asyncio.run(exercise()) == [(True, True)]
 
 
+def test_runtime_bootstrap_registers_one_semantic_led_dispatcher_instance():
+    runtime = build_runtime(eye_display=MemoryEyeDisplay())
+    semantic = runtime._semantic_led
+    assert semantic is not None
+    assert [behavior for behavior in runtime.core.behaviors._behaviors if behavior.name == "semantic-led"] == [semantic]
+    # The runtime and controller callback are wired to this same arbiter;
+    # there is no second LED service between palette handoff and transport.
+    assert semantic._sender.__self__ is runtime._controller
+
+
 def test_normal_startup_creates_one_mcp_server_from_the_existing_application(monkeypatch):
     from robot import main
     from robot.core import RobotCore

@@ -1163,6 +1163,26 @@ def test_lifecycle_dispatcher_survives_one_unexpected_service_failure(caplog):
         assert not thread.is_alive()
 
 
+def test_lifecycle_client_uses_the_web_request_budget_and_does_not_repeat_a_timed_out_write():
+    class Connection:
+        def __init__(self): self.sent, self.poll_timeouts = [], []
+        def send(self, request): self.sent.append(request)
+        def poll(self, timeout): self.poll_timeouts.append(timeout); return False
+
+    connection = Connection()
+    client = LifecycleClient(connection)
+    request = {"operation": "application.apply_skin", "payload": {"id": "neural"}}
+    expected = {"ok": False,
+                "error": "Runtime lifecycle service is unavailable. An in-flight request may have completed; check PHOS locally before retrying."}
+
+    assert client.execute(request) == expected
+    assert connection.poll_timeouts == [30]
+    # The timeout may occur after the owner process accepted the operation.
+    # Retiring this client prevents a browser retry from applying a skin twice.
+    assert client.execute(request) == expected
+    assert connection.sent == [request]
+
+
 def test_lifecycle_channel_forwards_presence_and_attention_read_models(runtime):
     _, service, _, _ = runtime
 

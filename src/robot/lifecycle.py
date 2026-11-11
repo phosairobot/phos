@@ -279,7 +279,10 @@ class LifecycleService:
                 if arbitration is None:
                     arbitration = self.appearance_arbitration_status()
                 candidate, resolved = self._agent_management_service.automatic_appearance_config(arbitration)
-                palette = self._agent_management_service.effective_led_palette(arbitration)
+                # Resolve the LED palette from the *applied* appearance.  A
+                # selected agent whose appearance has fallen back to global
+                # must not leave a mismatched LED theme behind.
+                palette = self._agent_management_service.effective_led_palette(arbitration, resolved=resolved)
             except (ConfigurationError, OSError):
                 self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
                 return {"ok": False, "error": self._presentation_activation["message"]}
