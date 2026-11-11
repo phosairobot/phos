@@ -78,6 +78,29 @@ GROUPS["voice"] = [("stt", "Speech-to-text", ("voice.enabled", "voice.stt.provid
 GROUPS["controller"] = [("controller", "External hardware controller", ("hardware_controller.",), None)]
 GROUPS["mcp"] = [("mcp", "MCP", ("mcp.enabled", "mcp.port", "mcp.authentication."), None)]
 
+# Validator messages are discovered against the internal field group that owns
+# a setting.  Settings navigation deliberately uses different, user-facing
+# page identifiers; keep that translation explicit rather than leaking an
+# internal group name into a template route.
+ERROR_DESTINATIONS = {
+    "display": "appearance",
+    "vision": "runtime_vision",
+    "expression": "runtime_expression",
+    "logging": "runtime_logging",
+    "security": "integrations",
+    "network": "network",
+    "sensors": "sensors",
+    "behavior": "behavior",
+    "voice": "voice",
+    "controller": "controller",
+    "mcp": "mcp",
+    "appearance": "appearance",
+    "runtime_vision": "runtime_vision",
+    "runtime_expression": "runtime_expression",
+    "runtime_logging": "runtime_logging",
+    "integrations": "integrations",
+}
+
 
 def domain_sections(document, area):
     canonical = editor_sections(document)
@@ -105,4 +128,7 @@ def error_domain(document, error):
                 for token in (name, name.replace(".", "_"), name.rsplit(".", 1)[-1]):
                     if re.search(r"(?<![A-Za-z0-9_])" + re.escape(token) + r"(?![A-Za-z0-9_])", message):
                         candidates.append((len(token), area, group["name"]))
-    return max(candidates)[1:] if candidates else (None, None)
+    if not candidates:
+        return None, None
+    _length, internal_area, group = max(candidates)
+    return ERROR_DESTINATIONS.get(internal_area), group

@@ -2034,11 +2034,11 @@ def test_cross_domain_validation_links_to_relevant_area(setup):
     document["expression"]["local"]["model_path"] = "missing.onnx"
     path.write_text(json.dumps(document))
     before = path.read_bytes()
-    data = form(client, "display")
+    data = form(client, "appearance")
     data["display.width"] = "777"
-    response = client.post("/configuration/display", data=data)
+    response = client.post("/configuration/appearance", data=data)
     assert response.status_code == 400
-    assert b'/configuration/expression#local' in response.data
+    assert b'/configuration/runtime_expression#local' in response.data
     assert b'value="777"' in response.data
     assert path.read_bytes() == before
 
@@ -2067,9 +2067,10 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
 def test_domain_error_hints_match_fields_without_matching_unrelated_words():
     from robot.web.domains import error_domain
     document = load_document()
-    assert error_domain(document, "display_fps: invalid number/range") == ("display", "display")
-    assert error_domain(document, "expression.local.model_path: readable file required") == ("expression", "local")
-    assert error_domain(document, "expression.aws: refresh_seconds must be less than cache_ttl_seconds") == ("expression", "cloud-limits")
+    assert error_domain(document, "display_fps: invalid number/range") == ("appearance", "display")
+    assert error_domain(document, "vision.camera_resolution: invalid") == ("runtime_vision", "vision")
+    assert error_domain(document, "expression.local.model_path: readable file required") == ("runtime_expression", "local")
+    assert error_domain(document, "expression.aws: refresh_seconds must be less than cache_ttl_seconds") == ("runtime_expression", "cloud-limits")
     assert error_domain(document, "Check local filesystem permissions.") == (None, None)
 
 
