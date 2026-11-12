@@ -47,7 +47,8 @@ def test_preview_passes_binary_ppm_to_tk_and_draws_image(monkeypatch):
     display._draw_preview(CameraPreviewView(frame), CameraPreviewSettings(enabled=True), 800, 600)
 
     display._tk.PhotoImage.assert_called_once_with(data=encoded[2], format="PPM")
-    display._canvas.create_image.assert_called_once_with(782, 583, image=photo, anchor="nw")
+    # Bottom-right layout keeps the bordered preview within its 16px safe margin.
+    display._canvas.create_image.assert_called_once_with(779, 580, image=photo, anchor="nw")
 
 
 def test_preview_failure_is_logged_once_until_recovery(caplog):

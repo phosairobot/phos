@@ -389,7 +389,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             return render_template("error.html", error="Cannot load configured agents."), 503
         skins = []
         activation = {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
-        arbitration = {"mode": "global", "selected_agent_id": None, "selection_reason": "unavailable", "agents": []}
+        arbitration = {"mode": "global", "selected_agent_id": None, "selection_reason": "unavailable", "agents": [],
+                       "effective_priority": None, "remaining_lease_seconds": None}
         try:
             skins = manage_agents("agent_skins")
             activation = manage_agents("presentation_activation")
