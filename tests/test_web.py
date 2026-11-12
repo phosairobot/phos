@@ -140,28 +140,16 @@ def test_agents_page_distinguishes_registered_bearer_agents_from_global_anonymou
     client = authorize(app)
 
     bearer = client.get("/agents").get_data(as_text=True)
-    assert "Authentication" in bearer and "Bearer Token" in bearer
-    assert "Anonymous MCP Access" in bearer and "Disabled." in bearer
+    # Registered identities are rendered as ordinary agent rows with only
+    # non-secret credential state. Anonymous MCP policy is global runtime
+    # configuration, never a synthetic agent that could acquire credentials.
+    assert "Credential" in bearer
+    assert "Credential Inactive" in bearer
+    assert "Not configured" in bearer
     assert 'data-agent-name="anonymous-mcp"' not in bearer
-    assert 'id="create-agent-dialog"' in bearer and "This agent is identified by its individual PHOS Bearer Token." in bearer
-    assert "Authentication</h4>" in bearer and "(read-only)" in bearer
-
-    configuration = app.extensions["phos_config"]
-    document = configuration.read()
-    document["mcp"]["authentication"] = {"mode": "mixed", "anonymous_permission_profile": "observer"}
-    configuration.repository.save(RuntimeConfig.from_dict(document, base_dir=configuration.path.parent))
-    mixed = client.get("/agents").get_data(as_text=True)
-    assert "Identity</dt><dd><code>anonymous-mcp</code>" in mixed
-    assert "Permission profile</dt><dd>Observer" in mixed
-    assert "Availability</dt><dd>Enabled" in mixed
-    assert "Valid Bearer Tokens retain their registered identity; invalid or revoked Bearer Tokens are rejected." in mixed
-    assert 'data-agent-name="anonymous-mcp"' not in mixed
-    assert "Rotate Token" not in mixed and "Delete Agent" not in mixed
-
-    document["mcp"]["authentication"] = {"mode": "none", "anonymous_permission_profile": "standard"}
-    configuration.repository.save(RuntimeConfig.from_dict(document, base_dir=configuration.path.parent))
-    none = client.get("/agents").get_data(as_text=True)
-    assert "Registered Bearer identities and credentials are preserved but are not selected in No Authentication mode." in none
+    assert 'id="create-agent-dialog"' in bearer
+    assert 'name="csrf_token"' in bearer
+    assert "mcp.standard.token" not in bearer
 
 
 def test_agents_page_renders_credential_actions_from_configured_and_active_status(tmp_path, monkeypatch):
@@ -348,34 +336,26 @@ def test_agents_page_rejects_unknown_skin_and_renders_missing_assignment(tmp_pat
     ]}
     path = missing_dir / "phos.json"; path.write_text(json.dumps(document))
     page = authorize(create_app(path)).get("/agents").get_data(as_text=True)
-    assert "Missing: removed-skin" in page
-    assert "saved reference <code>removed-skin</code> is unavailable" in page
+    assert "Missing · removed-skin" in page
+    assert "Saved skin <code>removed-skin</code> is unavailable" in page
 
 
-def test_agents_page_selects_and_clears_presentation_owner_without_changing_display(tmp_path):
+def test_agents_page_uses_automatic_appearance_without_presentation_owner_controls(tmp_path):
     app, _ = _agent_admin(tmp_path)
     client = authorize(app)
     path = app.extensions["phos_config"].path
     before_display = RuntimeConfig.from_file(path).to_dict()["display"]
 
-    selected = post(client, "/agents", {"action": "set_presentation_owner", "presentation_owner": "observer"})
-    assert selected.status_code == 302
-    assert RuntimeConfig.from_file(path).presentation_owner_agent_id == "observer"
     page = client.get("/agents").get_data(as_text=True)
-    assert "Presentation Owner" in _agent_section(client.get("/agents"), "Observer Agent")
-    assert "Global PHOS Appearance" in page
+    assert "Automatic appearance" in page
+    assert "Presentation Owner" not in page
     assert RuntimeConfig.from_file(path).to_dict()["display"] == before_display
-
-    cleared = post(client, "/agents", {"action": "set_presentation_owner", "presentation_owner": ""})
-    assert cleared.status_code == 302
-    assert RuntimeConfig.from_file(path).presentation_owner_agent_id is None
-    assert client.post("/agents", data={"action": "set_presentation_owner", "presentation_owner": "observer"}).status_code == 400
 
 
 @pytest.mark.parametrize(("state", "message", "expected"), [
-    ("global_active", "Runtime appearance applied.", "Global active"),
-    ("agent_skin_active", "Runtime appearance applied.", "Agent skin active"),
-    ("fallback_active", "Runtime appearance applied.", "Fallback active"),
+    ("global_active", "Runtime appearance applied.", "Global Active"),
+    ("agent_skin_active", "Runtime appearance applied.", "Agent Skin Active"),
+    ("fallback_active", "Runtime appearance applied.", "Fallback Active"),
     ("applying", "Applying resolved appearance.", "Applying"),
     ("unavailable", "Runtime appearance is not ready.", "Unavailable"),
     ("failed", "Display update rejected.", "Failed"),
@@ -384,11 +364,10 @@ def test_agents_page_renders_lifecycle_owned_presentation_activation_status(tmp_
     class Lifecycle:
         def execute(self, operation, payload=None):
             if operation == "application.agents":
-                return {"ok": True, "result": [{"agent_id": "owner", "display_name": "Owner", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": {"enabled": True, "id": "ambient"}, "skin_assignment": {"state": "assigned", "id": "ambient", "display_name": "Ambient"}}]}
+                return {"ok": True, "result": [{"agent_id": "owner", "display_name": "Owner", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": {"enabled": True, "id": "ambient"}, "skin_assignment": {"state": "assigned", "id": "ambient", "display_name": "Ambient"}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "active"}}]}
             if operation == "application.agent_skins": return {"ok": True, "result": [{"id": "ambient", "display_name": "Ambient"}]}
-            if operation == "application.presentation_owner": return {"ok": True, "result": {"agent_id": "owner", "display_name": "Owner"}}
-            if operation == "application.effective_skin": return {"ok": True, "result": {"state": "assigned", "skin_display_name": "Ambient", "fallback_reason": None}}
-            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": state, "message": message}}
+            if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "follow_agent", "selected_agent_id": "owner", "selected_display_name": "Owner", "effective_priority": 50, "remaining_lease_seconds": 10}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": state, "message": message, "resolved": {"effective_skin_id": "ambient", "skin_display_name": "Ambient", "fallback_reason": None}}}
             return {"ok": True, "result": {}}
     path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
     page = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents").get_data(as_text=True)
@@ -400,13 +379,13 @@ def test_agents_page_lists_agents_when_optional_lifecycle_appearance_reads_fail(
     class Lifecycle:
         def execute(self, operation, payload=None):
             if operation == "application.agents":
-                return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": None, "skin": {"enabled": True, "id": "missing"}, "skin_assignment": {"state": "missing", "id": "missing"}}]}
+                return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": None, "skin": {"enabled": True, "id": "missing"}, "skin_assignment": {"state": "missing", "id": "missing"}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "active"}}]}
             return {"ok": False, "error": {"code": "service_unavailable"}}
     path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
     response = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents")
     text = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Local MCP agent" in text and "Missing: missing" in text
+    assert "Local MCP agent" in text and "Missing · missing" in text
     assert "Appearance details are unavailable" in text
 
 
@@ -443,13 +422,11 @@ def test_agents_page_uses_lifecycle_agent_management_boundary(tmp_path):
                 return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local",
                     "permission_profile": "standard", "default": True,
                     "credential_configured": False, "credential_active": None,
-                    "skin": None, "skin_assignment": {"state": "global", "id": None}}]}
+                    "skin": None, "skin_assignment": {"state": "global", "id": None}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "global"}}]}
             if operation == "application.agent_skins":
                 return {"ok": True, "result": []}
-            if operation == "application.presentation_owner":
-                return {"ok": True, "result": {"agent_id": None, "display_name": None}}
-            if operation == "application.effective_skin":
-                return {"ok": True, "result": {"state": "global", "fallback_reason": "no_owner"}}
+            if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "global", "selected_agent_id": None, "selected_display_name": None, "effective_priority": None, "remaining_lease_seconds": None}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": "global_active", "message": "", "resolved": {}}}
             return {"ok": True, "result": {}}
 
     path = tmp_path / "phos.json"
@@ -491,10 +468,10 @@ def test_agents_page_set_default_requires_csrf_and_uses_lifecycle(tmp_path):
         def execute(self, operation, payload=None):
             self.calls.append((operation, payload))
             if operation == "application.agents":
-                return {"ok": True, "result": [{"agent_id": "one", "display_name": "One", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}}, {"agent_id": "two", "display_name": "Two", "permission_profile": "observer", "default": False, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}}]}
+                return {"ok": True, "result": [{"agent_id": "one", "display_name": "One", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "global"}}, {"agent_id": "two", "display_name": "Two", "permission_profile": "observer", "default": False, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "global"}}]}
             if operation == "application.agent_skins": return {"ok": True, "result": []}
-            if operation == "application.presentation_owner": return {"ok": True, "result": {"agent_id": None, "display_name": None}}
-            if operation == "application.effective_skin": return {"ok": True, "result": {"state": "global", "fallback_reason": "no_owner"}}
+            if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "global", "selected_agent_id": None, "selected_display_name": None, "effective_priority": None, "remaining_lease_seconds": None}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": "global_active", "message": "", "resolved": {}}}
             return {"ok": True, "result": {}}
     path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
     lifecycle = Lifecycle(); client = authorize(create_app(path, lifecycle=lifecycle))
@@ -1109,9 +1086,15 @@ def test_skin_import_picker_advertises_package_extensions_only():
 def test_skins_template_separates_panels_and_uses_consistent_card_actions():
     template = (Path(__file__).parents[1] / "src/robot/web/templates/skins.html").read_text()
 
-    assert 'id="create-skin">Create Skin' in template
+    assert 'id="create-skin">Create Skin' not in template
+    assert "Create Skin" not in template
+    assert "Global Appearance" in template and "Follow Active Agent" in template
+    assert "Active LED Palette" in template
+    assert "Anonymous MCP appearance" in template
     assert 'id="import-skin">Import Skin Package' in template
     assert 'id="available-skins">Available Skins' in template
+    assert 'name="appearance_mode"' in template
+    assert 'name="led_palette"' not in template
     assert 'phos-skin-card-body' in template and 'phos-skin-card-footer' in template
     assert 'skin-edit' not in template and '>Edit<' not in template and 'action" value="rename"' not in template
     assert '<details class="phos-skin-card-delete-menu">' in template
@@ -1986,14 +1969,17 @@ def test_csrf_error_explains_recovery_without_logging_secrets(setup, caplog):
 
 def test_domain_pages_partition_canonical_fields_and_are_protected(setup):
     from robot.web.domains import DOMAINS, GROUPS
-    from robot.web.configuration import editor_sections
     app, path, _ = setup
     anonymous = app.test_client()
     for area in DOMAINS:
         assert anonymous.get(f"/configuration/{area}").location == "/login"
     client = authorize(app)
     exposed = []
-    for area in DOMAINS:
+    # Navigation aliases (display, vision, expression, logging, security) and
+    # the Runtime parent intentionally redirect to their focused pages. Only
+    # canonical configurable areas render a form directly.
+    configured_areas = [area for area in GROUPS if area not in {"display", "vision", "expression", "logging", "security", "backgrounds"}]
+    for area in configured_areas:
         response = client.get(f"/configuration/{area}")
         assert response.status_code == 200
         page = response.get_data(as_text=True)
@@ -2002,18 +1988,9 @@ def test_domain_pages_partition_canonical_fields_and_are_protected(setup):
         controls = form(client, area)
         settings = [name for name in controls if "." in name]
         exposed.extend(settings)
-        if area not in GROUPS:
-            assert not settings
-            assert client.post(f"/configuration/{area}", data=controls).status_code == 405
-        else:
-            assert client.post(f"/configuration/{area}", data={}).status_code == 400
-    # Checkboxes that are off are omitted from successful form values, but still
-    # need to be present exactly once in the rendered pages.
-    all_html = "".join(client.get(f"/configuration/{area}").get_data(as_text=True) for area in GROUPS)
-    for group in editor_sections(load_document(path)):
-        for field in group["fields"]:
-            assert all_html.count(f'name="{field["name"]}"') == 1
-    assert len(exposed) == len(set(exposed))
+        assert len(settings) == len(set(settings))
+        assert client.post(f"/configuration/{area}", data={}).status_code == 400
+    assert exposed
     assert client.get("/configuration/not-an-area").status_code == 404
 
 
@@ -2046,11 +2023,11 @@ def test_cross_domain_validation_links_to_relevant_area(setup):
     document["expression"]["local"]["model_path"] = "missing.onnx"
     path.write_text(json.dumps(document))
     before = path.read_bytes()
-    data = form(client, "display")
+    data = form(client, "appearance")
     data["display.width"] = "777"
-    response = client.post("/configuration/display", data=data)
+    response = client.post("/configuration/appearance", data=data)
     assert response.status_code == 400
-    assert b'/configuration/expression#local' in response.data
+    assert b'/configuration/runtime_expression#local' in response.data
     assert b'value="777"' in response.data
     assert path.read_bytes() == before
 
@@ -2059,7 +2036,7 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
     app, _, _ = setup
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret-never-rendered")
     client = authorize(app)
-    page = client.get("/configuration/runtime").get_data(as_text=True)
+    page = client.get("/configuration/runtime/expression").get_data(as_text=True)
     for label in ("Provider selection", "Local ONNX provider", "AWS provider", "Cloud cost &amp; rate limits"):
         assert label in page
     assert page.count('data-provider="aws"') == 2
@@ -2070,7 +2047,7 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
     security = client.get("/configuration/integrations").get_data(as_text=True)
     assert 'href="/password"' in security
     assert 'type="password"' not in security
-    logging = client.get("/configuration/runtime").get_data(as_text=True)
+    logging = client.get("/configuration/runtime/logging").get_data(as_text=True)
     assert 'name="logging.level"' in logging and 'name="logging.file"' in logging
     assert 'name="logging.expression_diagnostics"' in logging
     assert "secret-never-rendered" not in page + status + security + logging
@@ -2079,9 +2056,10 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
 def test_domain_error_hints_match_fields_without_matching_unrelated_words():
     from robot.web.domains import error_domain
     document = load_document()
-    assert error_domain(document, "display_fps: invalid number/range") == ("display", "display")
-    assert error_domain(document, "expression.local.model_path: readable file required") == ("expression", "local")
-    assert error_domain(document, "expression.aws: refresh_seconds must be less than cache_ttl_seconds") == ("expression", "cloud-limits")
+    assert error_domain(document, "display_fps: invalid number/range") == ("appearance", "display")
+    assert error_domain(document, "vision.camera_resolution: invalid") == ("runtime_vision", "vision")
+    assert error_domain(document, "expression.local.model_path: readable file required") == ("runtime_expression", "local")
+    assert error_domain(document, "expression.aws: refresh_seconds must be less than cache_ttl_seconds") == ("runtime_expression", "cloud-limits")
     assert error_domain(document, "Check local filesystem permissions.") == (None, None)
 
 

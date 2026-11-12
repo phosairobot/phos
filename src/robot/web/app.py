@@ -389,7 +389,8 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
             return render_template("error.html", error="Cannot load configured agents."), 503
         skins = []
         activation = {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
-        arbitration = {"mode": "global", "selected_agent_id": None, "selection_reason": "unavailable", "agents": []}
+        arbitration = {"mode": "global", "selected_agent_id": None, "selection_reason": "unavailable", "agents": [],
+                       "effective_priority": None, "remaining_lease_seconds": None}
         try:
             skins = manage_agents("agent_skins")
             activation = manage_agents("presentation_activation")
@@ -809,9 +810,11 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                    error=error, config_path=config.path), status
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
+        related_page = DOMAINS.get(related_area) if related_area is not None else None
         from robot.iris_colors import IrisColorResolver
         return render_template("configuration.html", sections=domain_sections(document, area),
                                area=area, page=DOMAINS[area], related_area=related_area,
+                               related_page=related_page,
                                error_group=error_group,
                                revision=request.form.get("revision", config.revision(document)),
                                submitted=request.form if request.method == "POST" else None,

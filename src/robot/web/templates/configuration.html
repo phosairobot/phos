@@ -47,9 +47,9 @@
 <p class="live-success" role="status" hidden></p>
 </section>
 {% endif %}
-{% if related_area and related_area != area %}
+{% if related_page and related_area != area %}
 <p class="error">The complete configuration could not be validated. Check
-<a href="{{ url_for('configuration', area=related_area) }}#{{ error_group }}">{{ domains[related_area].title }}</a>.
+<a href="{{ url_for('configuration', area=related_area) }}#{{ error_group }}">{{ related_page.title }}</a>.
 Your edits on this page have not been saved.</p>
 {% endif %}
 {% if area == 'general' %}

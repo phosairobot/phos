@@ -35,7 +35,7 @@ def test_state_machine_rejects_invalid_transition():
     machine = RobotStateMachine()
 
     with pytest.raises(InvalidStateTransition):
-        machine.transition_to(RobotState.SPEAKING)
+        machine.transition_to(RobotState.THINKING)
 
     transition = machine.transition_to(RobotState.LISTENING, reason="wake word")
     assert transition.current is RobotState.LISTENING
