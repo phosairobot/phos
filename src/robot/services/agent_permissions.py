@@ -167,7 +167,7 @@ class AgentApplicationService:
         environment = status.get("environment") if isinstance(status, dict) else {}
         motion = status.get("motion") if isinstance(status, dict) else {}
         sensors = status.get("sensors") if isinstance(status, dict) else {}
-        air_quality = sensors.get("ccs811") if isinstance(sensors, dict) else {}
+        air_quality = sensors.get("ens160") if isinstance(sensors, dict) else {}
         observed_expression = status.get("observed_expression") if isinstance(status, dict) else {}
         voice = status.get("voice") if isinstance(status, dict) else {}
         speech = status.get("speech") if isinstance(status, dict) else {}

@@ -15,7 +15,7 @@ from typing import Any, Protocol
 PROTOCOL = "phos-hw"
 VERSION = 1
 MAX_FRAME_BYTES = 8192
-CONTROLLER_EVENTS = frozenset({"hello", "capabilities", "sensor_update", "motion_update",
+CONTROLLER_EVENTS = frozenset({"hello", "capabilities", "sensor_update", "sensor_status", "motion_update",
                                "orientation_update", "controller_status", "warning", "error",
                                "heartbeat", "ack"})
 CONTROLLER_COMMANDS = frozenset({"request_capabilities", "ping", "configure_sensor_reporting",

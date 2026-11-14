@@ -40,7 +40,7 @@ class ApplicationSpy:
         return {"robot": {"running": True, "state": "idle"},
                 "environment": {"status": "available", "available": True},
                 "motion": {"status": "available", "available": True},
-                "sensors": {"ccs811": {"status": "available", "available": True}},
+                "sensors": {"ens160": {"status": "available", "available": True}},
                 "observed_expression": {"available": True},
                 "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
                 "speech": {"tts": {"available": True}}, "semantic_led": {"available": True}}

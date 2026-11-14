@@ -60,7 +60,7 @@ directional eye and LED intent.
 <article class="phos-card" markdown>
 <span class="phos-status phos-status--optional">OPTIONAL HARDWARE</span>
 ### Environmental awareness
-Optional BME280/BMP280 and CCS811 services feed `EnvironmentalInterpreter`.
+Optional BME280/BMP280 and controller-backed ENS160/AHT21 services feed `EnvironmentalInterpreter`.
 Confirmed temperature and air-quality context can drive semantic eye/LED
 behavior and additive sweat, snow/ice and haze overlays.
 </article>

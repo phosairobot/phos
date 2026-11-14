@@ -22,7 +22,7 @@
 <div class="domain-cards live-cards status-summary">
 <dl><dt>Robot state</dt><dd data-live="robot.state">Unavailable</dd><dt>PHOS Expression</dt><dd data-live="visual.expression">Unavailable</dd><dt>Motion</dt><dd data-live="motion.motion_state">Unavailable</dd></dl>
 <dl><dt>Environment</dt><dd data-live="environment.state">Unavailable</dd><dt>Visual source</dt><dd data-live="visual.source">Unavailable</dd><dt>Resolved overlay</dt><dd data-live="overlay.resolved">Unavailable</dd></dl>
-<dl><dt>BMP280 / environmental</dt><dd data-live="environment.status">Unavailable</dd><dt>CCS811</dt><dd data-live="ccs811.status">Unavailable</dd><dt>MPU6050</dt><dd data-live="motion.status">Unavailable</dd></dl>
+<dl><dt>BMP280 / environmental</dt><dd data-live="environment.status">Unavailable</dd><dt>ENS160</dt><dd data-live="ens160.status">Unavailable</dd><dt>MPU6050</dt><dd data-live="motion.status">Unavailable</dd></dl>
 <dl><dt>Presence</dt><dd data-live="presence.state">Unavailable</dd><dt>People</dt><dd data-live="presence.people_count">Unavailable</dd><dt>Attention</dt><dd data-live="attention.state">Unavailable</dd><dt>Target</dt><dd data-live="attention.target_id">Unavailable</dd><dt>Target position</dt><dd data-live="attention.target_position">Unavailable</dd><dt>Target confidence</dt><dd data-live="attention.target_confidence">Unavailable</dd></dl>
 <dl><dt>Observed Expression</dt><dd data-live="observed_expression.label">Unavailable</dd><dt>Confidence</dt><dd data-live="observed_expression.confidence">Unavailable</dd><dt>Provider</dt><dd data-live="observed_expression.provider">Unavailable</dd><dt>Model</dt><dd data-live="observed_expression.model">Unavailable</dd><dt>Availability</dt><dd data-live="observed_expression.available">Unavailable</dd><dt>Observation</dt><dd data-live="observed_expression.detail">No valid facial-expression observation</dd><dt>Observed at</dt><dd data-live="observed_expression.observed_at">Unavailable</dd></dl>
 <dl><dt>Expression Reaction</dt><dd data-live="expression_reaction.active">Inactive</dd><dt>Reaction type</dt><dd data-live="expression_reaction.reaction">Unavailable</dd><dt>Source observed label</dt><dd data-live="expression_reaction.observed_label">Unavailable</dd></dl>
@@ -33,7 +33,7 @@
 {% if area in ('general', 'sensors') %}
 <div class="domain-cards live-cards status-summary">
 <dl><dt>Temperature</dt><dd data-live="environment.temperature">Unavailable</dd><dt>Pressure</dt><dd data-live="environment.pressure">Unavailable</dd><dt>Environmental freshness</dt><dd data-live="environment.age">Unavailable</dd></dl>
-<dl><dt>eCO2</dt><dd data-live="ccs811.eco2">Unavailable</dd><dt>TVOC</dt><dd data-live="ccs811.tvoc">Unavailable</dd><dt>CCS811 freshness</dt><dd data-live="ccs811.age">Unavailable</dd></dl>
+<dl><dt>eCO2</dt><dd data-live="ens160.eco2">Unavailable</dd><dt>TVOC</dt><dd data-live="ens160.tvoc">Unavailable</dd><dt>ENS160 freshness</dt><dd data-live="ens160.age">Unavailable</dd></dl>
 <dl><dt>Interpreted motion</dt><dd data-live="motion.motion_state">Unavailable</dd><dt>Motion intensity</dt><dd data-live="motion.intensity">Unavailable</dd><dt>MPU6050 freshness</dt><dd data-live="motion.age">Unavailable</dd><dt>Health</dt><dd data-live="health">Unavailable</dd></dl>
 </div>
 {% endif %}
@@ -78,7 +78,8 @@ Your edits on this page have not been saved.</p>
 {% if area == 'runtime_logging' %}<p class="notice">Logging level applies immediately when saved. Log destination and expression diagnostics require Restart PHOS.</p>{% endif %}
 {% if area == 'sensors' %}
 {% set sensor = runtime_state.get('sensors', {}).get('environmental') if runtime_state and runtime_state.ok else none %}
-{% set air = runtime_state.get('sensors', {}).get('ccs811') if runtime_state and runtime_state.ok else none %}
+{% set air = runtime_state.get('sensors', {}).get('ens160') if runtime_state and runtime_state.ok else none %}
+{% set aht = runtime_state.get('sensors', {}).get('aht21') if runtime_state and runtime_state.ok else none %}
 {% set environmental_behavior = runtime_state.get('sensors', {}).get('environmental_behavior') if runtime_state and runtime_state.ok else none %}
 {% set runtime = runtime_state.get('runtime', {}) if runtime_state and runtime_state.ok else {} %}
 <section class="status" aria-label="Current PHOS semantic state">
@@ -99,10 +100,10 @@ Your edits on this page have not been saved.</p>
 <dt>Air-quality overlay</dt><dd>{{ environmental_behavior.air_quality_overlay | replace('_', ' ') | upper }}</dd>
 <dt>Temperature</dt><dd>{{ '%.2f °C' | format(sensor.measurements.temperature_c) if sensor and sensor.available else 'Unavailable' }}</dd>
 <dt>Pressure</dt><dd>{{ '%.2f hPa' | format(sensor.measurements.pressure_hpa) if sensor and sensor.available else 'Unavailable' }}</dd>
-<dt>eCO2</dt><dd>{{ '%d ppm' | format(air.measurements.eco2_ppm) if air and air.available else 'Unavailable' }}</dd>
-<dt>TVOC</dt><dd>{{ '%d ppb' | format(air.measurements.tvoc_ppb) if air and air.available else 'Unavailable' }}</dd>
+<dt>eCO2</dt><dd>{{ '%d ppm' | format(air.measurements.eco2_ppm) if air and air.measurements and air.measurement_usable is defined and air.measurement_usable.eco2_ppm else 'Unavailable' }}</dd>
+<dt>TVOC</dt><dd>{{ '%d ppb' | format(air.measurements.tvoc_ppb) if air and air.measurements and air.measurement_usable is defined and air.measurement_usable.tvoc_ppb else 'Unavailable' }}</dd>
 <dt>Environmental sensor freshness</dt><dd>{{ sensor.status if sensor else 'Unavailable' }}{% if sensor and sensor.age_seconds is not none %} ({{ '%.1f seconds old' | format(sensor.age_seconds) }}){% endif %}</dd>
-<dt>CCS811 freshness</dt><dd>{{ air.status if air else 'Unavailable' }}{% if air and air.age_seconds is not none %} ({{ '%.1f seconds old' | format(air.age_seconds) }}){% endif %}</dd></dl>
+<dt>ENS160 freshness</dt><dd>{{ air.status if air else 'Unavailable' }}{% if air and air.age_seconds is not none %} ({{ '%.1f seconds old' | format(air.age_seconds) }}){% endif %}</dd></dl>
 {% else %}<p>Environmental behavior runtime status unavailable.</p>{% endif %}
 </section>
 <section class="status" aria-label="Current environmental readings">
@@ -119,19 +120,29 @@ Your edits on this page have not been saved.</p>
 {% else %}<p>Sensor status unavailable. {{ runtime_state.error if runtime_state and not runtime_state.ok else 'The runtime sensor service has not reported a snapshot.' }}</p>{% endif %}
 <p>All sensor settings require Restart PHOS.</p>
 </section>
-<section class="status" aria-label="Current CCS811 air-quality readings">
-<h3>CCS811 air quality</h3>
+<section class="status" aria-label="Current ENS160 air-quality readings">
+<h3>ENS160 air quality</h3>
 <p>eCO2 is estimated equivalent CO2, not a direct NDIR CO2 measurement. TVOC estimates total volatile organic compounds.</p>
 {% if air %}
 <dl><dt>Sensor status</dt><dd>{{ air.status }}</dd>
-<dt>eCO2 (estimated equivalent CO2)</dt><dd>{{ '%d ppm' | format(air.measurements.eco2_ppm) if air.available else 'Unavailable' }}</dd>
-<dt>TVOC</dt><dd>{{ '%d ppb' | format(air.measurements.tvoc_ppb) if air.available else 'Unavailable' }}</dd>
+<dt>eCO2 (estimated equivalent CO2)</dt><dd>{{ '%d ppm' | format(air.measurements.eco2_ppm) if air.measurements and air.measurement_usable is defined and air.measurement_usable.eco2_ppm else 'Unavailable' }}</dd>
+<dt>TVOC</dt><dd>{{ '%d ppb' | format(air.measurements.tvoc_ppb) if air.measurements and air.measurement_usable is defined and air.measurement_usable.tvoc_ppb else 'Unavailable' }}</dd>
+<dt>AQI-UBA</dt><dd>{% if air.measurements and air.measurement_usable is defined and air.measurement_usable.aqi_uba %}{% set aqi_labels = {1: 'Excellent', 2: 'Good', 3: 'Moderate', 4: 'Poor', 5: 'Unhealthy'} %}{{ air.measurements.aqi_uba }} / 5 — {{ aqi_labels.get(air.measurements.aqi_uba, 'Unknown') }}{% else %}Unavailable{% endif %}</dd>
+<dt>ENS160 validity</dt><dd>{{ air.ens160_validity or 'Unknown' }}</dd>
+<dt>Compensation</dt><dd>{{ 'Active' if air.ens160_compensation_active else 'Inactive' if air.ens160_compensation_active is not none else 'Unknown' }}</dd>
 <dt>Last update (UTC)</dt><dd>{{ air.last_update or 'No successful reading' }}</dd>
 <dt>Reading age</dt><dd>{{ '%.1f seconds' | format(air.age_seconds) if air.age_seconds is not none else 'Unavailable' }}</dd>
 <dt>Compensation input</dt><dd>{{ 'Fresh environmental temperature/humidity' if air.compensation_input == 'environmental' else 'Device defaults (25 °C / 50% RH)' if air.compensation_input == 'device_defaults' else 'Unavailable' }}</dd>
 {% if air.error %}<dt>Sensor detail</dt><dd>{{ air.error }}</dd>{% endif %}</dl>
-{% else %}<p>CCS811 status unavailable.</p>{% endif %}
+{% else %}<p>ENS160 status unavailable.</p>{% endif %}
 <p>Allow 20 minutes of conditioning after initialization. Refresh this page for current state. All sensor settings require Restart PHOS.</p>
+</section>
+<section class="status" aria-label="Current AHT21 temperature and humidity readings">
+<h3>AHT21 temperature &amp; humidity</h3>
+{% if aht %}<dl><dt>Sensor status</dt><dd>{{ aht.status }}</dd>
+<dt>Temperature</dt><dd>{{ '%.2f °C' | format(aht.measurements.temperature_c) if aht.available and aht.measurement_usable is defined and aht.measurement_usable.temperature_c else 'Unavailable' }}</dd>
+<dt>Relative humidity</dt><dd>{{ '%.2f %%RH' | format(aht.measurements.humidity_percent) if aht.available and aht.measurement_usable is defined and aht.measurement_usable.humidity_percent else 'Unavailable' }}</dd>
+<dt>Source</dt><dd>{{ aht.source or 'Unavailable' }}</dd></dl>{% else %}<p>AHT21 status unavailable.</p>{% endif %}
 </section>
 <section class="status" aria-label="Current MPU-6050 motion readings">
 <h3>GY-521 / MPU-6050 motion</h3>

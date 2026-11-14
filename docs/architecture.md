@@ -81,7 +81,7 @@ controller or add controller-specific behavior logic.
 
 For controller-backed sensors, set `hardware_controller.enabled: true` and the
 corresponding canonical `sensors.environmental.provider`,
-`sensors.ccs811.provider`, or `sensors.imu.provider` to `controller`, while
+`sensors.ens160.provider`, or `sensors.imu.provider` to `controller`, while
 retaining `enabled: true`. This prevents local I2C workers from starting while
 controller `sensor_update` messages update the same semantic snapshots used by
 the application services. The controller is a generic provider, not a hardware
@@ -605,29 +605,15 @@ IPC operation is exposed. See ADR-022, [hardware](hardware.md#bme280) and
 [configuration migration](development.md#environmental-configuration-migration).
 
 
-### CCS811 air-quality extension
+### Controller-backed ENS160 and AHT21
 
-`hardware.CCS811Provider → AirQualitySensorService → PhosRuntime.sensor_status`
-uses the same lifecycle status channel and authenticated Sensors page. An
-immutable `AirQualityReading` holds eCO2 ppm / TVOC ppb; environmental measurement
-interfaces remain unchanged. The two services reuse the existing worker algorithm
-through a private base, with typed reading hooks. Each enabled sensor has one
-worker and its adapter-owned smbus2 handle on bus 1. No rendering, Vision, web
-handler or BehaviorEngine accesses these adapters.
-
-Expected readiness/conditioning uses `SensorNotReady`, keeping the device open
-and polling at the configured interval. Faults use the shared reconnect/backoff;
-failed/stale readings are hidden and shutdown remains bounded per worker.
-A stalled warm-up poll also becomes unavailable after its freshness timeout.
-Disabled means no provider construction, imports or bus operations.
-
-Environmental compensation flows through the environmental service's immutable,
-fresh snapshot boundary to the air-quality service, then the provider. No driver
-references another driver. The UI receives only state/metadata. Missing humidity
-(including BMP280) or invalid/stale inputs restore device defaults; baseline
-persistence remains deferred. Confirmed air-quality semantics are handled by
-EnvironmentalInterpreter, not by this service. See ADR-023 and the
-[installation policy](installation.md#optional-ccs811-air-quality-sensor).
+`ESP32 telemetry → ControllerService → runtime lifecycle callbacks →
+AirQualitySensorService → runtime/application status → WebUI/MCP` is the
+air-quality path. The controller acquires measurements and publishes phos-hw v1
+records; Pi services own freshness, validity, controller-generation isolation and
+environmental interpretation. ENS160 provides estimated eCO2, TVOC and AQI-UBA;
+AHT21 temperature and humidity are independently fresh. Retiring a session
+immediately makes controller readings unusable until fresh telemetry arrives.
 
 ### MPU-6050 IMU extension
 

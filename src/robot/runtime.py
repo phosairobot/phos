@@ -14,7 +14,6 @@ from typing import Callable, Optional
 
 from robot.config import RuntimeConfig
 from robot.hardware.environmental import environmental_provider_type
-from robot.hardware.ccs811 import CCS811Provider
 from robot.hardware.mpu6050 import MPU6050Provider
 from robot.hardware.ws2812b import LEDRingProvider, LEDRingSocketProvider
 from robot.hardware.serial_controller import ControllerService
@@ -162,7 +161,7 @@ class PhosRuntime:
         if self._config is None:
             return 5.0
         thresholds = (self._config.environmental_stale_after_seconds,
-                      self._config.ccs811_stale_after_seconds,
+                      self._config.ens160_stale_after_seconds,
                       self._config.imu_stale_after_seconds)
         return min(5.0, max(.1, min(thresholds) / 2))
 
@@ -350,7 +349,26 @@ class PhosRuntime:
         """Read-only application boundary, safe for the lifecycle thread."""
         state = {"environmental": self._sensor_service.snapshot()} if self._sensor_service is not None else {}
         if self._air_quality_service is not None:
-            state["ccs811"] = self._air_quality_service.snapshot()
+            air = self._air_quality_service.snapshot()
+            values = air.get("measurements") or {}
+            state["ens160"] = {**air, "measurements": {key: values.get(key) for key in ("eco2_ppm", "tvoc_ppb", "aqi_uba")},
+                               "aqi_scale": "uba_1_to_5"}
+            aht_fields = {"temperature_c": "aht21_temperature_c",
+                          "humidity_percent": "aht21_humidity_percent"}
+            usable = air.get("measurement_usable") or {}
+            fresh = air.get("measurement_fresh") or {}
+            ages = air.get("measurement_age_seconds") or {}
+            aht_usable = {field: bool(usable.get(source)) for field, source in aht_fields.items()}
+            aht_values = {field: values.get(source) for field, source in aht_fields.items()}
+            aht_has_history = any(value is not None for value in aht_values.values())
+            state["aht21"] = {
+                "status": "available" if any(aht_usable.values()) else "stale" if aht_has_history else "unavailable",
+                "available": any(aht_usable.values()), "measurements": aht_values,
+                "measurement_usable": aht_usable,
+                "measurement_fresh": {field: bool(fresh.get(source)) for field, source in aht_fields.items()},
+                "measurement_age_seconds": {field: ages.get(source) for field, source in aht_fields.items()},
+                "source": "controller",
+            }
         if self._imu_service is not None:
             state["imu"] = self._imu_service.snapshot()
         if self._led_ring_controller is not None:
@@ -725,7 +743,7 @@ class PhosRuntime:
             self._startup.set("core", StartupState.READY)
             if self._sensor_service is not None:
                 await self._sensor_service.start()
-            self._startup.set("sensors", StartupState.READY if self._config and (self._config.environmental_enabled or self._config.ccs811_enabled or self._config.imu_enabled) else StartupState.UNAVAILABLE, "optional sensors disabled" if self._config and not (self._config.environmental_enabled or self._config.ccs811_enabled or self._config.imu_enabled) else None)
+            self._startup.set("sensors", StartupState.READY if self._config and (self._config.environmental_enabled or self._config.ens160_enabled or self._config.imu_enabled) else StartupState.UNAVAILABLE, "optional sensors disabled" if self._config and not (self._config.environmental_enabled or self._config.ens160_enabled or self._config.imu_enabled) else None)
             if self._air_quality_service is not None:
                 await self._air_quality_service.start()
             if self._imu_service is not None:
@@ -1007,22 +1025,36 @@ def build_runtime(
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 
     controller_sensors = {}
-    def accept_controller_sensor(name, value):
+    def accept_controller_sensor(name, value, generation=None):
         if name in {"temperature", "pressure", "humidity"}:
             if config.environmental_provider == "controller":
                 controller_sensors["environmental"].accept_controller_update(name, value)
-        elif name in {"eco2", "tvoc"} and config.ccs811_provider == "controller":
-            controller_sensors["air_quality"].accept_controller_update(name, value)
+        if name in {"humidity", "aht21_temperature"} and config.ens160_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value, generation=generation)
+        elif name in {"eco2", "tvoc", "aqi"} and config.ens160_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value, generation=generation)
+
+    def accept_controller_sensor_status(payload, generation=None):
+        if config.ens160_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_status(payload, generation=generation)
 
     def controller_provider_disconnected():
         if config.environmental_provider == "controller":
             controller_sensors["environmental"].mark_external_unavailable()
-        if config.ccs811_provider == "controller":
+        if config.ens160_provider == "controller":
             controller_sensors["air_quality"].mark_external_unavailable()
         if config.imu_provider == "controller":
             controller_sensors["imu"].mark_external_unavailable()
 
-    def accept_controller_imu(message):
+    def controller_session_activated(generation):
+        if config.ens160_provider == "controller": controller_sensors["air_quality"].activate_controller_generation(generation)
+        if config.imu_provider == "controller": controller_sensors["imu"].activate_controller_generation(generation)
+
+    def controller_session_retired(generation):
+        if config.ens160_provider == "controller": controller_sensors["air_quality"].retire_controller_generation(generation)
+        if config.imu_provider == "controller": controller_sensors["imu"].retire_controller_generation(generation)
+
+    def accept_controller_imu(message, generation):
         if config.imu_provider != "controller":
             return
         imu = controller_sensors["imu"]
@@ -1031,11 +1063,11 @@ def build_runtime(
                       "tilt_left": MotionState.TILT_LEFT, "tilt_right": MotionState.TILT_RIGHT,
                       "tilt_forward": MotionState.TILT_FORWARD, "tilt_backward": MotionState.TILT_BACK,
                       "shake": MotionState.SHAKE, "impact": MotionState.IMPACT}
-            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"])
+            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"], generation=generation)
         elif message.type == "orientation_update":
             acceleration, angular = message.payload["acceleration_m_s2"], message.payload["angular_velocity_dps"]
             imu.accept_controller_orientation(IMUReading(acceleration["x"], acceleration["y"], acceleration["z"],
-                                                         angular["x"], angular["y"], angular["z"]))
+                                                         angular["x"], angular["y"], angular["z"]), generation=generation)
 
     semantic_led_holder = {}
     def controller_led_capabilities_changed():
@@ -1051,7 +1083,8 @@ def build_runtime(
         reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
         heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
         heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
-        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
+        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor, sensor_status_sink=accept_controller_sensor_status,
+        session_activated_sink=controller_session_activated, session_retired_sink=controller_session_retired,
         imu_update_sink=accept_controller_imu,
         provider_disconnected_sink=controller_provider_disconnected,
         led_capabilities_sink=controller_led_capabilities_changed,
@@ -1126,18 +1159,20 @@ def build_runtime(
                     config.environmental_type.upper(), config.environmental_i2c_address, config.environmental_poll_interval_seconds)
     air_quality = AirQualitySensorService(
         air_quality_provider_factory if air_quality_provider_factory is not None else
-        lambda: CCS811Provider(address=int(config.ccs811_i2c_address, 16)),
-        enabled=config.ccs811_enabled, poll_interval_seconds=config.ccs811_poll_interval_seconds,
-        stale_after_seconds=config.ccs811_stale_after_seconds, compensation_supplier=sensors.compensation,
-        reading_sink=lambda reading, now: environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now),
+        lambda: (_ for _ in ()).throw(RuntimeError("ENS160 is controller-backed; local Raspberry Pi I2C is unsupported")),
+        enabled=config.ens160_enabled, poll_interval_seconds=config.ens160_poll_interval_seconds,
+        stale_after_seconds=config.ens160_stale_after_seconds, compensation_supplier=sensors.compensation,
+        reading_sink=lambda reading, now: (
+            environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now)
+            if all(air_quality.snapshot().get("measurement_usable", {}).get(field, False)
+                   for field in ("eco2_ppm", "tvoc_ppb")) else None),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="air_quality", status=status),
         status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
-        externally_managed=config.ccs811_provider == "controller",
+        externally_managed=config.ens160_provider == "controller",
     )
-    if config.ccs811_enabled and config.ccs811_provider == "local":
-        logger.info("CCS811 enabled: I2C bus 1, address %s, polling every %s seconds",
-                    config.ccs811_i2c_address, config.ccs811_poll_interval_seconds)
+    if config.ens160_enabled and config.ens160_provider != "controller":
+        raise ValueError("ENS160 requires sensors.ens160.provider=controller")
     imu = IMUSensorService(
         imu_provider_factory if imu_provider_factory is not None else
         lambda: MPU6050Provider(address=int(config.imu_i2c_address, 16)),

@@ -4,7 +4,7 @@ from robot.services.physical_context import SemanticPhysicalContextService
 def test_complete_context_is_semantic_provider_independent_and_copy_safe():
     service = SemanticPhysicalContextService()
     sensors = {"environmental": {"status": "available", "available": True, "measurements": {"temperature_c": 22.5, "pressure_hpa": 1012.0, "humidity_percent": 45.0}, "last_update": "2026-01-01T00:00:00+00:00", "age_seconds": 1.0, "provider": "local"},
-               "ccs811": {"status": "available", "available": True, "measurements": {"eco2_ppm": 500, "tvoc_ppb": 12}, "last_update": "2026-01-01T00:00:00+00:00", "age_seconds": 1.0, "provider": "controller"},
+               "ens160": {"status": "available", "available": True, "measurements": {"eco2_ppm": 500, "tvoc_ppb": 12}, "last_update": "2026-01-01T00:00:00+00:00", "age_seconds": 1.0, "provider": "controller"},
                "imu": {"status": "available", "available": True, "motion_state": "moving", "motion_intensity": "medium", "tilt_direction": None, "last_motion_event": {"state": "moving"}, "last_update": "2026-01-01T00:00:00+00:00", "age_seconds": 1.0,
                        "measurements": {"acceleration_x_m_s2": 9.8}, "serial_port": "/dev/ttyUSB0"},
                "environmental_behavior": {"state": "normal", "reason": "measurements normal"}}
@@ -26,7 +26,7 @@ def test_complete_context_is_semantic_provider_independent_and_copy_safe():
 def test_partial_context_preserves_stale_and_unavailable_sections():
     context = SemanticPhysicalContextService().build(robot={"state": "idle"}, sensors={
         "environmental": {"status": "unavailable", "available": False, "measurements": None, "last_update": None, "age_seconds": None},
-        "ccs811": {"status": "available", "available": True, "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}, "last_update": "now", "age_seconds": 2},
+        "ens160": {"status": "available", "available": True, "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}, "last_update": "now", "age_seconds": 2},
         "imu": {"status": "stale", "available": False, "last_update": "old", "age_seconds": 30},
     }, presence={"state": "no_one", "people_count": 0, "confidence": None}, attention={"state": "idle", "target": None},
        observed_expression={"available": False, "label": None, "confidence": None, "unavailable_reason": "unavailable"}).document()

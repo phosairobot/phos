@@ -36,9 +36,9 @@ including top-left voice control and top-right Admin Access double-tap.
 
 ### Physical awareness
 
-Optional BME280/BMP280, CCS811, and MPU-6050 adapters provide temperature,
+Optional BME280/BMP280, controller-backed ENS160/AHT21, and MPU-6050 adapters provide temperature,
 humidity where supported, pressure, air-quality estimates, and motion data.
-PHOS distinguishes measurements from semantic interpretations; CCS811 eCO2 is
+PHOS distinguishes measurements from semantic interpretations; ENS160 eCO2 is
 an estimate, not a direct CO2 measurement. See [Hardware & sensors](hardware-overview.md).
 
 ### Vision and human presence

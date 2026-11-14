@@ -394,9 +394,9 @@ _SCHEMA = {
                            "i2c_address": "environmental_i2c_address",
                            "poll_interval_seconds": "environmental_poll_interval_seconds",
                            "stale_after_seconds": "environmental_stale_after_seconds"},
-                "ccs811": {"enabled": "ccs811_enabled", "provider": "ccs811_provider", "i2c_address": "ccs811_i2c_address",
-                           "poll_interval_seconds": "ccs811_poll_interval_seconds",
-                           "stale_after_seconds": "ccs811_stale_after_seconds"},
+                "ens160": {"enabled": "ens160_enabled", "provider": "ens160_provider", "i2c_address": "ens160_i2c_address",
+                           "poll_interval_seconds": "ens160_poll_interval_seconds",
+                           "stale_after_seconds": "ens160_stale_after_seconds"},
                 "imu": {"enabled": "imu_enabled", "provider": "imu_provider", "i2c_address": "imu_i2c_address",
                         "poll_interval_seconds": "imu_poll_interval_seconds",
                         "stale_after_seconds": "imu_stale_after_seconds",
@@ -563,11 +563,11 @@ class RuntimeConfig:
     environmental_i2c_address: str
     environmental_poll_interval_seconds: float
     environmental_stale_after_seconds: float
-    ccs811_enabled: bool
-    ccs811_provider: str
-    ccs811_i2c_address: str
-    ccs811_poll_interval_seconds: float
-    ccs811_stale_after_seconds: float
+    ens160_enabled: bool
+    ens160_provider: str
+    ens160_i2c_address: str
+    ens160_poll_interval_seconds: float
+    ens160_stale_after_seconds: float
     imu_enabled: bool
     imu_provider: str
     imu_i2c_address: str
@@ -786,7 +786,7 @@ class RuntimeConfig:
                 "heartbeat": {"interval_seconds": 5, "timeout_seconds": 15}})
             sensors = document.get("sensors")
             if isinstance(sensors, dict):
-                for name in ("environmental", "ccs811", "imu"):
+                for name in ("environmental", "ens160", "imu"):
                     if isinstance(sensors.get(name), dict):
                         sensors[name].setdefault("provider", "local")
         result = object.__new__(cls)
@@ -870,12 +870,12 @@ class RuntimeConfig:
 
         if not isinstance(self.environmental_type, str) or self.environmental_type not in {"bme280", "bmp280"}:
             raise ConfigurationError("sensors.environmental.type must be bme280 or bmp280")
-        for name in ("environmental", "ccs811", "imu"):
-            provider = getattr(self, f"{name}_provider")
+        for config_name, field_name in (("environmental", "environmental"), ("ens160", "ens160"), ("imu", "imu")):
+            provider = getattr(self, f"{field_name}_provider")
             if provider not in {"local", "controller"}:
-                raise ConfigurationError(f"sensors.{name}.provider must be local or controller")
-            if provider == "controller" and not self.hardware_controller_enabled:
-                raise ConfigurationError(f"sensors.{name}.provider controller requires hardware_controller.enabled")
+                raise ConfigurationError(f"sensors.{config_name}.provider must be local or controller")
+            if provider == "controller" and getattr(self, f"{field_name}_enabled") and not self.hardware_controller_enabled:
+                raise ConfigurationError(f"sensors.{config_name}.provider controller requires hardware_controller.enabled")
         if self.hardware_controller_transport != "serial":
             raise ConfigurationError("hardware_controller.transport must be serial")
         if not isinstance(self.hardware_controller_serial_device, str) or not self.hardware_controller_serial_device.strip():
@@ -891,12 +891,12 @@ class RuntimeConfig:
             raise ConfigurationError("sensors.environmental.stale_after_seconds must exceed poll_interval_seconds")
         if not isinstance(self.environmental_i2c_address, str) or self.environmental_i2c_address not in {"0x76", "0x77"}:
             raise ConfigurationError("sensors.environmental.i2c_address must be 0x76 or 0x77")
-        number("ccs811_poll_interval_seconds", minimum=1, inclusive=True, maximum=3600)
-        number("ccs811_stale_after_seconds", maximum=86400)
-        if self.ccs811_stale_after_seconds <= self.ccs811_poll_interval_seconds:
-            raise ConfigurationError("sensors.ccs811.stale_after_seconds must exceed poll_interval_seconds")
-        if not isinstance(self.ccs811_i2c_address, str) or self.ccs811_i2c_address not in {"0x5a", "0x5b"}:
-            raise ConfigurationError("sensors.ccs811.i2c_address must be 0x5a or 0x5b")
+        number("ens160_poll_interval_seconds", minimum=1, inclusive=True, maximum=3600)
+        number("ens160_stale_after_seconds", maximum=86400)
+        if self.ens160_stale_after_seconds <= self.ens160_poll_interval_seconds:
+            raise ConfigurationError("sensors.ens160.stale_after_seconds must exceed poll_interval_seconds")
+        if not isinstance(self.ens160_i2c_address, str) or self.ens160_i2c_address not in {"0x52", "0x53"}:
+            raise ConfigurationError("sensors.ens160.i2c_address must be 0x52 or 0x53")
         number("imu_poll_interval_seconds", minimum=.05, inclusive=True, maximum=3600)
         number("imu_stale_after_seconds", maximum=86400)
         if self.imu_stale_after_seconds <= self.imu_poll_interval_seconds:
@@ -1081,7 +1081,7 @@ class RuntimeConfig:
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:
             raise ConfigurationError("presence LED directions must be clockwise or counter_clockwise")
-        for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "mcp_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
+        for name in ("ens160_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "mcp_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
                      "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav",

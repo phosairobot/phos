@@ -62,11 +62,16 @@ class SensorNotReady(Exception):
 class AirQualityReading:
     eco2_ppm: int
     tvoc_ppb: int
+    # ENS160 UBA air-quality index.  It is deliberately optional so existing
+    # Controller telemetry supplies ENS160 eCO2/TVOC/AQI and AHT21 compensation.
+    aqi_uba: int | None = None
 
     def __post_init__(self):
         if (type(self.eco2_ppm) is not int or self.eco2_ppm < 0
                 or type(self.tvoc_ppb) is not int or self.tvoc_ppb < 0):
             raise ValueError("Invalid air-quality measurements")
+        if self.aqi_uba is not None and (type(self.aqi_uba) is not int or not 1 <= self.aqi_uba <= 5):
+            raise ValueError("ENS160 AQI-UBA must be an integer from 1 to 5")
 
 
 @dataclass(frozen=True)
@@ -355,11 +360,33 @@ class AirQualitySensorService(_SensorService):
                  unavailable_sink=lambda status: None, status_sink=lambda: None, clock=time.monotonic, externally_managed=False):
         super().__init__(provider_factory, enabled=enabled,
                          poll_interval_seconds=poll_interval_seconds,
-                         stale_after_seconds=stale_after_seconds, sensor_type="ccs811",
-                         available_measurements=("eco2_ppm", "tvoc_ppb"), reading_sink=reading_sink,
+                         stale_after_seconds=stale_after_seconds, sensor_type="ens160",
+                         available_measurements=("eco2_ppm", "tvoc_ppb", "aqi_uba", "aht21_humidity_percent", "aht21_temperature_c"), reading_sink=reading_sink,
                          unavailable_sink=unavailable_sink, status_sink=status_sink, clock=clock, externally_managed=externally_managed)
         self._compensation_supplier = compensation_supplier
         self._compensation_source = None
+        self._field_times = {}
+        self._status_time = None
+        self._controller_generation = None
+        self._retired_generations = set()
+
+    def activate_controller_generation(self, generation: int) -> None:
+        with self._lock:
+            if self._controller_generation == generation:
+                return
+            self._controller_generation = generation
+            self._retired_generations.discard(generation)
+            self._field_times.clear(); self._status_time = None
+            self._status, self._error = "starting", "Awaiting current controller telemetry"
+
+    def retire_controller_generation(self, generation: int) -> None:
+        with self._lock:
+            self._retired_generations.add(generation)
+            if self._controller_generation != generation:
+                return
+            self._controller_generation = None
+            self._status_time = None
+            self._status, self._error = "unavailable", "External sensor provider disconnected"
 
     def _read(self, provider):
         values = self._compensation_supplier()
@@ -378,15 +405,74 @@ class AirQualitySensorService(_SensorService):
     def _snapshot_details(self, status):
         # Called under the snapshot lock. This is the input last written,
         # not instantaneous algorithm use for the displayed measurement.
-        return {"compensation_input": self._compensation_source
-                if status in {"available", "warming_up"} else None}
+        now = self._clock()
+        return {"compensation_input": self._compensation_source if status in {"available", "warming_up"} else None,
+                "measurement_age_seconds": {name: max(0.0, now - at) for name, at in self._field_times.items()},
+                "status_age_seconds": None if self._status_time is None else max(0.0, now - self._status_time)}
 
-    def accept_controller_update(self, name: str, value: int) -> None:
-        field = {"eco2": "eco2_ppm", "tvoc": "tvoc_ppb"}[name]
-        self._accept_external_fields({field: value})
+    def snapshot(self) -> dict:
+        """Keep legacy aggregate fields, but make each controller field authoritative."""
+        state = super().snapshot()
+        now = self._clock()
+        with self._lock:
+            values = dict(self._reading) if isinstance(self._reading, dict) else {}
+            ages = {name: max(0.0, now - at) for name, at in self._field_times.items()}
+            validity = values.get("ens160_validity")
+            status_fresh = self._status_time is not None and now - self._status_time < self._stale_after
+            normal_after = self._status_time if validity == 0 else None
+            fresh = {name: age < self._stale_after for name, age in ages.items()}
+            gas = ("eco2_ppm", "tvoc_ppb", "aqi_uba")
+            usable = {name: fresh.get(name, False) for name in values}
+            if validity is not None:
+                for name in gas:
+                    usable[name] = bool(fresh.get(name) and status_fresh and normal_after is not None
+                                        and self._field_times.get(name, float("-inf")) >= normal_after)
+            state["measurement_age_seconds"] = ages
+            state["measurement_fresh"] = fresh
+            state["measurement_usable"] = usable
+            state["ens160_validity"] = validity
+            state["ens160_status_fresh"] = status_fresh if validity is not None else None
+        return state
+
+    def accept_controller_update(self, name: str, value: int, *, generation=None) -> None:
+        if generation is not None and generation != self._controller_generation:
+            return
+        if generation is not None: self._controller_generation = generation
+        field = {"eco2": "eco2_ppm", "tvoc": "tvoc_ppb", "aqi": "aqi_uba",
+                 "humidity": "aht21_humidity_percent", "aht21_temperature": "aht21_temperature_c"}[name]
+        if name in {"humidity", "aht21_temperature"}:
+            # AHT21 data is independently useful.  Do not make an ENS160 that
+            # is warming up, invalid, or stale appear available merely because
+            # its separate compensation sensor published a fresh value.
+            with self._lock:
+                current = dict(self._reading) if isinstance(self._reading, dict) else {}
+                current[field] = value
+                self._reading = current
+                self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._status_sink()
+        else:
+            self._accept_external_fields({field: value})
+        with self._lock:
+            self._field_times[field] = self._clock()
         measurements = self.snapshot()["measurements"]
-        if measurements is not None and {"eco2_ppm", "tvoc_ppb"} <= measurements.keys():
-            self._reading_sink(AirQualityReading(measurements["eco2_ppm"], measurements["tvoc_ppb"]), self._clock())
+        if name in {"eco2", "tvoc", "aqi"} and measurements is not None and {"eco2_ppm", "tvoc_ppb"} <= measurements.keys():
+            self._reading_sink(AirQualityReading(measurements["eco2_ppm"], measurements["tvoc_ppb"],
+                                                 measurements.get("aqi_uba")), self._clock())
+
+    def accept_controller_status(self, status: dict, *, generation=None) -> None:
+        """Receive additive phos-hw v1 ENS160 status without fabricating a sample."""
+        if generation is not None and generation != self._controller_generation:
+            return
+        if generation is not None: self._controller_generation = generation
+        validity = status.get("validity")
+        state = {0: "available", 1: "warming_up", 2: "starting", 3: "invalid"}[validity]
+        with self._lock:
+            self._reading = {**(self._reading or {}), "ens160_validity": validity,
+                             "ens160_compensation_active": status.get("compensation_active")}
+            self._status_time = self._clock()
+            self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._status, self._error = state, None if validity == 0 else "ENS160 validity is not normal"
+        self._status_sink()
 
 class IMUSensorService(_SensorService):
     _label = "IMU sensor"
@@ -412,6 +498,51 @@ class IMUSensorService(_SensorService):
         self._motion_intensity = None
         self._motion_last_event = None
         self._motion_state_sink = motion_state_sink
+        self._controller_generation = None
+        self._retired_controller_generations = set()
+
+    def activate_controller_generation(self, generation: int) -> None:
+        """Start a controller-owned IMU session; telemetry cannot do this itself."""
+        with self._lock:
+            if self._controller_generation == generation:
+                return
+            if generation in self._retired_controller_generations:
+                return
+            self._controller_generation = generation
+            self._status, self._error = "starting", "Awaiting current controller telemetry"
+            self._sample_time = None
+            self._motion_state = self._motion_intensity = self._motion_last_event = None
+
+    def retire_controller_generation(self, generation: int) -> None:
+        """Immediately make the active controller IMU session unusable."""
+        clear_visual_motion = False
+        with self._lock:
+            self._retired_controller_generations.add(generation)
+            if self._controller_generation != generation:
+                return
+            clear_visual_motion = self._motion_state is not None
+            self._controller_generation = None
+            self._status, self._error = "unavailable", "External sensor provider disconnected"
+            self._sample_time = None
+            self._motion_state = self._motion_intensity = self._motion_last_event = None
+        if clear_visual_motion:
+            self._motion_state_sink(MotionState.STILL)
+        self._status_sink()
+
+    def mark_external_unavailable(self) -> None:
+        """Clear a controller-derived visual motion state on transport loss."""
+        clear_visual_motion = False
+        with self._lock:
+            if self._externally_managed and self._enabled:
+                clear_visual_motion = self._motion_state is not None
+                self._motion_state = self._motion_intensity = self._motion_last_event = None
+        super().mark_external_unavailable()
+        if clear_visual_motion:
+            self._motion_state_sink(MotionState.STILL)
+
+    def _accepts_controller_generation(self, generation: int | None) -> bool:
+        return (generation is None or (generation == self._controller_generation
+                                       and generation not in self._retired_controller_generations))
 
     def configure_motion(self, settings: MotionSettings):
         """Update interpretation parameters without touching the IMU provider."""
@@ -441,9 +572,11 @@ class IMUSensorService(_SensorService):
                                            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
         return changed, state
 
-    def accept_controller_orientation(self, reading: IMUReading) -> None:
+    def accept_controller_orientation(self, reading: IMUReading, *, generation: int | None = None) -> None:
         if not isinstance(reading, IMUReading):
             raise ValueError("Controller orientation must be an IMU reading")
+        if not self._accepts_controller_generation(generation):
+            return
         # Controller orientation is a continuous physical observation.  It
         # must therefore classify both entering and leaving a tilt; treating
         # only motion_update as authoritative leaves a stale tilt latched when
@@ -453,9 +586,11 @@ class IMUSensorService(_SensorService):
         if changed:
             self._motion_state_sink(state)
 
-    def accept_controller_motion(self, state: MotionState, intensity: str) -> None:
+    def accept_controller_motion(self, state: MotionState, intensity: str, *, generation: int | None = None) -> None:
         if not isinstance(state, MotionState) or intensity not in {"low", "medium", "high"}:
             raise ValueError("Invalid controller semantic motion")
+        if not self._accepts_controller_generation(generation):
+            return
         now = self._clock()
         with self._lock:
             changed = state is not self._motion_state
