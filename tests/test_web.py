@@ -55,6 +55,47 @@ console.log(JSON.stringify([reading(bmp, 'temperature_c', '°C'),
     assert json.loads(result.stdout) == ["24.74 °C", "994.2103 hPa", "available", "still", "Unavailable", None, "moving", "medium"]
 
 
+def test_dashboard_ens160_observations_and_health_use_canonical_live_fields():
+    """Execute the Dashboard formatters against normal, warming, and stale API shapes."""
+    script = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    helpers = script[script.index("  const ens160Reading"):script.index("  const mergeSensor")]
+    program = """%s
+n = {measurements:{eco2_ppm:600,tvoc_ppb:12,aqi_uba:2}, measurement_fresh:{eco2_ppm:true,tvoc_ppb:true,aqi_uba:true}, ens160_validity:0, ens160_status_fresh:true};
+w = {...n, ens160_validity:1}; s = {...n, ens160_validity:2}; i = {...n, ens160_validity:3}; stale = {...n, measurement_fresh:{eco2_ppm:false,tvoc_ppb:true,aqi_uba:true}};
+console.log(JSON.stringify([ens160Reading(n, 'eco2_ppm', 'ppm'), aqiUba(n), ens160Validity(n).reliability,
+  ens160Validity(w).reliability, ens160Validity(s).reliability, ens160Validity(i).reliability,
+  ens160Reading(stale, 'eco2_ppm', 'ppm'), aqiUba({...n, measurements:{...n.measurements, aqi_uba:9}}),
+  healthSummary({subsystems:{imu:{state:'ok'}, ens160:{state:'warming_up'}}})]));
+""" % helpers
+    result = subprocess.run(["node", "-e", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [
+        "600 ppm", "2 / 5 — Good", "Reliable",
+        "Observational — unreliable", "Observational — unreliable", "Observational — unreliable",
+        "Stale", "Unavailable", "imu: ok · ens160: warming_up",
+    ]
+
+
+def test_dashboard_restores_sensor_visualizations_with_health_separate_from_motion(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/").get_data(as_text=True)
+    for key in ("environment.temperature", "environment.pressure", "aht21.humidity", "ens160.aqi",
+                "ens160.validity", "ens160.reliability", "motion.motion_state", "health.summary"):
+        assert f'data-live="{key}"' in page
+    assert "System Health" in page and "ENS160 validity" in page
+    assert 'class="domain-card"' not in page
+    # The primary sidebar remains the single navigation surface.
+    assert page.count('href="/configuration/status"') == 1
+    # Preserve the original live-card visualization groups instead of
+    # replacing sensor presentation with generic text summary cards.
+    assert page.count('class="domain-cards live-cards status-summary"') == 2
+    assert "BMP280 / environmental" in page and "MPU6050" in page
+    assert "Interpreted motion" in page and "System Health" in page
+    motion_card = re.search(r'<dl><dt>Interpreted motion</dt>.*?</dl>', page, re.DOTALL)
+    assert motion_card and 'health.summary' not in motion_card.group(0)
+    css = Path(app.root_path).joinpath("static", "admin.css").read_text(encoding="utf-8")
+    assert ".live-cards dl { padding: 1rem; border-color: #1767ae;" in css
+
+
 def test_sensors_page_renders_available_bmp280_and_mpu6050_live_shapes(setup):
     from robot.lifecycle import LifecycleService
 
@@ -1331,14 +1372,15 @@ def test_focused_settings_and_page_responsibilities(setup):
     assert 'name="display.iris_color"' in eyes
     assert 'name="web.host"' in network and 'name="web.port"' in network
     assert 'data-live="environment.temperature"' in dashboard
+    for key in ("environment.temperature", "environment.pressure", "aht21.humidity", "ens160.aqi",
+                "ens160.validity", "health.summary", "motion.motion_state"):
+        assert f'data-live="{key}"' in dashboard
     for key in ("presence.state", "presence.people_count", "attention.state", "attention.target_id",
                 "attention.target_position", "attention.target_confidence"):
-        assert f'data-live="{key}"' in dashboard
         assert f'data-live="{key}"' in status
     for key in ("observed_expression.label", "observed_expression.confidence", "observed_expression.provider",
                 "observed_expression.model", "observed_expression.available", "observed_expression.detail",
                 "observed_expression.observed_at"):
-        assert f'data-live="{key}"' in dashboard
         assert f'data-live="{key}"' in status
     assert "PHOS Expression" in status
     for key in ("expression_reaction.active", "expression_reaction.reaction", "expression_reaction.observed_label"):
