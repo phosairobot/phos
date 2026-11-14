@@ -32,11 +32,12 @@
 {% endif %}
 {% if area in ('general', 'sensors') %}
 <div class="domain-cards live-cards status-summary">
-<dl><dt>Temperature</dt><dd data-live="environment.temperature">Unavailable</dd><dt>Pressure</dt><dd data-live="environment.pressure">Unavailable</dd><dt>Environmental freshness</dt><dd data-live="environment.age">Unavailable</dd></dl>
-<dl><dt>eCO2</dt><dd data-live="ens160.eco2">Unavailable</dd><dt>TVOC</dt><dd data-live="ens160.tvoc">Unavailable</dd><dt>ENS160 freshness</dt><dd data-live="ens160.age">Unavailable</dd></dl>
-<dl><dt>Interpreted motion</dt><dd data-live="motion.motion_state">Unavailable</dd><dt>Motion intensity</dt><dd data-live="motion.intensity">Unavailable</dd><dt>MPU6050 freshness</dt><dd data-live="motion.age">Unavailable</dd><dt>Health</dt><dd data-live="health">Unavailable</dd></dl>
+<dl><dt>Temperature</dt><dd data-live="environment.temperature">Unavailable</dd><dt>Relative humidity <small>AHT21</small></dt><dd data-live="aht21.humidity">Unavailable</dd><dt>Pressure</dt><dd data-live="environment.pressure">Unavailable</dd><dt>Environmental freshness</dt><dd data-live="environment.age">Unavailable</dd></dl>
+<dl><dt>eCO2 <small>estimated</small></dt><dd data-live="ens160.eco2">Unavailable</dd><dt>TVOC</dt><dd data-live="ens160.tvoc">Unavailable</dd><dt>AQI-UBA <small>1–5</small></dt><dd data-live="ens160.aqi">Unavailable</dd><dt>ENS160 validity</dt><dd data-live="ens160.validity">Unknown</dd><dt>Reading confidence</dt><dd data-live="ens160.reliability">Unavailable</dd><dt>ENS160 freshness</dt><dd data-live="ens160.age">Unavailable</dd></dl>
+<dl><dt>Interpreted motion</dt><dd data-live="motion.motion_state">Unavailable</dd><dt>Motion intensity</dt><dd data-live="motion.intensity">Unavailable</dd><dt>MPU6050 freshness</dt><dd data-live="motion.age">Unavailable</dd></dl>
 </div>
 {% endif %}
+{% if area == 'general' %}<section class="dashboard-health status" aria-label="System Health"><h3>System Health</h3><p data-live="health.summary">Unavailable</p></section>{% endif %}
 {% if area == 'controls' %}<div class="control-grid live-controls" data-live-controls hidden>
 <section class="control-card" data-control-section="robot-state"><h4>Robot State</h4><dl class="control-current"><dt>Current robot state</dt><dd data-live="robot.state">Unavailable</dd><dt>Allowed transitions</dt><dd data-live="robot.transitions">Unavailable</dd></dl><label for="robot-state">Robot state<select id="robot-state" data-command="set_robot_state"></select></label><div class="button-group"><button type="button" data-command-apply="set_robot_state">Apply robot state</button></div><p class="control-feedback" role="status" hidden></p></section>
 <section class="control-card" data-control-section="expression"><h4>Expression</h4><dl class="control-current"><dt>Current expression</dt><dd data-live="visual.expression">Unavailable</dd></dl><label for="expression">Expression<select id="expression" data-command="set_expression"></select></label><div class="button-group"><button type="button" data-command-apply="set_expression">Apply expression</button></div><p class="control-feedback" role="status" hidden></p></section>
@@ -53,12 +54,6 @@
 Your edits on this page have not been saved.</p>
 {% endif %}
 {% if area == 'general' %}
-<p>Each area saves to the same PHOS configuration file. Logging, eye appearance and camera-preview settings can be reloaded; other settings require restart.</p>
-<div class="domain-cards">
-{% for key, domain in domains.items() if key != 'general' %}
-<a class="domain-card" href="{{ url_for('configuration', area=key) }}"><strong>{{ domain.title }}</strong><span>{{ domain.description }}</span></a>
-{% endfor %}
-</div>
 {% elif area == 'controls' %}
 <p class="notice">Controls apply only supported semantic commands through the Remote API. Current runtime values are selected automatically; no command is sent when this page loads. Each action reports its result in its own section.</p>
 {% elif area == 'api' %}

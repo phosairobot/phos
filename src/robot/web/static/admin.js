@@ -270,6 +270,38 @@ if (ttsProvider) {
     (!item.measurement_usable || item.measurement_usable[field] === true) &&
     item.measurements && item.measurements[field] !== null && item.measurements[field] !== undefined
     ? `${item.measurements[field]} ${suffix}` : "Unavailable";
+  // ENS160 validity governs whether a measurement is safe for environmental
+  // decisions, not whether the controller acquired it.  The dashboard keeps
+  // fresh non-normal samples visible as explicitly unreliable observations.
+  const ens160Reading = (item, field, suffix) => {
+    const value = item && item.measurements && item.measurements[field];
+    if (value === null || value === undefined) return "Unavailable";
+    if (item.measurement_fresh && item.measurement_fresh[field] !== true) return "Stale";
+    if (item.ens160_status_fresh === false) return "Stale";
+    return `${value} ${suffix}`;
+  };
+  const ens160Validity = (item) => {
+    const validity = item && item.ens160_validity;
+    const labels = {0: "Normal", 1: "Warm-up", 2: "Initial startup", 3: "Invalid output"};
+    if (!Object.hasOwn(labels, validity)) return {label: "Unknown", reliability: "Reliability unavailable"};
+    if (item.ens160_status_fresh !== true) return {label: labels[validity], reliability: "Status stale — readings unreliable"};
+    return validity === 0 ? {label: labels[validity], reliability: "Reliable"}
+      : {label: labels[validity], reliability: "Observational — unreliable"};
+  };
+  const aqiUba = (item) => {
+    const value = item && item.measurements && item.measurements.aqi_uba;
+    const labels = {1: "Excellent", 2: "Good", 3: "Moderate", 4: "Poor", 5: "Unhealthy"};
+    const observed = ens160Reading(item, "aqi_uba", "");
+    if (observed === "Stale") return observed;
+    return Object.hasOwn(labels, value) ? `${value} / 5 — ${labels[value]}` : "Unavailable";
+  };
+  const healthSummary = (health) => {
+    const subsystems = health && health.subsystems;
+    if (!subsystems || typeof subsystems !== "object") return "Unavailable";
+    const values = Object.entries(subsystems).map(([name, value]) =>
+      `${name.replaceAll("_", " ")}: ${(value && (value.state || value.status)) || "unavailable"}`);
+    return values.length ? values.join(" · ") : "Unavailable";
+  };
   const mergeSensor = (current, next) => next === undefined ? current : {
     ...(current || {}), ...next,
     measurements: next.measurements === undefined ? (current || {}).measurements : {
@@ -298,6 +330,7 @@ if (ttsProvider) {
     const motion = state.motion || (state.sensors || {}).imu || {};
     const ens160 = state.ens160 || (state.sensors || {}).ens160 || {};
     const aht21 = state.aht21 || (state.sensors || {}).aht21 || {};
+    const health = state.health || {};
     const overlay = (state.overlay || {}).resolved || {};
     const presence = state.presence || {};
     const attention = state.attention || {};
@@ -314,9 +347,14 @@ if (ttsProvider) {
     display("environment.state", environment.state || ((state.sensors || {}).environmental_behavior || {}).state);
     display("environment.status", status(environment)); display("environment.temperature", reading(environment, "temperature_c", "°C"));
     display("environment.pressure", reading(environment, "pressure_hpa", "hPa"));
-    display("ens160.status", status(ens160)); display("ens160.eco2", reading(ens160, "eco2_ppm", "ppm"));
-    display("ens160.tvoc", reading(ens160, "tvoc_ppb", "ppb"));
+    display("aht21.humidity", reading(aht21, "humidity_percent", "% RH"));
+    const validity = ens160Validity(ens160);
+    display("ens160.status", status(ens160)); display("ens160.eco2", ens160Reading(ens160, "eco2_ppm", "ppm"));
+    display("ens160.tvoc", ens160Reading(ens160, "tvoc_ppb", "ppb"));
+    display("ens160.aqi", aqiUba(ens160));
+    display("ens160.validity", validity.label); display("ens160.reliability", validity.reliability);
     display("motion.status", status(motion));
+    display("health.summary", healthSummary(health));
     renderFreshness();
     display("overlay.resolved", `${overlay.temperature || "none"} / ${overlay.air_quality || "none"}`);
     const manual = (state.overlay || {}).override || (state.overlay || {}).manual || {};
