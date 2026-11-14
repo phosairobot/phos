@@ -1,7 +1,9 @@
 import asyncio
+import base64
 import inspect
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -300,6 +302,121 @@ def test_streamable_http_bearer_authentication_uses_real_asgi_request_path(tmp_p
     assert seen_request == {"request_type": "Request", "headers_type": "Headers", "authorization_present": True}
     assert standard_token not in caplog.text and observer_token not in caplog.text
     assert application.calls == [("set_state", "sleeping"), ("get_camera_snapshot",), ("set_state", "sleeping")]
+
+
+def test_streamable_http_camera_snapshot_uses_existing_active_pipeline_and_real_jpeg(tmp_path):
+    """Exercise the MCP resource path without creating a second camera/runtime.
+
+    The active pipeline fixture owns one already-encoded, standards-conformant
+    JPEG.  The MCP SDK client reads it over the real Streamable HTTP ASGI path;
+    no request may construct another runtime or camera provider.
+    """
+    from mcp.client import ClientSession
+    from mcp.client.streamable_http import httpx2 as httpx, streamable_http_client
+    from mcp.shared.exceptions import MCPError
+
+    # A baseline 1×1 JPEG.  Keeping this fixture independent of cv2 is
+    # intentional: standard desktop test environments need not install the
+    # Raspberry Pi OS OpenCV package used by production VisionPipeline.
+    jpeg = bytes.fromhex(
+        "ffd8ffe000104a46494600010100000100010000ffdb004300"
+        + "08" * 64
+        + "ffc0000b080001000101011100ffc40014000100000000000000000000000000000000"
+        + "ffda0008010100003f00d2cf20ffd9"
+    )
+
+    class ActivePipeline:
+        def __init__(self):
+            self.snapshot = jpeg
+            self.calls = 0
+
+        def camera_snapshot_jpeg(self):
+            self.calls += 1
+            if self.snapshot is None:
+                raise RuntimeError("no_frame")
+            return self.snapshot
+
+    document = load_document()
+    document["agents"] = {"default_agent": "local-agent", "entries": [
+        {"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"},
+        {"id": "camera-standard", "display_name": "Camera standard", "permission_profile": "standard",
+         "credential": {"type": "bearer", "secret_ref": "mcp.camera.standard"}},
+        {"id": "camera-observer", "display_name": "Camera observer", "permission_profile": "observer",
+         "credential": {"type": "bearer", "secret_ref": "mcp.camera.observer"}},
+    ]}
+    config_path = tmp_path / "phos.yaml"
+    config_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    config = RuntimeConfig.from_file(config_path)
+    store = SecretsService(config.resolve_path(Path(".")) / ".phos-secrets")
+    standard_token, observer_token = "camera-standard-token", "camera-observer-token"
+    store.set_secret("mcp.camera.standard", standard_token)
+    store.set_secret("mcp.camera.observer", observer_token)
+
+    pipeline = ActivePipeline()
+    runtime = SimpleNamespace(core=RobotCore(), _behavior_engine=object(), _vision_pipeline=pipeline)
+    application = PhosApplicationService(runtime)
+    registry = config.agent_registry
+    server = create_mcp_server(
+        AgentApplicationService(application, registry.default_identity),
+        authenticator=BearerAgentAuthenticator(registry, store),
+    )
+    app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/mcp")
+
+    async def session_for(token):
+        client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8001",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        async with streamable_http_client("http://127.0.0.1:8001/mcp", http_client=client) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                yield session
+
+    async def exercise():
+        async with server.session_manager.run():
+            async for standard in session_for(standard_token):
+                snapshot = await standard.read_resource("phos://vision/snapshot")
+                pipeline.snapshot = None
+                with pytest.raises(MCPError) as no_frame:
+                    await standard.read_resource("phos://vision/snapshot")
+                runtime._vision_pipeline = None
+                with pytest.raises(MCPError) as unavailable:
+                    await standard.read_resource("phos://vision/snapshot")
+            runtime._vision_pipeline = pipeline
+            async for observer in session_for(observer_token):
+                with pytest.raises(MCPError) as denied:
+                    await observer.read_resource("phos://vision/snapshot")
+        return snapshot, str(no_frame.value), str(unavailable.value), str(denied.value)
+
+    snapshot, no_frame, unavailable, denied = asyncio.run(exercise())
+    content = snapshot.contents[0]
+    received = base64.b64decode(content.blob)
+
+    def jpeg_dimensions(value):
+        assert value.startswith(b"\xff\xd8") and value.endswith(b"\xff\xd9")
+        offset = 2
+        while offset < len(value) - 9:
+            if value[offset] != 0xFF:
+                offset += 1
+                continue
+            marker = value[offset + 1]
+            offset += 2
+            if marker in {0xD8, 0xD9}:
+                continue
+            size = int.from_bytes(value[offset:offset + 2], "big")
+            if marker in {0xC0, 0xC1, 0xC2}:
+                return int.from_bytes(value[offset + 3:offset + 5], "big"), int.from_bytes(value[offset + 5:offset + 7], "big")
+            offset += size
+        raise AssertionError("JPEG Start Of Frame marker not found")
+
+    assert content.mime_type == "image/jpeg"
+    assert jpeg_dimensions(received) == (1, 1)
+    assert len(received) <= 512 * 1024
+    assert "service_unavailable: No camera frame is available yet" in no_frame
+    assert "service_unavailable: Vision is unavailable" in unavailable
+    assert "permission_denied" in denied
+    assert runtime._vision_pipeline is pipeline
+    assert pipeline.calls == 2  # successful read plus no-frame failure; observer is denied first.
 
 
 def test_streamable_http_dynamic_agent_crud_updates_authentication_without_restart(tmp_path):
