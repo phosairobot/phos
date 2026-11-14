@@ -207,10 +207,10 @@
       "poll_interval_seconds": 5.0,
       "stale_after_seconds": 30.0
     },
-    "ccs811": {
-      "provider": "local",
+    "ens160": {
+      "provider": "controller",
       "enabled": false,
-      "i2c_address": "0x5a",
+      "i2c_address": "0x53",
       "poll_interval_seconds": 5.0,
       "stale_after_seconds": 30.0
     },

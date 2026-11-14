@@ -1,11 +1,13 @@
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from robot.core import RobotCore, RobotState
+from robot.hardware.controller_protocol import ControllerMessage
 from robot.core.behavior_engine import BehaviorEngine
 from robot.runtime import PhosRuntime, RuntimeConfig, build_runtime
 from robot.services.application import PhosApplicationService
@@ -46,6 +48,137 @@ def test_runtime_freshness_check_publishes_one_edge_triggered_sensor_transition(
     events = asyncio.run(exercise())
     assert [(event["payload"]["previous"], event["payload"]["current"]) for event in events] == [
         ("available", "stale"), ("stale", "available")]
+
+
+def test_build_runtime_forwards_controller_lifecycle_and_ens160_telemetry_to_air_quality(tmp_path):
+    config = replace(RuntimeConfig.from_file(), hardware_controller_enabled=True,
+                         ens160_enabled=True, ens160_provider="controller", log_file=tmp_path / "phos.log")
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    controller, air = runtime._controller, runtime._air_quality_service
+
+    async def exercise():
+        controller._new_session()
+        await controller._message(ControllerMessage(
+            "sensor_status", {"sensor": "ens160", "validity": 0, "compensation_active": True}))
+        await controller._message(ControllerMessage(
+            "sensor_update", {"sensor": "eco2", "value": 400, "unit": "ppm"}))
+        await controller._message(ControllerMessage(
+            "sensor_update", {"sensor": "tvoc", "value": 0, "unit": "ppb"}))
+
+    asyncio.run(exercise())
+    assert air.snapshot()["measurement_usable"]["eco2_ppm"]
+    assert air.snapshot()["measurement_usable"]["tvoc_ppb"]
+    controller._session_retired_sink(1)
+    assert not air.snapshot()["measurement_usable"]["eco2_ppm"]
+
+
+def test_build_runtime_keeps_aht21_usable_while_ens160_warms_up(tmp_path):
+    config = replace(RuntimeConfig.from_file(), hardware_controller_enabled=True,
+                     ens160_enabled=True, ens160_provider="controller", log_file=tmp_path / "phos.log")
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    controller = runtime._controller
+
+    async def exercise():
+        controller._new_session()
+        await controller._message(ControllerMessage(
+            "sensor_status", {"sensor": "ens160", "validity": 1, "compensation_active": False}))
+        await controller._message(ControllerMessage(
+            "sensor_update", {"sensor": "aht21_temperature", "value": 23.5, "unit": "c"}))
+        await controller._message(ControllerMessage(
+            "sensor_update", {"sensor": "humidity", "value": 51.0, "unit": "%rh"}))
+
+    asyncio.run(exercise())
+    status = runtime.sensor_status()
+    assert status["ens160"]["status"] == "warming_up"
+    assert not status["ens160"]["available"]
+    assert {key: value for key, value in status["aht21"].items()
+            if key != "measurement_age_seconds"} == {
+        "status": "available", "available": True,
+        "measurements": {"temperature_c": 23.5, "humidity_percent": 51.0},
+        "measurement_usable": {"temperature_c": True, "humidity_percent": True},
+        "measurement_fresh": {"temperature_c": True, "humidity_percent": True},
+        "source": "controller",
+    }
+    assert all(age < 1 for age in status["aht21"]["measurement_age_seconds"].values())
+
+
+def test_build_runtime_serializes_fresh_controller_sensor_families(tmp_path):
+    config = replace(RuntimeConfig.from_file(), hardware_controller_enabled=True,
+                     environmental_enabled=True, environmental_provider="controller",
+                     ens160_enabled=True, ens160_provider="controller",
+                     imu_enabled=True, imu_provider="controller", log_file=tmp_path / "phos.log")
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    controller = runtime._controller
+
+    async def exercise():
+        controller._new_session()
+        frames = (
+            ControllerMessage("sensor_update", {"sensor": "temperature", "value": 22.25, "unit": "c"}),
+            ControllerMessage("sensor_update", {"sensor": "pressure", "value": 1007.5, "unit": "hpa"}),
+            ControllerMessage("sensor_status", {"sensor": "ens160", "validity": 1, "compensation_active": False}),
+            ControllerMessage("sensor_update", {"sensor": "aht21_temperature", "value": 23.5, "unit": "c"}),
+            ControllerMessage("sensor_update", {"sensor": "humidity", "value": 51.0, "unit": "%rh"}),
+            ControllerMessage("sensor_status", {"sensor": "ens160", "validity": 0, "compensation_active": True}),
+            ControllerMessage("sensor_update", {"sensor": "eco2", "value": 500, "unit": "ppm"}),
+            ControllerMessage("sensor_update", {"sensor": "tvoc", "value": 12, "unit": "ppb"}),
+            ControllerMessage("sensor_update", {"sensor": "aqi", "value": 2, "unit": "index"}),
+            ControllerMessage("motion_update", {"state": "moving", "intensity": "low"}),
+        )
+        for frame in frames:
+            await controller._message(frame)
+
+    asyncio.run(exercise())
+    sensors = runtime.sensor_status()
+    assert sensors["environmental"]["available"]
+    assert sensors["environmental"]["measurements"] == {
+        "temperature_c": 22.25, "pressure_hpa": 1007.5, "humidity_percent": 51.0}
+    assert sensors["aht21"]["available"]
+    assert sensors["aht21"]["measurements"] == {"temperature_c": 23.5, "humidity_percent": 51.0}
+    assert {field: sensors["ens160"]["measurement_usable"][field]
+            for field in ("eco2_ppm", "tvoc_ppb", "aqi_uba")} == {
+                "eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True}
+    assert sensors["ens160"]["measurements"] == {"eco2_ppm": 500, "tvoc_ppb": 12, "aqi_uba": 2}
+    assert sensors["imu"]["available"] and sensors["imu"]["motion_state"] == "moving"
+
+
+def test_controller_motion_update_reaches_current_runtime_snapshot_and_rejects_retired_session(tmp_path):
+    config = replace(RuntimeConfig.from_file(), hardware_controller_enabled=True,
+                     imu_enabled=True, imu_provider="controller", log_file=tmp_path / "phos.log")
+    runtime = build_runtime(config=config, eye_display=MemoryEyeDisplay())
+    controller = runtime._controller
+
+    async def exercise():
+        from robot.services.application import PhosApplicationService
+
+        runtime._loop = asyncio.get_running_loop()
+        application = PhosApplicationService(runtime)
+        events = []
+        application.subscribe(events.append)
+        await runtime._behavior_engine.start()
+        try:
+            controller._new_session()
+            await controller._message(ControllerMessage("orientation_update", {
+                "acceleration_m_s2": {"x": 0.0, "y": 0.0, "z": 9.8},
+                "angular_velocity_dps": {"x": 0.0, "y": 0.0, "z": 0.0},
+            }))
+            await controller._message(ControllerMessage("motion_update", {"state": "moving", "intensity": "medium"}))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert application.motion()["motion_state"] == "moving"
+            assert runtime.application_status()["visual"]["motion_state"] == "moving"
+            motion_event = [event for event in events if event["type"] == "motion_state_changed"][-1]
+            assert motion_event["payload"]["motion_state"] == "moving"
+            assert motion_event["payload"]["motion_intensity"] == "medium"
+            controller._session_retired_sink(1)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            controller._imu_update_sink(ControllerMessage("motion_update", {"state": "moving", "intensity": "high"}), 1)
+            assert application.motion()["status"] == "unavailable"
+            assert runtime.application_status()["visual"]["motion_state"] == "still"
+        finally:
+            await runtime._behavior_engine.stop()
+
+    asyncio.run(exercise())
 
 
 class FakeCamera:

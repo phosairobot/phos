@@ -262,7 +262,14 @@ if (ttsProvider) {
       : Number.isFinite(item.age_seconds) ? Math.max(0, Math.floor(item.age_seconds)) : null;
     return seconds === null ? "Unavailable" : `${seconds}s ago`;
   };
-  const reading = (item, field, suffix) => item && item.available && item.measurements && item.measurements[field] !== null && item.measurements[field] !== undefined ? `${item.measurements[field]} ${suffix}` : "Unavailable";
+  // ENS160/AHT21 publish field-level usability because their individual
+  // measurements may have different validity/freshness.  Established sensor
+  // snapshots such as BMP280 and MPU6050 use their aggregate `available`
+  // contract instead; requiring a non-existent field map hid valid readings.
+  const reading = (item, field, suffix) => item && item.available &&
+    (!item.measurement_usable || item.measurement_usable[field] === true) &&
+    item.measurements && item.measurements[field] !== null && item.measurements[field] !== undefined
+    ? `${item.measurements[field]} ${suffix}` : "Unavailable";
   const mergeSensor = (current, next) => next === undefined ? current : {
     ...(current || {}), ...next,
     measurements: next.measurements === undefined ? (current || {}).measurements : {
@@ -272,20 +279,25 @@ if (ttsProvider) {
   const mergeSensors = (current, next) => ({
     ...(current || {}), ...(next || {}),
     environmental: mergeSensor((current || {}).environmental, (next || {}).environmental),
-    ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811),
+    ens160: mergeSensor((current || {}).ens160, (next || {}).ens160),
+    aht21: mergeSensor((current || {}).aht21, (next || {}).aht21),
     imu: mergeSensor((current || {}).imu, (next || {}).imu)
   });
   const renderFreshness = () => {
     const sensors = state.sensors || {};
     display("environment.age", age(state.environment || sensors.environmental));
-    display("ccs811.age", age(sensors.ccs811));
+    display("ens160.age", age(sensors.ens160));
     display("motion.age", age(state.motion || sensors.imu));
   };
   const render = () => {
     const visual = state.visual || {};
     const environment = state.environment || {};
-    const motion = (state.sensors || {}).imu || state.motion || {};
-    const ccs811 = state.ccs811 || (state.sensors || {}).ccs811 || {};
+    // motion_update is a semantic transition and arrives ahead of the next
+    // aggregate sensors refresh. Prefer its current snapshot over a stale
+    // sensors.imu object retained from the initial Dashboard response.
+    const motion = state.motion || (state.sensors || {}).imu || {};
+    const ens160 = state.ens160 || (state.sensors || {}).ens160 || {};
+    const aht21 = state.aht21 || (state.sensors || {}).aht21 || {};
     const overlay = (state.overlay || {}).resolved || {};
     const presence = state.presence || {};
     const attention = state.attention || {};
@@ -302,8 +314,8 @@ if (ttsProvider) {
     display("environment.state", environment.state || ((state.sensors || {}).environmental_behavior || {}).state);
     display("environment.status", status(environment)); display("environment.temperature", reading(environment, "temperature_c", "°C"));
     display("environment.pressure", reading(environment, "pressure_hpa", "hPa"));
-    display("ccs811.status", status(ccs811)); display("ccs811.eco2", reading(ccs811, "eco2_ppm", "ppm"));
-    display("ccs811.tvoc", reading(ccs811, "tvoc_ppb", "ppb"));
+    display("ens160.status", status(ens160)); display("ens160.eco2", reading(ens160, "eco2_ppm", "ppm"));
+    display("ens160.tvoc", reading(ens160, "tvoc_ppb", "ppb"));
     display("motion.status", status(motion));
     renderFreshness();
     display("overlay.resolved", `${overlay.temperature || "none"} / ${overlay.air_quality || "none"}`);

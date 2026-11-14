@@ -1,5 +1,7 @@
 # Hardware
 
+> Current environmental baseline: ENS160 and AHT21 share the ESP32 I2C bus (ENS160 `0x53` or `0x52`; AHT21 `0x38`). The ESP32 publishes phos-hw v1 `sensor_update` and ENS160 `sensor_status` JSONL telemetry. The Pi owns freshness, validity, reconnect/session isolation and semantic decisions; it does not poll these devices directly.
+
 This document records the physical hardware that is part of PHOS or has been selected for a future integration milestone.
 
 Hardware listed here does **not** imply that its software integration is already implemented. Software behavior, providers, events, state mapping, and runtime integration must be designed separately before code is added.
@@ -14,7 +16,7 @@ Hardware listed here does **not** imply that its software integration is already
 | Speaker               | Planned              | TBD                                                    | Future voice output                                                    | Not yet specified                                                                    |
 | Raspberry Pi Camera   | Available / working  | Raspberry Pi camera interface                          | Vision and face tracking                                               | Already used by the current PHOS Vision stack                                        |
 | BME280 / BMP280 | Integrated optional sensor | I2C bus 1, 3.3 V logic | Temperature, relative humidity where supported, atmospheric pressure | Verify actual breakout/address for each installation |
-| Keyestudio SEN-CCS811 | Integrated optional sensor | I2C | Air-quality estimates: eCO2 and TVOC | eCO2 is not direct NDIR CO2; verify conditioning on each installation |
+| ENS160 + AHT21 | ESP32 controller telemetry | I2C on controller | eCO2/TVOC/AQI-UBA plus temperature/humidity | ENS160 eCO2 is not direct NDIR CO2; controller reports validity and compensation |
 | GY-521 (MPU-6050)     | Integrated optional sensor | I2C | 6-axis inertial sensing and interpreted motion | Verify mounting, wiring and thresholds for each installation |
 | WS2812B RGB LED ring  | Software integrated; physical acceptance pending | Single-wire addressable data; typically 5 V LED supply | Semantic color and temporary directional motion animation | LED count, GPIO assignment, power budget, level shifting and placement remain to verify |
 | Servos/motors         | Planned              | TBD                                                    | Future physical movement                                               | Not yet specified                                                                    |
@@ -101,47 +103,23 @@ is configurable as 0x76 or 0x77. Power off before changing modules. Follow the
 single [installation procedure](installation.md#optional-environmental-sensor)
 for dependencies, bus enablement and verification. Real BMP280 acceptance is pending.
 
-### Keyestudio SEN-CCS811
+### ENS160 and AHT21 through the ESP32 controller
 
-PHOS supports CCS811 through `hardware.ccs811.CCS811Provider` and the shared
-sensor worker/lifecycle. It reports **eCO2 (estimated equivalent CO2), ppm**, and
-**TVOC (total volatile organic compounds), ppb**. eCO2 is inferred from gas
-sensor response, **not a direct NDIR CO2 measurement**. It is independent of
-BME280/BMP280 and can run alongside either. Fresh values can contribute to
-confirmed air-quality semantics; renderer and LED code consume only those
-semantics. Physical module acceptance remains pending.
+ENS160 and AHT21 share the ESP32 I2C bus. ENS160 uses `0x53` or `0x52`; AHT21
+uses `0x38`. The ESP32 publishes phos-hw v1 `sensor_update` and `sensor_status`
+records over serial, and the Raspberry Pi exposes them as `sensors.ens160` and
+`sensors.aht21`. Neither device has a direct Raspberry Pi I2C provider.
 
-The exact board revision called SEN-CCS811 must be identified before wiring.
-The [Keyestudio KS0457 reference](https://wiki.keyestudio.com/KS0457_keyestudio_CCS811_Carbon_Dioxide_Air_Quality_Sensor)
-specifies **5 V module power**; do not confuse module VCC with bare-chip supply
-or assume its SDA/SCL pull-ups are Pi-compatible. Confirm the regulator, pull-ups
-and level shifting on the actual breakout. Pi-side SDA/SCL must use **3.3 V
-logic**; if the module side is 5 V, use suitable bidirectional I2C level shifting.
-Power off before wiring.
-
-| Module signal | Raspberry Pi 3 physical pin / connection |
-| --- | --- |
-| GND | Pin 6, shared ground |
-| SDA | Pin 3 / GPIO2 / SDA1, at Pi-compatible logic level |
-| SCL | Pin 5 / GPIO3 / SCL1, at Pi-compatible logic level |
-| VCC | For confirmed KS0457 5 V input: pin 2 (5 V); only a verified 3.3 V-compatible breakout may use pin 1 instead |
-| nWAKE / WAK, if exposed | GND (or confirm the board already holds it low); PHOS does not drive a wake GPIO |
-| nRESET, if exposed | Keep deasserted using the board's documented pull-up; no PHOS GPIO connection |
-| nINT, if exposed | Unconnected; PHOS polls |
-| ADDR, if exposed | Strap per board schematic: low selects 0x5a, high selects 0x5b; do not leave floating |
-
-The provider uses `/dev/i2c-1`, defaults to `0x5a`, also accepts `0x5b`, and
-checks HW_ID `0x81`. It never scans or changes address automatically. Separate
-worker-owned SMBus handles use the existing kernel I2C bus; no bit-banged bus,
-GPIO wake owner or interrupt worker is added. Native transactions stay in the
-hardware adapters. CCS811 requires clock stretching; verify sustained combined
-operation on the actual Pi/controller, beyond merely finding an address.
-See the [manufacturer driver wiring notes](https://github.com/sciosense/CCS811_driver)
-and [installation/conditioning procedure](installation.md#optional-ccs811-air-quality-sensor).
+ENS160 reports estimated eCO2 in ppm, TVOC in ppb and AQI-UBA on a 1–5 scale.
+Validity and AHT21-compensation status accompany its measurements. AHT21 provides
+controller-provenance temperature and relative humidity. Per-measurement
+freshness, validity and controller-session ownership determine usability.
 
 ### Shared I2C bus
 
-BME280/BMP280, CCS811 and MPU-6050 can share the Raspberry Pi I2C bus if their actual module configuration and addresses are compatible. Keep the 10 kHz bus setting documented for CCS811 when it is present; MPU-6050 works on that shared bus speed.
+BME280/BMP280 and MPU-6050 can share the Raspberry Pi I2C bus if their actual
+module configuration and addresses are compatible. ENS160 and AHT21 use the
+ESP32 bus instead.
 
 Before physical acceptance:
 
@@ -183,7 +161,7 @@ Before physical acceptance:
 - verify its supply and logic-level requirements on the actual breakout board;
 - verify the configured I2C address (commonly dependent on the AD0 pin state);
 - document whether AD0, INT, or other auxiliary pins will be used;
-- verify coexistence with BME280/BMP280 and CCS811 on the shared I2C bus;
+- verify coexistence with BME280/BMP280 on the shared I2C bus;
 - do not define gesture, orientation, impact, or movement semantics until the corresponding PHOS behavior contract is designed.
 
 ## WS2812B RGB LED ring
@@ -276,8 +254,7 @@ The following details must be filled in after verifying the physical components:
 
 - BME280 exact breakout/module revision;
 - BME280 I2C address on the actual board;
-- CCS811 exact Keyestudio module revision;
-- CCS811 I2C address/configuration on the actual board;
+- ENS160 and AHT21 controller wiring and addresses on the actual board;
 - GY-521 exact breakout/module revision;
 - MPU-6050 I2C address / AD0 configuration;
 - whether the MPU-6050 INT pin will be used;
@@ -311,7 +288,10 @@ Already operational:
 - 800x600 PHOS display/eyes;
 - Raspberry Pi Camera and face tracking.
 
-BME280/BMP280 and CCS811 software integration is implemented; wiring, address and real readings await Pi acceptance. When enabled, their fresh readings may also feed the provider-neutral environmental behavior interpreter. CCS811 eCO2 remains an estimated/equivalent value, not a direct NDIR CO2 measurement.
+BME280/BMP280 and controller-backed ENS160/AHT21 integration is implemented;
+wiring, address and real readings await Pi acceptance. Their fresh usable
+readings may feed the provider-neutral environmental behavior interpreter.
+ENS160 eCO2 remains an estimated/equivalent value, not direct NDIR CO2.
 
 MPU-6050 motion behavior and WS2812B semantic/directional rendering are software
 integrated. Their wiring, driver/helper setup, physical orientation and Pi 3

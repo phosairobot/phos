@@ -1,5 +1,7 @@
 # PHOS web administration user manual
 
+Current controller-backed sensor status uses `sensors.ens160` and `sensors.aht21`. The Sensors page distinguishes ENS160 validity/warm-up, AQI-UBA (1–5), compensation and per-measurement usability from AHT21 controller-provenance temperature/humidity. No direct-Pi ENS160/AHT21 configuration path exists.
+
 PHOS includes an optional single-administrator configuration editor. It uses the
 same typed configuration model and validation as startup, with no camera, AWS or display access
 from the web worker. Runtime-page saves apply camera-preview settings and logging level through
@@ -190,7 +192,7 @@ page is highlighted. No frontend framework is needed.
 | Runtime → Camera Preview | Optional display-only camera picture-in-picture preview. Its settings apply immediately when saved. |
 | Runtime → Expression | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. These settings require Restart PHOS. |
 | Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
-| Sensors | Environmental type (BME280/BMP280), CCS811 air quality, environmental behavior and GY-521/MPU-6050 motion: enable, I2C address, polling and stale timeout; read-only current readings, interpreter state/reason, age and sensor health from the parent runtime. Hardware settings require Restart PHOS; IMU and environmental interpretation settings use Reload configuration. |
+| Sensors | Environmental type (BME280/BMP280), controller-backed ENS160/AHT21 status, environmental behavior and GY-521/MPU-6050 motion. `sensors.ens160` and `sensors.aht21` are read-only public status records; ENS160 values require validity and usability, while AHT21 freshness is independent. No direct-Pi AHT21 provider is configured. |
 | Runtime → Logging | Supported log level, output file and expression diagnostics. Log level applies immediately; output file and diagnostics require Restart PHOS. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
 | Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
@@ -604,14 +606,13 @@ active configuration path under System / Status if the logged sensor type
 differs from the file you edited.
 
 
-### CCS811 air quality
+### ENS160 air quality and AHT21 environment
 
-The same **Sensors** page has a **CCS811 air quality** configuration group:
-enabled, address (`0x5a`/`0x5b`), polling interval and stale timeout. Install its
-optional dependency and verify wiring using the
-[CCS811 setup instructions](installation.md#optional-ccs811-air-quality-sensor).
-Every setting requires **Save → System actions → Restart PHOS**; Reload leaves
-changes pending. The committed default is disabled.
+The Sensors page shows controller-backed ENS160/AHT21 state. `sensors.ens160`
+contains estimated eCO2, TVOC, AQI-UBA, validity, compensation and measurement
+usability; `sensors.aht21` contains controller-provenance temperature and humidity
+with independent freshness. The page does not configure or access a direct-Pi
+AHT21 provider. See the [ENS160/AHT21 installation procedure](installation.md#controller-backed-ens160-and-aht21).
 
 The read-only panel shows **eCO2 (estimated equivalent CO2), ppm**, **TVOC, ppb**,
 last successful UTC update, age, health and compensation input. eCO2 is not a

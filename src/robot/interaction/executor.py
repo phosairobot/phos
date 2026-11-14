@@ -148,7 +148,7 @@ class CommandExecutor:
                     result = {"sensor": sensor, **result}
                 return InteractionOutcome(InteractionOutcomeStatus.COMPLETED, route.intent, source,
                                           source_language, result)
-            snapshot = self._application_service.sensors().get("ccs811")
+            snapshot = self._application_service.sensors().get("ens160")
             eco2 = self._measurement(snapshot, "eco2_ppm")
             tvoc = self._measurement(snapshot, "tvoc_ppb")
             # AirQualityReading is atomic, so a missing member means the current

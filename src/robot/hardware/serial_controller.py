@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import math
@@ -108,14 +109,25 @@ class ControllerService(Behavior):
                  reconnect_delay_seconds: float, heartbeat_interval_seconds: float,
                  heartbeat_timeout_seconds: float, touch_sink: Callable[[TouchEvent], None],
                  sensor_update_sink: Callable[[str, int | float], None] = lambda _name, _value: None,
+                 sensor_status_sink: Callable[[dict], None] = lambda _payload: None,
+                 session_activated_sink: Callable[[int], None] = lambda _generation: None,
+                 session_retired_sink: Callable[[int], None] = lambda _generation: None,
                  imu_update_sink: Callable[[ControllerMessage], None] = lambda _message: None,
                  provider_disconnected_sink: Callable[[], None] = lambda: None,
                  led_capabilities_sink: Callable[[], None] = lambda: None,
-                 transport_factory=SerialControllerTransport) -> None:
+                 transport_factory=SerialControllerTransport, clock=time.monotonic, read_operation=None) -> None:
         self._core, self._enabled = core, enabled
         self._device, self._baud_rate = device, baud_rate
         self._reconnect_delay, self._heartbeat_interval, self._heartbeat_timeout = reconnect_delay_seconds, heartbeat_interval_seconds, heartbeat_timeout_seconds
-        self._touch_sink, self._sensor_update_sink, self._imu_update_sink = touch_sink, sensor_update_sink, imu_update_sink
+        self._touch_sink = touch_sink
+        self._sensor_update_sink = sensor_update_sink if len(inspect.signature(sensor_update_sink).parameters) >= 3 else lambda name, value, _generation: sensor_update_sink(name, value)
+        self._sensor_status_sink = sensor_status_sink if len(inspect.signature(sensor_status_sink).parameters) >= 2 else lambda payload, _generation: sensor_status_sink(payload)
+        # Adapt legacy one-argument IMU sinks once at registration.  Never
+        # catch TypeError around execution: an integration error in a callback
+        # must remain observable and must not result in a duplicate delivery.
+        self._imu_update_sink = (imu_update_sink if len(inspect.signature(imu_update_sink).parameters) >= 2
+                                 else lambda message, _generation: imu_update_sink(message))
+        self._session_activated_sink, self._session_retired_sink = session_activated_sink, session_retired_sink
         self._provider_disconnected_sink, self._led_capabilities_sink, self._factory = provider_disconnected_sink, led_capabilities_sink, transport_factory
         self._state = ControllerConnection.DISCONNECTED
         self._task = None
@@ -135,6 +147,8 @@ class ControllerService(Behavior):
         self._capabilities_request_attempt = 0
         self._open_settle_seconds = OPEN_SETTLE_SECONDS
         self._sleep = asyncio.sleep
+        self._clock = clock
+        self._read_operation = read_operation or (lambda transport, started: asyncio.to_thread(self._read_once, started))
         self._messages = deque(maxlen=100)
         self._reconfigure_lock = None
 
@@ -323,22 +337,24 @@ class ControllerService(Behavior):
                                getattr(error, "device", self._device), getattr(error, "operation", "lifecycle"),
                                getattr(error, "original_type", type(error).__name__), self._safe_error_message(error))
             finally:
+                self._session_retired_sink(self._session_generation)
                 if self._transport is transport:
                     self._transport = None
                 self._deactivate_session_capabilities()
                 self._state = ControllerConnection.DISCONNECTED
                 self._log_led_availability("disconnected")
                 await self._close_transport(transport)
-            await asyncio.sleep(self._reconnect_delay)
+            await self._sleep(self._reconnect_delay)
 
     def _new_session(self) -> tuple[JsonLinesDecoder, float]:
         """Reset only connection-local protocol state after a successful open."""
         self._session_generation += 1
+        self._session_activated_sink(self._session_generation)
         self._protocol = None
         self._active_capabilities = None
         self._capabilities_request_attempt = 0
         self._log_led_availability("session_opened")
-        self._last_peer_activity = time.monotonic()
+        self._last_peer_activity = self._clock()
         logger.debug("PHOS CONTROLLER: serial session opened generation=%s", self._session_generation)
         return JsonLinesDecoder(), self._last_peer_activity + self._heartbeat_interval
 
@@ -359,9 +375,9 @@ class ControllerService(Behavior):
                               initial_handshake_sent: asyncio.Event | None = None) -> None:
         peer_seen = False
         retry_interval = min(2.0, max(.25, self._heartbeat_timeout / 5))
-        next_handshake_retry = time.monotonic() + retry_interval if initial_handshake_sent is None else None
+        next_handshake_retry = self._clock() + retry_interval if initial_handshake_sent is None else None
         while True:
-            now = time.monotonic()
+            now = self._clock()
             if now - self._last_peer_activity > self._heartbeat_timeout:
                 raise OSError("controller heartbeat timed out")
             if initial_handshake_sent is not None and initial_handshake_sent.is_set() and next_handshake_retry is None:
@@ -374,7 +390,7 @@ class ControllerService(Behavior):
                 await self._send("ping", {})
                 next_heartbeat = now + self._heartbeat_interval
             read_started = threading.Event()
-            read_task = asyncio.create_task(asyncio.to_thread(self._read_once, read_started))
+            read_task = asyncio.create_task(self._read_operation(self._transport, read_started))
             if reader_ready is not None and not reader_ready.is_set():
                 await asyncio.to_thread(read_started.wait)
                 reader_ready.set()
@@ -389,12 +405,12 @@ class ControllerService(Behavior):
                 logger.warning("PHOS CONTROLLER: rejected input code=%s type=%s reason=%s",
                                error.code, error.message_type or "unparseable", self._safe_error_message(error))
                 for message in getattr(error, "recovered_messages", ()):
-                    self._last_peer_activity = time.monotonic()
+                    self._last_peer_activity = self._clock()
                     peer_seen = True
                     await self._message(message)
                 continue
             for message in messages:
-                self._last_peer_activity = time.monotonic()
+                self._last_peer_activity = self._clock()
                 peer_seen = True
                 await self._message(message)
 
@@ -441,12 +457,20 @@ class ControllerService(Behavior):
                 imu_logger.debug("PHOS CONTROLLER RX IMU raw=%s",
                                  safe_frame_repr(message.raw_frame or b"", limit=8192))
             try:
-                self._imu_update_sink(message)
+                self._imu_update_sink(message, self._session_generation)
             except Exception as error:
                 logger.warning("PHOS CONTROLLER: IMU integration failure type=%s exception=%s message=%s",
                                message.type, type(error).__name__, self._safe_error_message(error))
             return
         if message.type != "sensor_update":
+            if message.type == "sensor_status":
+                payload = message.payload
+                if (payload.get("sensor") != "ens160" or type(payload.get("validity")) is not int
+                        or payload["validity"] not in {0, 1, 2, 3}
+                        or payload.get("compensation_active") not in {True, False, None}):
+                    self._invalid_sensor_update(message, "invalid ENS160 status")
+                    return
+                self._sensor_status_sink(dict(payload), self._session_generation)
             return
         if message.payload.get("sensor") == "push":
             if message.payload.get("event") != "pressed":
@@ -456,8 +480,8 @@ class ControllerService(Behavior):
             self._touch_sink(event)
             return
         sensor = message.payload.get("sensor")
-        expected_units = {"temperature": "c", "pressure": "hpa", "humidity": "%",
-                          "eco2": "ppm", "tvoc": "ppb"}
+        expected_units = {"temperature": "c", "pressure": "hpa", "humidity": "%rh",
+                          "aht21_temperature": "c", "eco2": "ppm", "tvoc": "ppb", "aqi": "index"}
         if sensor not in expected_units:
             self._invalid_sensor_update(message, "unsupported semantic sensor")
             return
@@ -468,11 +492,17 @@ class ControllerService(Behavior):
         if unit != expected_units[sensor]:
             self._invalid_sensor_update(message, f"unit must be {expected_units[sensor]!r}")
             return
-        if sensor in {"eco2", "tvoc"} and type(value) is not int:
+        if sensor in {"eco2", "tvoc", "aqi"} and type(value) is not int:
             self._invalid_sensor_update(message, "value must be an integer")
             return
+        if sensor == "aqi" and not 1 <= value <= 5:
+            self._invalid_sensor_update(message, "AQI-UBA must be from 1 to 5")
+            return
+        if sensor == "humidity" and not 0 <= value <= 100:
+            self._invalid_sensor_update(message, "humidity must be from 0 to 100")
+            return
         try:
-            self._sensor_update_sink(sensor, value)
+            self._sensor_update_sink(sensor, value, self._session_generation)
         except Exception as error:
             logger.warning("PHOS CONTROLLER: sensor integration failure sensor=%s value=%r unit=%r exception=%s message=%s raw=%s",
                            sensor, value, unit, type(error).__name__, self._safe_error_message(error),

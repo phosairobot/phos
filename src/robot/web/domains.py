@@ -11,7 +11,7 @@ DOMAINS = {
     "general": {"title": "Dashboard", "description": "PHOS administration overview and shortcuts."},
     "status": {"title": "PHOS Status", "description": "Live semantic state, motion, environment and subsystem health summary."},
     "controls": {"title": "Controls", "description": "Apply supported semantic PHOS commands through the authenticated Remote API."},
-    "sensors": {"title": "Sensors", "description": "Detailed BMP280/BME280, CCS811 and MPU6050 readings, freshness and availability."},
+    "sensors": {"title": "Sensors", "description": "Detailed BMP280/BME280, ENS160/AHT21 and MPU6050 readings, freshness and availability."},
     "api": {"title": "API", "description": "Remote API documentation, OpenAPI contract and authenticated capability discovery."},
     "diagnostics": {"title": "Diagnostics", "description": "Runtime health, saved-versus-active configuration and system diagnostic actions."},
     "appearance": {"title": "Appearance", "description": "Display geometry, animation and LED-ring appearance settings."},
@@ -34,7 +34,7 @@ DOMAINS = {
 # dot selects a whole implemented section; all other entries select one field.
 GROUPS = {
     "sensors": [("environmental", "Environmental sensor", ("sensors.environmental.",), None),
-                ("ccs811", "CCS811 air quality", ("sensors.ccs811.",), None),
+                ("ens160", "ENS160 air quality", ("sensors.ens160.",), None),
                 ("environmental-behavior", "Environmental behavior", ("behavior.environmental.",), None),
                 ("imu", "GY-521 / MPU-6050 motion", ("sensors.imu.",), None)],
     "network": [("listener", "Administration address", ("web.host", "web.port"), None)],

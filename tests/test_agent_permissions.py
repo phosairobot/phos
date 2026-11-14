@@ -22,7 +22,7 @@ class ApplicationSpy:
             "robot": {"running": True, "state": "idle"},
             "environment": {"status": "available", "available": True},
             "motion": {"status": "available", "available": True},
-            "sensors": {"ccs811": {"status": "available", "available": True}},
+            "sensors": {"ens160": {"status": "available", "available": True}},
             "observed_expression": {"available": True},
             "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
             "speech": {"tts": {"available": True}},
@@ -91,8 +91,8 @@ def test_agent_status_is_a_compact_semantic_projection_without_operational_detai
                 "controller": {"active_device": "/dev/ttyUSB0", "session_generation": 8},
                 "speech": {"tts": {"available": True, "active_provider": "cartesia"},
                            "audio_output": {"active_device": "pipewire"}},
-                "sensors": {"ccs811": {"status": "available", "available": True,
-                                          "sensor_type": "ccs811", "provider": "controller"}},
+                    "sensors": {"ens160": {"status": "available", "available": True,
+                                              "sensor_type": "ens160", "provider": "controller"}},
                 "semantic_led": {"available": False, "resolved_animation": {"effect": "pulse"}},
                 "visual": {"background": "secret.png"},
             })
@@ -116,7 +116,7 @@ def test_agent_status_reports_semantic_degradation_without_sensor_values():
     status["robot"] = {"running": False, "state": "sleeping"}
     status["environment"] = {"status": "unavailable", "available": False}
     status["motion"] = {"status": "stale", "available": False}
-    status["sensors"] = {"ccs811": {"status": "warming_up", "available": False}}
+    status["sensors"] = {"ens160": {"status": "warming_up", "available": False}}
     application.status = lambda: status
 
     result = AgentApplicationService(application, AgentAccess.for_profile()).status()

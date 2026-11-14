@@ -24,7 +24,7 @@ class Runtime:
 
     def sensor_status(self):
         return {"environmental": {"status": "available", "available": True},
-                "ccs811": {"status": "warming_up"}}
+                "ens160": {"status": "warming_up"}}
 
     def apply_base_visual_source(self, config):
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
@@ -255,14 +255,14 @@ def test_dashboard_status_preserves_controller_fed_semantic_sensor_values_includ
     runtime.sensor_status = lambda: {
         "environmental": {"status": "available", "available": True,
                           "measurements": {"temperature_c": 24.85, "pressure_hpa": 991.6266}},
-        "ccs811": {"status": "available", "available": True,
+        "ens160": {"status": "available", "available": True,
                    "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}},
     }
     app = Flask(__name__)
     app.register_blueprint(create_api(PhosApplicationService(runtime)))
     document = app.test_client().get("/api/v1/status").json
     assert document["environment"]["measurements"] == {"temperature_c": 24.85, "pressure_hpa": 991.6266}
-    assert document["sensors"]["ccs811"]["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+    assert document["sensors"]["ens160"]["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
 
 
 def test_observed_expression_endpoint_is_read_only_and_unavailable_is_not_a_failure():

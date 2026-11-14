@@ -417,7 +417,7 @@ class PhosApplicationService:
             self._semantic_transition("system_health_changed", "system", health, previous=previous_health)
         sensors = status.get("sensors") if isinstance(status, dict) else {}
         for key, event_type, source in (("environmental", "environment_availability_changed", "environment"),
-                                        ("ccs811", "air_quality_availability_changed", "air_quality"),
+                                        ("ens160", "air_quality_availability_changed", "air_quality"),
                                         ("imu", "motion_availability_changed", "motion")):
             snapshot = sensors.get(key) if isinstance(sensors, dict) else {}
             current = snapshot.get("status", "unavailable") if isinstance(snapshot, dict) else "unavailable"
@@ -450,11 +450,16 @@ class PhosApplicationService:
 
     def _on_motion_state_changed(self, event) -> None:
         current = event.data.get("state")
+        # This transition is low-rate semantic input, unlike raw orientation
+        # telemetry.  Publish the canonical IMU snapshot so the Dashboard does
+        # not retain an older sensors.imu value until its periodic refresh.
+        snapshot = self.motion()
+        self._emit("motion_state_changed", snapshot)
         previous = self._last.get("semantic.motion")
         if current != previous:
             self._last["semantic.motion"] = current
             self._semantic_transition("motion_state_changed", "motion", current, previous=previous,
-                                      details={"intensity": event.data.get("intensity")})
+                                      details={"intensity": snapshot.get("motion_intensity")})
 
     def _on_environmental_state_changed(self, event) -> None:
         data = event.data
@@ -598,7 +603,7 @@ class PhosApplicationService:
 
     def health(self) -> dict:
         snapshots = self.sensors()
-        mapping = {"environmental": "environmental", "ccs811": "ccs811", "imu": "mpu6050", "led_ring": "led_ring"}
+        mapping = {"environmental": "environmental", "ens160": "ens160", "aht21": "aht21", "imu": "imu", "led_ring": "led_ring"}
         subsystems = {}
         for name, source in mapping.items():
             item = snapshots.get(source)

@@ -8,6 +8,7 @@ import multiprocessing
 from html.parser import HTMLParser
 import re
 import socket
+import subprocess
 from threading import Event, Thread
 from types import SimpleNamespace
 from pathlib import Path
@@ -27,6 +28,63 @@ from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
 
 PASSWORD = "a new long test password"
+
+
+def test_live_dashboard_reading_accepts_available_bmp280_without_field_usability():
+    """Exercise the actual browser predicate against the live-status shape."""
+    script = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    match = re.search(r"const reading = (\(item, field, suffix\) =>.*?;)", script, re.DOTALL)
+    assert match is not None
+    program = """const reading = %s;
+const bmp = {sensor_type: 'bmp280', available: true,
+  available_measurements: ['temperature_c', 'pressure_hpa'],
+  measurements: {temperature_c: 24.74, pressure_hpa: 994.2103}};
+const mpu = {sensor_type: 'mpu6050', available: true, status: 'available',
+  motion_state: 'still', measurements: {acceleration_x_m_s2: 0.0}};
+const ens = {available: true, measurements: {eco2_ppm: 500},
+  measurement_usable: {eco2_ppm: false}};
+const state = {sensors: {imu: {motion_state: 'still'}},
+  motion: {motion_state: 'moving', motion_intensity: 'medium'}};
+const motion = %s;
+console.log(JSON.stringify([reading(bmp, 'temperature_c', '°C'),
+  reading(bmp, 'pressure_hpa', 'hPa'), mpu.status, mpu.motion_state,
+  reading(ens, 'eco2_ppm', 'ppm'), bmp.measurements.humidity_percent,
+  motion.motion_state, motion.motion_intensity]));
+""" % (match.group(1), re.search(r"const motion = (.*?);", script).group(1))
+    result = subprocess.run(["node", "-e", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == ["24.74 °C", "994.2103 hPa", "available", "still", "Unavailable", None, "moving", "medium"]
+
+
+def test_sensors_page_renders_available_bmp280_and_mpu6050_live_shapes(setup):
+    from robot.lifecycle import LifecycleService
+
+    _app, path, _ = setup
+    config = RuntimeConfig.from_file(path)
+    lifecycle = LifecycleService(path, config)
+    lifecycle.register_sensor_status(lambda: {
+        "environmental": {
+            "sensor_type": "bmp280", "available": True, "status": "available",
+            "available_measurements": ["temperature_c", "pressure_hpa"],
+            "measurements": {"temperature_c": 24.74, "pressure_hpa": 994.2103},
+            "last_update": "2026-11-14T10:00:00+00:00", "age_seconds": 1, "error": None,
+        },
+        "imu": {
+            "sensor_type": "mpu6050", "available": True, "status": "available",
+            "available_measurements": ["acceleration_x_m_s2", "acceleration_y_m_s2", "acceleration_z_m_s2",
+                                       "angular_velocity_x_deg_s", "angular_velocity_y_deg_s", "angular_velocity_z_deg_s"],
+            "measurements": {"acceleration_x_m_s2": 0.1, "acceleration_y_m_s2": 0.2, "acceleration_z_m_s2": 9.8,
+                             "angular_velocity_x_deg_s": 1.0, "angular_velocity_y_deg_s": 2.0, "angular_velocity_z_deg_s": 3.0},
+            "motion_state": "still", "calibration": "factory_scale_only", "last_motion_event": None,
+            "last_update": "2026-11-14T10:00:00+00:00", "age_seconds": 1, "error": None,
+        },
+    })
+    page = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle)).get("/configuration/sensors")
+    rendered = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "24.74 °C" in rendered and "994.21 hPa" in rendered
+    assert "0.100 / 0.200 / 9.800 m/s²" in rendered
+    assert "1.000 / 2.000 / 3.000 °/s" in rendered
+    assert "Still" in rendered and "Humidity</dt><dd>Not supported" in rendered
 
 
 @pytest.fixture
@@ -1372,11 +1430,12 @@ def test_live_dashboard_is_an_api_client_and_retains_server_rendered_sensor_fall
     assert 'sensor_status' not in source and 'GPIO' not in source
     assert 'event.type === "sensors_changed"' in source
     assert 'item.measurements[field] !== undefined' in source
-    assert 'ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811)' in source
+    assert 'ens160: mergeSensor((current || {}).ens160, (next || {}).ens160)' in source
+    assert 'aht21: mergeSensor((current || {}).aht21, (next || {}).aht21)' in source
     assert 'Math.floor((Date.now() - timestamp) / 1000)' in source
     assert 'window.setInterval(renderFreshness, 1000)' in source
     assert 'dashboard._phosFreshnessTimer' in source
-    assert 'const motion = (state.sensors || {}).imu || state.motion || {};' in source
+    assert 'const motion = state.motion || (state.sensors || {}).imu || {};' in source
     assert 'display("motion.intensity", motion.motion_intensity' in source
     for event_type in ("presence_changed", "attention_changed", "person_entered", "person_left",
                        "attention_target_acquired", "attention_target_changed", "attention_target_lost",
@@ -2376,19 +2435,20 @@ def test_environmental_behavior_status_uses_runtime_interpreter_state(setup):
                      "measurements": {"temperature_c": 28.0, "pressure_hpa": 1008.75},
                      "age_seconds": 2, "available_measurements": ["temperature_c", "pressure_hpa"],
                      "last_update": "2026-09-26T10:00:00+00:00", "error": None}
-    air = {"sensor_type": "ccs811", "status": "available", "available": True,
-           "measurements": {"eco2_ppm": 1300, "tvoc_ppb": 321}, "age_seconds": 3,
-           "last_update": "2026-09-26T10:00:00+00:00", "compensation_input": "device_defaults", "error": None}
-    lifecycle.register_sensor_status(lambda: {"environmental": environmental, "ccs811": air,
+    air = {"sensor_type": "ens160", "status": "available", "available": True,
+           "measurements": {"eco2_ppm": 1300, "tvoc_ppb": 321, "aqi_uba": 3}, "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True}, "ens160_validity": "normal", "ens160_compensation_active": True, "age_seconds": 3,
+           "last_update": "2026-09-26T10:00:00+00:00", "error": None}
+    aht = {"status": "available", "available": True, "measurements": {"temperature_c": 24.5, "humidity_percent": 45.0}, "source": "controller"}
+    lifecycle.register_sensor_status(lambda: {"environmental": environmental, "ens160": air, "aht21": aht,
         "environmental_behavior": {"state": "warm", "reason": "temperature above warm threshold"}})
     client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
     page = client.get("/configuration/sensors").get_data(as_text=True)
     for text in ("Environmental State</dt><dd>WARM", "temperature above warm threshold",
-                 "28.00 °C", "1008.75 hPa", "1300 ppm", "321 ppb", "2.0 seconds old", "3.0 seconds old"):
+                 "28.00 °C", "1008.75 hPa", "1300 ppm", "321 ppb", "3 / 5", "Active", "24.50 °C", "45.00 %RH", "controller", "2.0 seconds old", "3.0 seconds old"):
         assert text in page
 
 
-def test_environmental_behavior_status_separates_warm_from_ccs811_warming_up(setup):
+def test_environmental_behavior_status_separates_warm_from_ens160_warming_up(setup):
     from robot.lifecycle import LifecycleService
     app, path, _ = setup
     config = RuntimeConfig.from_file(path)
@@ -2397,7 +2457,7 @@ def test_environmental_behavior_status_separates_warm_from_ccs811_warming_up(set
         "environmental": {"sensor_type": "bmp280", "status": "available", "available": True,
             "measurements": {"temperature_c": 28.18, "pressure_hpa": 995.66}, "age_seconds": 1,
             "available_measurements": ["temperature_c", "pressure_hpa"], "last_update": None, "error": None},
-        "ccs811": {"sensor_type": "ccs811", "status": "warming_up", "available": False,
+        "ens160": {"sensor_type": "ens160", "status": "warming_up", "available": False,
             "measurements": None, "age_seconds": None, "last_update": None,
             "compensation_input": None, "error": "Conditioning"},
         "environmental_behavior": {"state": "warm", "reason": "temperature above warm threshold"},
@@ -2406,7 +2466,76 @@ def test_environmental_behavior_status_separates_warm_from_ccs811_warming_up(set
     page = client.get("/configuration/sensors").get_data(as_text=True)
     assert "Environmental State</dt><dd>WARM" in page
     assert "temperature above warm threshold" in page
-    assert "CCS811 freshness</dt><dd>warming_up" in page
+    assert "ENS160 freshness</dt><dd>warming_up" in page
+
+
+def test_sensors_page_renders_all_ens160_aqi_uba_categories_and_hides_unusable_history(setup):
+    from robot.lifecycle import LifecycleService
+    _app, path, _ = setup
+    config = RuntimeConfig.from_file(path)
+    lifecycle = LifecycleService(path, config)
+    air = {"status": "available", "available": True,
+           "measurements": {"eco2_ppm": 600, "tvoc_ppb": 10, "aqi_uba": 1},
+           "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True},
+           "ens160_validity": "normal", "ens160_compensation_active": None,
+           "last_update": None, "age_seconds": 0, "error": None}
+    aht = {"status": "available", "available": True,
+           "measurements": {"temperature_c": 21.5, "humidity_percent": 44.0},
+           "measurement_usable": {"temperature_c": True, "humidity_percent": True}, "source": "controller"}
+    lifecycle.register_sensor_status(lambda: {"ens160": air, "aht21": aht})
+    client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
+    for value, label in ((1, "Excellent"), (2, "Good"), (3, "Moderate"), (4, "Poor"), (5, "Unhealthy")):
+        air["measurements"]["aqi_uba"] = value
+        page = client.get("/configuration/sensors").get_data(as_text=True)
+        assert f"{value} / 5 — {label}" in page
+    air.update(status="invalid", available=False)
+    air["measurements"].update(eco2_ppm=999, tvoc_ppb=999, aqi_uba=5)
+    air["measurement_usable"] = {"eco2_ppm": False, "tvoc_ppb": False, "aqi_uba": False}
+    page = client.get("/configuration/sensors").get_data(as_text=True)
+    assert "invalid" in page and "999 ppm" not in page and "999 ppb" not in page
+    assert "21.50 °C" in page and "44.00 %RH" in page and "controller" in page
+
+
+def test_sensors_page_handles_ens160_states_compensation_and_aht21_field_freshness(setup):
+    from robot.lifecycle import LifecycleService
+    _app, path, _ = setup
+    config = RuntimeConfig.from_file(path)
+    lifecycle = LifecycleService(path, config)
+    environmental = {"sensor_type": "bmp280", "status": "available", "available": True,
+                     "measurements": {"temperature_c": 19.0, "pressure_hpa": 1001.0},
+                     "available_measurements": ["temperature_c", "pressure_hpa"], "age_seconds": None}
+    air = {"status": "normal", "available": True,
+           "measurements": {"eco2_ppm": 500, "tvoc_ppb": 5, "aqi_uba": 1},
+           "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True},
+           "ens160_validity": "normal", "ens160_compensation_active": True, "age_seconds": None}
+    aht = {"status": "available", "available": True,
+           "measurements": {"temperature_c": 23.0, "humidity_percent": 51.0},
+           "measurement_usable": {"temperature_c": True, "humidity_percent": True}, "source": "controller", "age_seconds": None}
+    state = {"environmental": environmental, "ens160": air, "aht21": aht}
+    lifecycle.register_sensor_status(lambda: state)
+    client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
+    for status in ("normal", "starting", "stale", "unavailable"):
+        air["status"], air["available"] = status, status == "normal"
+        air["measurement_usable"] = {"eco2_ppm": status == "normal", "tvoc_ppb": status == "normal", "aqi_uba": status == "normal"}
+        page = client.get("/configuration/sensors")
+        assert page.status_code == 200
+        rendered = page.get_data(as_text=True)
+        assert f"Sensor status</dt><dd>{status}" in rendered
+        if status != "normal": assert "500 ppm" not in rendered and "5 ppb" not in rendered
+        assert "23.00 °C" in rendered and "19.00 °C" in rendered
+    air["status"], air["available"] = "normal", True
+    air["measurement_usable"] = {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True}
+    for value, label in ((True, "Active"), (False, "Inactive"), (None, "Unknown")):
+        air["ens160_compensation_active"] = value
+        assert f"Compensation</dt><dd>{label}" in client.get("/configuration/sensors").get_data(as_text=True)
+    aht["measurement_usable"] = {"temperature_c": False, "humidity_percent": True}
+    page = client.get("/configuration/sensors").get_data(as_text=True)
+    assert "23.00 °C" not in page and "51.00 %RH" in page and "19.00 °C" in page
+    aht["measurement_usable"] = {"temperature_c": True, "humidity_percent": False}
+    page = client.get("/configuration/sensors").get_data(as_text=True)
+    assert "23.00 °C" in page and "51.00 %RH" not in page
+    state.pop("ens160"); state.pop("aht21")
+    assert client.get("/configuration/sensors").status_code == 200
 
 
 def test_sensors_page_shows_shared_semantic_runtime_status(setup):
@@ -2452,36 +2581,28 @@ def test_bmp280_status_shows_unsupported_humidity_even_when_disabled(setup):
             assert '22.50 °C' in page and '1008.75 hPa' in page
 
 
-def test_ccs811_form_and_status_use_shared_configuration_and_lifecycle(setup):
+def test_ens160_form_and_status_use_shared_configuration_and_lifecycle(setup):
     from robot.lifecycle import LifecycleService
     app, path, _ = setup
     config = RuntimeConfig.from_file(path)
     lifecycle = LifecycleService(path, config)
-    state = {'sensor_type': 'ccs811', 'status': 'available', 'available': True,
-             'measurements': {'eco2_ppm': 1234, 'tvoc_ppb': 321},
+    state = {'sensor_type': 'ens160', 'status': 'available', 'available': True,
+             'measurements': {'eco2_ppm': 1234, 'tvoc_ppb': 321, 'aqi_uba': 2},
+             'measurement_usable': {'eco2_ppm': True, 'tvoc_ppb': True, 'aqi_uba': True},
              'last_update': '2026-09-24T12:00:00+00:00', 'age_seconds': 2,
              'compensation_input': 'environmental', 'error': None}
-    lifecycle.register_sensor_status(lambda: {'ccs811': dict(state)})
+    lifecycle.register_sensor_status(lambda: {'ens160': dict(state)})
     client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
     page = client.get('/configuration/sensors').get_data(as_text=True)
     for text in ('1234 ppm', '321 ppb', 'estimated equivalent CO2', 'not a direct NDIR',
-                 'Fresh environmental temperature/humidity', state['last_update'],
-                 'name="sensors.ccs811.enabled"', 'value="0x5b"'):
+                 state['last_update'], 'name="sensors.ens160.enabled"', 'value="0x53"'):
         assert text in page
     data = form(client, 'sensors')
-    data.update({'sensors.ccs811.enabled': 'on', 'sensors.ccs811.i2c_address': '0x5b',
-                 'sensors.ccs811.poll_interval_seconds': '10', 'sensors.ccs811.stale_after_seconds': '60'})
-    assert client.post('/configuration/sensors', data=data).status_code == 302
-    expected = config.to_dict()
-    expected['sensors']['ccs811'].update(enabled=True, i2c_address='0x5b',
-                                        poll_interval_seconds=10, stale_after_seconds=60)
-    assert load_document(path) == expected
-    assert len(lifecycle.execute('status')['restart_required']) == 4
-    for field, value in [('i2c_address', '0x76'), ('poll_interval_seconds', '0'), ('stale_after_seconds', '10')]:
-        invalid = form(client, 'sensors')
-        invalid['sensors.ccs811.' + field] = value
-        assert client.post('/configuration/sensors', data=invalid).status_code == 400
-        assert load_document(path) == expected
+    data.update({'sensors.ens160.enabled': 'on', 'sensors.ens160.i2c_address': '0x53',
+                 'sensors.ens160.poll_interval_seconds': '10', 'sensors.ens160.stale_after_seconds': '60'})
+    # ENS160 is controller-backed: it cannot be enabled unless the configured
+    # controller is enabled, so the standalone fixture correctly rejects this.
+    assert client.post('/configuration/sensors', data=data).status_code == 400
     for status in ('warming_up', 'unavailable', 'stale', 'disabled'):
         state.update(status=status, available=False, measurements=None, error='Waiting for sensor')
         page = client.get('/configuration/sensors').get_data(as_text=True)

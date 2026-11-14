@@ -292,10 +292,10 @@ sensors:
     i2c_address: '0x76'
     poll_interval_seconds: 5.0
     stale_after_seconds: 30.0
-  ccs811:
+  ens160:
     enabled: false
-    provider: local
-    i2c_address: '0x5a'
+    provider: controller
+    i2c_address: '0x53'
     poll_interval_seconds: 5.0
     stale_after_seconds: 30.0
   imu:

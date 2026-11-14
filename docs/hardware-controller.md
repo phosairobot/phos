@@ -106,6 +106,7 @@ as “currently emitted by PHOS”: the current serial adapter transmits only
 | `ping` | Pi → controller | PHOS heartbeat; empty payload. | Peer activity keeps the session healthy; v1 requires no separate `pong`. |
 | `heartbeat` | controller → Pi | Controller liveness cue. | Updates PHOS's recorded heartbeat time. |
 | `sensor_update` | controller → Pi | Semantic sensor/value/unit or supported push event. | Valid updates enter existing semantic services; invalid updates are rejected safely. |
+| `sensor_status` | controller → Pi | Additive ENS160 status: `sensor: "ens160"`, `validity` integer 0–3, and `compensation_active` boolean. | Sent on change and at the bounded air-quality refresh cadence. Codes are normal, warm-up, startup, and invalid respectively; old controllers may omit it. |
 | `motion_update` | controller → Pi | Semantic motion `state` and `intensity`. | Exact validated values update the IMU service. |
 | `orientation_update` | controller → Pi | Finite `x`, `y`, `z` acceleration and angular-velocity vectors. | Exact validated vectors update IMU telemetry. |
 | `set_led_animation` | Pi → controller | PHOS-resolved LED animation semantics. | Sent only for an active LED-capable session; otherwise unavailable. |
@@ -136,8 +137,9 @@ Each complete object below is followed by a newline on the wire.
 
 Controller-backed observations enter the same semantic services as local
 providers. BME280/BMP280 can provide temperature and pressure; only BME280
-supplies humidity. CCS811 reports air-quality indicators, including eCO2 as an
-*estimated CO2 equivalent*, not direct CO2. MPU6050 telemetry is represented by
+supplies humidity. ENS160 reports eCO2 (an *estimated CO2 equivalent*, not direct CO2),
+TVOC in ppb and AQI-UBA on its 1–5 scale; AHT21 supplies controller-provenance
+temperature and humidity used for ENS160 compensation. MPU6050 telemetry is represented by
 semantic motion updates and/or acceleration and angular-velocity vectors.
 Physical hardware, wiring, and firmware support vary by installation.
 

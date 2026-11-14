@@ -1,5 +1,7 @@
 # PHOS
 
+PHOS receives ENS160 air-quality and AHT21 temperature/humidity telemetry from its ESP32 controller through phos-hw v1 JSON Lines. ENS160 reports estimated eCO2, TVOC and AQI-UBA (1–5); AHT21 supplies controller-provenance compensation inputs. The Raspberry Pi interprets only fresh usable data and does not directly poll either sensor.
+
 ![PHOS robot](img/phos.png)
 
 **A Physical Companion for AI Agents.**
@@ -60,7 +62,7 @@ or the
 ### Sensors & physical interaction
 
 - Recognize local touchscreen taps, double-taps, long presses, and horizontal swipes as semantic gestures.
-- Integrate optional BME280/BMP280 environmental sensing, CCS811 air-quality estimates, MPU-6050/GY-521 motion sensing, and WS2812B LED-ring feedback.
+- Integrate optional BME280/BMP280 environmental sensing, controller-backed ENS160 air-quality estimates and AHT21 temperature/humidity, MPU-6050/GY-521 motion sensing, and WS2812B LED-ring feedback.
 - Translate confirmed environmental and motion observations into behavioral visual intent rather than letting drivers control the display directly.
 
 ### Behavior, Web Admin & API
@@ -102,7 +104,7 @@ Providers observe or perform focused capabilities; `BehaviorEngine` owns behavio
 
 ## Reference hardware
 
-The reference platform is a Raspberry Pi 3 with a 5-inch 800×600 display, Raspberry Pi Camera, and USB microphone. Optional integrations include BME280/BMP280, CCS811, MPU-6050/GY-521, and a WS2812B RGB LED ring. Software support and physical acceptance are tracked separately; consult the [hardware guide](https://phosairobot.github.io/phos/hardware/) before wiring or assuming a module is validated on a particular build.
+The reference platform is a Raspberry Pi 3 with a 5-inch 800×600 display, Raspberry Pi Camera, and USB microphone. Optional integrations include BME280/BMP280, controller-backed ENS160/AHT21, MPU-6050/GY-521, and a WS2812B RGB LED ring. Software support and physical acceptance are tracked separately; consult the [hardware guide](https://phosairobot.github.io/phos/hardware/) before wiring or assuming a module is validated on a particular build.
 
 ## Web Admin & Remote API
 

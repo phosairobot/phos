@@ -83,7 +83,7 @@ def test_temperature_query_returns_a_structured_semantic_outcome():
 def test_parameterized_sensor_routes_use_the_application_read_models():
     service = ApplicationServiceSpy(
         environment={"available": True, "measurements": {"pressure_hpa": 1012.6}},
-        sensors={"ccs811": {"available": True, "measurements": {"eco2_ppm": 520, "tvoc_ppb": 12}}},
+            sensors={"ens160": {"available": True, "measurements": {"eco2_ppm": 520, "tvoc_ppb": 12}}},
     )
     executor = CommandExecutor(service)
     pressure = executor.execute(
@@ -106,8 +106,8 @@ def test_unavailable_temperature_has_no_invented_value():
     assert result.document()["reason"] == "temperature_unavailable"
 
 
-def test_air_quality_query_preserves_its_atomic_ccs811_measurements():
-    service = ApplicationServiceSpy(sensors={"ccs811": {"available": True,
+def test_air_quality_query_preserves_its_atomic_ens160_measurements():
+    service = ApplicationServiceSpy(sensors={"ens160": {"available": True,
                                   "measurements": {"eco2_ppm": 520, "tvoc_ppb": 12}}})
     result = CommandExecutor(service).execute(CommandRoute("get_air_quality", "environment.get_air_quality"),
                                               _authorization("environment.get_air_quality"))
@@ -118,7 +118,7 @@ def test_air_quality_query_preserves_its_atomic_ccs811_measurements():
 def test_unavailable_or_partial_air_quality_is_not_fabricated():
     for snapshot in ({"available": False, "measurements": None},
                      {"available": True, "measurements": {"eco2_ppm": 520}}):
-        service = ApplicationServiceSpy(sensors={"ccs811": snapshot})
+        service = ApplicationServiceSpy(sensors={"ens160": snapshot})
         result = CommandExecutor(service).execute(CommandRoute("get_air_quality", "environment.get_air_quality"),
                                                   _authorization("environment.get_air_quality"))
         assert (result.document()["status"], result.document()["result"], result.document()["reason"]) == (

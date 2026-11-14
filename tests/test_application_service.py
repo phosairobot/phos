@@ -37,7 +37,7 @@ class Runtime:
     def sensor_status(self):
         return {
             "environmental": {"status": "available", "available": True, "measurements": {"temperature_c": 21.5}},
-            "ccs811": {"status": "warming_up", "available": False},
+            "ens160": {"status": "warming_up", "available": False},
             "imu": {"status": "unavailable", "available": False},
         }
 
@@ -66,8 +66,31 @@ def test_status_has_semantic_environment_and_health():
     service = PhosApplicationService(Runtime())
     status = service.status()
     assert status["environment"]["status"] == "available"
-    assert status["health"]["subsystems"]["ccs811"]["state"] == "warming_up"
+    assert status["health"]["subsystems"]["ens160"]["state"] == "warming_up"
     assert status["health"]["subsystems"]["imu"]["state"] == "unavailable"
+
+
+def test_health_uses_canonical_imu_sensor_snapshot_key():
+    runtime = Runtime()
+    runtime.sensor_status = lambda: {
+        "environmental": {"status": "available", "available": True,
+                          "available_measurements": ["temperature_c", "pressure_hpa"],
+                          "measurements": {"temperature_c": 24.74, "pressure_hpa": 994.2103}},
+        "aht21": {"status": "available", "available": True,
+                  "measurements": {"temperature_c": 23.5, "humidity_percent": 51.0}},
+        "ens160": {"status": "starting", "available": False,
+                   "measurements": {"eco2_ppm": 500, "tvoc_ppb": 12, "aqi_uba": 2},
+                   "measurement_usable": {"eco2_ppm": False, "tvoc_ppb": False, "aqi_uba": False}},
+        "imu": {"sensor_type": "mpu6050", "status": "available", "available": True,
+                "motion_state": "still", "measurements": {
+                    "acceleration_x_m_s2": 0.0, "acceleration_y_m_s2": 0.0, "acceleration_z_m_s2": 9.8,
+                    "angular_velocity_x_deg_s": 0.0, "angular_velocity_y_deg_s": 0.0, "angular_velocity_z_deg_s": 0.0}},
+    }
+    service = PhosApplicationService(runtime)
+    status = service.status()
+    assert status["sensors"]["imu"]["available"]
+    assert status["health"]["subsystems"]["imu"] == {"state": "ok", "detail": "available"}
+    assert not status["sensors"]["ens160"]["measurement_usable"]["eco2_ppm"]
 
 
 def test_physical_context_uses_existing_application_read_models():
@@ -228,7 +251,7 @@ def test_fresh_observed_expression_event_is_forwarded_to_remote_subscribers():
 
 def test_remote_snapshot_bridge_emits_canonical_sensor_updates():
     sensors = {"environmental": {"available": True, "measurements": {"temperature_c": 24.85}},
-               "ccs811": {"available": True, "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}}}
+               "ens160": {"available": True, "measurements": {"eco2_ppm": 400, "tvoc_ppb": 0}}}
     class Lifecycle:
         def execute(self, operation, payload=None):
             assert operation == "application.status"
@@ -540,7 +563,7 @@ def test_sensor_availability_statuses_establish_a_baseline_then_emit_only_transi
                 "environment": {"available": environment == "available", "status": environment},
                 "motion": {"available": motion == "available", "status": motion},
                 "sensors": {"environmental": {"status": environment, "available": environment == "available"},
-                            "ccs811": {"status": air, "available": air == "available"},
+                            "ens160": {"status": air, "available": air == "available"},
                             "imu": {"status": motion, "available": motion == "available"}},
                 "observed_expression": {"available": False}, "voice": {"enabled": False, "last_error": None},
                 "speech": {"tts": {"available": False}}, "semantic_led": {"available": False}}
@@ -568,7 +591,7 @@ def test_capability_and_system_health_events_reuse_agent_status_semantics_withou
         "robot": {"running": True, "state": "idle"},
         "environment": {"status": "available", "available": True},
         "motion": {"status": "available", "available": True},
-        "sensors": {"ccs811": {"status": "available", "available": True}},
+            "sensors": {"ens160": {"status": "available", "available": True}},
         "observed_expression": {"available": False, "provider": "not-exposed"},
         "voice": {"enabled": True, "listening": False, "last_error": None},
         "speech": {"tts": {"available": True, "provider": "not-exposed"}},
@@ -578,7 +601,7 @@ def test_capability_and_system_health_events_reuse_agent_status_semantics_withou
         **baseline,
         "environment": {"status": "unavailable", "available": False},
         "motion": {"status": "unavailable", "available": False},
-        "sensors": {"ccs811": {"status": "unavailable", "available": False}},
+            "sensors": {"ens160": {"status": "unavailable", "available": False}},
         "observed_expression": {"available": True, "provider": "not-exposed"},
         "voice": {"enabled": True, "listening": False, "last_error": "not-exposed"},
         "semantic_led": {"available": True},
@@ -610,7 +633,7 @@ def test_capability_state_is_not_reemitted_without_a_transition():
     service.subscribe_semantic_events(lambda event: received.append(event.document()))
     status = {
         "robot": {"running": True}, "environment": {"available": True},
-        "motion": {"available": True}, "sensors": {"ccs811": {"available": True}},
+        "motion": {"available": True}, "sensors": {"ens160": {"available": True}},
         "observed_expression": {"available": False}, "voice": {"enabled": True, "last_error": None},
         "speech": {"tts": {"available": True}}, "semantic_led": {"available": True},
     }

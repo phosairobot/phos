@@ -1,5 +1,7 @@
 # PHOS installation on Raspberry Pi
 
+> **Current air-quality installation:** ENS160 and AHT21 are wired to the ESP32 I2C bus, not Raspberry Pi I2C. ENS160 uses `0x53` or `0x52`; AHT21 uses `0x38`. Verify supply, logic levels, common ground and serial JSONL telemetry. The controller publishes estimated eCO2, TVOC, AQI-UBA 1–5, ENS160 validity/compensation and AHT21 temperature/humidity. After reconnect, the Pi requires fresh usable telemetry; historic readings are not revived.
+
 ## PHOS 1.8.0 reproducible installation
 
 Use Raspberry Pi OS **with a graphical desktop**, Python 3.11+ and an 800×600
@@ -39,7 +41,7 @@ The APT packages are `build-essential`, `ca-certificates`, `git`, `i2c-tools`,
 `python3-picamera2`, `python3-pyaudio`, `python3-smbus`, `python3-tk`, `python3-venv`,
 `rpicam-apps`, and `wget`.
 `.[all]` includes Web Admin/Remote API, Vision, voice (Vosk, Piper, Cartesia,
-and ElevenLabs integrations), AWS, environmental, CCS811, IMU, LED-ring, and
+and ElevenLabs integrations), AWS, environmental sensing, IMU, LED-ring, and
 USB/serial controller Python support.
 
 The optional controller transport uses `pyserial` (included by `.[all]`; install
@@ -122,7 +124,7 @@ permission problems before proceeding. Camera packages and setup follow
 ## Configure PHOS and Web Admin
 
 Edit `~/phos/config/phos.yaml`. Release defaults start only eyes: tracking,
-expressions, camera preview, environmental sensors, CCS811 and Web Admin are disabled. Keep this complete file;
+expressions, camera preview, environmental sensors and Web Admin are disabled. Keep this complete file;
 all required sections (`web`, `display`, `led_ring`, `presence`, `attention`,
 `behavior`, `vision`, `expression`, `expression_reactions`, `voice`, `tts`,
 `sensors`, `logging`)
@@ -489,7 +491,7 @@ The status panel shows acceleration X/Y/Z in m/s² and angular velocity X/Y/Z in
 °/s, with timestamp, age and health. PHOS configures ±2 g / ±250 °/s and converts
 the raw readings using factory scale factors. It does not calibrate mounting
 offsets at startup: keep the robot still only when comparing baseline values, and
-expect one acceleration axis to include gravity. The interpreter estimates tilt from gravity; no full orientation fusion is implemented. If CCS811 shares bus 1, retain its documented
+expect one acceleration axis to include gravity. The interpreter estimates tilt from gravity; no full orientation fusion is implemented. If other Pi I2C devices share bus 1, retain their documented
 10 kHz `i2c_arm_baudrate` setting.
 
 The motion interpreter prioritizes IMPACT, SHAKE, confirmed TILT, MOVING,
@@ -690,160 +692,25 @@ and impact require no direct IMU-to-LED coupling. After an alert or directional
 fill, confirm the currently resolved persistent state returns: environmental
 color when active, otherwise the configured base color.
 
-## Optional CCS811 air-quality sensor
+## Controller-backed ENS160 and AHT21
 
-Follow the shared [I2C enablement and permissions setup](#optional-environmental-sensor)
-above once. Before powering the Pi, verify the exact module and
-[CCS811 wiring](hardware.md#keyestudio-sen-ccs811), including nWAKE and Pi-side
-logic levels. Do not apply the BME280 supply assumption to an unidentified
-Keyestudio board. With PHOS stopped, as its desktop/service user:
+ENS160 and AHT21 are connected to the ESP32 shared I2C bus, not Raspberry Pi
+I2C. ENS160 uses `0x53` (or `0x52`) and AHT21 uses `0x38`. The controller
+publishes measurements and status through phos-hw v1 JSON Lines, so PHOS needs
+no Pi-side driver, I2C setup, optional package, or migration for either device.
 
-```bash
-systemctl --user stop phos.service
-ls -l /dev/i2c-1
-id -nG
-i2cdetect -y 1 0x5a 0x5b
-cd ~/phos
-.venv/bin/python -m pip install 'smbus2>=0.4,<1'
-.venv/bin/python -m pip check
-.venv/bin/python -c "import smbus2; print('CCS811 I2C dependency OK')"
-```
+Verify ESP32 wiring, firmware and the serial controller connection. The Sensors
+page reports `sensors.ens160` with estimated eCO2 (ppm), TVOC (ppb), AQI-UBA
+(1–5), validity and compensation status, and `sensors.aht21` with controller
+temperature and relative humidity. eCO2 is an estimate, not direct NDIR CO2.
+During ENS160 startup or warm-up, and after disconnects, PHOS withholds unusable
+gas values while independently fresh AHT21 and BMP280/BME280 values remain
+available. A reconnect requires fresh telemetry for its new controller session.
 
-For a foreground launch, stop that process instead of systemctl. Expect `5a` or
-`5b`; `--` is no response, and `UU` means a kernel driver owns the address.
-Do not force competing access. A response does not prove chip identity: PHOS
-checks HW_ID. Only one PHOS process should own these sensor addresses.
+### ENS160/AHT21 verification
 
-The optional package extra is `.[ccs811]`. PHOS uses its small CCS811 register
-adapter over [smbus2](https://smbus2.readthedocs.io/en/latest/), the same I2C
-library as the environmental adapters. No separate `ccs811` Python package,
-Blinka/CircuitPython framework or GPIO dependency is required. Imports are lazy;
-a disabled CCS811 needs no optional dependency. A `ModuleNotFoundError` for
-`smbus2` means install it using the exact virtual environment in the service's
-ExecStart, then retry or restart.
-
-Merge the required `sensors.ccs811` block from `config/phos.yaml` into existing
-deployment JSON, preserving `sensors.environmental` and all other settings.
-Missing fields fail validation even when disabled; `run_pi.sh` preserves existing
-JSON and does not migrate it. In **Web Admin → Sensors → CCS811 air quality**,
-enable it, choose the detected address and set host polling/stale timeout.
-Save alone changes the file. All four fields require **Restart PHOS**; Reload
-leaves them pending. For the documented deployment:
-
-```bash
-cd ~/phos
-PYTHONPATH=src .venv/bin/python -c "from robot.config import ConfigRepository; ConfigRepository().load(); print('Configuration valid')"
-systemctl --user restart phos.service
-journalctl --user -u phos.service -n 100 --no-pager
-```
-
-Manual launch uses `PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml`.
-The runtime starts the firmware application and selects device mode 1 (one-second
-measurements). Host polling does not change that drive mode. Readings are withheld
-for 20 minutes after every initialization, including reconnect/restart; the UI
-shows `warming_up`, no values and no fabricated timestamp. No-data polls retain
-the initialized device and resume at the configured interval. Faults use the
-existing bounded backoff and rate-limited warnings without stopping eyes/Vision.
-
-### CCS811 conditioning, baseline and compensation
-
-The [ams CCS811 datasheet, v1-06](https://www.mouser.com/datasheet/2/588/CCS811_DS000459_7-00-1594304.pdf)
-describes 20-minute conditioning, a 60-minute first-power-on period and continuing
-early-life changes over 48 hours. Allow at least an hour on a new sensor and
-record stability over 48 hours during physical acceptance. PHOS does not persist
-sensor lifetime, so its 20-minute gate is not certification of first-use accuracy.
-It relies on device automatic baseline correction; it neither saves/restores a
-baseline nor writes a copied example baseline. Baseline persistence is follow-up
-work requiring device-specific validation.
-
-Fresh, valid temperature and humidity from the environmental service are passed
-automatically to CCS811. BME280 can supply both; BMP280 cannot. If unavailable,
-stale or outside the compensation range, the adapter explicitly restores device
-default inputs (25 °C / 50% RH). Those are algorithm assumptions, not measured
-room conditions. The UI identifies the last compensation input; the device may
-apply a changed input after the next gas sample. ENV_DATA writes are deduplicated.
-This is supported by the device register protocol through smbus2, without coupling
-the CCS811 adapter to another hardware provider.
-
-### CCS811 verification and troubleshooting
-
-Refresh **Web Admin → Sensors** after saving edits. After conditioning expect
-eCO2 in ppm (estimated equivalent CO2, **not direct NDIR CO2**) and TVOC in ppb,
-advancing UTC timestamps, age and health. A valid low TVOC value can be zero;
-unavailable/stale readings instead show Unavailable. Do not interpret a successful
-poll or eCO2 as a calibrated direct CO2 measurement.
-
-Verify actual board revision, power/logic levels, nWAKE, address and chip identity.
-Check both sensors together with eyes/Vision/Web Admin running. With BME280,
-confirm environmental compensation; with BMP280 or disabled environmental sensing,
-confirm device defaults. Verify a wrong configured address produces unavailable
-without stopping PHOS, then correct it and restart. Power off before changing
-wires; disabling CCS811 plus restart should remove CCS811 transactions.
-
-If the address responds but reads fail, inspect journal error codes, wiring,
-pull-ups, power and clock-stretch handling on the Pi's I2C controller. CCS811
-uses clock stretching; detecting it alone does not verify reliable transfers.
-For the Raspberry Pi 3, configure the shared I2C bus at 10 kHz before retrying
-CCS811. This setting affects every device on bus 1, including BME280/BMP280.
-
-```bash
-sudo nano /boot/firmware/config.txt
-```
-
-On older Raspberry Pi OS installations, use `/boot/config.txt` instead. In the
-`[all]` section, retain I2C enablement and add or update this single setting:
-
-```ini
-dtparam=i2c_arm=on
-dtparam=i2c_arm_baudrate=10000
-```
-
-Do not leave multiple `i2c_arm_baudrate` entries with conflicting values. Save,
-then shut down and remove power from the CCS811 before starting again:
-
-```bash
-sudo poweroff
-```
-
-After restoring power, start PHOS and inspect its journal. The low bus speed is
-a Raspberry Pi system setting, not `poll_interval_seconds` in `phos.json`.
-PHOS does not alter bus speed or switch to a software I2C bus itself. Record Pi
-OS, module revision, address, sustained readings and recovery results before
-claiming hardware acceptance. DEBUG logs include reads and compensation changes;
-INFO does not log every sample. A stuck I/O call stays in one worker, with a
-bounded shutdown wait and cleanup by its owner when it returns.
-
-### CCS811 reads 0x81 after power cycling, then 0xff after PHOS starts
-
-This observation points to a problem triggered during initialization; it does
-not by itself identify the exact transaction or prove a hardware fault. Normal
-startup now reads HW_ID/STATUS, issues APP_START only in boot mode, and verifies
-mode 1. It does **not** send SW_RESET on startup or reconnect. This follows the
-normal boot-to-application sequence in the datasheet linked above. A chip already
-in application mode is reused; the existing conditioning gate still applies.
-
-Initialization errors report address, failed phase and actual register values.
-For example, `read HW_ID: HW_ID=0xff, expected 0x81` differs from an invalid STATUS
-during `verify APP_START` or `verify MEAS_MODE`. All-ones STATUS is rejected as
-unreliable communication instead of being interpreted as valid application flags.
-DEBUG logs include the initial valid HW_ID/STATUS pair.
-
-To validate this change on the Pi:
-
-1. Stop PHOS and update `src/robot/hardware/ccs811.py` from this checkout into the
-   actual deployed checkout; editing the development copy alone has no effect.
-2. Prevent automatic PHOS startup for the test (temporarily
-   `systemctl --user disable --now phos.service` for the documented managed setup).
-   Shut down the Pi and remove power from the sensor as well to clear its existing
-   all-ones state. Keep the current wiring unchanged for this comparison.
-3. Boot and confirm HW_ID is 0x81 at 0x5a with PHOS stopped, then stop the checker
-   before `systemctl --user start phos.service`.
-4. Inspect `journalctl --user -u phos.service -n 100 --no-pager`. Successful startup
-   reports initialization followed by conditioning. If it fails, record the first
-   failure's phase and values; later retries may show only the already-failed bus.
-5. Restore automatic startup with `systemctl --user enable phos.service` when
-   testing is complete if it was previously enabled.
-
-Avoid simultaneous checker/PHOS access. This change is hardware-unverified; a
-persistent all-ones response can still require power recovery and investigation
-of power, wake and I2C timing. No automatic GPIO reset or bus-speed change is made.
+Confirm the ESP32 controller is connected and advertises sensor capability, then
+inspect Sensors status for fresh `sensors.ens160` and `sensors.aht21` records.
+ENS160 gas values are usable only when validity and freshness permit them; AHT21
+freshness is independent. Diagnose missing readings through controller serial
+telemetry, ESP32 wiring and power, rather than Raspberry Pi I2C tools.
