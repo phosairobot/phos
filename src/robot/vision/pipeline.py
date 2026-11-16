@@ -32,6 +32,8 @@ _EXPRESSION_LOG_INTERVAL_SECONDS = 1.0
 _CAMERA_SNAPSHOT_MAX_WIDTH = 640
 _CAMERA_SNAPSHOT_MAX_BYTES = 512 * 1024
 _CAMERA_SNAPSHOT_FRESH_SECONDS = 2.0
+_ON_DEMAND_SNAPSHOT_TIMEOUT_SECONDS = 3.0
+_ON_DEMAND_SNAPSHOT_MAX_WAITERS = 4
 # Classifier inference is slower than camera capture. Keep a valid result
 # through normal frame gaps, then explicitly mark it stale.
 _OBSERVED_EXPRESSION_TTL_SECONDS = 1.5
@@ -135,6 +137,11 @@ class VisionPipeline(Behavior):
         # reference owned by the one capture pipeline, never a frame queue.
         self._latest_frame: CapturedFrame | None = None
         self._frame_lock = RLock()
+        self._frame_condition = asyncio.Condition()
+        self._frame_sequence = 0
+        self._frame_generation = 0
+        self._capture_waiters = 0
+        self._capture_running = False
         self._face_selector = FaceSelector()
         self._camera = camera
         self._face_detector = face_detector
@@ -178,12 +185,20 @@ class VisionPipeline(Behavior):
         if self._smoother is not None:
             self._smoother.reset()
         await self._camera.start()
+        async with self._frame_condition:
+            self._frame_generation += 1
+            self._capture_running = True
+            self._frame_condition.notify_all()
         self._task = asyncio.create_task(self._run(), name="vision-pipeline")
 
     async def stop(self) -> None:
         # A stopped/restarted camera must never serve the prior run's frame.
         with self._frame_lock:
             self._latest_frame = None
+        async with self._frame_condition:
+            self._capture_running = False
+            self._frame_generation += 1
+            self._frame_condition.notify_all()
         if self._task is not None:
             self._task.cancel()
             try:
@@ -223,6 +238,9 @@ class VisionPipeline(Behavior):
         with self._frame_lock:
             self._latest_frame = CapturedFrame(frame, captured_at_monotonic,
                                                captured_at_utc.astimezone(timezone.utc))
+        async with self._frame_condition:
+            self._frame_sequence += 1
+            self._frame_condition.notify_all()
         if self._preview_enabled:
             previous = self._preview_snapshot
             self._preview_snapshot = VisionPreviewSnapshot(
@@ -446,16 +464,12 @@ class VisionPipeline(Behavior):
         if not enabled:
             self._preview_snapshot = None
 
-    def camera_snapshot(self) -> CameraSnapshot:
+    def _encode_camera_snapshot(self, captured: CapturedFrame) -> CameraSnapshot:
         """Encode a bounded copy of the newest captured frame on demand.
 
         This neither captures nor retains another frame.  The copy happens
         before encoding so callers never receive a mutable camera buffer.
         """
-        with self._frame_lock:
-            captured = self._latest_frame
-        if captured is None:
-            raise RuntimeError("no_frame")
         age_seconds = self._clock() - captured.captured_at_monotonic
         if not math.isfinite(age_seconds) or age_seconds < 0:
             raise RuntimeError("invalid_capture_timestamp")
@@ -480,13 +494,53 @@ class VisionPipeline(Behavior):
             raise RuntimeError("snapshot_unavailable") from None
         raise RuntimeError("snapshot_too_large")
 
+    def camera_snapshot(self) -> CameraSnapshot:
+        """Encode the latest cached frame without waiting for a newer one."""
+        with self._frame_lock:
+            captured = self._latest_frame
+        if captured is None:
+            raise RuntimeError("no_frame")
+        return self._encode_camera_snapshot(captured)
+
+    async def capture_camera_snapshot(self, *, timeout_seconds: float = _ON_DEMAND_SNAPSHOT_TIMEOUT_SECONDS) -> CameraSnapshot:
+        """Wait for a frame published after this request's sequence boundary."""
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive and finite.")
+        async with self._frame_condition:
+            if not self._capture_running:
+                raise RuntimeError("pipeline_not_running")
+            if self._capture_waiters >= _ON_DEMAND_SNAPSHOT_MAX_WAITERS:
+                raise RuntimeError("capture_busy")
+            generation, boundary = self._frame_generation, self._frame_sequence
+            self._capture_waiters += 1
+            try:
+                await asyncio.wait_for(self._frame_condition.wait_for(
+                    lambda: (self._frame_generation != generation or not self._capture_running
+                             or self._frame_sequence > boundary)), timeout_seconds)
+                if self._frame_generation != generation or not self._capture_running:
+                    raise RuntimeError("pipeline_stopped")
+                with self._frame_lock:
+                    captured = self._latest_frame
+                if captured is None:
+                    raise RuntimeError("no_frame")
+            except asyncio.TimeoutError:
+                raise RuntimeError("capture_timeout") from None
+            finally:
+                self._capture_waiters -= 1
+        return self._encode_camera_snapshot(captured)
+
     def camera_snapshot_jpeg(self) -> bytes:
         """Compatibility JPEG-only accessor for the MCP Resource."""
         return self.camera_snapshot().jpeg
 
     async def _run(self) -> None:
-        while True:
-            await self.process_once()
+        try:
+            while True:
+                await self.process_once()
+        finally:
+            async with self._frame_condition:
+                self._capture_running = False
+                self._frame_condition.notify_all()
             await asyncio.sleep(self._capture_interval)
 
     def _log_expression_observation(self, label: str, confidence: float, now: float) -> None:

@@ -322,6 +322,32 @@ def test_camera_snapshot_marks_old_cached_frame_stale_and_stop_invalidates_it(mo
     assert replacement.age_ms == 0 and replacement.freshness == "fresh"
 
 
+def test_on_demand_snapshot_waits_for_a_sequence_published_after_its_boundary(monkeypatch):
+    _install_snapshot_encoder(monkeypatch)
+    monotonic = [1.0]
+
+    async def exercise():
+        camera = FakeCamera()
+        frames = [SnapshotFrame(), SnapshotFrame()]
+        async def capture(): return frames.pop(0)
+        camera.capture_frame = capture
+        pipeline = VisionPipeline(camera, FakeFaceDetector([]), None, None,
+                                  clock=lambda: monotonic[0],
+                                  utc_clock=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc))
+        await pipeline.process_once(timestamp=0.0)
+        async with pipeline._frame_condition:
+            pipeline._capture_running = True
+            pipeline._frame_generation = 1
+        requested = asyncio.create_task(pipeline.capture_camera_snapshot())
+        await asyncio.sleep(0)
+        monotonic[0] = 1.1
+        await pipeline.process_once(timestamp=1.1)
+        return await requested
+
+    snapshot = asyncio.run(exercise())
+    assert snapshot.age_ms == 0 and snapshot.freshness == "fresh"
+
+
 async def _frame(value):
     return value
 

@@ -365,6 +365,15 @@ infers scene content, or changes presence/attention state. Tool calls are
 bounded to one snapshot per second per authenticated identity; the existing
 Resource remains available for its current read-only JPEG contract.
 
+`phos_capture_camera_snapshot` has the same image, permission, JPEG-bound, and
+metadata format, but its metadata starts `source=on_demand`. PHOS records the
+current Vision frame sequence when the request is accepted and waits for a later
+frame from the already-running pipeline, for up to three seconds. It is not a
+separate sensor capture. The cached and on-demand tools share the same
+per-identity transfer limit, so alternating calls cannot bypass it; at most four
+on-demand waits may be pending. A timeout, stopped/restarted pipeline, or camera
+failure returns a sanitized error and never falls back to the preceding frame.
+
 Resources are live snapshots: each read calls the same permission-checked
 application-service boundary as the corresponding semantic tool. They do not
 poll providers, mutate PHOS, replay history, or expose controller/camera/

@@ -62,6 +62,10 @@ class ApplicationSpy:
         self._call("get_camera_snapshot_with_metadata")
         return CameraSnapshot(b"\xff\xd8fake-jpeg\xff\xd9", datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
                               250, "fresh")
+    async def capture_camera_snapshot_with_metadata(self):
+        self._call("capture_camera_snapshot_with_metadata")
+        return CameraSnapshot(b"\xff\xd8fresh-jpeg\xff\xd9", datetime(2026, 1, 2, 3, 4, 6, tzinfo=timezone.utc),
+                              0, "fresh")
     def set_expression(self, expression): return self._call("set_expression", expression)
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
@@ -82,7 +86,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == MCP_TOOL_NAMES
-    assert len(MCP_TOOL_NAMES) == 11
+    assert len(MCP_TOOL_NAMES) == 12
     source = inspect.getsource(__import__("robot.mcp.server", fromlist=["server"]))
     assert all(forbidden not in source for forbidden in (
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
@@ -141,6 +145,18 @@ def test_camera_snapshot_tool_keeps_observer_camera_permission_denied():
 
     asyncio.run(call())
     assert application.calls == []
+
+
+def test_on_demand_camera_snapshot_tool_returns_native_fresh_image_content():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    result = asyncio.run(server.call_tool("phos_capture_camera_snapshot", {}))
+
+    image, metadata = result.content
+    assert image.type == "image" and base64.b64decode(image.data) == b"\xff\xd8fresh-jpeg\xff\xd9"
+    assert "source=on_demand" in metadata.text and "age_ms=0" in metadata.text
+    assert application.calls == [("capture_camera_snapshot_with_metadata",)]
 
 
 def test_snapshot_tool_rate_limit_is_per_identity_and_uses_a_bounded_identity_cache():

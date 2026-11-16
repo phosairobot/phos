@@ -23,7 +23,7 @@ _REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_witho
 
 MCP_TOOL_NAMES = frozenset({
     "phos_get_status", "phos_get_physical_context", "phos_get_presence", "phos_get_attention",
-    "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
+    "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_capture_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
     "phos_wake", "phos_signal_user",
 })
 MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
@@ -233,6 +233,9 @@ class McpSemanticAdapter:
     def camera_snapshot_with_metadata(self):
         return self._call("phos_get_camera_snapshot", self._request_agent_service().camera_snapshot_with_metadata)
 
+    async def capture_camera_snapshot_with_metadata(self):
+        return await self._call_async(self._request_agent_service().capture_camera_snapshot_with_metadata)
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._request_agent_service().set_expression(expression))
 
@@ -348,7 +351,15 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     def get_camera_snapshot():
         """Return the existing JPEG as an MCP image block, never as JSON text."""
         snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
-        return _snapshot_tool_result(adapter.camera_snapshot_with_metadata, ToolError)
+        return _snapshot_tool_result(adapter.camera_snapshot_with_metadata, ToolError, source="cached")
+
+    @server.tool(name="phos_capture_camera_snapshot",
+                 description="Wait for PHOS's next Vision frame without interpreting it.",
+                 structured_output=False)
+    async def capture_camera_snapshot():
+        snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
+        return await _async_snapshot_tool_result(adapter.capture_camera_snapshot_with_metadata, ToolError,
+                                                 source="on_demand")
 
     @tool("phos_set_expression", "Set a supported semantic expression.")
     def set_expression(expression: Expression) -> dict[str, Any]:
@@ -380,19 +391,29 @@ def _tool_result(handler: Callable[[], dict[str, Any]], error_type) -> dict[str,
         raise error_type(str(error)) from None
 
 
-def _snapshot_tool_result(handler, error_type):
+def _snapshot_tool_result(handler, error_type, *, source: str):
     """Build SDK-native image content from the authorized Vision JPEG."""
     try:
-        from mcp.types import ImageContent, TextContent
-        snapshot = handler()
-        return [
-            ImageContent(data=base64.b64encode(snapshot.jpeg).decode("ascii"), mimeType="image/jpeg"),
-            TextContent(text=("Cached Vision frame; captured_at="
-                              f"{snapshot.captured_at_utc.isoformat().replace('+00:00', 'Z')}; "
-                              f"age_ms={snapshot.age_ms}; freshness={snapshot.freshness}.")),
-        ]
+        return _snapshot_content(handler(), source)
     except McpToolError as error:
         raise error_type(str(error)) from None
+
+
+async def _async_snapshot_tool_result(handler, error_type, *, source: str):
+    try:
+        return _snapshot_content(await handler(), source)
+    except McpToolError as error:
+        raise error_type(str(error)) from None
+
+
+def _snapshot_content(snapshot, source: str):
+    from mcp.types import ImageContent, TextContent
+    return [
+        ImageContent(data=base64.b64encode(snapshot.jpeg).decode("ascii"), mimeType="image/jpeg"),
+        TextContent(text=(f"source={source}; captured_at="
+                          f"{snapshot.captured_at_utc.isoformat().replace('+00:00', 'Z')}; "
+                          f"age_ms={snapshot.age_ms}; freshness={snapshot.freshness}.")),
+    ]
 
 
 async def _async_tool_result(handler, error_type) -> dict[str, Any]:

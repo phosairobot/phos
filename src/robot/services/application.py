@@ -621,6 +621,28 @@ class PhosApplicationService:
         self._validate_camera_snapshot_jpeg(snapshot.jpeg)
         return snapshot
 
+    async def capture_camera_snapshot_with_metadata(self) -> CameraSnapshot:
+        """Wait for a post-request frame from the existing running pipeline."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "capture_camera_snapshot", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision capture is unavailable.", status=503)
+        try:
+            snapshot = await reader()
+        except RuntimeError as error:
+            reason = str(error)
+            if reason in {"pipeline_not_running", "pipeline_stopped"}:
+                raise ApplicationError("camera_capture_unavailable", "Vision capture is not running.", status=503) from None
+            if reason == "capture_timeout":
+                raise ApplicationError("camera_capture_timeout", "No new camera frame arrived in time.", status=504) from None
+            if reason == "capture_busy":
+                raise ApplicationError("camera_capture_busy", "Camera capture is busy.", status=429) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        if not isinstance(snapshot, CameraSnapshot):
+            raise ApplicationError("camera_snapshot_metadata_invalid", "Camera snapshot metadata is unavailable.", status=503)
+        self._validate_camera_snapshot_jpeg(snapshot.jpeg)
+        return snapshot
+
     @staticmethod
     def _validate_camera_snapshot_jpeg(image: object) -> None:
         if (not isinstance(image, bytes) or len(image) > 512 * 1024

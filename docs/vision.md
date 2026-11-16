@@ -80,6 +80,14 @@ frames remain readable but are explicitly labelled by the snapshot tool. Start
 and stop invalidate the cached frame, preventing a previous camera run from
 being served after shutdown or restart.
 
+`phos_capture_camera_snapshot` is distinct from the cached Snapshot tool. It
+records the current pipeline generation and frame sequence, then waits up to
+three seconds for a strictly later frame publication by the continuously running
+pipeline. It does not command a sensor exposure or alter capture cadence. The
+pipeline permits at most four pending waits; a stop, restart, camera failure,
+timeout, or cancellation completes the request without falling back to an old
+frame. Concurrent accepted waits may use the same next published frame.
+
 ## FaceDetector
 
 Initial implementation: `OpenCVFaceDetector`.
