@@ -159,11 +159,21 @@ class SkinDefinition:
     built_in: bool = False
     led_palette: dict | None = None
     led_palette_origins: dict[str, str] = field(default_factory=dict, repr=False)
+    physical_personality: str | None = None
 
     def document(self) -> dict:
         return {"id": self.id, "name": self.name, "description": self.description,
                 "appearance": copy.deepcopy(self.appearance), "built_in": self.built_in,
-                "led_palette": copy.deepcopy(self.led_palette)}
+                "led_palette": copy.deepcopy(self.led_palette),
+                "physical_personality": self.physical_personality}
+
+
+def validate_physical_personality(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"preset"} or value["preset"] not in {"analytical", "playful", "calm"}:
+        raise ConfigurationError("Skin physical_personality must contain a supported preset")
+    return value["preset"]
 
 
 def skin_to_manifest(skin: SkinDefinition, appearance: object) -> dict:
@@ -174,12 +184,14 @@ def skin_to_manifest(skin: SkinDefinition, appearance: object) -> dict:
               "description": skin.description, "appearance": copy.deepcopy(appearance)}
     if skin.led_palette is not None:
         result["led_palette"] = validate_led_palette(skin.led_palette)
+    if skin.physical_personality is not None:
+        result["physical_personality"] = {"preset": skin.physical_personality}
     return result
 
 
-def skin_from_manifest(manifest: object) -> tuple[str, str, dict, dict | None]:
+def skin_from_manifest(manifest: object) -> tuple[str, str, dict, dict | None, str | None]:
     """Validate v2 legacy and v3 package manifests."""
-    if (not isinstance(manifest, dict) or set(manifest) - {"schema_version", "name", "description", "appearance", "led_palette"}
+    if (not isinstance(manifest, dict) or set(manifest) - {"schema_version", "name", "description", "appearance", "led_palette", "physical_personality"}
             or set(manifest) - {"schema_version", "name", "description", "appearance"} and manifest.get("schema_version") != 3
             or manifest.get("schema_version") not in {2, 3}
             or not {"schema_version", "name", "description", "appearance"} <= set(manifest)):
@@ -190,7 +202,7 @@ def skin_from_manifest(manifest: object) -> tuple[str, str, dict, dict | None]:
         raise ConfigurationError("Skin package metadata is invalid")
     return (manifest["name"], manifest["description"],
             validate_appearance_snapshot(manifest["appearance"], asset_pattern=_PACKAGE_ASSET),
-            validate_led_palette(manifest.get("led_palette")))
+            validate_led_palette(manifest.get("led_palette")), validate_physical_personality(manifest.get("physical_personality")))
 
 
 def built_in_skins() -> tuple[SkinDefinition, ...]:
@@ -243,7 +255,7 @@ class SkinRepository:
         definitions = {}
         for item in raw["skins"]:
             if (not isinstance(item, dict) or not {"id", "display_name", "inherits", "appearance"} <= set(item)
-                    or set(item) - {"id", "display_name", "inherits", "appearance", "led_palette"}):
+                    or set(item) - {"id", "display_name", "inherits", "appearance", "led_palette", "physical_personality"}):
                 raise ConfigurationError("Skin catalog definition has unsupported fields")
             skin_id = item["id"]
             if not isinstance(skin_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", skin_id):
@@ -292,7 +304,9 @@ class SkinRepository:
                     palette_origins = {state: "inherited" for state in (inherited["colors"] if inherited["enabled"] else {})}
                     palette_origins.update({state: "override" for state in child_palette["colors"]})
             resolving.remove(skin_id)
-            value = SkinDefinition(skin_id, item["display_name"].strip(), "", appearance, False, led_palette, palette_origins)
+            value = SkinDefinition(skin_id, item["display_name"].strip(), "", appearance, False, led_palette, palette_origins,
+                                   (validate_physical_personality(item["physical_personality"])
+                                    if "physical_personality" in item else parent.physical_personality))
             resolved[skin_id] = value
             return value
 
@@ -317,21 +331,23 @@ class SkinRepository:
         result = []
         for item in raw["skins"]:
             if (not isinstance(item, dict) or not {"id", "name", "description", "appearance"} <= set(item)
-                    or set(item) - {"id", "name", "description", "appearance", "led_palette"}):
+                    or set(item) - {"id", "name", "description", "appearance", "led_palette", "physical_personality"}):
                 raise ConfigurationError("Skin definition is malformed")
             if (not isinstance(item["id"], str) or not item["id"].startswith("custom-") or not isinstance(item["name"], str)
                     or not item["name"].strip() or len(item["name"]) > 80 or not isinstance(item["description"], str) or len(item["description"]) > 240):
                 raise ConfigurationError("Skin definition has invalid metadata")
             palette = validate_led_palette(item.get("led_palette"))
             result.append(SkinDefinition(item["id"], item["name"].strip(), item["description"].strip(), validate_appearance_snapshot(item["appearance"]), False, palette,
-                                         {} if palette is None else {state: "override" for state in palette["colors"]}))
+                                         {} if palette is None else {state: "override" for state in palette["colors"]},
+                                         validate_physical_personality(item.get("physical_personality"))))
         if len({skin.id for skin in result}) != len(result): raise ConfigurationError("Skin identifiers must be unique")
         return result
 
     def _save(self, skins: list[SkinDefinition]) -> None:
         payload = {"skins": [{"id": skin.id, "name": skin.name, "description": skin.description,
                                "appearance": skin.appearance,
-                               **({"led_palette": skin.led_palette} if skin.led_palette is not None else {})} for skin in skins]}
+                               **({"led_palette": skin.led_palette} if skin.led_palette is not None else {}),
+                               **({"physical_personality": {"preset": skin.physical_personality}} if skin.physical_personality is not None else {})} for skin in skins]}
         atomic_write_text(self.path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
     def list(self) -> list[SkinDefinition]:
@@ -509,7 +525,7 @@ class SkinRepository:
             raise ConfigurationError("Skin package contains unsupported files")
         try: manifest = yaml.safe_load(archive.read("skin.yaml").decode("utf-8"))
         except (UnicodeDecodeError, yaml.YAMLError) as error: raise ConfigurationError("Skin package manifest is not valid YAML") from error
-        name, description, appearance, led_palette = skin_from_manifest(manifest)
+        name, description, appearance, led_palette, physical_personality = skin_from_manifest(manifest)
         backgrounds = appearance["backgrounds"]
         skin_id = f"custom-{uuid.uuid4().hex}"
         referenced = {backgrounds[state] for state in _STATES if backgrounds.get(state) is not None}
@@ -540,7 +556,7 @@ class SkinRepository:
                 with open(target / filename, "xb") as output: output.write(data)
                 backgrounds[state] = f"backgrounds/skins/{skin_id}/{filename}"
             skin = SkinDefinition(skin_id, name.strip(), description.strip(), validate_appearance_snapshot(appearance), False, led_palette,
-                                  {} if led_palette is None else {state: "override" for state in led_palette["colors"]})
+                                  {} if led_palette is None else {state: "override" for state in led_palette["colors"]}, physical_personality)
             skins = self._custom(); skins.append(skin); self._save(skins); return skin
         except Exception:
             for path in target.glob("*"): path.unlink()

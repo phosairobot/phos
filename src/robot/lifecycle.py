@@ -103,6 +103,7 @@ class LifecycleService:
         self._apply_eye_safe_layer = None
         self._apply_state_effects = None
         self._apply_semantic_led_palette = None
+        self._apply_physical_personality = None
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
@@ -161,6 +162,9 @@ class LifecycleService:
 
     def register_semantic_led_palette_applier(self, applier):
         with self._lock: self._apply_semantic_led_palette = applier
+
+    def register_physical_personality_applier(self, applier):
+        with self._lock: self._apply_physical_personality = applier
 
     def apply_temporary_appearance(self, config: RuntimeConfig) -> dict:
         """Apply validated visual settings without changing saved or active config."""
@@ -287,7 +291,7 @@ class LifecycleService:
                 self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
                 return {"ok": False, "error": self._presentation_activation["message"]}
             key = (resolved.get("mode"), resolved.get("selected_agent_id"), resolved.get("effective_skin_id"),
-                   repr(candidate.to_dict().get("display")), repr(palette))
+                   resolved.get("effective_personality"), repr(candidate.to_dict().get("display")), repr(palette))
             if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
                     "global_active", "agent_skin_active", "fallback_active"}:
                 return {"ok": True, "applied": [], "resolved": resolved}
@@ -295,6 +299,8 @@ class LifecycleService:
                                              "mode": resolved.get("mode"), "arbitration": arbitration}
             result = self.apply_temporary_appearance(candidate)
             if result.get("ok"):
+                if self._apply_physical_personality is not None:
+                    self._apply_physical_personality(resolved.get("effective_personality", "analytical"))
                 if self._apply_semantic_led_palette is not None:
                     self._apply_semantic_led_palette(palette)
                 self._applied_appearance_key = key

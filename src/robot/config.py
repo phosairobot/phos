@@ -316,6 +316,7 @@ _SCHEMA = {
             "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
     "agents": "agent_registry",
     "appearance": {"config_file": "appearance_catalog_file", "mode": "appearance_mode",
+                   "global_skin_id": "global_skin_id",
                    "anonymous_mcp_use_default_agent_skin": "anonymous_mcp_use_default_agent_skin",
                    "presentation_owner": {"agent_id": "presentation_owner_agent_id"}},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
@@ -436,8 +437,8 @@ def _decode(document, schema=_SCHEMA, location="config"):
             if not isinstance(value["entries"], list):
                 raise ConfigurationError(f"{name}.entries must be an array")
             try:
-                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"), item.get("skin"), item.get("appearance"))
-                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential", "skin", "appearance"})
+                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"), item.get("skin"), item.get("appearance"), item.get("personality"))
+                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential", "skin", "appearance", "personality"})
                 if len(entries) != len(value["entries"]):
                     raise ValueError("malformed agent entry")
                 refs = {}
@@ -594,6 +595,7 @@ class RuntimeConfig:
     agent_registry: object
     appearance_catalog_file: Optional[Path]
     appearance_mode: str
+    global_skin_id: Optional[str]
     anonymous_mcp_use_default_agent_skin: bool
     presentation_owner_agent_id: Optional[str]
     display_width: int
@@ -713,6 +715,7 @@ class RuntimeConfig:
         appearance = document.setdefault("appearance", {"config_file": None})
         if isinstance(appearance, dict):
             appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
+            appearance.setdefault("global_skin_id", None)
             appearance.setdefault("anonymous_mcp_use_default_agent_skin", False)
         if isinstance(document.get("mcp"), dict):
             document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
@@ -773,6 +776,7 @@ class RuntimeConfig:
             appearance = document.setdefault("appearance", {"config_file": None})
             if isinstance(appearance, dict):
                 appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
+                appearance.setdefault("global_skin_id", None)
                 appearance.setdefault("anonymous_mcp_use_default_agent_skin", False)
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
@@ -970,6 +974,8 @@ class RuntimeConfig:
                 raise ConfigurationError("appearance.presentation_owner.agent_id must reference a configured agent")
         if self.appearance_mode not in {"global", "follow_agent"}:
             raise ConfigurationError("appearance.mode must be global or follow_agent")
+        if self.global_skin_id is not None and (not isinstance(self.global_skin_id, str) or not self.global_skin_id.strip()):
+            raise ConfigurationError("appearance.global_skin_id must be a nonempty Skin ID or null")
         if type(self.anonymous_mcp_use_default_agent_skin) is not bool:
             raise ConfigurationError("appearance.anonymous_mcp_use_default_agent_skin must be a boolean")
 

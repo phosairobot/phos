@@ -308,6 +308,9 @@ class PhosRuntime:
     def apply_base_visual_source(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
 
+    def apply_physical_personality(self, preset: str) -> None:
+        self._behavior_engine.configure_physical_personality(preset)
+
     def apply_environment_overlays(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_environment_overlays(config.environment_overlays_enabled)
 

@@ -198,6 +198,19 @@ from this startup acceptance slice.
 ### Core and behavior
 - Event bus and explicit `RobotState` state machine.
 - `BehaviorEngine` under `src/robot/core/behavior_engine.py`.
+- Skin-owned Physical Personality v0.2 is an IDLE-only policy: `analytical`,
+  `playful`, and `calm` select bounded blink/gaze timing internally (the
+  missing-field fallback is `analytical`).  Analytical uses 4.8–7.2 s blinks,
+  4.0–7.0 s gaze rests, 1.4–2.3 s holds and a 1.5% double-blink chance;
+  playful uses 2.4–4.2 s, 1.5–3.2 s, 0.65–1.25 s and 18%; calm uses 5.5–8.0 s,
+  4.8–8.0 s, 1.8–3.0 s and 4%.  A double blink has a bounded 90–220 ms open
+  pause (preset-specific).  Gaze targets hold, return to neutral, then rest.
+  Attention, vision tracking, IMU motion, explicit reactions, non-IDLE states,
+  and skin changes cancel pending personality sequences. In global appearance
+  mode, the persisted `appearance.global_skin_id` selects the complete Skin
+  identity (appearance, palette, and personality); no selected Skin retains
+  legacy global appearance with the analytical fallback. Automated coverage is
+  complete; Raspberry Pi acceptance remains pending.
 - Environmental behavior is implemented through `EnvironmentalInterpreter`: confirmed, hysteretic temperature and CCS811 eCO2/TVOC context becomes `EnvironmentalState`, then a `BehaviorEngine` eye/LED accent. Missing, stale or unavailable data produces no alarm.
 - Environmental overlays are additive display decoration: the interpreter also exposes independently confirmed temperature (`warm`/`cold`) and air-quality (`warning`/`bad`) intents, allowing sweat/snow and haze to coexist while the existing single priority `EnvironmentalState` continues to drive eyes and LEDs.
 - Behavior produces `FaceState` and handles blink/idle gaze.

@@ -47,9 +47,14 @@ when the renderer becomes available.
 
 ## Agent appearance policy foundation
 
-`appearance.mode` defaults to `global`. In `global`, PHOS always applies the
-latest persisted global appearance. In `follow_agent`, it applies the complete
-skin snapshot of the highest-priority recently active eligible agent. Agents
+`appearance.mode` defaults to `global`. In `global`, PHOS applies the complete
+Skin selected by `appearance.global_skin_id` when it is valid; this includes
+appearance, semantic LED palette, and Skin-owned Physical Personality. Legacy
+global appearance values remain supported when no global Skin is selected and
+use the analytical personality fallback. **Preview** remains visual-only and
+does not save or select a global Skin. In `follow_agent`, PHOS applies the
+complete skin snapshot of the highest-priority recently active eligible agent.
+Agents
 may carry optional appearance policy metadata:
 `participate` (default `true`), `priority` (default `50`, `0`–`100`), and
 `activity_timeout_seconds` (default `30`, `5`–`3600`). This timeout will be a

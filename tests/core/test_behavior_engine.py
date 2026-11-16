@@ -1,11 +1,12 @@
 import asyncio
+import random
 
 import pytest
 
 from robot.core import BehaviorEngine, Event, EventBus, RobotState, STATE_CHANGED
 from robot.core.behavior_engine import IMU_MOTION_STATE
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED
-from robot.ui import EnvironmentalLEDIntent, FaceExpression, VisualAccent
+from robot.ui import BlinkPhase, EnvironmentalLEDIntent, FaceExpression, VisualAccent
 
 
 def test_behavior_engine_maps_core_state_to_face_state():
@@ -21,6 +22,109 @@ def test_behavior_engine_maps_core_state_to_face_state():
     state = asyncio.run(exercise())
     assert state.expression is FaceExpression.SLEEPY
     assert state.reaction_strength == 1.0
+
+
+@pytest.mark.parametrize(("preset", "blink", "gaze", "offsets", "double", "hold"), [
+    ("analytical", (4.8, 7.2), (4.0, 7.0), {(-.25, 0.0), (.25, 0.0)}, .015, (1.4, 2.3)),
+    ("playful", (2.4, 4.2), (1.5, 3.2), {(-.35, 0.0), (.35, 0.0), (0.0, -.20), (0.0, .20), (-.25, -.15), (.25, -.15)}, .18, (.65, 1.25)),
+    ("calm", (5.5, 8.0), (4.8, 8.0), {(-.20, 0.0), (.20, 0.0), (0.0, -.12)}, .04, (1.8, 3.0)),
+])
+def test_physical_personality_changes_only_bounded_idle_policy(preset, blink, gaze, offsets, double, hold):
+    engine = BehaviorEngine(EventBus(), clock=lambda: 10.0)
+    engine.configure_physical_personality(preset)
+    assert engine._blink_interval == blink and engine._gaze_interval == gaze
+    assert set(engine._idle_gaze_offsets) == offsets
+    assert engine._double_blink_probability == double and engine._gaze_hold_duration == hold
+    assert engine.face_state.expression is FaceExpression.NEUTRAL
+
+
+def test_physical_personality_idle_timers_reset_without_overriding_sleep_or_error():
+    async def exercise():
+        now = [0.0]
+        events = EventBus()
+        engine = BehaviorEngine(events, clock=lambda: now[0])
+        await engine.start()
+        engine.configure_physical_personality("playful")
+        await events.publish(Event(STATE_CHANGED, {"current": RobotState.SLEEPING.value}))
+        sleeping = (engine.face_state, engine._next_gaze_at)
+        await events.publish(Event(STATE_CHANGED, {"current": RobotState.ERROR.value}))
+        error = engine.face_state
+        await events.publish(Event(STATE_CHANGED, {"current": RobotState.IDLE.value}))
+        idle = engine._next_gaze_at
+        await engine.stop()
+        return sleeping, error, idle
+    sleeping, error, idle = asyncio.run(exercise())
+    assert sleeping[0].expression is FaceExpression.SLEEPY and sleeping[1] == float("inf")
+    assert error.expression is FaceExpression.WORRIED
+    assert idle != float("inf")
+
+
+def test_double_blink_has_nonblocking_ordered_phases_and_only_one_follow_up():
+    engine = BehaviorEngine(EventBus(), clock=lambda: 0.0, rng=random.Random(3))
+    engine.configure_physical_personality("playful")
+    engine._double_blink_probability = 1.0
+    engine._next_blink_at = 0.0
+    phases = []
+    for now in (0.0, .08, .13, .25, .40, .48, .53, .65):
+        engine._advance_blink(now)
+        phases.append(engine._blink_phase)
+    assert phases == [BlinkPhase.CLOSING, BlinkPhase.CLOSED, BlinkPhase.OPENING,
+                      BlinkPhase.DOUBLE_PAUSE, BlinkPhase.CLOSING, BlinkPhase.CLOSED,
+                      BlinkPhase.OPENING, BlinkPhase.OPEN]
+    assert not engine._double_blink_pending
+
+
+def test_personality_sequences_cancel_on_non_idle_and_personality_switch():
+    async def exercise():
+        now = [0.0]
+        engine = BehaviorEngine(EventBus(), clock=lambda: now[0], rng=random.Random(4))
+        engine.configure_physical_personality("playful")
+        engine._blink_phase = BlinkPhase.DOUBLE_PAUSE
+        engine._double_blink_pending = True
+        engine._gaze_phase = "hold"
+        await engine._on_robot_state(Event(STATE_CHANGED, {"current": RobotState.SLEEPING.value}))
+        cancelled = (engine._blink_phase, engine._double_blink_pending, engine._gaze_phase, engine._next_gaze_at)
+        await engine._on_robot_state(Event(STATE_CHANGED, {"current": RobotState.IDLE.value}))
+        engine._blink_phase = BlinkPhase.DOUBLE_PAUSE
+        engine._double_blink_pending = True
+        engine.configure_physical_personality("calm")
+        return cancelled, (engine._blink_phase, engine._double_blink_pending, engine._gaze_phase)
+    cancelled, switched = asyncio.run(exercise())
+    assert cancelled == (BlinkPhase.OPEN, False, "rest", float("inf"))
+    assert switched == (BlinkPhase.OPEN, False, "rest")
+
+
+def test_idle_gaze_holds_then_returns_to_neutral_and_is_seeded():
+    now = [0.0]
+    engine = BehaviorEngine(EventBus(), clock=lambda: now[0], rng=random.Random(12))
+    engine.configure_physical_personality("playful")
+    engine._next_gaze_at = 0.0
+    engine._advance_idle_gaze(now[0])
+    target = (engine.face_state.pupil_x, engine.face_state.pupil_y)
+    hold_until = engine._gaze_hold_until
+    assert target in engine._idle_gaze_offsets
+    assert engine._gaze_phase == "hold"
+    assert .65 <= hold_until <= 1.25
+    now[0] = hold_until
+    engine._advance_idle_gaze(now[0])
+    assert (engine.face_state.pupil_x, engine.face_state.pupil_y) == (0.0, 0.0)
+    assert engine._gaze_phase == "rest"
+    assert 1.5 <= engine._next_gaze_at - now[0] <= 3.2
+
+
+def test_attention_cancels_idle_gaze_and_prevents_stale_return():
+    async def exercise():
+        now = [0.0]
+        engine = BehaviorEngine(EventBus(), clock=lambda: now[0], rng=random.Random(1))
+        engine.configure_physical_personality("playful")
+        engine._next_gaze_at = 0.0
+        engine._advance_idle_gaze(now[0])
+        await engine._on_attention(Event("attention.changed", {"state": "tracking", "target": {"x": 1, "y": 0}}))
+        now[0] = 10
+        engine._advance_idle_gaze(now[0])
+        return engine.face_state, engine._gaze_phase
+    state, phase = asyncio.run(exercise())
+    assert state.pupil_x > 0 and phase == "rest"
 
 
 def test_behavior_engine_gives_stable_happy_and_surprised_observations_subtle_reactions():
