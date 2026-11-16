@@ -15,7 +15,8 @@ import os
 import time
 from typing import Any, Deque, List, Optional
 
-from .eyes import EyeFrame, EyeGeometry, upper_lid_points, valid_polygon_points
+from .eyes import (EyeFrame, EyeGeometry, contain_custom_eye_graphics,
+                   custom_eye_interior_contour, upper_lid_points, valid_polygon_points)
 from .backgrounds import BackgroundAsset
 from .state_effects import StateEffectParams
 from .state_effect_layer import StateEffectLayer
@@ -700,80 +701,61 @@ class TkEyeDisplay(EyeDisplay):
                 width=12,
             )
             return
-        # A compact stack of Canvas primitives gives the eye body and iris
-        # depth without raster assets, per-frame filters, or external graphics.
-        self._canvas.create_oval(
-            eye.center_x - eye.radius_x,
-            eye.center_y - eye.radius_y + 7,
-            eye.center_x + eye.radius_x,
-            eye.center_y + eye.radius_y + 7,
-            fill="#071522",
-            outline="",
-        )
-        self._canvas.create_oval(
-            eye.center_x - eye.radius_x,
-            eye.center_y - eye.radius_y,
-            eye.center_x + eye.radius_x,
-            eye.center_y + eye.radius_y,
-            fill="#8FA8B8",
-            outline="#526C80",
-            width=3,
-        )
         inset = 5
+        self._draw_eye_body(eye, frame)
+        graphics_eye = contain_custom_eye_graphics(eye)
+        if graphics_eye.iris_radius <= 0.0:
+            self._draw_upper_lid(eye, inset)
+            return
         self._canvas.create_oval(
-            eye.center_x - eye.radius_x + inset,
-            eye.center_y - eye.radius_y + inset,
-            eye.center_x + eye.radius_x - inset,
-            eye.center_y + eye.radius_y - inset,
-            fill=frame.eye_color,
-            outline="",
-        )
-        self._canvas.create_oval(
-            eye.pupil_x - eye.iris_radius,
-            eye.pupil_y - eye.iris_radius,
-            eye.pupil_x + eye.iris_radius,
-            eye.pupil_y + eye.iris_radius,
+            graphics_eye.pupil_x - graphics_eye.iris_radius,
+            graphics_eye.pupil_y - graphics_eye.iris_radius,
+            graphics_eye.pupil_x + graphics_eye.iris_radius,
+            graphics_eye.pupil_y + graphics_eye.iris_radius,
             fill="#123246",
             outline="",
         )
-        iris_inset = max(1.5, eye.iris_radius * 0.10)
+        iris_inset = max(1.5, graphics_eye.iris_radius * 0.10)
         self._canvas.create_oval(
-            eye.pupil_x - eye.iris_radius + iris_inset,
-            eye.pupil_y - eye.iris_radius + iris_inset,
-            eye.pupil_x + eye.iris_radius - iris_inset,
-            eye.pupil_y + eye.iris_radius - iris_inset,
+            graphics_eye.pupil_x - graphics_eye.iris_radius + iris_inset,
+            graphics_eye.pupil_y - graphics_eye.iris_radius + iris_inset,
+            graphics_eye.pupil_x + graphics_eye.iris_radius - iris_inset,
+            graphics_eye.pupil_y + graphics_eye.iris_radius - iris_inset,
             fill=frame.iris_color,
             outline="",
         )
         # The dark pupil is distinct from the colored iris; small glints sell
         # a glassy surface without a blur/filter pass.
         self._canvas.create_oval(
-            eye.pupil_x - eye.pupil_radius,
-            eye.pupil_y - eye.pupil_radius,
-            eye.pupil_x + eye.pupil_radius,
-            eye.pupil_y + eye.pupil_radius,
+            graphics_eye.pupil_x - graphics_eye.pupil_radius,
+            graphics_eye.pupil_y - graphics_eye.pupil_radius,
+            graphics_eye.pupil_x + graphics_eye.pupil_radius,
+            graphics_eye.pupil_y + graphics_eye.pupil_radius,
             fill=frame.pupil_color,
             outline="#071522",
             width=2,
         )
-        highlight = max(2.0, eye.pupil_radius * 0.24)
+        highlight = max(2.0, graphics_eye.pupil_radius * 0.24)
         self._canvas.create_oval(
-            eye.pupil_x - eye.iris_radius * 0.33 - highlight,
-            eye.pupil_y - eye.iris_radius * 0.33 - highlight,
-            eye.pupil_x - eye.iris_radius * 0.33 + highlight,
-            eye.pupil_y - eye.iris_radius * 0.33 + highlight,
+            graphics_eye.pupil_x - graphics_eye.iris_radius * 0.33 - highlight,
+            graphics_eye.pupil_y - graphics_eye.iris_radius * 0.33 - highlight,
+            graphics_eye.pupil_x - graphics_eye.iris_radius * 0.33 + highlight,
+            graphics_eye.pupil_y - graphics_eye.iris_radius * 0.33 + highlight,
             fill="#FFFFFF",
             outline="",
         )
         glint = max(1.2, highlight * 0.42)
         self._canvas.create_oval(
-            eye.pupil_x + eye.iris_radius * 0.30 - glint,
-            eye.pupil_y + eye.iris_radius * 0.28 - glint,
-            eye.pupil_x + eye.iris_radius * 0.30 + glint,
-            eye.pupil_y + eye.iris_radius * 0.28 + glint,
+            graphics_eye.pupil_x + graphics_eye.iris_radius * 0.30 - glint,
+            graphics_eye.pupil_y + graphics_eye.iris_radius * 0.28 - glint,
+            graphics_eye.pupil_x + graphics_eye.iris_radius * 0.30 + glint,
+            graphics_eye.pupil_y + graphics_eye.iris_radius * 0.28 + glint,
             fill="#D9FBFF",
             outline="",
         )
+        self._draw_upper_lid(eye, inset)
+
+    def _draw_upper_lid(self, eye: EyeGeometry, inset: float) -> None:
         if eye.upper_lid_depth:
             # The lid cap lives inside the shell, so it reads as an eyelid at
             # Pi-display scale rather than as a separate eyebrow primitive.
@@ -783,6 +765,53 @@ class TkEyeDisplay(EyeDisplay):
                     *(coordinate for point in points for coordinate in point),
                     fill="#8FA8B8", outline="",
                 )
+
+    def _draw_eye_body(self, eye: EyeGeometry, frame: EyeFrame) -> None:
+        """Draw the shadow, shell, and colored interior of an open eye."""
+        # A compact stack of Canvas primitives gives the eye body and iris
+        # depth without raster assets, per-frame filters, or external graphics.
+        inset = 5
+        if eye.contour is None:
+            self._canvas.create_oval(
+                eye.center_x - eye.radius_x,
+                eye.center_y - eye.radius_y + 7,
+                eye.center_x + eye.radius_x,
+                eye.center_y + eye.radius_y + 7,
+                fill="#071522",
+                outline="",
+            )
+            self._canvas.create_oval(
+                eye.center_x - eye.radius_x,
+                eye.center_y - eye.radius_y,
+                eye.center_x + eye.radius_x,
+                eye.center_y + eye.radius_y,
+                fill="#8FA8B8",
+                outline="#526C80",
+                width=3,
+            )
+            self._canvas.create_oval(
+                eye.center_x - eye.radius_x + inset,
+                eye.center_y - eye.radius_y + inset,
+                eye.center_x + eye.radius_x - inset,
+                eye.center_y + eye.radius_y - inset,
+                fill=frame.eye_color,
+                outline="",
+            )
+            return
+
+        contour = eye.contour
+        shadow = tuple((x, y + 7) for x, y in contour)
+        interior = custom_eye_interior_contour(eye, inset=inset) or contour
+        self._canvas.create_polygon(
+            *(coordinate for point in shadow for coordinate in point), fill="#071522", outline="",
+        )
+        self._canvas.create_polygon(
+            *(coordinate for point in contour for coordinate in point),
+            fill="#8FA8B8", outline="#526C80", width=3,
+        )
+        self._canvas.create_polygon(
+            *(coordinate for point in interior for coordinate in point), fill=frame.eye_color, outline="",
+        )
 
     def _draw_preview(self, preview, settings, display_width, display_height):
         now = time.monotonic()

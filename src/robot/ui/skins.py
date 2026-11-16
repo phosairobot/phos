@@ -22,6 +22,8 @@ _PACKAGE_ASSET = re.compile(r"assets/[A-Za-z0-9][A-Za-z0-9._ -]*\.(?:png|jpe?g)$
 _EYE_SAFE_MODES = {"subtle", "balanced", "expressive"}
 _EFFECT_PRESETS = _EYE_SAFE_MODES
 _EFFECT_PALETTES = {"phos", "cyan", "blue", "violet", "aqua", "amber", "white", "green"}
+_EYE_SHAPES = {"classic_oval", "round", "expressive", "angular", "compact"}
+_DEFAULT_EYE_SHAPE = "classic_oval"
 # Themeable semantic intents. Warning and error retain their safety colours in
 # SemanticLedService and are deliberately not skin-configurable.
 LED_PALETTE_STATES = ("idle", "listening", "thinking", "speaking", "sleeping", "success", "attention", "ambient")
@@ -42,7 +44,7 @@ def appearance_snapshot(document: dict) -> dict:
     """Return only stable, user-facing appearance settings from a config document."""
     display = document["display"]
     return {
-        "eyes": {"iris_color": display["iris_color"]},
+        "eyes": {"iris_color": display["iris_color"], "shape": _DEFAULT_EYE_SHAPE},
         "backgrounds": {key: display["backgrounds"].get(key) for key in ("enabled", *_STATES)},
         "eye_safe_layer": copy.deepcopy(display["eye_safe_layer"]),
         "state_effects": copy.deepcopy(display["state_effects"]),
@@ -55,12 +57,15 @@ def validate_appearance_snapshot(snapshot: object, *, asset_pattern: re.Pattern 
     value = copy.deepcopy(snapshot)
     eyes, backgrounds = value["eyes"], value["backgrounds"]
     safe, effects = value["eye_safe_layer"], value["state_effects"]
-    if not isinstance(eyes, dict) or set(eyes) != {"iris_color"}:
-        raise ConfigurationError("Skin eyes.iris_color is unsupported")
+    if not isinstance(eyes, dict) or set(eyes) - {"iris_color", "shape"} or "iris_color" not in eyes:
+        raise ConfigurationError("Skin eyes must contain iris_color and an optional supported shape")
     try:
         eyes["iris_color"] = IrisColorResolver.normalize(eyes["iris_color"])
     except ValueError as error:
         raise ConfigurationError("Skin eyes.iris_color is unsupported") from error
+    eyes["shape"] = eyes.get("shape", _DEFAULT_EYE_SHAPE)
+    if eyes["shape"] not in _EYE_SHAPES:
+        raise ConfigurationError("Skin eyes.shape must be a supported eye shape")
     if not isinstance(backgrounds, dict) or set(backgrounds) != {"enabled", *_STATES} or type(backgrounds["enabled"]) is not bool:
         raise ConfigurationError("Skin backgrounds must contain enabled and every supported robot state")
     for state in _STATES:
@@ -106,6 +111,7 @@ def apply_appearance_snapshot(document: dict, snapshot: object) -> dict:
     result = copy.deepcopy(document)
     display = result["display"]
     display["iris_color"] = snapshot["eyes"]["iris_color"]
+    display["eye_shape"] = snapshot["eyes"]["shape"]
     display["backgrounds"].update(snapshot["backgrounds"])
     display["eye_safe_layer"] = snapshot["eye_safe_layer"]
     display["state_effects"] = snapshot["state_effects"]
@@ -206,7 +212,7 @@ def skin_from_manifest(manifest: object) -> tuple[str, str, dict, dict | None, s
 
 
 def built_in_skins() -> tuple[SkinDefinition, ...]:
-    default = {"eyes": {"iris_color": IrisColorResolver.PRESETS["cyan"]},
+    default = {"eyes": {"iris_color": IrisColorResolver.PRESETS["cyan"], "shape": _DEFAULT_EYE_SHAPE},
                "backgrounds": {"enabled": False, **{state: None for state in _STATES}},
                "eye_safe_layer": {"enabled": True, "mode": "balanced"},
                "state_effects": {"enabled": False, "preset": "balanced", "palette": "phos", "reduce_motion": False}}

@@ -49,7 +49,7 @@ when the renderer becomes available.
 
 `appearance.mode` defaults to `global`. In `global`, PHOS applies the complete
 Skin selected by `appearance.global_skin_id` when it is valid; this includes
-appearance, semantic LED palette, and Skin-owned Physical Personality. Legacy
+appearance (including optional `eyes.shape`), semantic LED palette, and Skin-owned Physical Personality. Legacy
 global appearance values remain supported when no global Skin is selected and
 use the analytical personality fallback. **Preview** remains visual-only and
 does not save or select a global Skin. In `follow_agent`, PHOS applies the

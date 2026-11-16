@@ -77,7 +77,7 @@ class EyeRenderLoop(Behavior):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._appearance_lock = Lock()
         self._appearance_ready = False
-        self._pending_iris_color: Optional[str] = None
+        self._pending_appearance: Optional[tuple[Optional[str], Optional[str]]] = None
         self._pending_preview_settings: Optional[CameraPreviewSettings] = None
         self._admin_overlay = AdminOverlayState()
 
@@ -121,14 +121,18 @@ class EyeRenderLoop(Behavior):
         if callable(setter):
             setter(overlay)
 
-    def request_appearance(self, *, iris_color: str) -> None:
+    def request_appearance(self, *, iris_color: str | None = None, shape: str | None = None) -> None:
         """Queue a style update onto the display loop; safe from lifecycle threads."""
+        if iris_color is None and shape is None:
+            return
         with self._appearance_lock:
             if not self._appearance_ready or self._loop is None:
-                self._pending_iris_color = iris_color
+                pending_iris, pending_shape = self._pending_appearance or (None, None)
+                self._pending_appearance = (iris_color if iris_color is not None else pending_iris,
+                                            shape if shape is not None else pending_shape)
                 return
             loop = self._loop
-        loop.call_soon_threadsafe(partial(self._renderer.update_appearance, iris_color=iris_color))
+        loop.call_soon_threadsafe(partial(self._renderer.update_appearance, iris_color=iris_color, shape=shape))
 
     def request_preview_settings(self, settings: CameraPreviewSettings) -> None:
         with self._appearance_lock:
@@ -210,10 +214,10 @@ class EyeRenderLoop(Behavior):
         try:
             self._loop = asyncio.get_running_loop()
             with self._appearance_lock:
-                pending = self._pending_iris_color
-                self._pending_iris_color = None
+                pending = self._pending_appearance
+                self._pending_appearance = None
             if pending is not None:
-                self._renderer.update_appearance(iris_color=pending)
+                self._renderer.update_appearance(iris_color=pending[0], shape=pending[1])
             with self._appearance_lock:
                 pending_preview = self._pending_preview_settings
                 self._pending_preview_settings = None
@@ -243,12 +247,12 @@ class EyeRenderLoop(Behavior):
             self._task = asyncio.create_task(self._run(), name="eye-render-loop")
             with self._appearance_lock:
                 self._appearance_ready = True
-                pending = self._pending_iris_color
-                self._pending_iris_color = None
+                pending = self._pending_appearance
+                self._pending_appearance = None
                 pending_preview = self._pending_preview_settings
                 self._pending_preview_settings = None
             if pending is not None:
-                self._renderer.update_appearance(iris_color=pending)
+                self._renderer.update_appearance(iris_color=pending[0], shape=pending[1])
             if pending_preview is not None:
                 self._preview_settings = pending_preview
         except Exception:

@@ -495,6 +495,44 @@ skins:
     assert applied[-1] == "#B38CFF"
 
 
+def test_global_skin_shape_applies_persists_and_reconciles_when_only_shape_changes(runtime):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: shaped
+    display_name: Shaped
+    inherits: phos-default
+    appearance:
+      eyes:
+        shape: expressive
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": None,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(lifecycle.config_repository.load().agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append((value.iris_color, value.eye_shape)))
+    for name in ("register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(lambda _value: None)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    application.apply_skin("shaped")
+    assert RuntimeConfig.from_file(path).eye_shape == "expressive"
+    assert applied[-1][1] == "expressive"
+
+    catalog.write_text(catalog.read_text().replace("expressive", "angular"))
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert applied[-1][1] == "angular"
+    assert lifecycle.reconcile_effective_appearance()["applied"] == []
+
+
 def test_global_skin_restores_after_restart_and_reapplies_changed_personality(runtime):
     path, lifecycle, _, _ = runtime
     catalog = path.parent / "skins.yaml"

@@ -113,6 +113,63 @@ def test_skin_normalizes_legacy_presets_and_preserves_custom_iris_hex(tmp_path):
     assert imported.appearance["eyes"]["iris_color"] == "#7A5CFF"
 
 
+@pytest.mark.parametrize("shape", ("classic_oval", "round", "expressive", "angular", "compact"))
+def test_skin_accepts_each_supported_eye_shape(shape):
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"]["shape"] = shape
+
+    assert validate_appearance_snapshot(appearance)["eyes"] == {
+        "iris_color": appearance["eyes"]["iris_color"], "shape": shape,
+    }
+
+
+def test_skin_missing_eye_shape_remains_legacy_compatible_and_defaults_to_classic_oval():
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"].pop("shape")
+
+    normalized = validate_appearance_snapshot(appearance)
+
+    assert appearance["eyes"] == {"iris_color": load_document()["display"]["iris_color"]}
+    assert normalized["eyes"]["shape"] == "classic_oval"
+    assert normalized["eyes"]["iris_color"] == appearance["eyes"]["iris_color"]
+
+
+@pytest.mark.parametrize("shape", ("soft", "winged", "CLASSIC_OVAL", None, 1))
+def test_skin_rejects_unsupported_eye_shapes_with_clear_error(shape):
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"]["shape"] = shape
+
+    with pytest.raises(ConfigurationError, match="eyes.shape"):
+        validate_appearance_snapshot(appearance)
+
+
+def test_skin_shape_round_trips_without_changing_existing_appearance_or_metadata(tmp_path):
+    appearance = appearance_snapshot(load_document())
+    appearance["eyes"] = {"iris_color": "#6EC9FF", "shape": "angular"}
+    appearance["backgrounds"]["enabled"] = True
+    appearance["state_effects"] = {"enabled": True, "preset": "expressive", "palette": "aqua", "reduce_motion": True}
+    manifest = {
+        "schema_version": 3, "name": "PHOS Winged", "description": "", "appearance": appearance,
+        "led_palette": {"enabled": True, "colors": {"idle": "#6EC9FF"}},
+        "physical_personality": {"preset": "playful"},
+    }
+    repository = SkinRepository(tmp_path / "phos.yaml")
+
+    imported = repository.import_package(_package(manifest))
+    exported = repository.export(imported.id)
+    with zipfile.ZipFile(io.BytesIO(exported)) as package:
+        round_trip = yaml.safe_load(package.read("skin.yaml"))
+
+    assert imported.appearance["eyes"] == {"iris_color": "#6EC9FF", "shape": "angular"}
+    assert imported.appearance["backgrounds"] == appearance["backgrounds"]
+    assert imported.appearance["state_effects"] == appearance["state_effects"]
+    assert imported.led_palette == manifest["led_palette"]
+    assert imported.physical_personality == "playful"
+    assert round_trip["appearance"]["eyes"] == imported.appearance["eyes"]
+    assert round_trip["led_palette"] == manifest["led_palette"]
+    assert round_trip["physical_personality"] == manifest["physical_personality"]
+
+
 def test_skin_semantic_matching_treats_a_preset_and_its_resolved_hex_as_equal(tmp_path):
     current = appearance_snapshot(load_document())
     legacy_skin = copy.deepcopy(current)

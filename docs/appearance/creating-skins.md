@@ -1,8 +1,9 @@
 # Creating a PHOS Skin
 
-A PHOS Skin is a portable visual package. It can set eye colour, a background
-for each robot state, the Eye Safe Layer, and State Effects. It does not change
-voice commands, robot behaviour, sensors, or temporary runtime state.
+A PHOS Skin is a portable appearance package. It can set eye colour and shape,
+a background for each robot state, the Eye Safe Layer, State Effects, an
+optional semantic LED palette, and Skin-owned Physical Personality. It does
+not change voice commands, sensors, or temporary runtime state.
 
 This guide is for designers, makers, and contributors. You need only a text
 editor for YAML, image files, and a way to create a ZIP archive.
@@ -33,16 +34,17 @@ are referenced by `skin.yaml` in the archive.
 
 ## Complete Skin example
 
-This is the canonical schema-version-2 manifest for a Skin with one image for
+This is the canonical schema-version-3 manifest for a Skin with one image for
 each state. The filenames must exactly match the files in `assets/`.
 
 ```yaml
-schema_version: 2
+schema_version: 3
 name: Northern lights
 description: Cool aurora backgrounds with a violet iris.
 appearance:
   eyes:
     iris_color: "#A670F5"
+    shape: classic_oval
   backgrounds:
     enabled: true
     idle: assets/idle.png
@@ -61,7 +63,7 @@ appearance:
     reduce_motion: false
 ```
 
-`schema_version` must be `2`. `name` and `description` must both be strings;
+`schema_version` must be `3`. `name` and `description` must both be strings;
 an empty description is allowed.
 
 ## Background states
@@ -106,6 +108,23 @@ one state.
 their resolved canonical colour. Custom colours must have exactly six hex digits
 and a leading `#`; alpha, gradients, textures, and animations are not supported.
 
+`eyes.shape` is optional and defaults to `classic_oval`. Supported values are
+`classic_oval`, `round`, `expressive`, `angular`, and `compact`. The Skin
+selection is applied through the existing runtime appearance queue. Legacy
+Skins without this field retain the `classic_oval` renderer behavior.
+
+### Physical Personality
+
+`physical_personality` is optional and belongs to the Skin, not to an Agent.
+Supported presets are `analytical`, `playful`, and `calm`; omitted values use
+the `analytical` fallback. It controls only bounded IDLE blink/gaze timing;
+attention, tracking, IMU reactions, and system expressions remain authoritative.
+
+```yaml
+physical_personality:
+  preset: playful
+```
+
 ### Eye Safe Layer
 
 The Eye Safe Layer adds a contrast-friendly halo behind the eyes so they stay
@@ -146,7 +165,7 @@ Use this complete manifest when you only want to change the eyes, Eye Safe
 Layer, or State Effects. It needs no `assets/` directory.
 
 ```yaml
-schema_version: 2
+schema_version: 3
 name: Quiet cyan
 description: A background-free, low-motion appearance.
 appearance:

@@ -321,7 +321,7 @@ _SCHEMA = {
                    "presentation_owner": {"agent_id": "presentation_owner_agent_id"}},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
-                "iris_color": "iris_color", "base_visual_source": "base_visual_source",
+                "iris_color": "iris_color", "eye_shape": "eye_shape", "base_visual_source": "base_visual_source",
                 "environment_overlays_enabled": "environment_overlays_enabled",
                 "backgrounds": {"enabled": "backgrounds_enabled", "idle": "background_idle",
                     "listening": "background_listening", "thinking": "background_thinking",
@@ -604,6 +604,7 @@ class RuntimeConfig:
     fullscreen: bool
     display_transition_seconds: float
     iris_color: str
+    eye_shape: str
     base_visual_source: str
     environment_overlays_enabled: bool
     backgrounds_enabled: bool
@@ -765,6 +766,7 @@ class RuntimeConfig:
             if isinstance(display["backgrounds"], dict):
                 display["backgrounds"].setdefault("max_upload_bytes", 4 * 1024 * 1024)
             display.setdefault("eye_safe_layer", {"enabled": True, "mode": "balanced"})
+            display.setdefault("eye_shape", "classic_oval")
             display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
                                                   "reduce_motion": False})
             if isinstance(display["state_effects"], dict):
@@ -1112,6 +1114,8 @@ class RuntimeConfig:
             IrisColorResolver.normalize(self.iris_color)
         except ValueError as error:
             raise ConfigurationError("display.iris_color must be a supported preset name or #RRGGBB") from error
+        if self.eye_shape not in {"classic_oval", "round", "expressive", "angular", "compact"}:
+            raise ConfigurationError("display.eye_shape must be a supported eye shape")
         if self.base_visual_source not in {item.value for item in VisualSource}:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:
