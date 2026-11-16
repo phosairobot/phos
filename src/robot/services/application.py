@@ -585,18 +585,23 @@ class PhosApplicationService:
         return self._plain(observation)
 
     def get_camera_snapshot(self) -> bytes:
-        """Return one privacy-bounded current Vision frame, encoded on demand."""
+        """Return one bounded JPEG from the latest cached Vision frame."""
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
         reader = getattr(pipeline, "camera_snapshot_jpeg", None)
         if not callable(reader):
             raise ApplicationError("vision_unavailable", "Vision is unavailable.", status=503)
         try:
-            return reader()
+            image = reader()
         except RuntimeError as error:
             reason = str(error)
             if reason == "no_frame":
                 raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
             raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        if (not isinstance(image, bytes) or len(image) > 512 * 1024
+                or _header_image_details(image) is None
+                or not image.startswith(b"\xff\xd8") or not image.endswith(b"\xff\xd9")):
+            raise ApplicationError("camera_snapshot_invalid", "Camera snapshot is unavailable.", status=503)
+        return image
 
     def expression_reaction(self) -> dict:
         return self._plain(self._behavior.expression_reaction_state())

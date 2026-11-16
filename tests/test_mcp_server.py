@@ -16,6 +16,7 @@ from robot.mcp.server import (
     McpSemanticAdapter,
     McpSemanticEventBridge,
     McpToolError,
+    _SnapshotToolRateLimiter,
     create_mcp_server,
 )
 from robot.core.behavior_engine import BehaviorEngine
@@ -75,7 +76,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == MCP_TOOL_NAMES
-    assert len(MCP_TOOL_NAMES) == 10
+    assert len(MCP_TOOL_NAMES) == 11
     source = inspect.getsource(__import__("robot.mcp.server", fromlist=["server"]))
     assert all(forbidden not in source for forbidden in (
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
@@ -108,6 +109,60 @@ def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():
     assert json.loads(environment[0].content)["operation"] == "get_physical_context"
     assert snapshot[0].content == b"\xff\xd8fake-jpeg\xff\xd9"
     assert snapshot[0].mime_type == "image/jpeg"
+
+
+def test_camera_snapshot_tool_returns_native_image_content_without_changing_semantic_state():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    result = asyncio.run(server.call_tool("phos_get_camera_snapshot", {}))
+
+    image, metadata = result.content
+    assert image.type == "image" and image.mime_type == "image/jpeg"
+    assert base64.b64decode(image.data) == b"\xff\xd8fake-jpeg\xff\xd9"
+    assert metadata.type == "text" and "cached" in metadata.text and "unavailable" in metadata.text
+    assert application.calls == [("get_camera_snapshot",)]
+
+
+def test_camera_snapshot_tool_keeps_observer_camera_permission_denied():
+    adapter, application = _adapter(profile=AgentProfile.OBSERVER)
+    server = create_mcp_server(adapter._agent_service)
+
+    async def call():
+        with pytest.raises(Exception, match="permission_denied"):
+            await server.call_tool("phos_get_camera_snapshot", {})
+
+    asyncio.run(call())
+    assert application.calls == []
+
+
+def test_snapshot_tool_rate_limit_is_per_identity_and_uses_a_bounded_identity_cache():
+    now = [100.0]
+    limiter = _SnapshotToolRateLimiter(clock=lambda: now[0])
+
+    limiter.require_allowed("standard-agent")
+    with pytest.raises(McpToolError, match="rate_limited"):
+        limiter.require_allowed("standard-agent")
+    limiter.require_allowed("another-agent")
+    now[0] += 1.0
+    limiter.require_allowed("standard-agent")
+    for index in range(64):
+        limiter.require_allowed(f"agent-{index}")
+
+    assert len(limiter._last_request) == 64
+
+
+def test_camera_snapshot_tool_rejects_an_immediate_repeat_before_reading_the_provider():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    async def call_twice():
+        await server.call_tool("phos_get_camera_snapshot", {})
+        with pytest.raises(Exception):
+            await server.call_tool("phos_get_camera_snapshot", {})
+
+    asyncio.run(call_twice())
+    assert application.calls == [("get_camera_snapshot",)]
 
 
 def test_mcp_middleware_authenticates_once_for_each_tool_or_resource_request():
@@ -376,6 +431,7 @@ def test_streamable_http_camera_snapshot_uses_existing_active_pipeline_and_real_
         async with server.session_manager.run():
             async for standard in session_for(standard_token):
                 snapshot = await standard.read_resource("phos://vision/snapshot")
+                tool_snapshot = await standard.call_tool("phos_get_camera_snapshot")
                 pipeline.snapshot = None
                 with pytest.raises(MCPError) as no_frame:
                     await standard.read_resource("phos://vision/snapshot")
@@ -386,9 +442,10 @@ def test_streamable_http_camera_snapshot_uses_existing_active_pipeline_and_real_
             async for observer in session_for(observer_token):
                 with pytest.raises(MCPError) as denied:
                     await observer.read_resource("phos://vision/snapshot")
-        return snapshot, str(no_frame.value), str(unavailable.value), str(denied.value)
+                denied_tool = await observer.call_tool("phos_get_camera_snapshot")
+        return snapshot, tool_snapshot, str(no_frame.value), str(unavailable.value), str(denied.value), denied_tool
 
-    snapshot, no_frame, unavailable, denied = asyncio.run(exercise())
+    snapshot, tool_snapshot, no_frame, unavailable, denied, denied_tool = asyncio.run(exercise())
     content = snapshot.contents[0]
     received = base64.b64decode(content.blob)
 
@@ -412,11 +469,17 @@ def test_streamable_http_camera_snapshot_uses_existing_active_pipeline_and_real_
     assert content.mime_type == "image/jpeg"
     assert jpeg_dimensions(received) == (1, 1)
     assert len(received) <= 512 * 1024
+    assert tool_snapshot.is_error is False
+    assert tool_snapshot.content[0].type == "image"
+    assert tool_snapshot.content[0].mime_type == "image/jpeg"
+    assert base64.b64decode(tool_snapshot.content[0].data) == received
+    assert "cached" in tool_snapshot.content[1].text
     assert "service_unavailable: No camera frame is available yet" in no_frame
     assert "service_unavailable: Vision is unavailable" in unavailable
     assert "permission_denied" in denied
+    assert denied_tool.is_error is True and "permission_denied" in denied_tool.content[0].text
     assert runtime._vision_pipeline is pipeline
-    assert pipeline.calls == 2  # successful read plus no-frame failure; observer is denied first.
+    assert pipeline.calls == 3  # resource, tool, then no-frame; observer is denied first.
 
 
 def test_streamable_http_dynamic_agent_crud_updates_authentication_without_restart(tmp_path):
@@ -520,6 +583,24 @@ def test_camera_snapshot_unavailable_is_sanitized():
     adapter, _ = _adapter(Unavailable())
     with pytest.raises(McpToolError, match="service_unavailable: No camera frame is available yet"):
         adapter.camera_snapshot()
+
+
+@pytest.mark.parametrize("snapshot", [
+    b"not-a-jpeg",
+    b"\xff\xd8" + (b"x" * (512 * 1024)) + b"\xff\xd9",
+])
+def test_camera_snapshot_service_rejects_invalid_or_oversized_jpegs_without_exposing_bytes(snapshot):
+    class Pipeline:
+        def camera_snapshot_jpeg(self):
+            return snapshot
+
+    runtime = SimpleNamespace(core=RobotCore(), _behavior_engine=object(), _vision_pipeline=Pipeline())
+
+    with pytest.raises(ApplicationError, match="Camera snapshot is unavailable") as error:
+        PhosApplicationService(runtime).get_camera_snapshot()
+
+    assert error.value.code == "camera_snapshot_invalid"
+    assert repr(snapshot) not in str(error.value)
 
 
 @pytest.mark.parametrize(("method", "expected"), [

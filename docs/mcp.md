@@ -254,7 +254,7 @@ deletion until another configured agent becomes default.
 ## Permission profiles
 
 `standard` agents can use the complete currently exposed semantic tool set and
-the protected camera snapshot Resource. `observer` agents retain read-only
+the protected camera snapshot Resource/tool. `observer` agents retain read-only
 semantic context but cannot request control actions such as sleep, wake,
 speech, expression changes, or user signals; they also cannot read the camera
 snapshot. Permissions are enforced by PHOS on every authenticated request.
@@ -332,7 +332,7 @@ claimed.
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,
-`phos_get_attention`, `phos_get_observed_expression`,
+`phos_get_attention`, `phos_get_observed_expression`, `phos_get_camera_snapshot`,
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
 `phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
 semantic result documents, and sanitized error mapping are transport-independent.
@@ -354,13 +354,20 @@ application-service boundary as its tools:
 - `phos://environment` — the environmental section of that physical context.
 - `phos://vision/snapshot` — one current `image/jpeg` camera snapshot.
 
+`phos_get_camera_snapshot` returns a JPEG encoded from the same latest cached
+Vision frame as an MCP image content block, plus text stating that capture timing
+is unavailable. It never initiates a capture, infers scene content, or changes
+presence/attention state. Tool calls are bounded to one snapshot per second per
+authenticated identity; the existing Resource remains available for its current
+read-only contract.
+
 Resources are live snapshots: each read calls the same permission-checked
 application-service boundary as the corresponding semantic tool. They do not
 poll providers, mutate PHOS, replay history, or expose controller/camera/
-renderer internals. The camera snapshot is synchronous, read-only and on
-demand: it uses the existing Vision pipeline's latest in-memory frame, copies
-it before bounded JPEG encoding, and never opens another camera or streams
-video. It is protected by the dedicated `read_camera_snapshot` permission;
+renderer internals. The camera snapshot is synchronous, read-only and encodes
+the existing Vision pipeline's latest cached frame; it never opens another
+camera, starts a capture, or streams video. It is protected by the dedicated
+`read_camera_snapshot` permission;
 the standard profile has it while the observer profile deliberately does not.
 This is separate from generic physical-context access because a snapshot may
 contain people physically visible to the camera. It contains no camera device,

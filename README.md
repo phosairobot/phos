@@ -126,12 +126,13 @@ External Agent → MCP semantic interface → AgentApplicationService
 
 Available Resources are `phos://status`, `phos://physical-context`,
 `phos://environment`, and `phos://vision/snapshot`. The vision resource is one
-current on-demand JPEG frame, not a video stream or continuous subscription.
+JPEG encoded from the latest cached camera frame, not a video stream or
+continuous subscription.
 It is protected separately from generic physical-context reads because the
 image may contain people visible to the camera. See the [MCP guide](docs/mcp.md).
 The currently exposed tools are `phos_get_status`, `phos_get_physical_context`,
 `phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression`,
-`phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
+`phos_get_camera_snapshot`, `phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
 `phos_signal_user`.
 
 Modern MCP clients may use `subscriptions/listen` for semantic Resource change
