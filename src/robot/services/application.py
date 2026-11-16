@@ -1200,7 +1200,14 @@ class PhosApplicationService:
             current = self._lifecycle.config_repository.load().to_dict()["display"]["backgrounds"]
             if self._owns_live_backgrounds(skin_id, current):
                 raise ApplicationError("skin_in_use", "This skin is currently used by PHOS. Apply another skin before deleting it.", status=409)
-            self._skins().delete(skin_id); return {"deleted": skin_id}
+            self._skins().delete(skin_id)
+            # A persisted global identity may now be unavailable.  Reconcile
+            # through the same lifecycle boundary so it immediately falls back
+            # to legacy global appearance and analytical personality.
+            reconcile = getattr(self._lifecycle, "reconcile_effective_appearance", None)
+            if callable(reconcile):
+                reconcile()
+            return {"deleted": skin_id}
         except ApplicationError:
             raise
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
@@ -1242,6 +1249,7 @@ class PhosApplicationService:
             skin = self._skins().get(skin_id)
             snapshot, missing_backgrounds = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
             document = apply_appearance_snapshot(previous.to_dict(), snapshot)
+            document["appearance"]["global_skin_id"] = skin.id
             candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
             self._lifecycle.config_repository.save(candidate)
             result = self._lifecycle.execute("reload")

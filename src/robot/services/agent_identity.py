@@ -24,6 +24,7 @@ class AgentIdentity:
     display_name: str | None = None
     skin: dict | None = None
     appearance: dict | None = None
+    personality: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -52,6 +53,8 @@ class AgentIdentity:
                     or type(self.appearance["activity_timeout_seconds"]) is not int or not 5 <= self.appearance["activity_timeout_seconds"] <= 3600):
                 raise ValueError("Invalid agent appearance policy.")
             object.__setattr__(self, "appearance", dict(self.appearance))
+        if self.personality is not None and self.personality not in {"analytical", "playful", "calm"}:
+            raise ValueError("Invalid agent physical personality.")
 
 
 class AgentAuthenticator(Protocol):

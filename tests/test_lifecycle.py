@@ -434,6 +434,8 @@ def test_skin_preview_updates_runtime_without_saving_or_changing_active_config(r
     lifecycle.register_backgrounds_applier(lambda config: applied.append(("backgrounds", config.backgrounds_enabled)))
     lifecycle.register_eye_safe_layer_applier(lambda config: applied.append(("safe", config.eye_safe_layer_mode)))
     lifecycle.register_state_effects_applier(lambda config: applied.append(("effects", config.state_effects_enabled)))
+    personalities = []
+    lifecycle.register_physical_personality_applier(personalities.append)
     application = object.__new__(PhosApplicationService)
     application._lifecycle = lifecycle
     application._runtime = object()
@@ -444,6 +446,161 @@ def test_skin_preview_updates_runtime_without_saving_or_changing_active_config(r
     assert result["applied"] == ["temporary_appearance"]
     assert ("iris", "#A670F5") in applied and ("effects", True) in applied
     assert path.read_bytes() == before and lifecycle.active == active
+    assert personalities == []
+
+
+@pytest.mark.parametrize(("skin_id", "preset"), [
+    ("manual-analytical", "analytical"), ("manual-playful", "playful"), ("manual-calm", "calm"),
+    ("manual-legacy", "analytical"),
+])
+def test_manual_skin_apply_persists_complete_global_skin_identity(runtime, skin_id, preset):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    personality = "" if skin_id == "manual-legacy" else f"    physical_personality:\n      preset: {preset}\n"
+    catalog.write_text(f"""schema_version: 1
+skins:
+  - id: {skin_id}
+    display_name: {skin_id}
+    inherits: phos-default
+{personality}    appearance:
+      eyes:
+        iris_color: '#B38CFF'
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": None,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(lifecycle.config_repository.load().agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied, palettes, personalities = [], [], []
+    lifecycle.register_appearance_applier(lambda value: applied.append(value.iris_color))
+    lifecycle.register_backgrounds_applier(lambda value: None)
+    lifecycle.register_eye_safe_layer_applier(lambda value: None)
+    lifecycle.register_state_effects_applier(lambda value: None)
+    lifecycle.register_semantic_led_palette_applier(palettes.append)
+    lifecycle.register_physical_personality_applier(personalities.append)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    application.apply_skin(skin_id)
+
+    saved = RuntimeConfig.from_file(path)
+    assert saved.global_skin_id == skin_id
+    assert personalities[-1] == preset
+    assert palettes[-1]["skin_id"] == skin_id
+    status = lifecycle.presentation_activation_status()
+    assert status["resolved"]["effective_skin_id"] == skin_id
+    assert status["resolved"]["effective_personality"] == preset
+    assert applied[-1] == "#B38CFF"
+
+
+def test_global_skin_shape_applies_persists_and_reconciles_when_only_shape_changes(runtime):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: shaped
+    display_name: Shaped
+    inherits: phos-default
+    appearance:
+      eyes:
+        shape: expressive
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": None,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(lifecycle.config_repository.load().agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append((value.iris_color, value.eye_shape)))
+    for name in ("register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(lambda _value: None)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    application.apply_skin("shaped")
+    assert RuntimeConfig.from_file(path).eye_shape == "expressive"
+    assert applied[-1][1] == "expressive"
+
+    catalog.write_text(catalog.read_text().replace("expressive", "angular"))
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert applied[-1][1] == "angular"
+    assert lifecycle.reconcile_effective_appearance()["applied"] == []
+
+
+def test_global_skin_restores_after_restart_and_reapplies_changed_personality(runtime):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: identity
+    display_name: Identity
+    inherits: phos-default
+    physical_personality:
+      preset: playful
+    appearance: {}
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": "identity",
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(RuntimeConfig.from_file(path).agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    personalities = []
+    for name in ("register_appearance_applier", "register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(personalities.append)
+    lifecycle.register_agent_management_service(management)
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert personalities == ["playful"]
+
+    catalog.write_text(catalog.read_text().replace("playful", "calm"))
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert personalities == ["playful", "calm"]
+
+    restarted = LifecycleService(path, RuntimeConfig.from_file(path), restart_supported=True)
+    restarted_provider = AgentRegistryProvider(RuntimeConfig.from_file(path).agent_registry)
+    restarted_management = AgentManagementService(restarted.config_repository, restarted_provider,
+                                                  AgentCredentialService(restarted_provider, SecretsService(path.parent / ".secrets")))
+    restored = []
+    for name in ("register_appearance_applier", "register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(restarted, name)(lambda _value: None)
+    restarted.register_semantic_led_palette_applier(lambda _value: None)
+    restarted.register_physical_personality_applier(restored.append)
+    restarted.register_agent_management_service(restarted_management)
+    assert restarted.reconcile_effective_appearance()["ok"]
+    assert RuntimeConfig.from_file(path).global_skin_id == "identity"
+    assert restored == ["calm"]
+
+
+def test_deleted_global_skin_reconciles_to_analytical_fallback(runtime):
+    path, lifecycle, _, _ = runtime
+    skin = SkinRepository(path).create("Temporary", "", appearance_snapshot(load_document()))
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": None, "mode": "global", "global_skin_id": skin.id,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(RuntimeConfig.from_file(path).agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    personalities = []
+    for name in ("register_appearance_applier", "register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(personalities.append)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    assert application.delete_skin(skin.id) == {"deleted": skin.id}
+    assert personalities == ["analytical"]
+    assert lifecycle.presentation_activation_status()["resolved"]["effective_skin_id"] is None
 
 
 def test_eye_safe_layer_reload_uses_the_registered_runtime_boundary(runtime):

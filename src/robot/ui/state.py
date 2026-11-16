@@ -76,6 +76,7 @@ class BlinkPhase(str, Enum):
     CLOSING = "closing"
     CLOSED = "closed"
     OPENING = "opening"
+    DOUBLE_PAUSE = "double_pause"
 
 
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")

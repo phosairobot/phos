@@ -55,7 +55,7 @@ HARDWARE_CONTROLLER_RELOADABLE = frozenset({
     "hardware_controller.reconnect.delay_seconds", "hardware_controller.heartbeat.interval_seconds",
     "hardware_controller.heartbeat.timeout_seconds",
 })
-RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
+RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.eye_shape", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
                         "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
                         "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
                         "display.backgrounds.error", "display.eye_safe_layer.enabled", "display.eye_safe_layer.mode", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE, *HARDWARE_CONTROLLER_RELOADABLE})
@@ -103,6 +103,7 @@ class LifecycleService:
         self._apply_eye_safe_layer = None
         self._apply_state_effects = None
         self._apply_semantic_led_palette = None
+        self._apply_physical_personality = None
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
@@ -162,6 +163,9 @@ class LifecycleService:
     def register_semantic_led_palette_applier(self, applier):
         with self._lock: self._apply_semantic_led_palette = applier
 
+    def register_physical_personality_applier(self, applier):
+        with self._lock: self._apply_physical_personality = applier
+
     def apply_temporary_appearance(self, config: RuntimeConfig) -> dict:
         """Apply validated visual settings without changing saved or active config."""
         if not isinstance(config, RuntimeConfig):
@@ -194,7 +198,8 @@ class LifecycleService:
             display = self.active["display"]
             changes = (
                 ("display.iris_color", self._apply_appearance,
-                 display["iris_color"] != saved["display"]["iris_color"]),
+                 (display["iris_color"] != saved["display"]["iris_color"]
+                  or display["eye_shape"] != saved["display"]["eye_shape"])),
                 ("display.base_visual_source", self._apply_base_visual_source,
                  display["base_visual_source"] != saved["display"]["base_visual_source"]),
                 ("display.environment_overlays_enabled", self._apply_environment_overlays,
@@ -287,7 +292,7 @@ class LifecycleService:
                 self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
                 return {"ok": False, "error": self._presentation_activation["message"]}
             key = (resolved.get("mode"), resolved.get("selected_agent_id"), resolved.get("effective_skin_id"),
-                   repr(candidate.to_dict().get("display")), repr(palette))
+                   resolved.get("effective_personality"), repr(candidate.to_dict().get("display")), repr(palette))
             if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
                     "global_active", "agent_skin_active", "fallback_active"}:
                 return {"ok": True, "applied": [], "resolved": resolved}
@@ -295,6 +300,8 @@ class LifecycleService:
                                              "mode": resolved.get("mode"), "arbitration": arbitration}
             result = self.apply_temporary_appearance(candidate)
             if result.get("ok"):
+                if self._apply_physical_personality is not None:
+                    self._apply_physical_personality(resolved.get("effective_personality", "analytical"))
                 if self._apply_semantic_led_palette is not None:
                     self._apply_semantic_led_palette(palette)
                 self._applied_appearance_key = key
@@ -414,7 +421,8 @@ class LifecycleService:
             if operation == "reload":
                 if self.restart_at is not None:
                     return {"ok": False, "error": "Restart is already requested. Wait for PHOS to start again."}
-                if (self.active["display"]["iris_color"] != saved["display"]["iris_color"]
+                if ((self.active["display"]["iris_color"] != saved["display"]["iris_color"]
+                        or self.active["display"]["eye_shape"] != saved["display"]["eye_shape"])
                         and self._apply_appearance is None):
                     return {"ok": False, "error": "Runtime appearance service is not ready. No settings were applied; retry reload shortly."}
                 if (self.active["display"]["base_visual_source"] != saved["display"]["base_visual_source"]
@@ -462,13 +470,18 @@ class LifecycleService:
                     saved["hardware_controller"], "hardware_controller")
                 if controller_paths and self._apply_hardware_controller is None:
                     return {"ok": False, "error": "Runtime hardware controller service is not ready. No settings were applied; retry reload shortly."}
-                if self.active["display"]["iris_color"] != saved["display"]["iris_color"]:
+                if (self.active["display"]["iris_color"] != saved["display"]["iris_color"]
+                        or self.active["display"]["eye_shape"] != saved["display"]["eye_shape"]):
+                    appearance_paths = [path for path in ("display.iris_color", "display.eye_shape")
+                                        if self.active["display"][path.rsplit(".", 1)[1]]
+                                        != saved["display"][path.rsplit(".", 1)[1]]]
                     try:
                         self._apply_appearance(config)
                     except Exception:
                         return {"ok": False, "error": "The running display could not accept the appearance update. No active configuration was recorded; retry reload or restart PHOS."}
                     self.active["display"]["iris_color"] = saved["display"]["iris_color"]
-                    applied.append("display.iris_color")
+                    self.active["display"]["eye_shape"] = saved["display"]["eye_shape"]
+                    applied.extend(appearance_paths)
                 if self.active["display"]["base_visual_source"] != saved["display"]["base_visual_source"]:
                     self._apply_base_visual_source(config)
                     self.active["display"]["base_visual_source"] = saved["display"]["base_visual_source"]

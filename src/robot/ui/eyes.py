@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Optional, Tuple
 
@@ -39,6 +39,18 @@ class EyeGeometry:
     # Downward bow of the internal lid boundary as a fraction of eye height.
     upper_lid_curve: float
     closed: bool
+    # Optional absolute, closed-outline vertices for future non-elliptical
+    # silhouettes.  ``None`` preserves the established ellipse contract.
+    contour: Optional[Tuple[Tuple[float, float], ...]] = None
+
+    def __post_init__(self) -> None:
+        if self.contour is None:
+            return
+        if (not isinstance(self.contour, tuple) or len(self.contour) < 3
+                or any(not isinstance(point, tuple) or len(point) != 2
+                       or not all(isinstance(value, (int, float)) and math.isfinite(value) for value in point)
+                       for point in self.contour)):
+            raise ValueError("Eye contour must be an immutable sequence of at least three finite points.")
 
 
 @dataclass(frozen=True)
@@ -90,6 +102,85 @@ def upper_lid_points(eye: EyeGeometry, *, inset: float = 5.0, segments: int = 12
 def valid_polygon_points(points: tuple[tuple[float, float], ...]) -> bool:
     """Return whether a point set is safe to submit to a Canvas/SVG polygon."""
     return len(points) >= 3 and all(math.isfinite(coordinate) for point in points for coordinate in point)
+
+
+def custom_eye_interior_contour(eye: EyeGeometry, *, inset: float = 5.0) -> tuple[tuple[float, float], ...]:
+    """Return the same conservative inset contour used for the colored body."""
+    if eye.contour is None or eye.radius_x <= 0.0 or eye.radius_y <= 0.0:
+        return ()
+    safe_inset = min(inset, max(0.0, min(eye.radius_x, eye.radius_y) - 1.0))
+    scale_x = (eye.radius_x - safe_inset) / eye.radius_x
+    scale_y = (eye.radius_y - safe_inset) / eye.radius_y
+    return tuple(
+        (eye.center_x + (x - eye.center_x) * scale_x,
+         eye.center_y + (y - eye.center_y) * scale_y)
+        for x, y in eye.contour
+    )
+
+
+def contain_custom_eye_graphics(eye: EyeGeometry) -> EyeGeometry:
+    """Conservatively fit custom-shape iris graphics into their colored interior.
+
+    Generated contours are convex.  We shrink their inset interior by the
+    graphics' enclosing radius (iris plus a two-pixel reflection allowance),
+    then clamp the requested pupil point along its center-to-target segment.
+    Degenerate or unexpectedly non-convex input safely suppresses the iris
+    stack instead of letting a Canvas primitive leak through the silhouette.
+    """
+    if eye.contour is None or eye.closed:
+        return eye
+    contour = custom_eye_interior_contour(eye)
+    if len(contour) < 3 or not valid_polygon_points(contour):
+        return replace(eye, iris_radius=0.0, pupil_radius=0.0, pupil_x=eye.center_x, pupil_y=eye.center_y)
+
+    area = sum(x1 * y2 - y1 * x2 for (x1, y1), (x2, y2) in zip(contour, contour[1:] + contour[:1]))
+    if not math.isfinite(area) or abs(area) <= 1e-9:
+        return replace(eye, iris_radius=0.0, pupil_radius=0.0, pupil_x=eye.center_x, pupil_y=eye.center_y)
+    orientation = 1.0 if area > 0.0 else -1.0
+    turns = tuple(
+        orientation * ((x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2))
+        for (x1, y1), (x2, y2), (x3, y3) in zip(contour, contour[1:] + contour[:1], contour[2:] + contour[:2])
+    )
+    if any(turn < -1e-9 for turn in turns):
+        return replace(eye, iris_radius=0.0, pupil_radius=0.0, pupil_x=eye.center_x, pupil_y=eye.center_y)
+
+    def clearances(point: tuple[float, float]) -> tuple[float, ...]:
+        margins = []
+        for (x1, y1), (x2, y2) in zip(contour, contour[1:] + contour[:1]):
+            length = math.hypot(x2 - x1, y2 - y1)
+            if length <= 1e-9:
+                return ()
+            margins.append(orientation * ((x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)) / length)
+        return tuple(margins)
+
+    base = (eye.center_x, eye.center_y)
+    base_clearances = clearances(base)
+    if not base_clearances or min(base_clearances) <= 2.0:
+        return replace(eye, iris_radius=0.0, pupil_radius=0.0, pupil_x=eye.center_x, pupil_y=eye.center_y)
+
+    # A two-pixel allowance contains the minimum-sized white highlight; for
+    # normal irises it is also outside the already-larger iris backing.
+    iris_radius = min(eye.iris_radius, min(base_clearances) - 2.0)
+    if iris_radius < 2.0:
+        return replace(eye, iris_radius=0.0, pupil_radius=0.0, pupil_x=eye.center_x, pupil_y=eye.center_y)
+    required_clearance = iris_radius + 2.0
+    target = (eye.pupil_x, eye.pupil_y)
+    target_clearances = clearances(target)
+    if not target_clearances:
+        return replace(eye, iris_radius=0.0, pupil_radius=0.0, pupil_x=eye.center_x, pupil_y=eye.center_y)
+    travel = 1.0
+    for base_margin, target_margin in zip(base_clearances, target_clearances):
+        delta = target_margin - base_margin
+        if delta < 0.0:
+            travel = min(travel, max(0.0, (base_margin - required_clearance) / -delta))
+    pupil_ratio = eye.pupil_radius / eye.iris_radius if eye.iris_radius > 0.0 else 0.0
+    return replace(
+        eye,
+        pupil_x=base[0] + (target[0] - base[0]) * travel,
+        pupil_y=base[1] + (target[1] - base[1]) * travel,
+        iris_radius=iris_radius,
+        pupil_radius=iris_radius * pupil_ratio,
+    )
 
 
 @dataclass
@@ -188,12 +279,14 @@ class EyeRenderer:
     """Convert only ``FaceState`` into smoothly animated eye geometry."""
 
     def __init__(self, *, width: int = 800, height: int = 600, transition_seconds: float = 0.18,
-                 iris_color: str = "cyan") -> None:
+                 iris_color: str = "cyan", shape: str = "classic_oval") -> None:
         if width <= 0 or height <= 0 or transition_seconds <= 0:
             raise ValueError("Eye renderer dimensions and transition duration must be positive.")
         self._width = width
         self._height = height
         self._transition_seconds = transition_seconds
+        if shape not in {"classic_oval", "round", "expressive", "angular", "compact"}: raise ValueError("Unsupported eye shape")
+        self._shape = shape
         try:
             self._iris_color = IrisColorResolver.normalize(iris_color)
         except ValueError as error:
@@ -205,6 +298,24 @@ class EyeRenderer:
     def iris_color(self) -> str:
         """Return the selected canonical base color, before semantic tinting."""
         return self._iris_color
+
+    @property
+    def shape(self) -> str:
+        return self._shape
+
+    def update_appearance(self, *, iris_color: str | None = None, shape: str | None = None) -> None:
+        """Update render-loop-owned appearance without resetting animation state."""
+        if iris_color is not None:
+            try:
+                iris_color = IrisColorResolver.normalize(iris_color)
+            except ValueError as error:
+                raise ValueError(f"Unsupported iris color: {iris_color}") from error
+        if shape is not None and shape not in {"classic_oval", "round", "expressive", "angular", "compact"}:
+            raise ValueError("Unsupported eye shape")
+        if iris_color is not None and iris_color != self._iris_color:
+            self._iris_color = iris_color
+        if shape is not None and shape != self._shape:
+            self._shape = shape
 
     def render(self, face_state: FaceState, *, timestamp: float) -> EyeFrame:
         state = face_state.normalized()
@@ -231,13 +342,6 @@ class EyeRenderer:
             ambient_overlay=state.ambient_overlay,
         )
 
-    def update_appearance(self, *, iris_color: str) -> None:
-        """Change validated renderer style; color blends in subsequent frames."""
-        try:
-            self._iris_color = IrisColorResolver.normalize(iris_color)
-        except ValueError as error:
-            raise ValueError(f"Unsupported iris color: {iris_color}") from error
-
     def _make_eye(self, left: bool, blink_amount: float, values: _AnimatedValues) -> EyeGeometry:
         eye_width = self._width * 0.27
         base_height = self._height * 0.42
@@ -248,11 +352,13 @@ class EyeRenderer:
         openness = values.eye_open_left if left else values.eye_open_right
         visible_open = max(0.0, openness * (1.0 - values.squint * 0.40) * blink_amount)
         radius_y = max(2.0, base_height * visible_open / 2)
+        if self._shape == "round": radius_y = radius_x
+        elif self._shape == "compact": radius_y *= .62
         iris_radius = max(1.0, min(radius_x * 0.35, radius_y * 0.62) * values.iris_scale)
         pupil_radius = iris_radius * 0.52 * values.pupil_scale
         max_pupil_x = max(0.0, radius_x * 0.52 - iris_radius)
         max_pupil_y = max(0.0, radius_y * 0.48 - iris_radius)
-        return EyeGeometry(
+        eye = EyeGeometry(
             center_x=center_x,
             center_y=center_y,
             radius_x=radius_x,
@@ -266,7 +372,21 @@ class EyeRenderer:
             upper_lid_depth=values.upper_lid_depth if left else values.upper_lid_depth_right,
             upper_lid_curve=values.upper_lid_curve if left else values.upper_lid_curve_right,
             closed=blink_amount <= 0.02,
+            contour=None if self._shape == "classic_oval" or blink_amount <= .02 else _eye_contour(self._shape, center_x, center_y, radius_x, radius_y, left),
         )
+        return contain_custom_eye_graphics(eye)
+
+
+def _eye_contour(shape, cx, cy, rx, ry, left):
+    # Clockwise local outline; expressive/angular lift the outer corner.
+    if shape in {"round", "compact"}:
+        return tuple((cx + rx * math.cos(i * math.tau / 16), cy + ry * math.sin(i * math.tau / 16)) for i in range(16))
+    outer = -1 if left else 1
+    if shape == "expressive":
+        points = ((-1, .05), (-.65, -.72), (.2, -.92), (1, -.30), (.88, .48), (.2, .82), (-.62, .58))
+    else:  # winged angular: tapered inner point, elevated outer wing, curved lower return
+        points = ((-1, .10), (-.45, -.48), (.45, -.90), (1, -.28), (.78, .48), (.05, .78), (-.62, .52))
+    return tuple((cx + x * rx, cy + (y + outer * x * -.12) * ry) for x, y in points)
 
 
 def _target_values(state: FaceState, iris_color: str = "cyan") -> _AnimatedValues:

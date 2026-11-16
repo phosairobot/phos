@@ -219,6 +219,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             palette_applier = getattr(runtime, "apply_semantic_led_palette", None)
             if palette_applier is not None:
                 lifecycle.register_semantic_led_palette_applier(palette_applier)
+            personality_applier = getattr(runtime, "apply_physical_personality", None)
+            if personality_applier is not None:
+                lifecycle.register_physical_personality_applier(personality_applier)
             source_applier = getattr(runtime, "apply_base_visual_source", None)
             if source_applier is not None:
                 lifecycle.register_base_visual_source_applier(source_applier)

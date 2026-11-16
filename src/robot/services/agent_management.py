@@ -294,24 +294,44 @@ class AgentManagementService:
                     "selection_reason": arbitration.get("selection_reason")}
             if selected_id is None:
                 reason = "global_mode" if mode == "global" else arbitration.get("selection_reason", "no_active_eligible_agents")
-                return global_config, {**base, "state": "global", "effective_skin_id": None,
-                                       "fallback_reason": reason}
+                return self._global_skin_config(global_config, base, reason)
             identity = (self._provider.get().default_identity if selected_id == "anonymous-mcp"
                         else self._provider.get().get(selected_id))
             assignment = self._skin_view(identity) if identity is not None else {"state": "missing", "id": None}
             if assignment["state"] != "assigned":
-                return global_config, {**base, "state": "global", "effective_skin_id": None,
-                                       "fallback_reason": "selection_skin_unavailable"}
+                return self._global_skin_config(global_config, base, "selection_skin_unavailable")
             skin = self._skin_repository().get(assignment["id"])
             snapshot, missing = available_appearance_snapshot(skin.appearance, self._repository.active_path.parent)
             if missing:
-                return global_config, {**base, "state": "global", "effective_skin_id": None,
-                                       "fallback_reason": "missing_skin_assets", "missing_assets": missing}
+                candidate, resolved = self._global_skin_config(global_config, base, "missing_skin_assets")
+                return candidate, {**resolved, "missing_assets": missing}
             return RuntimeConfig.from_dict(apply_appearance_snapshot(global_config.to_dict(), snapshot),
                                            base_dir=self._repository.active_path.parent), {
                 **base, "state": "assigned", "effective_skin_id": skin.id,
-                "skin_display_name": skin.name, "fallback_reason": None,
+                "skin_display_name": skin.name, "effective_personality": skin.physical_personality or "analytical", "fallback_reason": None,
             }
+
+    def _global_skin_config(self, global_config: RuntimeConfig, base: dict, reason: str) -> tuple[RuntimeConfig, dict]:
+        """Resolve the persisted global Skin, or retain legacy global values."""
+        skin_id = global_config.global_skin_id
+        if skin_id is None:
+            return global_config, {**base, "state": "global", "effective_skin_id": None,
+                                   "effective_personality": "analytical", "fallback_reason": reason}
+        try:
+            skin = self._skin_repository().get(skin_id)
+            snapshot, missing = available_appearance_snapshot(skin.appearance, self._repository.active_path.parent)
+        except ConfigurationError:
+            return global_config, {**base, "state": "global", "effective_skin_id": None,
+                                   "effective_personality": "analytical", "fallback_reason": "global_skin_unavailable"}
+        if missing:
+            return global_config, {**base, "state": "global", "effective_skin_id": None,
+                                   "effective_personality": "analytical", "fallback_reason": "global_skin_missing_assets",
+                                   "missing_assets": missing}
+        return RuntimeConfig.from_dict(apply_appearance_snapshot(global_config.to_dict(), snapshot),
+                                       base_dir=self._repository.active_path.parent), {
+            **base, "state": "global", "effective_skin_id": skin.id, "skin_display_name": skin.name,
+            "effective_personality": skin.physical_personality or "analytical", "fallback_reason": None,
+        }
 
     def effective_led_palette(self, arbitration: dict | None = None, *, resolved: dict | None = None) -> dict:
         """Read the skin palette selected by appearance arbitration only.
@@ -327,6 +347,10 @@ class AgentManagementService:
             # arbitration result.  If resolving the selected skin fell back to
             # global appearance (for example because an image asset is gone),
             # keep the semantic LEDs global too.
+            if resolved is not None and resolved.get("effective_skin_id") is not None:
+                result = self._skin_repository().resolve_led_palette(resolved["effective_skin_id"])
+                return {**result, "selected_agent_id": selected,
+                        "fallback_reason": None if result["state"] == "configured" else result["state"]}
             if resolved is not None and resolved.get("state") != "assigned":
                 return {"state": "global", "skin_id": None, "colors": {},
                         "fallback_reason": resolved.get("fallback_reason", "appearance_not_applied")}

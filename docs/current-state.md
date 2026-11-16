@@ -198,6 +198,21 @@ from this startup acceptance slice.
 ### Core and behavior
 - Event bus and explicit `RobotState` state machine.
 - `BehaviorEngine` under `src/robot/core/behavior_engine.py`.
+- Skin-owned Physical Personality v0.2 is an IDLE-only policy: `analytical`,
+  `playful`, and `calm` select bounded blink/gaze timing internally (the
+  missing-field fallback is `analytical`).  Analytical uses 4.8–7.2 s blinks,
+  4.0–7.0 s gaze rests, 1.4–2.3 s holds and a 1.5% double-blink chance;
+  playful uses 2.4–4.2 s, 1.5–3.2 s, 0.65–1.25 s and 18%; calm uses 5.5–8.0 s,
+  4.8–8.0 s, 1.8–3.0 s and 4%.  A double blink has a bounded 90–220 ms open
+  pause (preset-specific).  Gaze targets hold, return to neutral, then rest.
+  Attention, vision tracking, IMU motion, explicit reactions, non-IDLE states,
+  and skin changes cancel pending personality sequences. In global appearance
+  mode, the persisted `appearance.global_skin_id` selects the complete Skin
+  identity (appearance, palette, and personality); no selected Skin retains
+  legacy global appearance with the analytical fallback. Focused automated
+  coverage is present. User-confirmed Raspberry Pi observations cover visible preset
+  differences, persistence, manual application, and IMU integration; broader
+  Vision/attention and performance acceptance remain unverified.
 - Environmental behavior is implemented through `EnvironmentalInterpreter`: confirmed, hysteretic temperature and CCS811 eCO2/TVOC context becomes `EnvironmentalState`, then a `BehaviorEngine` eye/LED accent. Missing, stale or unavailable data produces no alarm.
 - Environmental overlays are additive display decoration: the interpreter also exposes independently confirmed temperature (`warm`/`cold`) and air-quality (`warning`/`bad`) intents, allowing sweat/snow and haze to coexist while the existing single priority `EnvironmentalState` continues to drive eyes and LEDs.
 - Behavior produces `FaceState` and handles blink/idle gaze.
@@ -439,13 +454,14 @@ the still-deferred roadmap capabilities remain outside this path.
 
 ## Eye appearance refinement
 
-Display & Appearance now validates and exposes `display.iris_color` in the
-canonical JSON. EyeRenderer receives this theme at startup and layers lightweight
-Canvas eye-body, iris, pupil and highlight geometry. FaceState continues to
-supply semantic reaction intent; expression labels/providers do not control
-rendering. Theme changes apply after configuration reload without restarting
-Vision or other runtime services. Raspberry Pi frame-rate impact awaits
-target hardware verification.
+Display & Appearance validates `display.iris_color` and `display.eye_shape` in
+the canonical configuration. Skins may select `classic_oval`, `round`,
+`expressive`, `angular`, or `compact`; omitted legacy values use
+`classic_oval`. EyeRenderer receives the resolved shape at startup and through
+the render-loop appearance queue, while Tk keeps the legacy oval path and uses
+layered contours for custom shapes. Custom iris/pupil graphics use conservative
+containment rather than pixel clipping. FaceState continues to supply semantic
+reaction intent; expression labels/providers do not control rendering.
 
 
 ## Local camera picture-in-picture
@@ -460,11 +476,11 @@ disabling it releases the camera when no other Vision feature needs it.
 
 ## Live eye appearance reload verification
 
-Only `display.iris_color` is currently a configurable eye-style setting and is
-live-reloadable. Semantic accents remain BehaviorEngine-produced FaceState and
+`display.iris_color` and `display.eye_shape` are live-reloadable eye-style settings.
+Semantic accents remain BehaviorEngine-produced FaceState and
 need no configuration reload. The lifecycle service validates the whole
 canonical document, then gives the typed RuntimeConfig to PhosRuntime. Its
-display-loop boundary safely queues the iris theme onto the asyncio render
+display-loop boundary safely queues the iris theme and eye shape onto the asyncio render
 thread; EyeRenderer interpolates the color on subsequent frames. Reload does not
 rebuild Core, Vision, camera, BehaviorEngine, providers or the renderer object.
 Mixed changes apply logging, iris appearance and preview while retaining other changed

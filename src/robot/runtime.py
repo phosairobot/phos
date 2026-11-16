@@ -182,7 +182,7 @@ class PhosRuntime:
 
     def apply_appearance(self, config: RuntimeConfig) -> None:
         """Apply validated appearance through the display runtime boundary."""
-        self._eye_render_loop.request_appearance(iris_color=config.iris_color)
+        self._eye_render_loop.request_appearance(iris_color=config.iris_color, shape=config.eye_shape)
 
     def admin_overlay_available(self) -> bool:
         """Return whether the physical display can safely receive local secrets."""
@@ -307,6 +307,9 @@ class PhosRuntime:
 
     def apply_base_visual_source(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
+
+    def apply_physical_personality(self, preset: str) -> None:
+        self._behavior_engine.configure_physical_personality(preset)
 
     def apply_environment_overlays(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_environment_overlays(config.environment_overlays_enabled)
@@ -1105,7 +1108,8 @@ def build_runtime(
     state_effect_resolver = StateEffectResolver(config)
     eye_render_loop = EyeRenderLoop(
         EyeRenderer(width=config.display_width, height=config.display_height,
-                    transition_seconds=config.display_transition_seconds, iris_color=config.iris_color),
+                    transition_seconds=config.display_transition_seconds, iris_color=config.iris_color,
+                    shape=config.eye_shape),
         eye_display or TkEyeDisplay(),
         lambda: behavior_engine.face_state,
         fps=config.display_fps,
