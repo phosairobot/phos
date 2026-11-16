@@ -355,11 +355,15 @@ application-service boundary as its tools:
 - `phos://vision/snapshot` — one current `image/jpeg` camera snapshot.
 
 `phos_get_camera_snapshot` returns a JPEG encoded from the same latest cached
-Vision frame as an MCP image content block, plus text stating that capture timing
-is unavailable. It never initiates a capture, infers scene content, or changes
-presence/attention state. Tool calls are bounded to one snapshot per second per
-authenticated identity; the existing Resource remains available for its current
-read-only contract.
+Vision frame as an MCP image content block, plus a small text block with
+`captured_at` (UTC), `age_ms` (monotonic-clock elapsed time), and `freshness`
+(`fresh` through 2 seconds, otherwise `stale`). `captured_at` is recorded when
+PHOS receives the frame from its camera provider; it is not the request or JPEG
+encoding time, and it is not a hardware exposure timestamp. Stale frames remain
+available but are never labelled current. The tool never initiates a capture,
+infers scene content, or changes presence/attention state. Tool calls are
+bounded to one snapshot per second per authenticated identity; the existing
+Resource remains available for its current read-only JPEG contract.
 
 Resources are live snapshots: each read calls the same permission-checked
 application-service boundary as the corresponding semantic tool. They do not

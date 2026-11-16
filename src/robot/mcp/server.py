@@ -230,6 +230,9 @@ class McpSemanticAdapter:
     def camera_snapshot(self) -> bytes:
         return self._call("phos://vision/snapshot", self._request_agent_service().camera_snapshot)
 
+    def camera_snapshot_with_metadata(self):
+        return self._call("phos_get_camera_snapshot", self._request_agent_service().camera_snapshot_with_metadata)
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._request_agent_service().set_expression(expression))
 
@@ -345,7 +348,7 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     def get_camera_snapshot():
         """Return the existing JPEG as an MCP image block, never as JSON text."""
         snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
-        return _snapshot_tool_result(adapter.camera_snapshot, ToolError)
+        return _snapshot_tool_result(adapter.camera_snapshot_with_metadata, ToolError)
 
     @tool("phos_set_expression", "Set a supported semantic expression.")
     def set_expression(expression: Expression) -> dict[str, Any]:
@@ -377,14 +380,16 @@ def _tool_result(handler: Callable[[], dict[str, Any]], error_type) -> dict[str,
         raise error_type(str(error)) from None
 
 
-def _snapshot_tool_result(handler: Callable[[], bytes], error_type):
+def _snapshot_tool_result(handler, error_type):
     """Build SDK-native image content from the authorized Vision JPEG."""
     try:
         from mcp.types import ImageContent, TextContent
-        jpeg = handler()
+        snapshot = handler()
         return [
-            ImageContent(data=base64.b64encode(jpeg).decode("ascii"), mimeType="image/jpeg"),
-            TextContent(text="JPEG from the latest cached Vision frame; capture timestamp unavailable."),
+            ImageContent(data=base64.b64encode(snapshot.jpeg).decode("ascii"), mimeType="image/jpeg"),
+            TextContent(text=("Cached Vision frame; captured_at="
+                              f"{snapshot.captured_at_utc.isoformat().replace('+00:00', 'Z')}; "
+                              f"age_ms={snapshot.age_ms}; freshness={snapshot.freshness}.")),
         ]
     except McpToolError as error:
         raise error_type(str(error)) from None

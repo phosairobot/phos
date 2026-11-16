@@ -1,5 +1,10 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 import logging
+import sys
+from types import SimpleNamespace
+
+import pytest
 
 from robot.core import EventBus
 from robot.core.presence import PERSON_LEFT, PresenceInterpreter, PresenceKind
@@ -92,6 +97,26 @@ def make_pipeline(camera, detector, expressions, *, events=None, smoother=None):
         detection_interval_seconds=0.1,
         expression_interval_seconds=0.1,
     )
+
+
+class SnapshotFrame(FakeFrame):
+    def copy(self):
+        return self
+
+
+def _install_snapshot_encoder(monkeypatch):
+    class Encoded:
+        def tobytes(self):
+            return b"\xff\xd8snapshot\xff\xd9"
+
+        def __len__(self):
+            return len(self.tobytes())
+
+    monkeypatch.setitem(sys.modules, "cv2", SimpleNamespace(
+        IMWRITE_JPEG_QUALITY=1,
+        INTER_AREA=1,
+        imencode=lambda *_args: (True, Encoded()),
+    ))
 
 
 def test_no_face_does_not_call_expression_provider():
@@ -245,6 +270,60 @@ def test_camera_preview_snapshot_tracks_latest_frame_and_can_be_cleared():
     assert cleared_face is None
     assert cleared is None
     assert received == [] and lost == []
+
+
+def test_camera_snapshot_metadata_is_bound_to_the_received_frame_and_uses_monotonic_age(monkeypatch):
+    _install_snapshot_encoder(monkeypatch)
+    monotonic = [10.0]
+    received_at = datetime(2026, 4, 5, 6, 7, 8, tzinfo=timezone.utc)
+    wall_clock = [received_at]
+
+    async def exercise():
+        camera = FakeCamera()
+        camera.capture_frame = lambda: _frame(SnapshotFrame())
+        pipeline = VisionPipeline(camera, FakeFaceDetector([]), None, None,
+                                  clock=lambda: monotonic[0], utc_clock=lambda: wall_clock[0])
+        await pipeline.process_once(timestamp=0.0)
+        wall_clock[0] += timedelta(days=30)  # Simulate a system wall-clock correction.
+        monotonic[0] = 11.25
+        snapshot = pipeline.camera_snapshot()
+        return pipeline, snapshot
+
+    pipeline, snapshot = asyncio.run(exercise())
+    assert snapshot.jpeg == b"\xff\xd8snapshot\xff\xd9"
+    assert snapshot.captured_at_utc == received_at
+    assert snapshot.age_ms == 1250 and snapshot.freshness == "fresh"
+    assert pipeline._latest_frame.frame.__class__ is SnapshotFrame
+
+
+def test_camera_snapshot_marks_old_cached_frame_stale_and_stop_invalidates_it(monkeypatch):
+    _install_snapshot_encoder(monkeypatch)
+    monotonic = [1.0]
+
+    async def exercise():
+        camera = FakeCamera()
+        camera.capture_frame = lambda: _frame(SnapshotFrame())
+        pipeline = VisionPipeline(camera, FakeFaceDetector([]), None, None,
+                                  clock=lambda: monotonic[0],
+                                  utc_clock=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc))
+        await pipeline.process_once(timestamp=0.0)
+        monotonic[0] = 3.01
+        stale = pipeline.camera_snapshot()
+        await pipeline.stop()
+        with pytest.raises(RuntimeError, match="no_frame"):
+            pipeline.camera_snapshot()
+        monotonic[0] = 4.0
+        await pipeline.process_once(timestamp=4.0)
+        replacement = pipeline.camera_snapshot()
+        return stale, replacement
+
+    stale, replacement = asyncio.run(exercise())
+    assert stale.age_ms == 2010 and stale.freshness == "stale"
+    assert replacement.age_ms == 0 and replacement.freshness == "fresh"
+
+
+async def _frame(value):
+    return value
 
 
 def test_largest_face_is_cropped_for_expression_inference():

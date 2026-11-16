@@ -232,6 +232,10 @@ class AgentApplicationService:
         self._require(AgentOperation.CAMERA_SNAPSHOT)
         return self._application.get_camera_snapshot()
 
+    def camera_snapshot_with_metadata(self):
+        self._require(AgentOperation.CAMERA_SNAPSHOT)
+        return self._application.get_camera_snapshot_with_metadata()
+
     def _subscribe_semantic_events(self, listener, *, event_types=None):
         """Attach an adapter-owned observer to stable semantic transitions.
 

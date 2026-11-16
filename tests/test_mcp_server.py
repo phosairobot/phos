@@ -1,5 +1,6 @@
 import asyncio
 import base64
+from datetime import datetime, timezone
 import inspect
 import json
 from pathlib import Path
@@ -21,6 +22,7 @@ from robot.mcp.server import (
 )
 from robot.core.behavior_engine import BehaviorEngine
 from robot.core.runtime import RobotCore
+from robot.vision.pipeline import CameraSnapshot
 from robot.config import ConfigRepository, RuntimeConfig, load_document
 from robot.secrets import SecretsService
 from robot.services import (AgentAccess, AgentApplicationService, AgentCredentialService, AgentIdentity,
@@ -56,6 +58,10 @@ class ApplicationSpy:
     def get_camera_snapshot(self):
         self._call("get_camera_snapshot")
         return b"\xff\xd8fake-jpeg\xff\xd9"
+    def get_camera_snapshot_with_metadata(self):
+        self._call("get_camera_snapshot_with_metadata")
+        return CameraSnapshot(b"\xff\xd8fake-jpeg\xff\xd9", datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+                              250, "fresh")
     def set_expression(self, expression): return self._call("set_expression", expression)
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
@@ -120,8 +126,9 @@ def test_camera_snapshot_tool_returns_native_image_content_without_changing_sema
     image, metadata = result.content
     assert image.type == "image" and image.mime_type == "image/jpeg"
     assert base64.b64decode(image.data) == b"\xff\xd8fake-jpeg\xff\xd9"
-    assert metadata.type == "text" and "cached" in metadata.text and "unavailable" in metadata.text
-    assert application.calls == [("get_camera_snapshot",)]
+    assert metadata.type == "text" and "captured_at=2026-01-02T03:04:05Z" in metadata.text
+    assert "age_ms=250" in metadata.text and "freshness=fresh" in metadata.text
+    assert application.calls == [("get_camera_snapshot_with_metadata",)]
 
 
 def test_camera_snapshot_tool_keeps_observer_camera_permission_denied():
@@ -162,7 +169,7 @@ def test_camera_snapshot_tool_rejects_an_immediate_repeat_before_reading_the_pro
             await server.call_tool("phos_get_camera_snapshot", {})
 
     asyncio.run(call_twice())
-    assert application.calls == [("get_camera_snapshot",)]
+    assert application.calls == [("get_camera_snapshot_with_metadata",)]
 
 
 def test_mcp_middleware_authenticates_once_for_each_tool_or_resource_request():
@@ -391,6 +398,9 @@ def test_streamable_http_camera_snapshot_uses_existing_active_pipeline_and_real_
                 raise RuntimeError("no_frame")
             return self.snapshot
 
+        def camera_snapshot(self):
+            return CameraSnapshot(self.camera_snapshot_jpeg(), datetime(2026, 1, 2, tzinfo=timezone.utc), 0, "fresh")
+
     document = load_document()
     document["agents"] = {"default_agent": "local-agent", "entries": [
         {"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"},
@@ -473,7 +483,8 @@ def test_streamable_http_camera_snapshot_uses_existing_active_pipeline_and_real_
     assert tool_snapshot.content[0].type == "image"
     assert tool_snapshot.content[0].mime_type == "image/jpeg"
     assert base64.b64decode(tool_snapshot.content[0].data) == received
-    assert "cached" in tool_snapshot.content[1].text
+    assert "captured_at=2026-01-02T00:00:00Z" in tool_snapshot.content[1].text
+    assert "age_ms=0" in tool_snapshot.content[1].text
     assert "service_unavailable: No camera frame is available yet" in no_frame
     assert "service_unavailable: Vision is unavailable" in unavailable
     assert "permission_denied" in denied
