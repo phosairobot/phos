@@ -132,7 +132,7 @@ It is protected separately from generic physical-context reads because the
 image may contain people visible to the camera. See the [MCP guide](docs/mcp.md).
 The currently exposed tools are `phos_get_status`, `phos_get_physical_context`,
 `phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression`,
-`phos_get_camera_snapshot`, `phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
+`phos_get_camera_snapshot`, `phos_capture_camera_snapshot`, `phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
 `phos_signal_user`.
 
 Modern MCP clients may use `subscriptions/listen` for semantic Resource change
@@ -157,8 +157,8 @@ rotation, and validation details.
 ### PHOS 1.8.0 — MCP & Runtime Administration Stabilization
 
 This release adds the permission-checked MCP semantic adapter, Streamable HTTP
-transport, stdio bridge Resource forwarding, and the on-demand camera snapshot
-Resource. It also stabilizes Web Admin Runtime settings with immediate Camera
+transport, stdio bridge Resource forwarding, and camera snapshot Resources. It
+also stabilizes Web Admin Runtime settings with immediate Camera
 Preview and logging-level application through the PHOS lifecycle boundary.
 
 PHOS continues to distinguish source implementation from physical validation.

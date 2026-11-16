@@ -333,6 +333,7 @@ MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,
 `phos_get_attention`, `phos_get_observed_expression`, `phos_get_camera_snapshot`,
+`phos_capture_camera_snapshot`,
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
 `phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
 semantic result documents, and sanitized error mapping are transport-independent.
@@ -373,6 +374,7 @@ separate sensor capture. The cached and on-demand tools share the same
 per-identity transfer limit, so alternating calls cannot bypass it; at most four
 on-demand waits may be pending. A timeout, stopped/restarted pipeline, or camera
 failure returns a sanitized error and never falls back to the preceding frame.
+Both camera paths reject JPEGs larger than 512 KiB.
 
 Resources are live snapshots: each read calls the same permission-checked
 application-service boundary as the corresponding semantic tool. They do not

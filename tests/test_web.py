@@ -2480,7 +2480,8 @@ def test_environmental_behavior_status_uses_runtime_interpreter_state(setup):
     air = {"sensor_type": "ens160", "status": "available", "available": True,
            "measurements": {"eco2_ppm": 1300, "tvoc_ppb": 321, "aqi_uba": 3}, "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True}, "ens160_validity": "normal", "ens160_compensation_active": True, "age_seconds": 3,
            "last_update": "2026-09-26T10:00:00+00:00", "error": None}
-    aht = {"status": "available", "available": True, "measurements": {"temperature_c": 24.5, "humidity_percent": 45.0}, "source": "controller"}
+    aht = {"status": "available", "available": True, "measurements": {"temperature_c": 24.5, "humidity_percent": 45.0},
+           "measurement_usable": {"temperature_c": True, "humidity_percent": True}, "source": "controller"}
     lifecycle.register_sensor_status(lambda: {"environmental": environmental, "ens160": air, "aht21": aht,
         "environmental_behavior": {"state": "warm", "reason": "temperature above warm threshold"}})
     client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))

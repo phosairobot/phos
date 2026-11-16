@@ -537,11 +537,11 @@ class VisionPipeline(Behavior):
         try:
             while True:
                 await self.process_once()
+                await asyncio.sleep(self._capture_interval)
         finally:
             async with self._frame_condition:
                 self._capture_running = False
                 self._frame_condition.notify_all()
-            await asyncio.sleep(self._capture_interval)
 
     def _log_expression_observation(self, label: str, confidence: float, now: float) -> None:
         """Report classifier output without logging every inference frame."""
