@@ -822,3 +822,137 @@ def test_semantic_event_bridge_coalesces_repeated_uri_updates_without_blocking_p
         bridge.close()
 
     asyncio.run(exercise())
+
+
+def test_streamable_http_listen_delivers_presence_and_attention_resource_cues():
+    """Exercise the modern subscription protocol over a loopback HTTP listener.
+
+    The client receives only a resource-update cue, then obtains the current
+    anonymous projection by re-reading the resource.  This mirrors the bridge
+    client's contract and deliberately avoids an in-process subscription mock.
+    """
+    from mcp.client import Client
+    from mcp.client.streamable_http import httpx2 as httpx, streamable_http_client
+    from mcp.shared.subscriptions import ResourceUpdated
+    import uvicorn
+
+    class SemanticApplication(ApplicationSpy):
+        def __init__(self):
+            super().__init__()
+            self.events = SemanticEventPublisher(deduplication_window_seconds=0)
+            self.context = {
+                "robot": {"state": "idle"},
+                "environment": {"available": True}, "air_quality": {"available": True},
+                "motion": {"available": True}, "observed_expression": {"available": False},
+                "presence": {"state": "no_one", "people_count": 0, "confidence": None},
+                "attention": {"state": "idle", "target": {"x": None, "y": None, "confidence": None}},
+            }
+
+        def subscribe_semantic_events(self, listener, *, event_types=None):
+            return self.events.subscribe(listener, event_types=event_types)
+
+        def get_physical_context(self):
+            # Return a detached document just as the production read model does.
+            return json.loads(json.dumps(self.context))
+
+    async def next_update(subscription):
+        event = await asyncio.wait_for(anext(subscription), timeout=1)
+        assert isinstance(event, ResourceUpdated)
+        assert event.uri == "phos://physical-context"
+
+    async def read_context(client):
+        result = await client.read_resource("phos://physical-context")
+        return json.loads(result.contents[0].text)
+
+    async def exercise():
+        application = SemanticApplication()
+        agent = AgentApplicationService(application, AgentAccess.for_profile())
+        bridge = McpSemanticEventBridge(agent)
+
+        class Authenticator:
+            async def authenticate(self, context):
+                if context.request.headers.get("authorization") == "Bearer allowed":
+                    return AgentIdentity("allowed", AgentProfile.STANDARD)
+                raise PermissionError("authentication_failed")
+
+        server = create_mcp_server(agent, subscriptions=bridge.bus, authenticator=Authenticator())
+        app = server.streamable_http_app(host="127.0.0.1", streamable_http_path="/mcp")
+        bridge.start(asyncio.get_running_loop())
+        listener = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0,
+                                                  log_level="critical", access_log=False))
+        listener_task = asyncio.create_task(listener.serve())
+        try:
+            for _ in range(100):
+                if listener.started:
+                    break
+                await asyncio.sleep(.01)
+            assert listener.started
+            port = listener.servers[0].sockets[0].getsockname()[1]
+            url = f"http://127.0.0.1:{port}/mcp"
+
+            async def connect(authorization):
+                http_client = httpx.AsyncClient(headers={"Authorization": authorization})
+                transport = streamable_http_client(url, http_client=http_client)
+                return http_client, Client(transport, cache=None)
+
+            rejected_http, rejected_client = await connect("Bearer rejected")
+            try:
+                try:
+                    async with rejected_client:
+                        raise AssertionError("unauthorized client unexpectedly initialized")
+                except BaseException as error:
+                    rejected = repr(error)
+            finally:
+                await rejected_http.aclose()
+
+            allowed_http, client = await connect("Bearer allowed")
+            try:
+                async with client:
+                    assert client.protocol_version == "2026-07-28"
+                    async with client.listen(resource_subscriptions=["phos://physical-context"]) as updates:
+                        application.context["presence"] = {
+                            "state": "person_present", "people_count": 1, "confidence": 0.92,
+                        }
+                        application.events.publish(
+                            "presence_changed", "presence",
+                            {"current": "person_present", "people_count": 1},
+                        )
+                        await next_update(updates)
+                        present = await read_context(client)
+
+                        application.context["attention"] = {
+                            "state": "tracking", "target": {"x": 0.25, "y": -0.1, "confidence": 0.88},
+                        }
+                        application.events.publish(
+                            "attention_changed", "attention", {"current": "tracking"},
+                        )
+                        await next_update(updates)
+                        tracking = await read_context(client)
+
+                        application.context["presence"] = {
+                            "state": "no_one", "people_count": 0, "confidence": None,
+                        }
+                        application.events.publish(
+                            "presence_changed", "presence",
+                            {"current": "no_one", "people_count": 0},
+                        )
+                        await next_update(updates)
+                        absent = await read_context(client)
+            finally:
+                await allowed_http.aclose()
+        finally:
+            listener.should_exit = True
+            await listener_task
+            bridge.close()
+        return application, present, tracking, absent, rejected
+
+    application, present, tracking, absent, rejected = asyncio.run(exercise())
+    assert present["presence"] == {"state": "person_present", "people_count": 1, "confidence": 0.92}
+    assert tracking["attention"] == {
+        "state": "tracking", "target": {"x": 0.25, "y": -0.1, "confidence": 0.88},
+    }
+    assert absent["presence"] == {"state": "no_one", "people_count": 0, "confidence": None}
+    projection = json.dumps({"present": present, "tracking": tracking, "absent": absent})
+    assert "candidate_id" not in projection and "target_id" not in projection
+    assert "authentication_failed" in rejected
+    assert application.events.active_subscription_count == 0

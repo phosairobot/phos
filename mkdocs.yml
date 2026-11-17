@@ -86,7 +86,7 @@ nav:
       - Visual personality: vision-expressions.md
       - Environmental awareness: environmental-awareness.md
       - Motion awareness: motion-awareness.md
-      - MCP & AI Agent Integration: mcp-overview.md
+      - MCP — Connect AI Agents to PHOS: mcp-overview.md
       - Use cases: use-cases.md
       - Getting started: installation-overview.md
 
@@ -104,6 +104,7 @@ nav:
       - Voice commands: voice-commands.md
       - Text to speech: tts.md
       - MCP:
+          - MCP User Guide: mcp-overview.md
           - MCP Reference: mcp.md
           - Agent-connected model: ai.md
       - REST API: remote-api.md

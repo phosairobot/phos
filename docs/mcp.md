@@ -452,17 +452,32 @@ request is authenticated, but subscription authorization is deliberately
 cue-only: `ResourceUpdated` contains only a URI, and every subsequent
 `resources/read` authenticates and applies the resource permission again. A
 subscription therefore cannot disclose a protected camera frame to an observer.
+Presence changes (`no_one` / `person_present`) and semantic attention changes
+both update `phos://physical-context`. The re-read projection contains only
+anonymous presence state, count, and reliable confidence plus semantic attention
+state and non-identifying target coordinates/confidence; it never contains a
+candidate ID, target ID, face embedding, or camera frame. Delivery is
+best-effort: a notification says only that the Resource may have changed, not
+that a client acted on it or that every intermediate state was observed.
+
+This is standard MCP Resource subscription support, not MCP Events and not a
+mechanism that independently activates any AI agent's reasoning. Compatible
+agents choose whether to subscribe and what to do after re-reading a Resource.
+The currently pinned Python MCP SDK provides `subscriptions/listen` but does
+not provide native typed MCP Events discovery or the `events/list`,
+`events/subscribe`, and `events/unsubscribe` methods. A future, optional,
+provider-neutral MCP Events adapter remains deferred until those native SDK
+extension points are available. It must be independently enabled and must not
+change the endpoint behavior seen by ordinary MCP clients.
 The separately owned `phos-mcp-bridge` has been
 externally validated for a long-lived stdio `subscriptions/listen` connection:
 two consecutive `phos://status` ResourceUpdated notifications were forwarded
 from PHOS Streamable HTTP to the Inspector. Bridge code is not owned or
 modified by this repository.
 
-Stage 3.6 bridge authentication implementation and automated validation passed
-in the bridge repository (`npm run typecheck`, `npm run build`, `npm test`,
-`npm run lint`, and `git diff --check`; 10 tests passing). Its live physical
-interoperability validation against PHOS is not recorded here and remains part
-of the pending Stage 3.7 validation work.
+The bridge's Node 22 build and automated suite validate its standard MCP
+subscription forwarding path. Live physical interoperability remains a manual
+Raspberry Pi acceptance step.
 
 ## Raspberry Pi validation
 
