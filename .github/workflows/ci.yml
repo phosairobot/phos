@@ -1,0 +1,93 @@
+name: PHOS CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phos-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  software-tests:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[web,mcp,aws,voice]' pytest
+          python -m pip install -r requirements-docs.txt
+      - name: Record environment
+        run: |
+          mkdir -p artifacts
+          { echo "event=${{ github.event_name }}"; echo "ref=${{ github.ref }}"; echo "sha=${{ github.sha }}"; uname -a; python --version; } > artifacts/environment.txt
+      - name: Validate software
+        id: validate
+        run: bash scripts/ci_validate.sh
+      - name: Write summary
+        if: always()
+        run: python scripts/ci_report.py
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phos-software-validation-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
+
+  release-validation:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+      - name: Initialize release reports
+        run: mkdir -p artifacts
+      - name: Verify release provenance
+        run: |
+          git fetch origin main --tags
+          release_commit="$(git rev-list -n 1 '${{ github.event.release.tag_name }}')"
+          git merge-base --is-ancestor "$release_commit" origin/main
+          printf '%s\n' "$release_commit" > artifacts/release-commit.txt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[web,mcp,aws,voice]' pytest
+          python -m pip install -r requirements-docs.txt
+      - name: Record environment
+        run: |
+          mkdir -p artifacts
+          { echo "event=release"; echo "tag=${{ github.event.release.tag_name }}"; echo "sha=$(cat artifacts/release-commit.txt)"; uname -a; python --version; } > artifacts/environment.txt
+      - name: Validate release software
+        run: bash scripts/ci_validate.sh
+      - name: Write summary
+        if: always()
+        run: python scripts/ci_report.py
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phos-release-validation-${{ github.event.release.tag_name }}-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
