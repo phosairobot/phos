@@ -19,7 +19,7 @@ These synchronous interactions return a result to the caller. Availability depen
 | Environment | Read temperature, humidity where available, pressure, and air-quality indicators with availability/freshness context. | `phos://environment` | Observer or standard |
 | Presence and attention | Read whether people are present and the semantic attention state—never identity. | `phos_get_presence`, `phos_get_attention` | Observer or standard |
 | Observed expression | Read a bounded visible-expression classification; it is not an emotion or identity claim. | `phos_get_observed_expression` | Observer or standard |
-| Camera observation | Retrieve the privacy-bounded camera snapshot when camera access is permitted. | `phos://vision/snapshot` | Standard only |
+| Camera observation | Retrieve a privacy-bounded JPEG from the latest cached frame, or wait for the next pipeline frame, when camera access is permitted. | `phos_get_camera_snapshot`, `phos_capture_camera_snapshot`, `phos://vision/snapshot` | Standard only |
 | Expression | Request a supported PHOS expression. | `phos_set_expression` | Standard only |
 | Voice | Ask PHOS to speak bounded text through configured TTS. | `phos_speak` | Standard only |
 | Robot state | Request normal sleep or wake transitions. | `phos_sleep`, `phos_wake` | Standard only |

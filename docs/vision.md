@@ -68,6 +68,27 @@ Therefore a snapshot remains available when Camera Preview is disabled, as long
 as Vision/camera capture itself is available. It is not streaming, video, or a
 frame subscription. See [MCP](mcp.md) for permissions and privacy details.
 
+The pipeline records acquisition metadata at the earliest reliable application
+point: immediately after `CameraProvider.capture_frame()` returns. It stores the
+raw frame, a monotonic receipt timestamp, and a timezone-aware UTC receipt
+timestamp as one immutable record, so a JPEG and its reported metadata always
+refer to the same frame. Picamera2's current adapter does not expose a hardware
+capture timestamp, so this is not a sensor-exposure timestamp. Snapshot age is
+calculated from the monotonic clock and is therefore unaffected by wall-clock
+changes. A frame is `fresh` through 2 seconds and `stale` thereafter; stale
+frames remain readable but are explicitly labelled by the snapshot tool. Start
+and stop invalidate the cached frame, preventing a previous camera run from
+being served after shutdown or restart.
+
+`phos_capture_camera_snapshot` is distinct from the cached Snapshot tool. It
+records the current pipeline generation and frame sequence, then waits up to
+three seconds for a strictly later frame publication by the continuously running
+pipeline. It does not command a sensor exposure or alter capture cadence. The
+pipeline permits at most four pending waits; a stop, restart, camera failure,
+timeout, or cancellation completes the request without falling back to an old
+frame. Concurrent accepted waits may use the same next published frame. JPEG
+encoding remains bounded to 512 KiB.
+
 ## FaceDetector
 
 Initial implementation: `OpenCVFaceDetector`.

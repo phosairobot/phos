@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from contextvars import ContextVar
 import ipaddress
 import logging
 from threading import RLock
+import time
 from typing import Annotated, Any, Callable
 
 from pydantic import Field
@@ -21,10 +23,12 @@ _REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_witho
 
 MCP_TOOL_NAMES = frozenset({
     "phos_get_status", "phos_get_physical_context", "phos_get_presence", "phos_get_attention",
-    "phos_get_observed_expression", "phos_set_expression", "phos_speak", "phos_sleep",
+    "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_capture_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
     "phos_wake", "phos_signal_user",
 })
 MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
+_SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS = 1.0
+_SNAPSHOT_TOOL_MAX_IDENTITIES = 64
 
 _EVENT_RESOURCE_URIS = {
     "robot_state_changed": frozenset({"phos://status", "phos://physical-context"}),
@@ -52,6 +56,32 @@ SignalIntent = Annotated[str, Field(min_length=1, json_schema_extra={
 
 class McpToolError(Exception):
     """Sanitized semantic error returned as an MCP tool failure."""
+
+
+class _SnapshotToolRateLimiter:
+    """Bound snapshot transfer work per authenticated identity without workers."""
+
+    def __init__(self, *, clock=time.monotonic) -> None:
+        self._clock = clock
+        self._last_request: dict[str, float] = {}
+        self._lock = RLock()
+
+    def require_allowed(self, identity: str) -> None:
+        now = self._clock()
+        with self._lock:
+            previous = self._last_request.get(identity)
+            if previous is not None and now - previous < _SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS:
+                raise McpToolError("rate_limited: Camera snapshots are limited to one request per second.")
+            if identity not in self._last_request and len(self._last_request) >= _SNAPSHOT_TOOL_MAX_IDENTITIES:
+                oldest = min(self._last_request, key=self._last_request.__getitem__)
+                del self._last_request[oldest]
+            self._last_request[identity] = now
+
+
+def _snapshot_request_identity(agent_service: AgentApplicationService) -> str:
+    """Use the authenticated principal when available, never a credential."""
+    identity = _REQUEST_IDENTITY.get() or getattr(agent_service, "_identity", None)
+    return getattr(identity, "id", None) or "trusted-local"
 
 
 class McpSemanticEventBridge:
@@ -200,6 +230,12 @@ class McpSemanticAdapter:
     def camera_snapshot(self) -> bytes:
         return self._call("phos://vision/snapshot", self._request_agent_service().camera_snapshot)
 
+    def camera_snapshot_with_metadata(self):
+        return self._call("phos_get_camera_snapshot", self._request_agent_service().camera_snapshot_with_metadata)
+
+    async def capture_camera_snapshot_with_metadata(self):
+        return await self._call_async(self._request_agent_service().capture_camera_snapshot_with_metadata)
+
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._request_agent_service().set_expression(expression))
 
@@ -247,6 +283,7 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
 
     adapter = McpSemanticAdapter(agent_service, authenticator=authenticator,
                                  activity_tracker=activity_tracker)
+    snapshot_limiter = _SnapshotToolRateLimiter()
 
     async def authenticate_request(request_context, call_next):
         identity = await adapter._authenticator.authenticate(request_context)
@@ -308,6 +345,22 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     def get_observed_expression() -> dict[str, Any]:
         return _tool_result(adapter.get_observed_expression, ToolError)
 
+    @server.tool(name="phos_get_camera_snapshot",
+                 description="Return a JPEG from PHOS's latest cached camera frame without interpreting it.",
+                 structured_output=False)
+    def get_camera_snapshot():
+        """Return the existing JPEG as an MCP image block, never as JSON text."""
+        snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
+        return _snapshot_tool_result(adapter.camera_snapshot_with_metadata, ToolError, source="cached")
+
+    @server.tool(name="phos_capture_camera_snapshot",
+                 description="Wait for PHOS's next Vision frame without interpreting it.",
+                 structured_output=False)
+    async def capture_camera_snapshot():
+        snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
+        return await _async_snapshot_tool_result(adapter.capture_camera_snapshot_with_metadata, ToolError,
+                                                 source="on_demand")
+
     @tool("phos_set_expression", "Set a supported semantic expression.")
     def set_expression(expression: Expression) -> dict[str, Any]:
         return _tool_result(lambda: adapter.set_expression(expression), ToolError)
@@ -336,6 +389,31 @@ def _tool_result(handler: Callable[[], dict[str, Any]], error_type) -> dict[str,
         return handler()
     except McpToolError as error:
         raise error_type(str(error)) from None
+
+
+def _snapshot_tool_result(handler, error_type, *, source: str):
+    """Build SDK-native image content from the authorized Vision JPEG."""
+    try:
+        return _snapshot_content(handler(), source)
+    except McpToolError as error:
+        raise error_type(str(error)) from None
+
+
+async def _async_snapshot_tool_result(handler, error_type, *, source: str):
+    try:
+        return _snapshot_content(await handler(), source)
+    except McpToolError as error:
+        raise error_type(str(error)) from None
+
+
+def _snapshot_content(snapshot, source: str):
+    from mcp.types import ImageContent, TextContent
+    return [
+        ImageContent(data=base64.b64encode(snapshot.jpeg).decode("ascii"), mimeType="image/jpeg"),
+        TextContent(text=(f"source={source}; captured_at="
+                          f"{snapshot.captured_at_utc.isoformat().replace('+00:00', 'Z')}; "
+                          f"age_ms={snapshot.age_ms}; freshness={snapshot.freshness}.")),
+    ]
 
 
 async def _async_tool_result(handler, error_type) -> dict[str, Any]:

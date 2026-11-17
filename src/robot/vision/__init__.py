@@ -7,6 +7,8 @@ from .pipeline import (
     VISION_EXPRESSION_STABLE,
     VISION_FACE_LOST,
     VISION_FACE_POSITION,
+    CameraSnapshot,
+    CapturedFrame,
     VisionPipeline,
     VisionResult,
     VisionStatus,
@@ -30,6 +32,8 @@ from .smoother import ExpressionSmoother
 
 __all__ = [
     "CameraProvider",
+    "CameraSnapshot",
+    "CapturedFrame",
     "ExpressionObservation",
     "ObservedExpression",
     "ExpressionProvider",

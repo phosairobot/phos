@@ -30,7 +30,7 @@ from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_S
 from robot.core.presence import PRESENCE_CHANGED, PERSON_ENTERED, PERSON_LEFT
 from robot.core.attention import (ATTENTION_CHANGED, ATTENTION_TARGET_ACQUIRED,
                                   ATTENTION_TARGET_CHANGED, ATTENTION_TARGET_LOST)
-from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
+from robot.vision.pipeline import CameraSnapshot, OBSERVED_EXPRESSION_CHANGED
 from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESSION_REACTION_COMPLETED,
                                             EXPRESSION_REACTION_SUPPRESSED)
 from robot.core.touch import TOUCH_EVENT_NAMES
@@ -585,18 +585,70 @@ class PhosApplicationService:
         return self._plain(observation)
 
     def get_camera_snapshot(self) -> bytes:
-        """Return one privacy-bounded current Vision frame, encoded on demand."""
+        """Return one bounded JPEG from the latest cached Vision frame."""
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
         reader = getattr(pipeline, "camera_snapshot_jpeg", None)
         if not callable(reader):
             raise ApplicationError("vision_unavailable", "Vision is unavailable.", status=503)
         try:
-            return reader()
+            image = reader()
         except RuntimeError as error:
             reason = str(error)
             if reason == "no_frame":
                 raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
             raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        self._validate_camera_snapshot_jpeg(image)
+        return image
+
+    def get_camera_snapshot_with_metadata(self) -> CameraSnapshot:
+        """Return the JPEG and acquisition metadata from one immutable cached frame."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "camera_snapshot", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision snapshot metadata is unavailable.", status=503)
+        try:
+            snapshot = reader()
+        except RuntimeError as error:
+            if str(error) == "no_frame":
+                raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        if (not isinstance(snapshot, CameraSnapshot) or not isinstance(snapshot.age_ms, int)
+                or snapshot.age_ms < 0 or snapshot.freshness not in {"fresh", "stale"}
+                or not isinstance(snapshot.captured_at_utc, datetime)
+                or snapshot.captured_at_utc.tzinfo is None
+                or snapshot.captured_at_utc.utcoffset() is None):
+            raise ApplicationError("camera_snapshot_metadata_invalid", "Camera snapshot metadata is unavailable.", status=503)
+        self._validate_camera_snapshot_jpeg(snapshot.jpeg)
+        return snapshot
+
+    async def capture_camera_snapshot_with_metadata(self) -> CameraSnapshot:
+        """Wait for a post-request frame from the existing running pipeline."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "capture_camera_snapshot", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision capture is unavailable.", status=503)
+        try:
+            snapshot = await reader()
+        except RuntimeError as error:
+            reason = str(error)
+            if reason in {"pipeline_not_running", "pipeline_stopped"}:
+                raise ApplicationError("camera_capture_unavailable", "Vision capture is not running.", status=503) from None
+            if reason == "capture_timeout":
+                raise ApplicationError("camera_capture_timeout", "No new camera frame arrived in time.", status=504) from None
+            if reason == "capture_busy":
+                raise ApplicationError("camera_capture_busy", "Camera capture is busy.", status=429) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        if not isinstance(snapshot, CameraSnapshot):
+            raise ApplicationError("camera_snapshot_metadata_invalid", "Camera snapshot metadata is unavailable.", status=503)
+        self._validate_camera_snapshot_jpeg(snapshot.jpeg)
+        return snapshot
+
+    @staticmethod
+    def _validate_camera_snapshot_jpeg(image: object) -> None:
+        if (not isinstance(image, bytes) or len(image) > 512 * 1024
+                or _header_image_details(image) is None
+                or not image.startswith(b"\xff\xd8") or not image.endswith(b"\xff\xd9")):
+            raise ApplicationError("camera_snapshot_invalid", "Camera snapshot is unavailable.", status=503)
 
     def expression_reaction(self) -> dict:
         return self._plain(self._behavior.expression_reaction_state())

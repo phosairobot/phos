@@ -254,7 +254,7 @@ deletion until another configured agent becomes default.
 ## Permission profiles
 
 `standard` agents can use the complete currently exposed semantic tool set and
-the protected camera snapshot Resource. `observer` agents retain read-only
+the protected camera snapshot Resource/tool. `observer` agents retain read-only
 semantic context but cannot request control actions such as sleep, wake,
 speech, expression changes, or user signals; they also cannot read the camera
 snapshot. Permissions are enforced by PHOS on every authenticated request.
@@ -332,7 +332,8 @@ claimed.
 MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,
-`phos_get_attention`, `phos_get_observed_expression`,
+`phos_get_attention`, `phos_get_observed_expression`, `phos_get_camera_snapshot`,
+`phos_capture_camera_snapshot`,
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
 `phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
 semantic result documents, and sanitized error mapping are transport-independent.
@@ -354,13 +355,34 @@ application-service boundary as its tools:
 - `phos://environment` — the environmental section of that physical context.
 - `phos://vision/snapshot` — one current `image/jpeg` camera snapshot.
 
+`phos_get_camera_snapshot` returns a JPEG encoded from the same latest cached
+Vision frame as an MCP image content block, plus a small text block with
+`captured_at` (UTC), `age_ms` (monotonic-clock elapsed time), and `freshness`
+(`fresh` through 2 seconds, otherwise `stale`). `captured_at` is recorded when
+PHOS receives the frame from its camera provider; it is not the request or JPEG
+encoding time, and it is not a hardware exposure timestamp. Stale frames remain
+available but are never labelled current. The tool never initiates a capture,
+infers scene content, or changes presence/attention state. Tool calls are
+bounded to one snapshot per second per authenticated identity; the existing
+Resource remains available for its current read-only JPEG contract.
+
+`phos_capture_camera_snapshot` has the same image, permission, JPEG-bound, and
+metadata format, but its metadata starts `source=on_demand`. PHOS records the
+current Vision frame sequence when the request is accepted and waits for a later
+frame from the already-running pipeline, for up to three seconds. It is not a
+separate sensor capture. The cached and on-demand tools share the same
+per-identity transfer limit, so alternating calls cannot bypass it; at most four
+on-demand waits may be pending. A timeout, stopped/restarted pipeline, or camera
+failure returns a sanitized error and never falls back to the preceding frame.
+Both camera paths reject JPEGs larger than 512 KiB.
+
 Resources are live snapshots: each read calls the same permission-checked
 application-service boundary as the corresponding semantic tool. They do not
 poll providers, mutate PHOS, replay history, or expose controller/camera/
-renderer internals. The camera snapshot is synchronous, read-only and on
-demand: it uses the existing Vision pipeline's latest in-memory frame, copies
-it before bounded JPEG encoding, and never opens another camera or streams
-video. It is protected by the dedicated `read_camera_snapshot` permission;
+renderer internals. The camera snapshot is synchronous, read-only and encodes
+the existing Vision pipeline's latest cached frame; it never opens another
+camera, starts a capture, or streams video. It is protected by the dedicated
+`read_camera_snapshot` permission;
 the standard profile has it while the observer profile deliberately does not.
 This is separate from generic physical-context access because a snapshot may
 contain people physically visible to the camera. It contains no camera device,
