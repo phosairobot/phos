@@ -822,14 +822,21 @@ def test_controller_run_retires_failed_session_before_reconnect():
                                   stale_after_seconds=30, externally_managed=True)
     opened_a, opened_b, reconnect_allowed = asyncio.Event(), asyncio.Event(), asyncio.Event()
     readings_a, readings_b, retired_a = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    closed_a = threading.Event()
     activated, retired = [], []
     reads = asyncio.Queue()
     active_reads = 0
 
     class Transport:
         def __init__(self, name): self.device, self.name, self.closed = "/dev/test", name, False
-        def open(self): (opened_a if self.name == "a" else opened_b).set()
-        def close(self): self.closed = True
+        def open(self):
+            if self.name == "b":
+                self.previous_closed_at_open = transports[0].closed
+            (opened_a if self.name == "a" else opened_b).set()
+        def close(self):
+            self.closed = True
+            if self.name == "a":
+                closed_a.set()
         async def write(self, _raw): return 1
 
     transports = []
@@ -890,6 +897,10 @@ def test_controller_run_retires_failed_session_before_reconnect():
             assert activated == [1]
             await reads.put(OSError("controlled failure"))
             await retired_a.wait()
+            # Session retirement invalidates sensor data before the blocking
+            # close completes.  Wait for the owned transport itself rather
+            # than assuming the retirement callback is a close-complete ACK.
+            await asyncio.to_thread(closed_a.wait)
             assert transports[0].closed
             assert activated == [1]
             assert not air.snapshot()["measurement_usable"].get("eco2_ppm", False)
@@ -897,6 +908,7 @@ def test_controller_run_retires_failed_session_before_reconnect():
             assert not opened_b.is_set()
             reconnect_allowed.set()
             await opened_b.wait()
+            assert transports[1].previous_closed_at_open
             await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_status","payload":{"sensor":"ens160","validity":0,"compensation_active":true}}\n')
             await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"eco2","value":401,"unit":"ppm"}}\n')
             await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"tvoc","value":1,"unit":"ppb"}}\n')
@@ -924,6 +936,7 @@ def test_controller_run_retires_heartbeat_expired_session_before_reconnect():
                                   clock=lambda: now[0])
     opened_a, opened_b = asyncio.Event(), asyncio.Event()
     readings_ready, retired_a, activated_b = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    closed_a = threading.Event()
     timeout_check, reconnect_allowed = asyncio.Event(), asyncio.Event()
     activated, retired, transports = [], [], []
     reads = asyncio.Queue()
@@ -934,10 +947,14 @@ def test_controller_run_retires_heartbeat_expired_session_before_reconnect():
             self.device, self.name, self.closed = "/dev/test", name, False
 
         def open(self):
+            if self.name == "b":
+                self.previous_closed_at_open = transports[0].closed
             (opened_a if self.name == "a" else opened_b).set()
 
         def close(self):
             self.closed = True
+            if self.name == "a":
+                closed_a.set()
 
         async def write(self, _raw):
             return 1
@@ -1006,6 +1023,7 @@ def test_controller_run_retires_heartbeat_expired_session_before_reconnect():
             timeout_check.set()
             await reads.put(b"")
             await retired_a.wait()
+            await asyncio.to_thread(closed_a.wait)
             assert transports[0].closed
             assert not air.snapshot()["measurement_usable"]["eco2_ppm"]
             assert air.snapshot()["measurements"]["eco2_ppm"] == 400
@@ -1015,6 +1033,7 @@ def test_controller_run_retires_heartbeat_expired_session_before_reconnect():
             await opened_b.wait()
             await activated_b.wait()
             assert activated == [1, 2]
+            assert transports[1].previous_closed_at_open
         finally:
             runner.cancel()
             await asyncio.gather(runner, return_exceptions=True)

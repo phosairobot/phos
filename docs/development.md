@@ -417,3 +417,26 @@ connection settings, not controller-firmware or LED-animation settings.
 The page also exposes controller-owned read-only connection state and a bounded,
 in-memory RX/TX diagnostic buffer. Diagnostics are not persisted, heartbeat rows
 are hidden by default, and raw frames are bounded to the phos-hw frame limit.
+
+## GitHub Actions software validation
+
+PHOS CI runs on pull requests targeting `dev` or `main`, every push to `dev`,
+and after a GitHub Release is published. It runs the complete software-compatible
+pytest suite, Python compilation, and a strict MkDocs build. Reports are
+available from the workflow run as a JUnit XML file and a 30-day artifact,
+including command output and execution environment details.
+
+Release validation checks out the published tag, resolves its commit, and fails
+unless that commit is reachable from `main`. It runs after publication, so it
+reports invalid release provenance but cannot prevent the initial publication.
+PASS means the automated software checks completed; FAIL means one failed;
+SKIPPED is reported by pytest; INCOMPLETE means a report was not produced.
+Every summary explicitly states that Raspberry Pi hardware validation was not
+run. GPIO, camera, display, audio, I2C wiring, and physical performance remain
+manual acceptance work.
+
+Repository administrators must enable required pull requests, require the
+`software-tests` check, require branches to be current, and restrict direct
+pushes on `dev` and `main`. The separate MCP bridge repository is not checked
+out by PHOS CI; add bridge CI only once a pinned, CI-accessible source revision
+is available.
