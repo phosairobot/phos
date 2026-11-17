@@ -33,7 +33,7 @@ hardware ownership, authentication, permissions, and physical execution.
 
 Start with the [documentation homepage](https://phosairobot.github.io/phos/),
 [Getting Started](https://phosairobot.github.io/phos/installation-overview/),
-[MCP & AI Agent Integration](https://phosairobot.github.io/phos/mcp-overview/),
+[MCP — Connect AI Agents to PHOS](https://phosairobot.github.io/phos/mcp-overview/),
 or the
 [Remote API](https://phosairobot.github.io/phos/remote-api/).
 
@@ -129,7 +129,8 @@ Available Resources are `phos://status`, `phos://physical-context`,
 JPEG encoded from the latest cached camera frame, not a video stream or
 continuous subscription.
 It is protected separately from generic physical-context reads because the
-image may contain people visible to the camera. See the [MCP guide](docs/mcp.md).
+image may contain people visible to the camera. See the
+[MCP user guide](docs/mcp-overview.md).
 The currently exposed tools are `phos_get_status`, `phos_get_physical_context`,
 `phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression`,
 `phos_get_camera_snapshot`, `phos_capture_camera_snapshot`, `phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and

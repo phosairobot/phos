@@ -234,8 +234,12 @@ state, idempotent `close()`, and optional context-manager cleanup. The publisher
 holds the handler strongly only while the handle is active; explicit close is
 the required ownership boundary. A dispatch snapshot already in progress may
 complete when a handle is closed, but no later delivery starts after `close()`
-returns. MCP subscriptions/notifications, REST or WebSocket delivery, and
-camera resources remain deferred.
+returns. The MCP adapter may consume this model through its bounded
+`McpSemanticEventBridge`: standard MCP `subscriptions/listen` clients receive
+URI-only `notifications/resources/updated` cues and re-read the relevant
+Resource. This remains separate from the Core event bus; REST/WebSocket
+delivery and an optional future MCP Events webhook adapter are not Core
+responsibilities. Camera resources remain excluded from semantic push cues.
 
 `phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
 status document contains only `running`, `state`, semantic subsystem
