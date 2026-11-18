@@ -61,9 +61,11 @@ jobs:
       - name: Initialize release reports
         run: mkdir -p artifacts
       - name: Verify release provenance
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           git fetch origin main --tags
-          release_commit="$(git rev-list -n 1 '${{ github.event.release.tag_name }}')"
+          release_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
           git merge-base --is-ancestor "$release_commit" origin/main
           printf '%s\n' "$release_commit" > artifacts/release-commit.txt
       - uses: actions/setup-python@v5
@@ -75,9 +77,11 @@ jobs:
           python -m pip install -e '.[web,mcp,aws,voice]' pytest
           python -m pip install -r requirements-docs.txt
       - name: Record environment
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           mkdir -p artifacts
-          { echo "event=release"; echo "tag=${{ github.event.release.tag_name }}"; echo "sha=$(cat artifacts/release-commit.txt)"; uname -a; python --version; } > artifacts/environment.txt
+          { echo "event=release"; printf 'tag=%s\n' "$RELEASE_TAG"; echo "sha=$(cat artifacts/release-commit.txt)"; uname -a; python --version; } > artifacts/environment.txt
       - name: Validate release software
         run: bash scripts/ci_validate.sh
       - name: Write summary
