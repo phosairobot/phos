@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import yaml
+
 
 _PATH = Path(__file__).parents[1] / "scripts" / "ci_report.py"
 _SPEC = importlib.util.spec_from_file_location("ci_report", _PATH)
@@ -36,3 +38,17 @@ def test_failed_tests_reports_bounded_testcase_identifiers(tmp_path):
 
     assert ci_report.failed_tests(report) == ["tests.test_ci.fails"]
     assert ci_report.failed_tests(tmp_path / "missing.xml") == "unavailable"
+
+
+def test_release_tag_is_passed_to_shell_through_a_quoted_environment_variable():
+    workflow = yaml.safe_load((Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml").read_text())
+    steps = workflow["jobs"]["release-validation"]["steps"]
+    verify = next(step for step in steps if step.get("name") == "Verify release provenance")
+    environment = next(step for step in steps if step.get("name") == "Record environment")
+
+    assert verify["env"] == {"RELEASE_TAG": "${{ github.event.release.tag_name }}"}
+    assert 'git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}"' in verify["run"]
+    assert "github.event.release.tag_name" not in verify["run"]
+    assert environment["env"] == {"RELEASE_TAG": "${{ github.event.release.tag_name }}"}
+    assert 'printf \'tag=%s\\n\' "$RELEASE_TAG"' in environment["run"]
+    assert "github.event.release.tag_name" not in environment["run"]
