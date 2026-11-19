@@ -176,6 +176,16 @@ is not established; read [model evaluation](vision-model-evaluation.md).
 Keep neutral reactions disabled until calibrated. Revalidate the active
 configuration source.
 
+## Optional NanoDet object-awareness model
+
+Object awareness is disabled by default and does not download a model. To enable
+it, install the OpenCV Zoo NanoDet-m-plus-1.5x_416 FP32 ONNX asset locally,
+verify SHA-256 `4b82da9944b88577175ee23a459dce2e26e6e4be573def65b1055dc2d9720186`,
+and set `object_awareness.model_path` to that readable file. Set
+`object_awareness.enabled: true` only when VisionPipeline is otherwise active;
+requests require `read_perception`. See [MCP](mcp.md#object-awareness) for the
+model license, on-demand behavior, and error contract.
+
 ## Start PHOS
 
 For a first foreground check from the desktop:
