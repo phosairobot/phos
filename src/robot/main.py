@@ -22,6 +22,23 @@ from robot.lifecycle import RESTART_EXIT_CODE
 logger = logging.getLogger(__name__)
 
 
+def _configure_controller_debug_from_environment() -> bool:
+    """Configure independent controller-frame and high-rate IMU diagnostics."""
+    enabled = os.environ.get("PHOS_CONTROLLER_DEBUG", "").strip().lower() in {"1", "true", "yes"}
+    imu_enabled = os.environ.get("PHOS_CONTROLLER_IMU_DEBUG", "").strip().lower() in {"1", "true", "yes"}
+    controller_logger = logging.getLogger("robot.hardware.serial_controller")
+    imu_logger = logging.getLogger("robot.hardware.serial_controller.imu")
+    if enabled:
+        controller_logger.setLevel(logging.DEBUG)
+        logger.info("PHOS CONTROLLER: targeted debug diagnostics enabled")
+    # A child otherwise inherits controller DEBUG.  Give IMU telemetry an
+    # explicit floor so malformed-frame investigation stays quiet.
+    imu_logger.setLevel(logging.DEBUG if imu_enabled else logging.WARNING)
+    if imu_enabled:
+        logger.info("PHOS CONTROLLER: targeted IMU debug diagnostics enabled")
+    return enabled
+
+
 def _log_graphical_session() -> None:
     """Log only safe, deployment-bound graphical-session identifiers."""
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
@@ -115,14 +132,63 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
     try:
         runtime = build_application(config=config)
         if hasattr(runtime, "core"):
-            from robot.services import AgentAccess, AgentApplicationService, PhosApplicationService
-            application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
+            from pathlib import Path
+            from robot.secrets import SecretsError, SecretsService
+            from robot.services import (AgentApplicationService, AgentAppearanceActivityTracker, AgentCredentialService, AgentManagementService,
+                                        AgentRegistryProvider, BearerAgentAuthenticator, ConfiguredAgentAuthenticator,
+                                        McpAuthenticationModeAuthenticator,
+                                        PhosApplicationService)
+            # Runtime composition creates the sole Core-event observer for
+            # semantic application events. Reusing it prevents MCP/lifecycle
+            # startup from recording every transition a second time.
+            application_service = getattr(runtime, "_application_service", None)
+            if application_service is None:
+                # Small injected runtimes used by compatibility tests may not
+                # use the production composition path.
+                application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
+                runtime._application_service = application_service
+            elif lifecycle is not None:
+                application_service.attach_lifecycle(lifecycle)
             if config is not None:
                 from robot.mcp import McpServerManager
+                registry_provider = AgentRegistryProvider(config.agent_registry)
+                secret_store_path = config.resolve_path(Path(".")) / ".phos-secrets"
+                secret_store = SecretsService(secret_store_path)
+                agent_management = AgentManagementService(
+                    lifecycle.config_repository if lifecycle is not None else ConfigRepository(),
+                    registry_provider, AgentCredentialService(registry_provider, secret_store))
+                appearance_activity = AgentAppearanceActivityTracker(
+                    registry_provider, agent_management.appearance_arbitration_candidates)
+                agent_management.register_appearance_activity_tracker(appearance_activity)
+                logger.info("PHOS MCP: agent registry loaded agents=%s credential_agents=%s",
+                            len(config.agent_registry.entries), len(config.agent_registry.credential_refs))
+                for agent_id, secret_ref in config.agent_registry.credential_refs.items():
+                    logger.info("PHOS MCP: credential agent=%s secret_ref=%s", agent_id, secret_ref)
+                if config.agent_registry.credential_refs:
+                    logger.info("PHOS MCP: secret_store_directory=%s", secret_store_path)
+                    for agent_id, secret_ref in config.agent_registry.credential_refs.items():
+                        try:
+                            present = secret_store.has_secret(secret_ref)
+                        except (SecretsError, OSError):
+                            logger.warning("PHOS MCP: credential status agent=%s secret_ref=%s present=unknown",
+                                           agent_id, secret_ref)
+                        else:
+                            logger.info("PHOS MCP: credential status agent=%s secret_ref=%s present=%s",
+                                        agent_id, secret_ref, present)
+                # BearerAgentAuthenticator retains trusted-local compatibility
+                # for an empty directory, then begins enforcing bearer auth as
+                # soon as Web Admin publishes the first credential reference.
+                authenticator = McpAuthenticationModeAuthenticator(
+                    BearerAgentAuthenticator(registry_provider, secret_store),
+                    mode=config.mcp_authentication_mode,
+                    anonymous_permission_profile=config.mcp_anonymous_permission_profile,
+                )
                 mcp_manager = McpServerManager(
-                    AgentApplicationService(application_service, AgentAccess.for_profile()),
+                    AgentApplicationService(application_service, config.agent_registry.default_identity),
                     host=config.mcp_host, port=config.mcp_port, path=config.mcp_path,
+                    authenticator=authenticator,
                     enabled=config.mcp_enabled,
+                    activity_tracker=appearance_activity,
                 )
                 application_service.register_mcp_manager(mcp_manager)
 
@@ -138,9 +204,18 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
         if lifecycle is not None:
             if application_service is not None:
                 lifecycle.register_application_service(application_service)
+                if config is not None:
+                    lifecycle.register_agent_management_service(agent_management)
+                    lifecycle.register_appearance_activity_tracker(appearance_activity)
             register_started = getattr(runtime, "register_started_callback", None)
             if callable(register_started):
-                register_started(lifecycle.mark_application_ready)
+                def mark_started_and_reconcile() -> None:
+                    lifecycle.mark_application_ready()
+                    if config is not None:
+                        result = lifecycle.reconcile_effective_appearance()
+                        if not result.get("ok"):
+                            logger.warning("PHOS APPEARANCE: startup reconciliation pending reason=%s", result.get("error"))
+                register_started(mark_started_and_reconcile)
             lifecycle.register_appearance_applier(runtime.apply_appearance)
             backgrounds_applier = getattr(runtime, "apply_backgrounds", None)
             if backgrounds_applier is not None:
@@ -151,12 +226,24 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             effects_applier = getattr(runtime, "apply_state_effects", None)
             if effects_applier is not None:
                 lifecycle.register_state_effects_applier(effects_applier)
+            palette_applier = getattr(runtime, "apply_semantic_led_palette", None)
+            if palette_applier is not None:
+                lifecycle.register_semantic_led_palette_applier(palette_applier)
+            personality_applier = getattr(runtime, "apply_physical_personality", None)
+            if personality_applier is not None:
+                lifecycle.register_physical_personality_applier(personality_applier)
             source_applier = getattr(runtime, "apply_base_visual_source", None)
             if source_applier is not None:
                 lifecycle.register_base_visual_source_applier(source_applier)
             overlay_applier = getattr(runtime, "apply_environment_overlays", None)
             if overlay_applier is not None:
                 lifecycle.register_environment_overlays_applier(overlay_applier)
+            if config is not None:
+                # Restore an explicitly persisted Presentation Owner only after
+                # every render-loop applier has been registered.
+                result = lifecycle.reconcile_effective_appearance()
+                if not result.get("ok"):
+                    logger.warning("PHOS APPEARANCE: effective presentation pending reason=%s", result.get("error"))
             preview_applier = getattr(runtime, "apply_camera_preview", None)
             if preview_applier is not None:
                 lifecycle.register_camera_preview_applier(preview_applier)
@@ -191,7 +278,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             await asyncio.gather(mcp_start_task, return_exceptions=True)
         if mcp_manager is not None:
             await mcp_manager.close()
-        if application_service is not None and lifecycle is None:
+        if 'appearance_activity' in locals():
+            appearance_activity.close()
+        if application_service is not None:
             application_service.close()
         if lifecycle is not None:
             lifecycle.clear_application_ready()
@@ -291,6 +380,7 @@ def main() -> None:
         except OSError:
             parser.error("Cannot open logging.file; check its path and permissions")
     logging.basicConfig(level=config.log_level, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
+    _configure_controller_debug_from_environment()
     # Prevent SDK debug logs from exposing credential/signature details even when
     # PHOS diagnostics are enabled. Adapter logs contain only sanitized metadata.
     logging.getLogger("boto3").setLevel(logging.WARNING)
@@ -298,7 +388,7 @@ def main() -> None:
     if arguments:
         logger.warning("Individual runtime CLI flags are deprecated; edit %s instead", repository.active_path)
     logger.info("PHOS %s starting", __version__)
-    logger.info("PHOS configuration loaded: %s", repository.active_path)
+    logger.info("PHOS startup package_path=%s config_path=%s", Path(__file__).resolve().parent, repository.active_path)
     _log_graphical_session()
     _configure_x11_display_power()
     # The optional web worker is isolated from camera/rendering and is stopped

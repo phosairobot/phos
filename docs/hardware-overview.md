@@ -26,7 +26,7 @@ physical acceptance on the target robot.
 | USB microphone         | Voice capture, VAD, and provider-neutral speech-to-text input.                      |
 | HDMI/display audio path | Reference playback path for PHOS text-to-speech output.                            |
 | BME280 / BMP280        | Temperature and pressure; BME280 also supplies humidity for environmental context. |
-| CCS811                 | Air-quality estimates: eCO2 and TVOC; eCO2 is not direct CO2 measurement.          |
+| ENS160 + AHT21         | Controller-backed eCO2/TVOC/AQI-UBA plus temperature/humidity; eCO2 is not direct CO2. |
 | GY-521 / MPU-6050      | Acceleration and angular velocity for interpreted motion/tilt events.              |
 | WS2812B RGB LED ring   | Optional semantic visual feedback and temporary directional animations.            |
 

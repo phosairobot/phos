@@ -8,6 +8,8 @@ classes:
 
 # Web Admin
 
+The Sensors view presents canonical controller-backed `sensors.ens160` and `sensors.aht21` records: ENS160 estimated eCO2, TVOC, AQI-UBA, validity and compensation; AHT21 controller-provenance temperature/humidity. BMP280/BME280 ambient readings remain separate, and unusable historic values are not shown as current.
+
 <div class="phos-page-intro" markdown>
 
 <span class="phos-kicker">CONFIGURE WITH BOUNDARIES</span>
@@ -48,7 +50,7 @@ a conservative 30-second snapshot fallback and always obtains a fresh snapshot
 after reconnection.
 
 The Sensors dashboard presents each optional BMP280/environmental sensor,
-CCS811 and MPU6050 independently, including freshness and unavailable, stale,
+controller-backed ENS160/AHT21 and MPU6050 independently, including freshness and unavailable, stale,
 warming-up or degraded conditions. It displays PHOS's interpreted environment,
 motion, visual source and overlay intent without reimplementing sensor
 interpreters in the browser. Runtime controls and overlay choices are populated

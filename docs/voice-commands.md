@@ -134,7 +134,7 @@ quality as eCO2 ppm plus TVOC ppb. To speak those sensor results, also enable
 is available as interaction data but remains silent.
 
 The temperature/pressure sensor must be available for those queries. Air-quality
-queries require an available CCS811 reading. If the relevant sensor is
+queries require an available ENS160 reading. If the relevant sensor is
 unavailable, PHOS returns a bounded unavailable result instead of inventing a
 value.
 

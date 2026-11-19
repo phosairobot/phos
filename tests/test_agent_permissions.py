@@ -22,13 +22,15 @@ class ApplicationSpy:
             "robot": {"running": True, "state": "idle"},
             "environment": {"status": "available", "available": True},
             "motion": {"status": "available", "available": True},
-            "sensors": {"ccs811": {"status": "available", "available": True}},
+            "sensors": {"ens160": {"status": "available", "available": True}},
             "observed_expression": {"available": True},
             "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
             "speech": {"tts": {"available": True}},
             "semantic_led": {"available": True},
         }
     def get_physical_context(self): return self._call("get_physical_context")
+    def query_measurements(self, metric, *, start=None, end=None, limit=360): return self._call("query_measurements", metric, start, end, limit)
+    def list_physical_transitions(self, *, event_type=None, limit=100): return self._call("list_physical_transitions", event_type, limit)
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
@@ -66,6 +68,16 @@ def test_missing_or_unrelated_permission_is_a_distinct_denial_without_invocation
     assert application.calls == []
 
 
+def test_history_requires_its_own_read_permission():
+    application = ApplicationSpy()
+    denied = AgentApplicationService(application, AgentAccess({AgentPermission.READ_PHYSICAL_CONTEXT}))
+    with pytest.raises(AgentPermissionDenied) as error:
+        denied.query_measurements("temperature_c")
+    assert error.value.permission is AgentPermission.READ_PHYSICAL_HISTORY
+    permitted = AgentApplicationService(application, AgentAccess({AgentPermission.READ_PHYSICAL_HISTORY}))
+    assert permitted.query_measurements("temperature_c")["operation"] == "query_measurements"
+
+
 def test_observer_can_read_the_minimal_semantic_surface_but_cannot_act():
     application = ApplicationSpy()
     agent = AgentApplicationService(application, AgentAccess.for_profile(AgentProfile.OBSERVER))
@@ -91,8 +103,8 @@ def test_agent_status_is_a_compact_semantic_projection_without_operational_detai
                 "controller": {"active_device": "/dev/ttyUSB0", "session_generation": 8},
                 "speech": {"tts": {"available": True, "active_provider": "cartesia"},
                            "audio_output": {"active_device": "pipewire"}},
-                "sensors": {"ccs811": {"status": "available", "available": True,
-                                          "sensor_type": "ccs811", "provider": "controller"}},
+                    "sensors": {"ens160": {"status": "available", "available": True,
+                                              "sensor_type": "ens160", "provider": "controller"}},
                 "semantic_led": {"available": False, "resolved_animation": {"effect": "pulse"}},
                 "visual": {"background": "secret.png"},
             })
@@ -116,7 +128,7 @@ def test_agent_status_reports_semantic_degradation_without_sensor_values():
     status["robot"] = {"running": False, "state": "sleeping"}
     status["environment"] = {"status": "unavailable", "available": False}
     status["motion"] = {"status": "stale", "available": False}
-    status["sensors"] = {"ccs811": {"status": "warming_up", "available": False}}
+    status["sensors"] = {"ens160": {"status": "warming_up", "available": False}}
     application.status = lambda: status
 
     result = AgentApplicationService(application, AgentAccess.for_profile()).status()
@@ -211,6 +223,7 @@ def test_agent_surface_has_no_raw_hardware_renderer_or_admin_operations():
     assert public_methods == {
         "attention", "get_physical_context", "observed_expression", "presence", "set_expression",
         "signal_user", "sleep", "speak", "status", "wake", "sleep_async", "speak_async",
-        "signal_user_async", "wake_async", "camera_snapshot",
+        "signal_user_async", "wake_async", "camera_snapshot", "camera_snapshot_with_metadata", "capture_camera_snapshot_with_metadata",
+            "query_measurements", "list_physical_transitions", "visible_objects",
     }
     assert set(OPERATION_PERMISSIONS) == set(AgentOperation)

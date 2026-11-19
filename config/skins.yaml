@@ -1,0 +1,10 @@
+schema_version: 1
+skins:
+  - id: aurora
+    display_name: Aurora
+    inherits: phos-default
+    physical_personality:
+      preset: calm
+    appearance:
+      eyes:
+        iris_color: "#B38CFF"

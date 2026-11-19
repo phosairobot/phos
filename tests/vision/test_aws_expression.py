@@ -283,16 +283,16 @@ def test_cli_overrides_file_without_losing_cloud_policy(tmp_path, monkeypatch):
     document["expression"]["aws"]["cooldown_seconds"] = 45
     path.write_text(json.dumps(document))
     seen = []
-    async def run(*, config, lifecycle=None):
-        seen.append(config)
+    async def run(*, config, lifecycle=None, web_server=None):
+        seen.append((config, lifecycle, web_server))
     monkeypatch.setattr(main, "async_main", run)
     monkeypatch.setattr(main.logging, "basicConfig", lambda **kwargs: None)
     monkeypatch.setattr(main.logging, "FileHandler", lambda *args, **kwargs: None)
     monkeypatch.setattr(sys, "argv", ["phos", "--config", str(path), "--aws-region", "eu-west-2"])
     main.main()
-    assert seen[0].cloud_expression.region == "eu-west-2"
-    assert seen[0].cloud_expression.cooldown_seconds == 45
-    assert seen[0].expression_provider == "aws"
+    assert seen[0][0].cloud_expression.region == "eu-west-2"
+    assert seen[0][0].cloud_expression.cooldown_seconds == 45
+    assert seen[0][0].expression_provider == "aws"
 
 
 def test_cloud_semantics_reach_behavior_without_vendor_data(fake_cv):

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDecoder, ProtocolError,
                                                  decode_frame, validate_led_animation)
 from robot.hardware.serial_controller import ControllerConnection, ControllerService, SerialControllerTransport
+from robot import main
 from robot.core.events import EventBus
 from robot.core.semantic_led import SemanticLedService
 from robot.core.state import RobotState
@@ -57,6 +58,151 @@ def test_line_decoder_retains_only_the_rejected_raw_frame_for_debugging():
     with pytest.raises(ProtocolError) as raised:
         decoder.feed(frame + b"\n")
     assert raised.value.frame == frame
+
+
+@pytest.mark.parametrize(("frame", "category"), [(b'\xff\xfebroken', "invalid_utf8"),
+                                                     (b'{"protocol":', "invalid_json")])
+def test_malformed_frames_distinguish_utf8_from_json_for_bounded_diagnostics(frame, category):
+    with pytest.raises(ProtocolError) as raised:
+        decode_frame(frame)
+    assert raised.value.code == "malformed_frame"
+    assert raised.value.parse_category == category
+
+
+def test_decoder_retains_valid_frames_after_a_rejected_line_in_the_same_read():
+    decoder = JsonLinesDecoder()
+    valid = b'{"protocol":"phos-hw","version":1,"type":"heartbeat","payload":{}}\n'
+    with pytest.raises(ProtocolError) as raised:
+        decoder.feed(b'\xffbroken\n' + valid)
+    assert [message.type for message in raised.value.recovered_messages] == ["heartbeat"]
+
+
+def test_controller_debug_environment_changes_only_the_named_controller_logger(monkeypatch):
+    import logging
+    named, root = logging.getLogger("robot.hardware.serial_controller"), logging.getLogger()
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_named, original_root, original_imu = named.level, root.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    try:
+        assert main._configure_controller_debug_from_environment() is True
+        assert named.level == logging.DEBUG
+        assert root.level == original_root
+    finally:
+        named.setLevel(original_named)
+        imu.setLevel(original_imu)
+
+
+def test_controller_debug_keeps_high_rate_imu_logger_quiet_unless_explicitly_enabled(monkeypatch):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.delenv("PHOS_CONTROLLER_IMU_DEBUG", raising=False)
+    try:
+        main._configure_controller_debug_from_environment()
+        assert controller.level == logging.DEBUG
+        assert imu.level == logging.WARNING
+        monkeypatch.setenv("PHOS_CONTROLLER_IMU_DEBUG", "1")
+        main._configure_controller_debug_from_environment()
+        assert imu.level == logging.DEBUG
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_normal_controller_logging_does_not_emit_orientation_raw_telemetry(caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    try:
+        controller.setLevel(logging.INFO)
+        imu.setLevel(logging.WARNING)
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        message = ControllerMessage("orientation_update", {
+            "acceleration_m_s2": {"x": 1, "y": 2, "z": 3},
+            "angular_velocity_dps": {"x": 4, "y": 5, "z": 6},
+        }, raw_frame=b'{"orientation":"normal-info"}')
+        with caplog.at_level(logging.DEBUG):
+            asyncio.run(service._message(message))
+        assert "PHOS CONTROLLER RX IMU raw=" not in caplog.text
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_controller_debug_does_not_emit_orientation_raw_telemetry_without_imu_opt_in(monkeypatch, caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.delenv("PHOS_CONTROLLER_IMU_DEBUG", raising=False)
+    try:
+        main._configure_controller_debug_from_environment()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        message = ControllerMessage("orientation_update", {
+            "acceleration_m_s2": {"x": 1, "y": 2, "z": 3},
+            "angular_velocity_dps": {"x": 4, "y": 5, "z": 6},
+        }, raw_frame=b'{"orientation":"high-frequency"}')
+        with caplog.at_level(logging.DEBUG):
+            asyncio.run(service._message(message))
+        assert "PHOS CONTROLLER RX IMU raw=" not in caplog.text
+        assert service.recent_messages()[-1]["type"] == "orientation_update"
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_controller_debug_emits_bounded_malformed_frame_diagnostics(monkeypatch, caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.delenv("PHOS_CONTROLLER_IMU_DEBUG", raising=False)
+    try:
+        main._configure_controller_debug_from_environment()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        error = ProtocolError("malformed_frame", "Frame is not valid UTF-8 JSON.")
+        error.frame, error.parse_category = b"\xffbroken", "invalid_utf8"
+        with caplog.at_level(logging.DEBUG):
+            service._record_rejected_frame(error)
+        assert "category=invalid_utf8 length=7 prefix_hex=ff62726f6b656e generation=0" in caplog.text
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
+
+
+def test_imu_debug_requires_its_own_opt_in(monkeypatch, caplog):
+    import logging
+    controller = logging.getLogger("robot.hardware.serial_controller")
+    imu = logging.getLogger("robot.hardware.serial_controller.imu")
+    original_controller, original_imu = controller.level, imu.level
+    monkeypatch.setenv("PHOS_CONTROLLER_DEBUG", "1")
+    monkeypatch.setenv("PHOS_CONTROLLER_IMU_DEBUG", "1")
+    try:
+        main._configure_controller_debug_from_environment()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=2,
+                                    heartbeat_timeout_seconds=3, touch_sink=lambda _event: None)
+        message = ControllerMessage("orientation_update", {
+            "acceleration_m_s2": {"x": 1, "y": 2, "z": 3},
+            "angular_velocity_dps": {"x": 4, "y": 5, "z": 6},
+        }, raw_frame=b'{"orientation":"explicit-debug"}')
+        with caplog.at_level(logging.DEBUG):
+            asyncio.run(service._message(message))
+        assert "PHOS CONTROLLER RX IMU raw=" in caplog.text
+    finally:
+        controller.setLevel(original_controller)
+        imu.setLevel(original_imu)
 
 
 def test_led_animation_validation_includes_breathe_and_rejects_bad_parameters():
@@ -253,6 +399,65 @@ def test_capability_callback_reapplies_current_led_winner_on_every_session_witho
     asyncio.run(exercise())
 
 
+def test_controller_records_the_exact_resolved_led_payload_written_to_transport():
+    class Transport:
+        def __init__(self): self.device, self.writes = "/dev/ttyUSB0", []
+        async def write(self, raw): self.writes.append(raw)
+
+    async def exercise():
+        controller = ControllerService(
+            SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+            reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+            touch_sink=lambda _event: None,
+        )
+        controller._transport = Transport()
+        controller._state = ControllerConnection.CONNECTED
+        controller._active_capabilities = {"led_count": 12}
+        controller._session_generation = 4
+        assert await controller.set_led_animation({"animation": "solid", "color": "#4EE5C4",
+                                                   "brightness": .2, "duration_ms": 0})
+        return controller
+
+    controller = asyncio.run(exercise())
+    dispatch = controller.status()["last_led_dispatch"]
+    assert dispatch["state"] == "written"
+    assert dispatch["color"] == "#4EE5C4"
+    assert dispatch["animation"] == "solid"
+    assert dispatch["session_generation"] == 4
+    assert dispatch["acknowledged"] is None
+
+
+def test_semantic_palette_switch_reaches_the_controller_transport_with_idle_still_active():
+    class Transport:
+        def __init__(self): self.device, self.writes = "/dev/ttyUSB0", []
+        async def write(self, raw): self.writes.append(raw)
+
+    async def exercise():
+        controller = ControllerService(
+            SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+            reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+            touch_sink=lambda _event: None,
+        )
+        controller._transport = Transport()
+        controller._state = ControllerConnection.CONNECTED
+        controller._active_capabilities = {"led_count": 12}
+        semantic = SemanticLedService(EventBus(), controller.set_led_animation, lambda: RobotState.IDLE)
+        await semantic.set_intent("robot_state", "idle")
+        await semantic.set_palette({"idle": "#6EC9FF"})
+        await semantic.set_palette({"idle": "#4EE5C4"})
+        before = len(controller._transport.writes)
+        assert await semantic.set_palette({"idle": "#4EE5C4"}) is False
+        return semantic, controller, before
+
+    semantic, controller, before = asyncio.run(exercise())
+    messages = [json.loads(raw) for raw in controller._transport.writes]
+    commands = [message["payload"] for message in messages if message["type"] == "set_led_animation"]
+    assert [command["color"] for command in commands] == ["#00E5FF", "#6EC9FF", "#4EE5C4"]
+    assert len(controller._transport.writes) == before
+    assert semantic.status()["active_intent"] == "idle"
+    assert controller.status()["last_led_dispatch"]["color"] == "#4EE5C4"
+
+
 def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder():
     class Serial:
         def __init__(self): self.input_reset = self.output_reset = False
@@ -290,6 +495,25 @@ def test_serial_transport_reports_pyserial_write_result_after_flush():
     assert result == 5
     assert serial.writes == [b"test\n"]
     assert serial.flushed
+
+
+def test_serial_transport_returns_a_short_jsonl_frame_without_waiting_for_the_read_buffer_to_fill():
+    class Serial:
+        def __init__(self): self.buffer, self.read_sizes = bytearray(b'{"type":"heartbeat"}\n'), []
+        @property
+        def in_waiting(self): return len(self.buffer)
+        def read(self, size):
+            self.read_sizes.append(size)
+            result, self.buffer = bytes(self.buffer[:size]), self.buffer[size:]
+            return result
+        def close(self): pass
+
+    serial = Serial()
+    transport = SerialControllerTransport("/dev/ttyUSB0", 115200, serial_factory=lambda *_args, **_kwargs: serial)
+    transport.open()
+
+    assert transport.read() == b'{"type":"heartbeat"}\n'
+    assert serial.read_sizes == [1, len(b'{"type":"heartbeat"}\n') - 1]
 
 
 def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
@@ -509,6 +733,317 @@ def test_controller_air_quality_notification_uses_canonical_reading_type():
     assert received[-1] == AirQualityReading(400, 0)
 
 
+def test_air_quality_generation_activation_retirement_and_rejection_are_deterministic():
+    now = [0.0]
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True, clock=lambda: now[0])
+    # Telemetry cannot self-activate a session.
+    air.accept_controller_update("eco2", 400, generation=1)
+    assert air.snapshot()["measurements"] is None
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+    now[0] = 1
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 0, generation=1)
+    current = air.snapshot()
+    assert current["measurement_usable"]["eco2_ppm"]
+    # A new session preserves values only as history until fresh telemetry.
+    air.activate_controller_generation(2)
+    replacement = air.snapshot()
+    assert replacement["measurements"]["eco2_ppm"] == 400
+    assert not replacement["measurement_usable"].get("eco2_ppm", False)
+    air.accept_controller_update("eco2", 999, generation=1)
+    assert air.snapshot()["measurements"]["eco2_ppm"] == 400
+    air.retire_controller_generation(1)
+    assert air.snapshot()["status"] == "starting"
+    air.retire_controller_generation(2)
+    assert air.snapshot()["status"] == "unavailable"
+
+
+def test_controller_callback_adapters_preserve_legacy_and_propagate_generation():
+    legacy, production, legacy_imu, production_imu = [], [], [], []
+    legacy_service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, sensor_update_sink=lambda name, value: legacy.append((name, value)),
+        imu_update_sink=lambda message: legacy_imu.append(message.type))
+    production_service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, sensor_update_sink=lambda name, value, generation: production.append((name, value, generation)),
+        imu_update_sink=lambda message, generation: production_imu.append((message.type, generation)))
+    async def exercise():
+        legacy_service._new_session(); production_service._new_session()
+        frame = ControllerMessage("sensor_update", {"sensor": "eco2", "value": 400, "unit": "ppm"})
+        await legacy_service._message(frame); await production_service._message(frame)
+        motion = ControllerMessage("motion_update", {"state": "moving", "intensity": "medium"})
+        await legacy_service._message(motion); await production_service._message(motion)
+    asyncio.run(exercise())
+    assert legacy == [("eco2", 400)]
+    assert production == [("eco2", 400, 1)]
+    assert legacy_imu == ["motion_update"]
+    assert production_imu == [("motion_update", 1)]
+
+
+def test_controller_read_boundary_propagates_controlled_failure_without_wall_clock():
+    now = [0.0]
+    async def failing_read(_transport, _started):
+        raise OSError("controlled read failure")
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, clock=lambda: now[0], read_operation=failing_read)
+    service._transport = SimpleNamespace()
+    _decoder, deadline = service._new_session()
+    async def exercise():
+        with pytest.raises(OSError, match="controlled read failure"):
+            await service._read_connected(JsonLinesDecoder(), deadline)
+    asyncio.run(exercise())
+
+
+def test_controller_heartbeat_timeout_uses_injected_clock_before_read():
+    now = [0.0]
+    called = []
+    async def read_never(_transport, _started):
+        called.append(True)
+        return b""
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, clock=lambda: now[0], read_operation=read_never)
+    service._transport = SimpleNamespace()
+    _decoder, deadline = service._new_session()
+    now[0] = 4.0
+    async def exercise():
+        with pytest.raises(OSError, match="heartbeat timed out"):
+            await service._read_connected(JsonLinesDecoder(), deadline)
+    asyncio.run(exercise())
+    assert called == []
+
+
+def test_controller_run_retires_failed_session_before_reconnect():
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True)
+    opened_a, opened_b, reconnect_allowed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    readings_a, readings_b, retired_a = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    closed_a = threading.Event()
+    activated, retired = [], []
+    reads = asyncio.Queue()
+    active_reads = 0
+
+    class Transport:
+        def __init__(self, name): self.device, self.name, self.closed = "/dev/test", name, False
+        def open(self):
+            if self.name == "b":
+                self.previous_closed_at_open = transports[0].closed
+            (opened_a if self.name == "a" else opened_b).set()
+        def close(self):
+            self.closed = True
+            if self.name == "a":
+                closed_a.set()
+        async def write(self, _raw): return 1
+
+    transports = []
+    def factory(_device, _baud):
+        transport = Transport("a" if not transports else "b"); transports.append(transport); return transport
+
+    async def read_operation(_transport, started):
+        nonlocal active_reads
+        started.set()
+        active_reads += 1
+        try:
+            item = await reads.get()
+            if isinstance(item, Exception):
+                raise item
+            return item
+        finally:
+            active_reads -= 1
+
+    def activated_sink(generation):
+        activated.append(generation)
+        air.activate_controller_generation(generation)
+
+    def retired_sink(generation):
+        retired.append(generation)
+        air.retire_controller_generation(generation)
+        if generation == 1:
+            retired_a.set()
+
+    def sensor_update_sink(name, value, generation):
+        air.accept_controller_update(name, value, generation=generation)
+        if name != "tvoc":
+            return
+        usable = air.snapshot()["measurement_usable"].get("tvoc_ppb", False)
+        if usable and generation == 1:
+            readings_a.set()
+        if usable and generation == 2:
+            readings_b.set()
+
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=30,
+        touch_sink=lambda _event: None, sensor_update_sink=sensor_update_sink,
+        sensor_status_sink=lambda payload, generation: air.accept_controller_status(payload, generation=generation),
+        session_activated_sink=activated_sink, session_retired_sink=retired_sink,
+        transport_factory=factory, read_operation=read_operation)
+    service._open_settle_seconds = 0
+    async def controlled_sleep(seconds):
+        if seconds: await reconnect_allowed.wait()
+    service._sleep = controlled_sleep
+
+    async def exercise():
+        runner = asyncio.create_task(service._run())
+        try:
+            await opened_a.wait()
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_status","payload":{"sensor":"ens160","validity":0,"compensation_active":true}}\n')
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"eco2","value":400,"unit":"ppm"}}\n')
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"tvoc","value":0,"unit":"ppb"}}\n')
+            await readings_a.wait()
+            assert activated == [1]
+            await reads.put(OSError("controlled failure"))
+            await retired_a.wait()
+            # Session retirement invalidates sensor data before the blocking
+            # close completes.  Wait for the owned transport itself rather
+            # than assuming the retirement callback is a close-complete ACK.
+            await asyncio.to_thread(closed_a.wait)
+            assert transports[0].closed
+            assert activated == [1]
+            assert not air.snapshot()["measurement_usable"].get("eco2_ppm", False)
+            assert air.snapshot()["measurements"]["eco2_ppm"] == 400
+            assert not opened_b.is_set()
+            reconnect_allowed.set()
+            await opened_b.wait()
+            assert transports[1].previous_closed_at_open
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_status","payload":{"sensor":"ens160","validity":0,"compensation_active":true}}\n')
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"eco2","value":401,"unit":"ppm"}}\n')
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"tvoc","value":1,"unit":"ppb"}}\n')
+            await readings_b.wait()
+            assert activated == [1, 2]
+            air.accept_controller_update("eco2", 999, generation=1)
+            air.accept_controller_status({"validity": 3, "compensation_active": False}, generation=1)
+            air.retire_controller_generation(1)
+            snapshot = air.snapshot()
+            assert snapshot["measurements"]["eco2_ppm"] == 401
+            assert snapshot["measurement_usable"]["eco2_ppm"]
+        finally:
+            runner.cancel()
+            await asyncio.gather(runner, return_exceptions=True)
+        assert transports[1].closed
+        assert retired == [1, 2]
+        assert runner.done() and active_reads == 0
+    asyncio.run(exercise())
+
+
+def test_controller_run_retires_heartbeat_expired_session_before_reconnect():
+    now = [0.0]
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True,
+                                  clock=lambda: now[0])
+    opened_a, opened_b = asyncio.Event(), asyncio.Event()
+    readings_ready, retired_a, activated_b = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    closed_a = threading.Event()
+    timeout_check, reconnect_allowed = asyncio.Event(), asyncio.Event()
+    activated, retired, transports = [], [], []
+    reads = asyncio.Queue()
+    active_reads = 0
+
+    class Transport:
+        def __init__(self, name):
+            self.device, self.name, self.closed = "/dev/test", name, False
+
+        def open(self):
+            if self.name == "b":
+                self.previous_closed_at_open = transports[0].closed
+            (opened_a if self.name == "a" else opened_b).set()
+
+        def close(self):
+            self.closed = True
+            if self.name == "a":
+                closed_a.set()
+
+        async def write(self, _raw):
+            return 1
+
+    def factory(_device, _baud):
+        transport = Transport("a" if not transports else "b")
+        transports.append(transport)
+        return transport
+
+    async def read_operation(_transport, started):
+        nonlocal active_reads
+        started.set()
+        active_reads += 1
+        try:
+            if timeout_check.is_set():
+                return b""
+            item = await reads.get()
+            return item
+        finally:
+            active_reads -= 1
+
+    def sensor_update_sink(name, value, generation):
+        air.accept_controller_update(name, value, generation=generation)
+        if name == "tvoc" and air.snapshot()["measurement_usable"].get("tvoc_ppb", False):
+            readings_ready.set()
+
+    def activated_sink(generation):
+        activated.append(generation)
+        air.activate_controller_generation(generation)
+        if generation == 2:
+            activated_b.set()
+
+    def retired_sink(generation):
+        retired.append(generation)
+        air.retire_controller_generation(generation)
+        if generation == 1:
+            retired_a.set()
+
+    service = ControllerService(
+        SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=10, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, sensor_update_sink=sensor_update_sink,
+        sensor_status_sink=lambda payload, generation: air.accept_controller_status(payload, generation=generation),
+        session_activated_sink=activated_sink, session_retired_sink=retired_sink,
+        transport_factory=factory, clock=lambda: now[0], read_operation=read_operation,
+    )
+    service._open_settle_seconds = 0
+
+    async def controlled_sleep(seconds):
+        if seconds:
+            await reconnect_allowed.wait()
+
+    service._sleep = controlled_sleep
+
+    async def exercise():
+        runner = asyncio.create_task(service._run())
+        try:
+            await opened_a.wait()
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_status","payload":{"sensor":"ens160","validity":0,"compensation_active":true}}\n')
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"eco2","value":400,"unit":"ppm"}}\n')
+            await reads.put(b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"tvoc","value":0,"unit":"ppb"}}\n')
+            await readings_ready.wait()
+            assert activated == [1]
+
+            now[0] = 4.0
+            timeout_check.set()
+            await reads.put(b"")
+            await retired_a.wait()
+            await asyncio.to_thread(closed_a.wait)
+            assert transports[0].closed
+            assert not air.snapshot()["measurement_usable"]["eco2_ppm"]
+            assert air.snapshot()["measurements"]["eco2_ppm"] == 400
+            assert not opened_b.is_set() and active_reads == 0
+
+            reconnect_allowed.set()
+            await opened_b.wait()
+            await activated_b.wait()
+            assert activated == [1, 2]
+            assert transports[1].previous_closed_at_open
+        finally:
+            runner.cancel()
+            await asyncio.gather(runner, return_exceptions=True)
+        assert transports[1].closed
+        assert retired == [1, 2]
+        assert runner.done() and active_reads == 0
+
+    asyncio.run(exercise())
+
+
 def test_controller_owned_services_do_not_construct_local_i2c_providers_and_disconnects_are_unavailable():
     constructed = []
     factory = lambda: constructed.append("called")
@@ -540,7 +1075,30 @@ def test_controller_imu_telemetry_and_semantic_motion_share_one_snapshot():
     assert snapshot["measurements"]["acceleration_x_m_s2"] == 1
     assert snapshot["motion_state"] == "moving"
     assert snapshot["motion_intensity"] == "medium"
-    assert states == [MotionState.MOVING]
+    assert states == [MotionState.STILL, MotionState.MOVING]
+
+
+def test_controller_imu_generation_rejects_unactivated_retired_and_old_motion():
+    imu = IMUSensorService(lambda: None, enabled=True, poll_interval_seconds=1, stale_after_seconds=30,
+                           externally_managed=True,
+                           motion_settings=MotionSettings(1.5, 4, 180, 25, .25, 1, 3, "x", "y"))
+    # Controller telemetry cannot create an IMU session by itself.
+    imu.accept_controller_motion(MotionState.MOVING, "medium", generation=1)
+    assert imu.snapshot()["status"] != "available"
+    imu.activate_controller_generation(1)
+    imu.accept_controller_orientation(IMUReading(1, 2, 3, 4, 5, 6), generation=1)
+    imu.accept_controller_motion(MotionState.MOVING, "medium", generation=1)
+    assert imu.snapshot()["motion_state"] == "moving"
+    imu.activate_controller_generation(2)
+    imu.accept_controller_motion(MotionState.STILL, "low", generation=1)
+    assert imu.snapshot()["status"] == "starting"
+    imu.accept_controller_motion(MotionState.STILL, "low", generation=2)
+    assert imu.snapshot()["motion_state"] == "still"
+    imu.retire_controller_generation(1)
+    assert imu.snapshot()["available"]
+    imu.retire_controller_generation(2)
+    imu.accept_controller_motion(MotionState.MOVING, "high", generation=2)
+    assert imu.snapshot()["status"] == "unavailable"
 
 
 def test_controller_sensor_families_keep_independent_canonical_availability_and_values():
@@ -560,10 +1118,10 @@ def test_controller_sensor_families_keep_independent_canonical_availability_and_
     environmental.accept_controller_update("pressure", 991.6)
     assert air.snapshot()["available"]
     assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
-    snapshot = {"environmental": environmental.snapshot(), "ccs811": air.snapshot(), "imu": imu.snapshot()}
+    snapshot = {"environmental": environmental.snapshot(), "ens160": air.snapshot(), "imu": imu.snapshot()}
     assert snapshot["environmental"]["available"]
-    assert snapshot["ccs811"]["available"]
-    assert snapshot["ccs811"]["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
+    assert snapshot["ens160"]["available"]
+    assert snapshot["ens160"]["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
     assert snapshot["imu"]["available"] and snapshot["imu"]["motion_state"] == "moving"
 
 
@@ -580,6 +1138,32 @@ def test_controller_air_quality_freshness_is_refreshed_by_each_partial_push_only
     assert air.snapshot()["measurements"] == {"eco2_ppm": 400, "tvoc_ppb": 0}
     now[0] = 12
     assert air.snapshot()["status"] == "stale"
+
+
+def test_controller_environmental_identical_periodic_samples_refresh_only_its_own_freshness():
+    now = [0.0]
+    environmental = EnvironmentalSensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                               stale_after_seconds=10, externally_managed=True,
+                                               clock=lambda: now[0])
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=10, externally_managed=True,
+                                  clock=lambda: now[0])
+    environmental.accept_controller_update("temperature", 24.8)
+    environmental.accept_controller_update("pressure", 991.6)
+    now[0] = 9
+    # A changed-value optimization in firmware must still emit this periodic
+    # identical sample to prove the environmental provider remains fresh.
+    environmental.accept_controller_update("temperature", 24.8)
+    assert environmental.snapshot()["available"]
+    assert air.snapshot()["status"] == "starting"
+    now[0] = 18
+    assert environmental.snapshot()["available"]
+    now[0] = 19
+    assert environmental.snapshot()["status"] == "stale"
+    environmental.mark_external_unavailable()
+    assert environmental.snapshot()["status"] == "unavailable"
+    environmental.accept_controller_update("pressure", 991.6)
+    assert environmental.snapshot()["available"]
 
 
 def test_controller_air_quality_disconnect_is_immediate_and_next_push_restores_availability():

@@ -42,6 +42,12 @@ _MOTION_TILT_OFFSETS = {
     MotionState.TILT_FORWARD: (0.0, -1.0, 1.23, 0.0),
     MotionState.TILT_BACK: (0.0, 1.0, .82, 0.0),
 }
+_PERSONALITY_POLICIES = {
+    # blink interval, rest interval, offsets, double-blink chance, pause, gaze hold
+    "analytical": ((4.8, 7.2), (4.0, 7.0), ((-.25, 0.0), (.25, 0.0)), .015, (.12, .18), (1.4, 2.3)),
+    "playful": ((2.4, 4.2), (1.5, 3.2), ((-.35, 0.0), (.35, 0.0), (0.0, -.20), (0.0, .20), (-.25, -.15), (.25, -.15)), .18, (.09, .15), (.65, 1.25)),
+    "calm": ((5.5, 8.0), (4.8, 8.0), ((-.20, 0.0), (.20, 0.0), (0.0, -.12)), .04, (.14, .22), (1.8, 3.0)),
+}
 
 
 class BehaviorEngine(Behavior):
@@ -69,6 +75,7 @@ class BehaviorEngine(Behavior):
         presence_led_left_duration_seconds: Optional[float] = None, presence_led_entered_direction: Optional[str] = None,
         presence_led_left_direction: Optional[str] = None,
         clock: Callable[[], float] = time.monotonic,
+        rng: random.Random | None = None,
     ) -> None:
         if blink_interval[0] <= 0 or blink_interval[1] < blink_interval[0]:
             raise ValueError("Blink interval must contain positive ascending values.")
@@ -81,6 +88,14 @@ class BehaviorEngine(Behavior):
         self._events = events
         self._blink_interval = blink_interval
         self._gaze_interval = gaze_interval
+        self._default_blink_interval = blink_interval
+        self._personality = "analytical"
+        self._idle_gaze_offsets = _IDLE_GAZE_OFFSETS
+        self._double_blink_probability = 0.0
+        self._double_blink_pause = (.12, .18)
+        self._double_blink_pause_at = .12
+        self._gaze_hold_duration = (1.0, 1.5)
+        self._rng = rng if rng is not None else random
         self._face_gaze_smoothing = face_gaze_smoothing
         self._reaction_decay_per_second = reaction_decay_per_second
         self.configure_imu_reactions(imu_reaction_strength, imu_tilt_gaze_strength, imu_tilt_eye_asymmetry_strength,
@@ -94,6 +109,9 @@ class BehaviorEngine(Behavior):
         self._blink_started_at = 0.0
         self._next_blink_at = 0.0
         self._next_gaze_at = 0.0
+        self._gaze_hold_until = 0.0
+        self._gaze_phase = "rest"
+        self._double_blink_pending = False
         self._face_is_tracked = False
         self._attention_tracking = False
         self._presence_led_reactions_enabled = presence_led_reactions_enabled
@@ -197,6 +215,19 @@ class BehaviorEngine(Behavior):
             raise ValueError("Unsupported base visual source")
         self._base_visual_source = source
 
+    def configure_physical_personality(self, preset: str) -> None:
+        """Change only low-priority idle animation and invalidate old timers."""
+        try: blink, gaze, offsets, double_probability, double_pause, gaze_hold = _PERSONALITY_POLICIES[preset]
+        except KeyError as error: raise ValueError("Unsupported physical personality") from error
+        self._personality, self._blink_interval, self._gaze_interval = preset, blink, gaze
+        self._idle_gaze_offsets = offsets
+        self._double_blink_probability, self._double_blink_pause = double_probability, double_pause
+        self._gaze_hold_duration = gaze_hold
+        now = self._clock()
+        self._cancel_idle_personality_sequences(now)
+        self._next_blink_at, self._next_gaze_at = now + self._rng.uniform(*blink), now + self._rng.uniform(*gaze)
+        self._state = replace(self._state, pupil_x=0.0, pupil_y=0.0)
+
     def set_manual_expression(self, expression: FaceExpression, *, duration_seconds: Optional[float] = None) -> None:
         if not isinstance(expression, FaceExpression) or (duration_seconds is not None and duration_seconds <= 0):
             raise ValueError("Manual expression override is invalid")
@@ -235,8 +266,8 @@ class BehaviorEngine(Behavior):
             self._events.subscribe(TOUCH_EVENT, self._on_touch_event),
         ]
         now = self._clock()
-        self._next_blink_at = now + random.uniform(*self._blink_interval)
-        self._next_gaze_at = now + random.uniform(*self._gaze_interval)
+        self._next_blink_at = now + self._rng.uniform(*self._blink_interval)
+        self._next_gaze_at = now + self._rng.uniform(*self._gaze_interval)
         self._task = asyncio.create_task(self._animation_loop(), name="behavior-engine")
 
     async def stop(self) -> None:
@@ -264,6 +295,18 @@ class BehaviorEngine(Behavior):
             raise ValueError("A core.state_changed event must contain a valid current state.") from error
         self._robot_state = state
         self._state = _face_state_for_robot_state(state)
+        now = self._clock()
+        # Personality is only an idle policy.  Keep the established system
+        # blink cadence for non-idle states rather than suppressing legitimate
+        # state-owned animation.
+        interval = self._blink_interval if state is RobotState.IDLE else self._default_blink_interval
+        self._cancel_idle_personality_sequences(now)
+        self._next_blink_at = now + self._rng.uniform(*interval)
+        if state is not RobotState.IDLE:
+            self._next_gaze_at = float("inf")
+        else:
+            self._next_gaze_at = now + self._rng.uniform(*self._gaze_interval)
+            self._state = replace(self._state, pupil_x=0.0, pupil_y=0.0)
 
     async def _on_visual_expression(self, event: Event) -> None:
         if self._robot_state is not RobotState.IDLE:
@@ -330,6 +373,7 @@ class BehaviorEngine(Behavior):
         except (KeyError, TypeError, ValueError):
             return
         self._face_is_tracked = True
+        self._cancel_idle_gaze(self._clock())
         if self._attention_tracking:
             return
         if self._robot_state is not RobotState.IDLE:
@@ -358,6 +402,7 @@ class BehaviorEngine(Behavior):
         logger.debug("BEHAVIOR ATTENTION INPUT: state=tracking target_x=%.3f target_y=%.3f", x, y)
         self._attention_tracking = True
         self._face_is_tracked = True
+        self._cancel_idle_gaze(self._clock())
         if self._robot_state is RobotState.IDLE:
             self._state = replace(self._state,
                 pupil_x=_smooth(self._state.pupil_x, x * .65, self._face_gaze_smoothing),
@@ -387,6 +432,8 @@ class BehaviorEngine(Behavior):
         if state is not self._motion_state:
             self._motion_state_started_at = self._clock()
         self._motion_state = state
+        if state is not MotionState.STILL:
+            self._cancel_idle_gaze(self._clock())
         if state not in {MotionState.SHAKE, MotionState.IMPACT}:
             if state is MotionState.MOVING:
                 logger.debug("IMU behavior state=moving gaze=(0.00,0.00) eye_open=1.16 strength=%.2f",
@@ -498,10 +545,7 @@ class BehaviorEngine(Behavior):
                 logger.info("EXPRESSION REACTION COMPLETE: reaction=%s", payload["reaction"])
                 await self._events.publish(Event(EXPRESSION_REACTION_COMPLETED, payload))
             self._decay_visual_reaction(now)
-            if self._robot_state is RobotState.IDLE and not self._face_is_tracked and now >= self._next_gaze_at:
-                pupil_x, pupil_y = random.choice(_IDLE_GAZE_OFFSETS)
-                self._state = replace(self._state, pupil_x=pupil_x, pupil_y=pupil_y)
-                self._next_gaze_at = now + random.uniform(*self._gaze_interval)
+            self._advance_idle_gaze(now)
             await asyncio.sleep(1.0 / 60.0)
 
     def _decay_visual_reaction(self, now: float) -> None:
@@ -519,6 +563,10 @@ class BehaviorEngine(Behavior):
         if self._blink_phase is BlinkPhase.OPEN and now >= self._next_blink_at:
             self._blink_phase = BlinkPhase.CLOSING
             self._blink_started_at = now
+            self._double_blink_pending = (self._robot_state is RobotState.IDLE
+                                          and self._rng.random() < self._double_blink_probability)
+            if self._double_blink_pending:
+                self._double_blink_pause_at = self._rng.uniform(*self._double_blink_pause)
         elif self._blink_phase is BlinkPhase.CLOSING and now - self._blink_started_at >= 0.075:
             self._blink_phase = BlinkPhase.CLOSED
             self._blink_started_at = now
@@ -526,8 +574,44 @@ class BehaviorEngine(Behavior):
             self._blink_phase = BlinkPhase.OPENING
             self._blink_started_at = now
         elif self._blink_phase is BlinkPhase.OPENING and now - self._blink_started_at >= 0.11:
+            if self._double_blink_pending:
+                self._blink_phase = BlinkPhase.DOUBLE_PAUSE
+                self._blink_started_at = now
+                self._double_blink_pending = False
+            else:
+                self._blink_phase = BlinkPhase.OPEN
+                interval = self._blink_interval if self._robot_state is RobotState.IDLE else self._default_blink_interval
+                self._next_blink_at = now + self._rng.uniform(*interval)
+        elif self._blink_phase is BlinkPhase.DOUBLE_PAUSE and now - self._blink_started_at >= self._double_blink_pause_at:
+            self._blink_phase = BlinkPhase.CLOSING
+            self._blink_started_at = now
+
+    def _advance_idle_gaze(self, now: float) -> None:
+        if (self._robot_state is not RobotState.IDLE or self._face_is_tracked
+                or self._attention_tracking or self._motion_state is not MotionState.STILL
+                or self._motion_transient is not None or self._active_expression_reaction() is not None
+                or self.manual_expression_state() is not None):
+            return
+        if self._gaze_phase == "hold" and now >= self._gaze_hold_until:
+            self._state = replace(self._state, pupil_x=0.0, pupil_y=0.0)
+            self._gaze_phase = "rest"
+            self._next_gaze_at = now + self._rng.uniform(*self._gaze_interval)
+        elif self._gaze_phase == "rest" and now >= self._next_gaze_at:
+            pupil_x, pupil_y = self._rng.choice(self._idle_gaze_offsets)
+            self._state = replace(self._state, pupil_x=pupil_x, pupil_y=pupil_y)
+            self._gaze_phase = "hold"
+            self._gaze_hold_until = now + self._rng.uniform(*self._gaze_hold_duration)
+
+    def _cancel_idle_gaze(self, now: float) -> None:
+        self._gaze_phase = "rest"
+        self._gaze_hold_until = 0.0
+        self._next_gaze_at = now + self._rng.uniform(*self._gaze_interval)
+
+    def _cancel_idle_personality_sequences(self, now: float) -> None:
+        self._double_blink_pending = False
+        if self._blink_phase is BlinkPhase.DOUBLE_PAUSE:
             self._blink_phase = BlinkPhase.OPEN
-            self._next_blink_at = now + random.uniform(*self._blink_interval)
+        self._cancel_idle_gaze(now)
 
     def _blink_progress(self, now: float) -> float:
         duration = {

@@ -25,12 +25,14 @@ pass its path explicitly. Keep deployment changes out of commits if inappropriat
 No file may contain credentials.
 
 The eight required sections are `web`, `display`, `led_ring`, `behavior`, `vision`, `expression`
-(with `smoothing`, `local`, `aws`), `sensors` (with `environmental`, `ccs811` and `imu`) and `logging`. `vision` includes `detector`.
-Only the implemented environmental, CCS811 and MPU-6050 services have sensor configuration; there are no speculative runtime/voice settings. Every field in the
+(with `smoothing`, `local`, `aws`), `sensors` (with `environmental`, `ens160` and `imu`) and `logging`. `vision` includes `detector`.
+Only the implemented environmental, controller-backed ENS160/AHT21 and MPU-6050 services have sensor configuration; there are no speculative runtime/voice settings. Every field in the
 canonical file is required, including null values and inactive-provider settings;
 a missing value is an error, not a second default hidden in code.
 
 ### Field reference
+
+ENS160 and AHT21 are controller-acquired. `sensors.ens160` configures the controller-backed air-quality family; public status exposes `sensors.ens160` and `sensors.aht21`. There is no Raspberry Pi ENS160/AHT21 I2C provider or legacy migration path.
 
 Values/defaults are maintained in `config/phos.yaml`. All numeric values must be
 finite; booleans must be YAML booleans, not quoted strings or numbers.
@@ -38,14 +40,14 @@ finite; booleans must be YAML booleans, not quoted strings or numbers.
 | Section                  | Fields and purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sensors.environmental`  | `type`: `"bme280"` or `"bmp280"`; `enabled`: boolean; `i2c_address`: string `"0x76"` or `"0x77"` on bus 1; `poll_interval_seconds`: finite 1–3600 seconds; `stale_after_seconds`: finite, greater than poll interval and at most 86400 seconds. Freshness is evaluated independently for this sensor family and applies to either local or controller providers; set it comfortably above the controller publication interval when controller-backed. All five require PHOS restart. |
-| `sensors.ccs811`         | `enabled`: boolean; `i2c_address`: canonical lowercase `"0x5a"` or `"0x5b"`, bus 1; `poll_interval_seconds`: finite 1–3600 seconds; `stale_after_seconds`: finite, greater than poll interval and at most 86400 seconds. Freshness is evaluated independently for this sensor family and applies to either local or controller providers; set it comfortably above the controller publication interval when controller-backed. All four require PHOS restart. |
+| `sensors.ens160`         | Controller-backed ENS160 telemetry: `enabled`, `provider: controller`, I2C address `"0x52"` or `"0x53"`, poll and stale timing. ENS160 reports estimated eCO2/TVOC, AQI-UBA (1–5), validity and compensation; AHT21 temperature/humidity arrives through the same controller session. |
 | `sensors.imu`            | `enabled`: boolean; `i2c_address`: canonical lowercase `"0x68"` or `"0x69"`, bus 1; `poll_interval_seconds`: finite 0.05–3600 seconds; `stale_after_seconds`: finite, greater than poll interval and at most 86400 seconds. Freshness is evaluated independently for this sensor family and applies to either local or controller providers; set it comfortably above the controller publication interval when controller-backed. All four require PHOS restart. |
 | `sensors.imu.motion`     | `movement_threshold_m_s2`, `tilt_threshold_m_s2`, `shake_threshold_deg_s`, `impact_threshold_m_s2`, `confirmation_seconds`, `cooldown_seconds`: finite thresholds/timing. Impact must exceed movement. Also required: `tilt_exit_threshold_m_s2` (positive, below enter; both at most standard gravity), and distinct signed `lateral_axis` / `forward_axis` mounting axes. All motion fields are live-reloadable and do not reinitialize I2C. See installation for normalized threshold semantics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `led_ring`               | `enabled`: boolean; `led_count`: 0–1024 integer, positive when enabled; `gpio_pin`: GPIO 0–27; `brightness`: 0–1; `base_color` and `imu_animation_color`: named PHOS palette colors; `follow_visual_state`: boolean; `update_rate_hz`: 1–30. IMU effects add directional/shake/impact strengths (0–1; impact exceeds shake), fill speed, sector size, and physical `bottom_led_index` / `forward_led_index` / `clockwise` mapping (`forward_led_index` is the physical top). Left starts at the left quarter and fills clockwise; right mirrors it from the right quarter. Back grows in two fronts from bottom; forward grows in two fronts from top. Every fill replaces only reached underlying pixels; STILL resolves the current persistent environmental or base state rather than forcing base color. Changing animation color applies live and affects the next rendered frame. Pin/count require restart; all other fields are live-reloadable. Brightness uniformly scales logical RGB channels; WS2812B GRB ordering is handled only by the provider. |
 | `behavior` IMU fields    | `imu_reaction_strength`, `imu_tilt_gaze_strength`, `imu_shake_reaction_strength`, and `imu_impact_reaction_strength`: 0–1; impact strength must exceed shake strength. `imu_tilt_eye_asymmetry_strength`: 0–0.5 signed-eye delta. Shake/impact duration: 0.1–30 seconds; cooldown: 0–3600 seconds. These eight fields are live-reloadable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `behavior.environmental` | Optional temperature/eCO2/TVOC interpretation. Temperature enter/exit values provide hysteresis; warning/bad eCO2 and TVOC thresholds ascend. Confirmation and recovery are positive seconds. All fields are live-reloadable and never reopen sensor hardware.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `web`                    | `enabled`: start the administration worker; `host`: IPv4/IPv6 bind address; `port`: integer 1–65535. See the [web manual](web-administration.md).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `display`                | `width`, `height`: positive integer pixel dimensions; `fps`: positive integer display cadence; `fullscreen`: fullscreen startup; `transition_seconds`: positive renderer interpolation duration; `iris_color`: canonical `#RRGGBB`; existing presets cyan, blue, green, turquoise, amber, violet and white are accepted as compatibility input and normalized. `base_visual_source` is `manual`, `environment`, or `state`. `environment_overlays_enabled` controls semantic sweat/snow/haze decorations; they never change eye geometry, iris, or LED output. These display fields are live-reloadable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `display`                | `width`, `height`: positive integer pixel dimensions; `fps`: positive integer display cadence; `fullscreen`: fullscreen startup; `transition_seconds`: positive renderer interpolation duration; `iris_color`: canonical `#RRGGBB`; existing presets cyan, blue, green, turquoise, amber, violet and white are accepted as compatibility input and normalized. `eye_shape` is `classic_oval`, `round`, `expressive`, `angular`, or `compact`; effective Skins supply it through the shared appearance lifecycle. `base_visual_source` is `manual`, `environment`, or `state`. `environment_overlays_enabled` controls semantic sweat/snow/haze decorations; they never change eye geometry, iris, or LED output. These display fields are live-reloadable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `behavior`               | `blink_interval_seconds`, `gaze_interval_seconds`: positive ascending `[minimum, maximum]` timing ranges; `face_gaze_smoothing`: gaze smoothing coefficient in (0,1]; `reaction_decay_per_second`: positive visual reaction decay.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `vision`                 | `face_tracking_enabled`: camera/tracking without expression inference; `camera_resolution`: positive integer `[width,height]`; `capture_fps`, `detection_fps`: positive capture/detection cadences. `camera_preview` controls optional display-only picture-in-picture, disabled by default; all its fields (enabled, corner position, scale 0.1–0.4, maximum FPS 1–10 and three diagnostic toggles) are live-reloadable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `vision.detector`        | `cascade_path`: custom readable Haar file or null for existing platform discovery; `scale_factor`: pyramid scale greater than 1; `min_neighbors`: nonnegative integer detection support; `min_size`: positive pixel pair no larger than the camera resolution.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -94,6 +96,61 @@ A null JSON region defers resolution to the external environment/SDK. Parsing
 never imports boto3, searches for credentials or contacts AWS.
 
 ### Validation, precedence and migration
+
+### MCP agent configuration
+
+`agents` is a canonical configuration section. Web Admin agent management uses
+`ConfigRepository` persistence and replaces the validated runtime registry for
+subsequent MCP requests; manual configuration edits still follow the normal
+configuration/reload workflow:
+
+```yaml
+agents:
+  default_agent: local-agent
+  entries:
+    - id: local-agent
+      display_name: Local MCP agent
+      permission_profile: standard
+```
+
+Each entry has a stable id, optional display name, and one existing permission
+profile. In credential mode it may also contain a non-secret bearer reference:
+
+```yaml
+credential:
+  type: bearer
+  secret_ref: mcp.agent_standard.token
+```
+
+`secret_ref` is resolved only by `SecretsService`; the actual token must never
+appear in this file, `RuntimeConfig`, `AgentIdentity`, logs, test fixtures, or
+Web/API responses. If the entire section is absent, compatibility resolves
+`local-agent`/`standard`; if present, malformed entries, duplicate ids, unknown
+profiles, duplicate credential references, malformed credential records, or an
+unknown default agent fail configuration loading. When any credential reference
+is configured, MCP requires a matching bearer token for every request.
+
+### MCP credential lifecycle
+
+`AgentCredentialService` is the administration boundary for MCP bearer
+credentials. It uses the existing encrypted `SecretsService` store;
+there is no second credential database and the configured `secret_ref` remains
+stable across rotation. It creates bearer values with `secrets.token_urlsafe(32)`
+(256 bits from the operating-system CSPRNG), returning the new value only from
+the create or rotate operation. Status reports only agent ID, credential type,
+secret reference, and configured/active state; stored values cannot be read
+back through this service.
+
+Create rejects an already-active credential, rotate atomically replaces the
+secret-store value (the old bearer becomes invalid), and revoke removes the
+secret while retaining the configured agent identity and permission profile.
+`SecretsService` is read at authentication time, so these operations take
+effect without a PHOS restart. Expiry and policy controls remain future
+hardening work.
+
+Web Admin lifecycle operations must call `AgentCredentialService` only. They
+may display a freshly issued bearer once for create/rotate, but status/list APIs
+and subsequent HTML responses must never retrieve or serialize stored values.
 
 Startup reads one JSON, applies explicit deprecated CLI overrides, validates
 schema/types/ranges and active paths, then builds typed settings and constructs
@@ -232,7 +289,7 @@ they are not configuration values and are accessed by runtime code only. The web
 adapter has a deliberately write-only facade that can report whether a known slot
 is configured, replace it, or remove it; it cannot retrieve the value.
 Save does not apply settings. The lifecycle service can reload logging level,
-`display.iris_color` and all `vision.camera_preview` fields through runtime and
+`display.iris_color`, `display.eye_shape`, and all `vision.camera_preview` fields through runtime and
 display boundaries; other persisted changes require restart. Preview reload
 waits for runtime acceptance and preserves config-relative paths. The IPC client
 bounds its response wait to five seconds; a slow native camera start can finish
@@ -317,36 +374,18 @@ need neither Linux I2C access nor the driver packages. Fake drivers test address
 chip ID, calibration and unit mapping; the service tests failure recovery,
 staleness, polling and bounded shutdown independently of physical hardware.
 
-### CCS811 configuration migration
+### ENS160/AHT21 controller telemetry
 
-Merge the complete `sensors.ccs811` block from the canonical YAML into an existing
-deployment; preserve `sensors.environmental`. All four fields are required,
-including when disabled. Default values live in `config/phos.yaml`.
-The typed surface uses the `ccs811_` prefix; no CLI overrides were added. Save
-and Reload do not reinitialize the device or change poll timing. Use Restart PHOS.
-
-`AirQualityReading` carries integer `eco2_ppm` and `tvoc_ppb`; invalid values are
-rejected before publication. Device-specific ranges live in the CCS811 adapter.
-The shared worker handles lifecycle, stale values, retry/backoff and bounded
-shutdown for both sensor services. `SensorNotReady` preserves initialization
-and communicates conditioning/no new data; physical faults recreate the provider.
-Compensation passes an immutable `EnvironmentalCompensation` from a fresh
-service snapshot; it never invokes environmental hardware from the air-quality
-worker. Temperature must be within -25–50 °C and humidity within 0–100% for this
-compensation boundary. BMP280, disabled/failed/stale or out-of-range sources
-supply no compensation, restoring device defaults. Device constants such as
-conditioning/drive mode are adapter protocol policy, not duplicate JSON defaults.
-
-Run `.venv/bin/python -m pytest -q tests/test_air_quality.py tests/test_sensors.py`
-and the full suite. Tests use fake time, bus registers and providers, covering
-conditioning without a 20-minute sleep. See the
-[installation guide](installation.md#optional-ccs811-air-quality-sensor) for
-physical verification and dependency commands.
+ENS160 and AHT21 are acquired by the ESP32 and delivered through the controller
+protocol. `sensors.ens160` configures controller-backed air-quality enablement;
+the public runtime records are `sensors.ens160` and `sensors.aht21`. Tests should
+exercise protocol decoding, validity, per-measurement freshness and controller
+generation retirement rather than direct Pi I2C drivers.
 
 ### MPU-6050 configuration migration
 
 Merge the complete `sensors.imu` block from canonical JSON into an existing
-deployment, preserving the environmental and CCS811 blocks. The typed surface
+deployment, preserving the environmental configuration. The typed surface
 uses the `imu_` prefix. All four fields are required even when disabled and are
 restart-only. `IMUReading` contains finite acceleration values in m/s² and
 angular velocity values in °/s. It has no persisted calibration state: the
@@ -378,3 +417,26 @@ connection settings, not controller-firmware or LED-animation settings.
 The page also exposes controller-owned read-only connection state and a bounded,
 in-memory RX/TX diagnostic buffer. Diagnostics are not persisted, heartbeat rows
 are hidden by default, and raw frames are bounded to the phos-hw frame limit.
+
+## GitHub Actions software validation
+
+PHOS CI runs on pull requests targeting `dev` or `main`, every push to `dev`,
+and after a GitHub Release is published. It runs the complete software-compatible
+pytest suite, Python compilation, and a strict MkDocs build. Reports are
+available from the workflow run as a JUnit XML file and a 30-day artifact,
+including command output and execution environment details.
+
+Release validation checks out the published tag, resolves its commit, and fails
+unless that commit is reachable from `main`. It runs after publication, so it
+reports invalid release provenance but cannot prevent the initial publication.
+PASS means the automated software checks completed; FAIL means one failed;
+SKIPPED is reported by pytest; INCOMPLETE means a report was not produced.
+Every summary explicitly states that Raspberry Pi hardware validation was not
+run. GPIO, camera, display, audio, I2C wiring, and physical performance remain
+manual acceptance work.
+
+Repository administrators must enable required pull requests, require the
+`software-tests` check, require branches to be current, and restrict direct
+pushes on `dev` and `main`. The separate MCP bridge repository is not checked
+out by PHOS CI; add bridge CI only once a pinned, CI-accessible source revision
+is available.

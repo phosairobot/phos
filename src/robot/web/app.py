@@ -11,10 +11,12 @@ import time
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
+from werkzeug.exceptions import HTTPException
 
 from robot import __version__
-from robot.config import ConfigurationError
-from robot.services import ApplicationError
+from robot.config import ConfigurationError, RuntimeConfig
+from robot.services import (AgentCredentialError, AgentCredentialService, AgentManagementError,
+                            AgentManagementService, AgentRegistryProvider, AgentProfile, ApplicationError)
 from robot.secrets import SecretsError, SecretsService
 from robot.web.auth import PasswordStore
 from robot.web.configuration import ConfigurationService
@@ -22,6 +24,32 @@ from robot.web.domains import DOMAINS, GROUPS, domain_sections, error_domain
 from robot.web.secrets import WebSecretsService
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_skin_payload(form, *, existing: bool):
+    """Translate the write-only form controls into canonical skin metadata."""
+    skin_id = form.get("skin_id", "").strip()
+    if form.get("skin_enabled") == "yes":
+        if not skin_id:
+            raise AgentManagementError("unknown_skin")
+        return {"enabled": True, "id": skin_id}
+    if existing:
+        return {"enabled": False, "id": skin_id or None}
+    return None
+
+
+def _agent_appearance_payload(form):
+    """Parse the complete policy; AgentIdentity remains the canonical validator."""
+    if all(form.get(name) is None for name in ("appearance_participate", "appearance_priority", "appearance_timeout")):
+        return None
+    try:
+        priority, timeout = int(form.get("appearance_priority", "")), int(form.get("appearance_timeout", ""))
+    except (TypeError, ValueError) as error:
+        raise AgentManagementError("invalid_appearance_policy") from error
+    if not 0 <= priority <= 100 or not 5 <= timeout <= 3600:
+        raise AgentManagementError("invalid_appearance_policy")
+    return {"participate": form.get("appearance_participate") == "yes",
+            "priority": priority, "activity_timeout_seconds": timeout}
 
 
 class AuthenticationState:
@@ -72,10 +100,50 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                       SESSION_REFRESH_EACH_REQUEST=False,
                       PERMANENT_SESSION_LIFETIME=timedelta(minutes=30))
     passwords = password_store or PasswordStore(config.path.parent / ".phos-admin")
-    web_secrets = WebSecretsService(secrets_service or SecretsService(config.path.parent / ".phos-secrets"))
+    secret_store = secrets_service or SecretsService(config.path.parent / ".phos-secrets")
+    web_secrets = WebSecretsService(secret_store)
     auth = AuthenticationState(clock)
     app.extensions.update(phos_auth=auth, phos_passwords=passwords, phos_config=config, phos_secrets=web_secrets,
                           )
+    if lifecycle is None:
+        initial_registry = RuntimeConfig.from_dict(config.read(), base_dir=config.path.parent,
+                                                   check_paths=False).agent_registry
+        local_registry_provider = AgentRegistryProvider(initial_registry)
+        agent_management = AgentManagementService(config.repository, local_registry_provider,
+                                                  AgentCredentialService(local_registry_provider, secret_store))
+    else:
+        agent_management = None
+
+    def manage_agents(operation, payload=None):
+        """Use the owner process for live updates; local apps use the same service."""
+        if lifecycle is not None:
+            reply = lifecycle.execute(f"application.{operation}", payload or {})
+            if not reply.get("ok"):
+                error = reply.get("error", {})
+                raise AgentManagementError(error.get("code", "operation_failed") if isinstance(error, dict) else "operation_failed")
+            return reply.get("result")
+        handlers = {
+            "agents": agent_management.list_agents,
+            "agent_skins": agent_management.available_skins,
+            "create_agent": lambda: agent_management.create_agent(**payload),
+            "update_agent": lambda: agent_management.update_agent(**payload),
+            "set_default_agent": lambda: agent_management.set_default_agent(payload["agent_id"]),
+            "delete_agent": lambda: agent_management.delete_agent(payload["agent_id"]),
+            "create_agent_credential": lambda: agent_management.create_credential(payload["agent_id"]),
+            "rotate_agent_credential": lambda: agent_management.rotate_credential(payload["agent_id"]),
+            "revoke_agent_credential": lambda: agent_management.revoke_credential(payload["agent_id"]),
+            "presentation_owner": agent_management.presentation_owner,
+            "set_presentation_owner": lambda: agent_management.set_presentation_owner(payload["agent_id"]),
+            "clear_presentation_owner": agent_management.clear_presentation_owner,
+            "effective_skin": agent_management.effective_skin,
+            "presentation_activation": lambda: {"state": "unavailable", "message": "Runtime lifecycle is not attached."},
+            "appearance_arbitration": agent_management.appearance_arbitration,
+            "appearance_mode": agent_management.appearance_mode,
+            "set_appearance_mode": lambda: agent_management.set_appearance_mode(payload["mode"]),
+            "anonymous_mcp_appearance": agent_management.anonymous_mcp_appearance,
+            "set_anonymous_mcp_appearance": lambda: agent_management.set_anonymous_mcp_appearance(payload["enabled"]),
+        }
+        return handlers[operation]()
     csrf = CSRFProtect(app)
     if application_service is not None:
         from robot.web.api import create_api
@@ -248,6 +316,94 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     return redirect(url_for("credentials"))
         return render_template("credentials.html", slots=web_secrets.slots(), error=error), 400 if error else 200
 
+    @app.route("/agents", methods=["GET", "POST"])
+    def agents():
+        """Manage live MCP identities and write-only bearer lifecycle."""
+        error = issued = appearance_warning = None
+        if request.method == "POST":
+            allowed = {"csrf_token", "action", "agent_id", "display_name", "permission_profile", "confirm",
+                       "skin_enabled", "skin_id", "skin_present", "appearance_participate", "appearance_priority", "appearance_timeout"}
+            action = request.form.get("action")
+            if set(request.form) - allowed or action not in {"create_agent", "update_agent", "set_default_agent", "delete_agent", "create", "rotate", "revoke"}:
+                abort(400)
+            agent_id = request.form.get("agent_id", "")
+            if action in {"rotate", "revoke", "delete_agent"} and request.form.get("confirm") != "yes":
+                error = "Confirm this credential operation before continuing."
+            else:
+                try:
+                    if action == "create_agent":
+                        skin = _agent_skin_payload(request.form, existing=False)
+                        payload = {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")}
+                        if skin is not None:
+                            payload["skin"] = skin
+                        appearance = _agent_appearance_payload(request.form)
+                        if appearance is not None: payload["appearance"] = appearance
+                        manage_agents("create_agent", payload)
+                        flash("Agent created. Create a credential when this identity should authenticate.")
+                        return redirect(url_for("agents"))
+                    if action == "update_agent":
+                        skin = _agent_skin_payload(request.form, existing=request.form.get("skin_present") == "yes")
+                        payload = {"agent_id": agent_id, "display_name": request.form.get("display_name", ""), "permission_profile": request.form.get("permission_profile", "")}
+                        if skin is not None:
+                            payload["skin"] = skin
+                        appearance = _agent_appearance_payload(request.form)
+                        if appearance is not None: payload["appearance"] = appearance
+                        manage_agents("update_agent", payload)
+                        flash("Agent updated. New permissions apply to subsequent requests.")
+                        return redirect(url_for("agents"))
+                    if action == "set_default_agent":
+                        manage_agents("set_default_agent", {"agent_id": agent_id})
+                        flash("Default agent updated. New compatibility requests use this identity.")
+                        return redirect(url_for("agents"))
+                    if action == "delete_agent":
+                        manage_agents("delete_agent", {"agent_id": agent_id})
+                        flash("Agent deleted and its credential revoked.")
+                        return redirect(url_for("agents"))
+                    if action == "create":
+                        issued = manage_agents("create_agent_credential", {"agent_id": agent_id})
+                    elif action == "rotate":
+                        issued = manage_agents("rotate_agent_credential", {"agent_id": agent_id})
+                    else:
+                        manage_agents("revoke_agent_credential", {"agent_id": agent_id})
+                        flash("Credential revoked. This agent can no longer authenticate until a new credential is created.")
+                        return redirect(url_for("agents"))
+                except (AgentCredentialError, AgentManagementError) as exc:
+                    fallback_error = "Credential operation could not be completed."
+                    error = {
+                        "unknown_agent": "Unknown configured agent.",
+                        "duplicate_agent": "Agent ID already exists.",
+                        "invalid_agent": "Agent ID, display name, or permission profile is invalid.",
+                        "default_agent": "Default agent cannot be deleted. Select another default agent first.",
+                        "credential_not_configured": "This agent has no configured credential reference.",
+                        "credential_already_exists": "A credential is already active; rotate it instead.",
+                        "credential_not_active": "No active credential is available to rotate.",
+                        "unknown_skin": "Select a skin from the available catalog.",
+                        "invalid_appearance_policy": "Appearance priority must be 0–100 and timeout must be 5–3600 seconds.",
+                    }.get(str(exc), fallback_error)
+        try:
+            # Listing identities is the only essential read for this page.
+            # Optional appearance metadata must degrade locally: a missing
+            # external catalog or unavailable renderer must never hide agents.
+            agent_rows = manage_agents("agents")
+        except AgentManagementError:
+            return render_template("error.html", error="Cannot load configured agents."), 503
+        skins = []
+        activation = {"state": "unavailable", "message": "Runtime appearance status is unavailable."}
+        arbitration = {"mode": "global", "selected_agent_id": None, "selection_reason": "unavailable", "agents": [],
+                       "effective_priority": None, "remaining_lease_seconds": None}
+        try:
+            skins = manage_agents("agent_skins")
+            activation = manage_agents("presentation_activation")
+            arbitration = manage_agents("appearance_arbitration")
+        except AgentManagementError:
+            appearance_warning = "Appearance details are unavailable. Agents and credentials remain manageable."
+        summary = {"count": len(agent_rows), "active_credentials": sum(agent["credential_active"] is True for agent in agent_rows),
+                   "default": next((agent["display_name"] or agent["agent_id"] for agent in agent_rows if agent["default"]), "Unknown")}
+        mcp_authentication = config.read()["mcp"]["authentication"]
+        return render_template("agents.html", agents=agent_rows, skins=skins, profiles=[item.value for item in AgentProfile], summary=summary,
+                               mcp_authentication=mcp_authentication, activation=activation, issued=issued, error=error,
+                               arbitration=arbitration, appearance_warning=appearance_warning), 400 if error else 200
+
     @app.route("/configuration/editor", methods=["GET", "POST"])
     def configuration_editor():
         error, valid, dirty = None, None, False
@@ -380,7 +536,16 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                 if not auth.valid(session.get("sid")) or passwords.must_change: return redirect(url_for("login"))
                 action, skin_id = request.form.get("action"), request.form.get("skin_id", "")
                 try:
-                    if action == "create": application_service.create_skin({"name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin created from current appearance.")
+                    if action == "set_appearance_mode":
+                        if set(request.form) - {"csrf_token", "action", "appearance_mode"}: abort(400)
+                        manage_agents("set_appearance_mode", {"mode": request.form.get("appearance_mode")})
+                        flash("Appearance mode saved and runtime reconciliation requested.")
+                    elif action == "set_anonymous_mcp_appearance":
+                        if set(request.form) - {"csrf_token", "action", "anonymous_mcp_use_default_agent_skin"}: abort(400)
+                        manage_agents("set_anonymous_mcp_appearance", {
+                            "enabled": request.form.get("anonymous_mcp_use_default_agent_skin") == "on"})
+                        flash("Anonymous MCP appearance fallback saved and runtime reconciliation requested.")
+                    elif action == "create": application_service.create_skin({"name": request.form.get("name", ""), "description": request.form.get("description", "")}); flash("Skin created from current appearance.")
                     elif action == "import":
                         upload = request.files.get("skin")
                         if upload is None or not upload.filename.lower().endswith((".phos-skin", ".zip")): raise ConfigurationError("Choose a Skin package (.phos-skin or .zip).")
@@ -390,11 +555,27 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                     elif action == "delete": application_service.delete_skin(skin_id); flash("Skin deleted.")
                     else: raise ConfigurationError("Unsupported skin action.")
                     return redirect(url_for("appearance_skins"))
+                except HTTPException:
+                    raise
                 except Exception as exc:
                     error = getattr(exc, "message", str(exc))
-        try: skins = application_service.skins() if application_service is not None else []
-        except Exception as exc: skins, error = [], getattr(exc, "message", "Skins are unavailable.")
-        return render_template("skins.html", skins=skins, error=error)
+        try:
+            skins = application_service.skins() if application_service is not None else []
+            appearance_mode = manage_agents("appearance_mode")
+            anonymous_mcp_appearance = manage_agents("anonymous_mcp_appearance")
+            arbitration = manage_agents("appearance_arbitration")
+            activation = manage_agents("presentation_activation")
+            try:
+                runtime_status = application_service.status() if application_service is not None else {}
+                semantic_led = runtime_status.get("semantic_led", {}) if isinstance(runtime_status, dict) else {}
+            except Exception:
+                semantic_led = {}
+        except Exception as exc:
+            skins, appearance_mode, anonymous_mcp_appearance, arbitration, activation, semantic_led = [], {"mode": "global"}, {"enabled": False, "skin": {"state": "unavailable"}}, {"selected_agent_id": None, "selection_reason": "unavailable"}, {"state": "unavailable", "message": "Runtime appearance status is unavailable."}, {}
+            error = getattr(exc, "message", "Skins are unavailable.")
+        return render_template("skins.html", skins=skins, error=error, appearance_mode=appearance_mode,
+                               anonymous_mcp_appearance=anonymous_mcp_appearance,
+                               arbitration=arbitration, activation=activation, semantic_led=semantic_led)
 
     @app.get("/appearance/skins/<skin_id>/export")
     def appearance_skin_export(skin_id):
@@ -535,8 +716,10 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                             raise ApplicationError("service_unavailable", "MCP configuration service is unavailable.", status=503)
                         prepared = config.prepare_form_update(request.form, area=area)
                         mcp = prepared.document["mcp"]
-                        application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"]})
-                        flash("MCP settings saved and applied live.")
+                        application_service.configure_mcp({"enabled": mcp["enabled"], "port": mcp["port"],
+                            "authentication": mcp["authentication"],
+                            "confirm_anonymous_mcp": request.form.get("confirm_anonymous_mcp") == "on"})
+                        flash("MCP listener settings saved. Authentication changes apply immediately; affected clients must reconnect.")
                         return redirect(url_for("configuration", area=area))
                     if area in {"runtime_vision", "runtime_camera_preview", "runtime_expression", "runtime_logging"}:
                         prepared = config.prepare_form_update(request.form, area=area)
@@ -627,9 +810,11 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
                                    error=error, config_path=config.path), status
         current = runtime_state["active"] if runtime_state and runtime_state["ok"] else active_document
         related_area, error_group = error_domain(document, error) if error else (None, None)
+        related_page = DOMAINS.get(related_area) if related_area is not None else None
         from robot.iris_colors import IrisColorResolver
         return render_template("configuration.html", sections=domain_sections(document, area),
                                area=area, page=DOMAINS[area], related_area=related_area,
+                               related_page=related_page,
                                error_group=error_group,
                                revision=request.form.get("revision", config.revision(document)),
                                submitted=request.form if request.method == "POST" else None,

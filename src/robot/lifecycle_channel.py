@@ -4,13 +4,15 @@ from threading import Lock
 
 
 logger = logging.getLogger(__name__)
+LIFECYCLE_REQUEST_TIMEOUT_SECONDS = 30
 
 
 class LifecycleClient:
-    def __init__(self, connection):
+    def __init__(self, connection, *, timeout_seconds=LIFECYCLE_REQUEST_TIMEOUT_SECONDS):
         self.connection = connection
         self.lock = Lock()
         self.available = True
+        self._timeout_seconds = timeout_seconds
 
     def execute(self, operation, payload=None):
         request = ({"operation": operation, "payload": payload}
@@ -24,6 +26,7 @@ class LifecycleClient:
         application.update({"application.request_admin_password_recovery", "application.verify_admin_recovery_code", "application.clear_admin_overlay", "application.get_admin_network_info", "application.show_admin_access_overlay"})
         application.update({"application.controller_status", "application.controller_serial_ports", "application.controller_recent_messages", "application.clear_controller_recent_messages"})
         application.update({"application.mcp_settings", "application.configure_mcp"})
+        application.update({"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation", "application.appearance_arbitration", "application.appearance_mode", "application.set_appearance_mode", "application.anonymous_mcp_appearance", "application.set_anonymous_mcp_appearance"})
         if not ((isinstance(request, str) and request in allowed)
                 or (isinstance(request, dict) and request.get("operation") in application)):
             return {"ok": False, "error": "Unsupported lifecycle operation."}
@@ -32,7 +35,7 @@ class LifecycleClient:
                 return self._unavailable()
             try:
                 self.connection.send(request)
-                if not self.connection.poll(5):
+                if not self.connection.poll(self._timeout_seconds):
                     # Retiring the channel avoids interpreting a late reply as
                     # the response to a different operation.
                     self.available = False

@@ -9,7 +9,7 @@ from .provider import CameraProvider
 
 
 class Picamera2CameraProvider(CameraProvider):
-    """Capture 640x480 RGB frames through Picamera2.
+    """Capture 640x480 BGR arrays through Picamera2.
 
     Picamera2 is imported only when the adapter starts, allowing the rest of
     the project and its tests to run on non-Raspberry Pi machines.
@@ -32,6 +32,9 @@ class Picamera2CameraProvider(CameraProvider):
         camera = Picamera2()
         try:
             configuration = camera.create_preview_configuration(
+                # On the supported Picamera2 build RGB888 produces BGR array
+                # bytes.  Preserve that established camera configuration and
+                # expose BGR consistently to the OpenCV-facing pipeline.
                 main={"size": self._resolution, "format": "RGB888"}
             )
             camera.configure(configuration)

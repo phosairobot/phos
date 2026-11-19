@@ -14,10 +14,13 @@ import pytest
 import yaml
 from flask import Flask
 
-from robot.config import RuntimeConfig, load_document
+from robot.config import ConfigurationError, RuntimeConfig, load_document
 from robot.lifecycle import LifecycleService, apply_log_level
 from robot.lifecycle_channel import LifecycleClient, serve_lifecycle
 from robot.services.application import ApplicationError, PhosApplicationService, RemoteApplicationService
+from robot.services import (AgentAppearanceActivityTracker, AgentCredentialService, AgentManagementService,
+                            AgentRegistryProvider)
+from robot.secrets import SecretsService
 from robot.ui.skins import SkinRepository, appearance_snapshot
 from robot.web.api import create_api
 
@@ -25,6 +28,9 @@ from robot.web.api import create_api
 @pytest.fixture
 def runtime(tmp_path):
     document = load_document()
+    # The isolated legacy fixture intentionally has no colocated declarative
+    # catalog; absence remains a supported configuration.
+    document.pop("appearance", None)
     document["logging"]["file"] = None
     path = tmp_path / "phos.json"
     path.write_text(json.dumps(document))
@@ -39,6 +45,191 @@ def update(path, edit):
     document = load_document(path)
     edit(document)
     path.write_text(json.dumps(document))
+
+
+def test_presentation_owner_operations_use_the_lifecycle_agent_service(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    lifecycle.register_agent_management_service(management)
+
+    selected = lifecycle.execute({
+        "operation": "application.set_presentation_owner", "payload": {"agent_id": "local-agent"},
+    })
+    assert selected == {"ok": True, "result": {"agent_id": "local-agent", "display_name": "Local MCP agent"}}
+    resolved = lifecycle.execute({"operation": "application.effective_skin", "payload": {}})
+    assert resolved["ok"] and resolved["result"]["configured_owner_id"] == "local-agent"
+    cleared = lifecycle.execute({"operation": "application.clear_presentation_owner", "payload": {}})
+    assert cleared == {"ok": True, "result": {"agent_id": None, "display_name": None}}
+
+
+def test_lifecycle_exposes_read_only_appearance_arbitration_without_renderer_changes(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    tracker = AgentAppearanceActivityTracker(provider, management.appearance_arbitration_candidates)
+    management.register_appearance_activity_tracker(tracker)
+    lifecycle.register_agent_management_service(management)
+    lifecycle.register_appearance_activity_tracker(tracker)
+
+    result = lifecycle.execute({"operation": "application.appearance_arbitration", "payload": {}})
+    assert result["ok"] is True
+    assert result["result"]["selected_agent_id"] is None
+    assert result["result"]["selection_reason"] == "global_mode"
+    tracker.close()
+
+
+def test_lifecycle_persists_appearance_mode_without_rewriting_agents_or_display(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    lifecycle.register_agent_management_service(management)
+    before = lifecycle.config_repository.load().to_dict()
+
+    changed = lifecycle.execute({"operation": "application.set_appearance_mode",
+                                 "payload": {"mode": "follow_agent"}})
+    assert changed == {"ok": True, "result": {"mode": "follow_agent"}}
+    reloaded = RuntimeConfig.from_file(path)
+    assert reloaded.appearance_mode == "follow_agent"
+    assert reloaded.to_dict()["display"] == before["display"]
+    assert reloaded.agent_registry == RuntimeConfig.from_dict(before, base_dir=path.parent).agent_registry
+    invalid = lifecycle.execute({"operation": "application.set_appearance_mode", "payload": {"mode": "invalid"}})
+    assert invalid["ok"] is False and invalid["error"]["code"] == "invalid_appearance_mode"
+
+
+def test_lifecycle_channel_persists_anonymous_mcp_appearance_without_touching_display(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    lifecycle.register_agent_management_service(management)
+    before = lifecycle.config_repository.load().to_dict()["display"]
+    changed = lifecycle.execute({"operation": "application.set_anonymous_mcp_appearance",
+                                 "payload": {"enabled": True}})
+    assert changed["ok"] is True and changed["result"]["enabled"] is True
+    assert RuntimeConfig.from_file(path).anonymous_mcp_use_default_agent_skin is True
+    assert RuntimeConfig.from_file(path).to_dict()["display"] == before
+    invalid = lifecycle.execute({"operation": "application.set_anonymous_mcp_appearance",
+                                 "payload": {"enabled": "true"}})
+    assert invalid["ok"] is False and invalid["error"]["code"] == "invalid_anonymous_mcp_appearance"
+
+
+def test_legacy_presentation_owner_remains_readable_but_does_not_override_global_mode(runtime):
+    path, lifecycle, _, _ = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append(("iris", value.iris_color)))
+    lifecycle.register_backgrounds_applier(lambda value: applied.append(("backgrounds", value.backgrounds_enabled)))
+    lifecycle.register_eye_safe_layer_applier(lambda value: applied.append(("safe", value.eye_safe_layer_mode)))
+    lifecycle.register_state_effects_applier(lambda value: applied.append(("effects", value.state_effects_palette)))
+    lifecycle.register_agent_management_service(management)
+    management.update_agent("local-agent", "Local MCP agent", "standard", {"enabled": True, "id": "ambient"})
+    before_display = lifecycle.config_repository.load().to_dict()["display"]
+
+    management.set_presentation_owner("local-agent")
+    assert applied == [("iris", before_display["iris_color"]),
+                       ("backgrounds", before_display["backgrounds"]["enabled"]),
+                       ("safe", before_display["eye_safe_layer"]["mode"]),
+                       ("effects", before_display["state_effects"]["palette"])]
+    assert management.presentation_owner()["agent_id"] == "local-agent"
+    assert lifecycle.config_repository.load().to_dict()["display"] == before_display
+
+    management.clear_presentation_owner()
+    assert lifecycle.config_repository.load().to_dict()["display"] == before_display
+
+
+def test_follow_agent_runtime_activation_switches_on_expiry_and_restores_latest_global(runtime):
+    path, lifecycle, _, now = runtime
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    management.update_agent("local-agent", "Local MCP agent", "standard", {"enabled": True, "id": "ambient"}, {
+        "participate": True, "priority": 100, "activity_timeout_seconds": 10})
+    management.create_agent("lower", "Lower", "observer", {"enabled": True, "id": "minimal"}, {
+        "participate": True, "priority": 50, "activity_timeout_seconds": 80})
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": None, "mode": "follow_agent", "presentation_owner": {"agent_id": "local-agent"}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append(value.iris_color))
+    lifecycle.register_backgrounds_applier(lambda value: None)
+    lifecycle.register_eye_safe_layer_applier(lambda value: None)
+    lifecycle.register_state_effects_applier(lambda value: None)
+    palettes = []
+    lifecycle.register_semantic_led_palette_applier(lambda value: palettes.append(value))
+    lifecycle.register_agent_management_service(management)
+    tracker = AgentAppearanceActivityTracker(provider, management.appearance_arbitration_candidates,
+                                             clock=lambda: now[0])
+    management.register_appearance_activity_tracker(tracker)
+    lifecycle.register_appearance_activity_tracker(tracker)
+    before_display = lifecycle.config_repository.load().to_dict()["display"]
+
+    tracker.record(provider.get().get("lower"))
+    tracker.record(provider.get().get("local-agent"))
+    assert applied[-1] == "#A670F5"
+    assert palettes[-1]["state"] == "configured" and palettes[-1]["skin_id"] == "ambient"
+    first_count = len(applied)
+    tracker.record(provider.get().get("local-agent"))
+    assert len(applied) == first_count  # same winner/snapshot is not re-applied
+    now[0] = 10.0
+    tracker.recompute()  # deterministic stand-in for the scheduled expiry callback
+    assert applied[-1] == "#DAECF6"
+    assert palettes[-1]["state"] == "missing" and palettes[-1]["skin_id"] == "minimal"
+    # Fallback resolves the current canonical configuration, not the startup
+    # snapshot that existed while an agent skin was active.
+    document = lifecycle.config_repository.document()
+    document["display"]["iris_color"] = "#00FF00"
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    now[0] = 80.0
+    tracker.recompute()
+    assert applied[-1] == "#00FF00"
+    assert palettes[-1]["state"] == "global"
+    status = lifecycle.presentation_activation_status()
+    assert status["state"] == "fallback_active"
+    assert status["resolved"]["legacy_presentation_owner_id"] == "local-agent"
+    assert lifecycle.config_repository.load().to_dict()["display"]["iris_color"] == "#00FF00"
+    tracker.close()
+
+
+@pytest.mark.parametrize("assignment", [{"enabled": True, "id": "placeholder"}, {"enabled": False, "id": "placeholder"}])
+def test_assigned_custom_skin_cannot_be_deleted_through_application_service(runtime, assignment):
+    path, lifecycle, _, _ = runtime
+    repository = SkinRepository(path)
+    skin = repository.create("Assigned", "", appearance_snapshot(load_document()))
+    assignment["id"] = skin.id
+    config = lifecycle.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    management.create_agent("skin-agent", "Skin Agent", "observer", assignment)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+    before = path.read_bytes()
+    with pytest.raises(ApplicationError) as error:
+        application.delete_skin(skin.id)
+    assert error.value.code == "skin_in_use" and error.value.status == 409
+    assert repository.get(skin.id).id == skin.id
+    assert management.get_agent("skin-agent")["skin"] == assignment
+    assert path.read_bytes() == before
+
+
+def test_unreferenced_custom_skin_deletes_through_application_service(runtime):
+    path, lifecycle, _, _ = runtime
+    skin = SkinRepository(path).create("Unused", "", appearance_snapshot(load_document()))
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+    assert application.delete_skin(skin.id) == {"deleted": skin.id}
+    with pytest.raises(ConfigurationError): SkinRepository(path).get(skin.id)
 
 
 def test_reload_applies_only_safe_changes_and_reports_pending(runtime):
@@ -243,6 +434,8 @@ def test_skin_preview_updates_runtime_without_saving_or_changing_active_config(r
     lifecycle.register_backgrounds_applier(lambda config: applied.append(("backgrounds", config.backgrounds_enabled)))
     lifecycle.register_eye_safe_layer_applier(lambda config: applied.append(("safe", config.eye_safe_layer_mode)))
     lifecycle.register_state_effects_applier(lambda config: applied.append(("effects", config.state_effects_enabled)))
+    personalities = []
+    lifecycle.register_physical_personality_applier(personalities.append)
     application = object.__new__(PhosApplicationService)
     application._lifecycle = lifecycle
     application._runtime = object()
@@ -253,6 +446,161 @@ def test_skin_preview_updates_runtime_without_saving_or_changing_active_config(r
     assert result["applied"] == ["temporary_appearance"]
     assert ("iris", "#A670F5") in applied and ("effects", True) in applied
     assert path.read_bytes() == before and lifecycle.active == active
+    assert personalities == []
+
+
+@pytest.mark.parametrize(("skin_id", "preset"), [
+    ("manual-analytical", "analytical"), ("manual-playful", "playful"), ("manual-calm", "calm"),
+    ("manual-legacy", "analytical"),
+])
+def test_manual_skin_apply_persists_complete_global_skin_identity(runtime, skin_id, preset):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    personality = "" if skin_id == "manual-legacy" else f"    physical_personality:\n      preset: {preset}\n"
+    catalog.write_text(f"""schema_version: 1
+skins:
+  - id: {skin_id}
+    display_name: {skin_id}
+    inherits: phos-default
+{personality}    appearance:
+      eyes:
+        iris_color: '#B38CFF'
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": None,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(lifecycle.config_repository.load().agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied, palettes, personalities = [], [], []
+    lifecycle.register_appearance_applier(lambda value: applied.append(value.iris_color))
+    lifecycle.register_backgrounds_applier(lambda value: None)
+    lifecycle.register_eye_safe_layer_applier(lambda value: None)
+    lifecycle.register_state_effects_applier(lambda value: None)
+    lifecycle.register_semantic_led_palette_applier(palettes.append)
+    lifecycle.register_physical_personality_applier(personalities.append)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    application.apply_skin(skin_id)
+
+    saved = RuntimeConfig.from_file(path)
+    assert saved.global_skin_id == skin_id
+    assert personalities[-1] == preset
+    assert palettes[-1]["skin_id"] == skin_id
+    status = lifecycle.presentation_activation_status()
+    assert status["resolved"]["effective_skin_id"] == skin_id
+    assert status["resolved"]["effective_personality"] == preset
+    assert applied[-1] == "#B38CFF"
+
+
+def test_global_skin_shape_applies_persists_and_reconciles_when_only_shape_changes(runtime):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: shaped
+    display_name: Shaped
+    inherits: phos-default
+    appearance:
+      eyes:
+        shape: expressive
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": None,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(lifecycle.config_repository.load().agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    applied = []
+    lifecycle.register_appearance_applier(lambda value: applied.append((value.iris_color, value.eye_shape)))
+    for name in ("register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(lambda _value: None)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    application.apply_skin("shaped")
+    assert RuntimeConfig.from_file(path).eye_shape == "expressive"
+    assert applied[-1][1] == "expressive"
+
+    catalog.write_text(catalog.read_text().replace("expressive", "angular"))
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert applied[-1][1] == "angular"
+    assert lifecycle.reconcile_effective_appearance()["applied"] == []
+
+
+def test_global_skin_restores_after_restart_and_reapplies_changed_personality(runtime):
+    path, lifecycle, _, _ = runtime
+    catalog = path.parent / "skins.yaml"
+    catalog.write_text("""schema_version: 1
+skins:
+  - id: identity
+    display_name: Identity
+    inherits: phos-default
+    physical_personality:
+      preset: playful
+    appearance: {}
+""")
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": "skins.yaml", "mode": "global", "global_skin_id": "identity",
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(RuntimeConfig.from_file(path).agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    personalities = []
+    for name in ("register_appearance_applier", "register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(personalities.append)
+    lifecycle.register_agent_management_service(management)
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert personalities == ["playful"]
+
+    catalog.write_text(catalog.read_text().replace("playful", "calm"))
+    assert lifecycle.reconcile_effective_appearance()["ok"]
+    assert personalities == ["playful", "calm"]
+
+    restarted = LifecycleService(path, RuntimeConfig.from_file(path), restart_supported=True)
+    restarted_provider = AgentRegistryProvider(RuntimeConfig.from_file(path).agent_registry)
+    restarted_management = AgentManagementService(restarted.config_repository, restarted_provider,
+                                                  AgentCredentialService(restarted_provider, SecretsService(path.parent / ".secrets")))
+    restored = []
+    for name in ("register_appearance_applier", "register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(restarted, name)(lambda _value: None)
+    restarted.register_semantic_led_palette_applier(lambda _value: None)
+    restarted.register_physical_personality_applier(restored.append)
+    restarted.register_agent_management_service(restarted_management)
+    assert restarted.reconcile_effective_appearance()["ok"]
+    assert RuntimeConfig.from_file(path).global_skin_id == "identity"
+    assert restored == ["calm"]
+
+
+def test_deleted_global_skin_reconciles_to_analytical_fallback(runtime):
+    path, lifecycle, _, _ = runtime
+    skin = SkinRepository(path).create("Temporary", "", appearance_snapshot(load_document()))
+    document = lifecycle.config_repository.document()
+    document["appearance"] = {"config_file": None, "mode": "global", "global_skin_id": skin.id,
+                              "anonymous_mcp_use_default_agent_skin": False, "presentation_owner": {"agent_id": None}}
+    lifecycle.config_repository.save(lifecycle.config_repository.load(document))
+    provider = AgentRegistryProvider(RuntimeConfig.from_file(path).agent_registry)
+    management = AgentManagementService(lifecycle.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    personalities = []
+    for name in ("register_appearance_applier", "register_backgrounds_applier", "register_eye_safe_layer_applier", "register_state_effects_applier"):
+        getattr(lifecycle, name)(lambda _value: None)
+    lifecycle.register_semantic_led_palette_applier(lambda _value: None)
+    lifecycle.register_physical_personality_applier(personalities.append)
+    lifecycle.register_agent_management_service(management)
+    application = object.__new__(PhosApplicationService); application._lifecycle = lifecycle
+
+    assert application.delete_skin(skin.id) == {"deleted": skin.id}
+    assert personalities == ["analytical"]
+    assert lifecycle.presentation_activation_status()["resolved"]["effective_skin_id"] is None
 
 
 def test_eye_safe_layer_reload_uses_the_registered_runtime_boundary(runtime):
@@ -405,6 +753,73 @@ def test_lifecycle_channel_dispatches_runtime_configuration_and_rejects_unrelate
         child.close()
         thread.join(timeout=2)
         assert not thread.is_alive()
+
+
+def test_lifecycle_channel_forwards_agent_presentation_reads_and_owner_updates(runtime):
+    path, service, _, _ = runtime
+    config = service.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(service.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    service.register_agent_management_service(management)
+    parent, child = multiprocessing.Pipe(); stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop)); thread.start()
+    try:
+        client = LifecycleClient(child)
+        assert any(item["id"] == "ambient" for item in client.execute("application.agent_skins", {})["result"])
+        assert client.execute("application.set_presentation_owner", {"agent_id": "local-agent"})["ok"]
+        assert client.execute("application.presentation_owner", {})["result"]["agent_id"] == "local-agent"
+        assert client.execute("application.effective_skin", {})["ok"]
+        assert client.execute("application.presentation_activation", {})["ok"]
+    finally:
+        stop.set(); child.close(); thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_persists_agent_skin_metadata(runtime):
+    path, service, _, _ = runtime
+    config = service.config_repository.load()
+    provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(service.config_repository, provider,
+                                        AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    service.register_agent_management_service(management)
+    parent, child = multiprocessing.Pipe(); stop = Event()
+    thread = Thread(target=serve_lifecycle, args=(parent, service, stop)); thread.start()
+    try:
+        client = LifecycleClient(child)
+        payload = {"agent_id": "styled", "display_name": "Styled", "permission_profile": "observer",
+                   "skin": {"enabled": True, "id": "ambient"}}
+        assert client.execute("application.create_agent", payload)["ok"]
+        assert RuntimeConfig.from_file(path).agent_registry.get("styled").skin == payload["skin"]
+        updated = {**payload, "display_name": "Styled Again", "skin": {"enabled": False, "id": "ambient"}}
+        assert client.execute("application.update_agent", updated)["ok"]
+        assert RuntimeConfig.from_file(path).agent_registry.get("styled").skin == updated["skin"]
+    finally:
+        stop.set(); child.close(); thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_lifecycle_channel_persists_and_validates_appearance_policy(runtime):
+    path, service, _, _ = runtime
+    config = service.config_repository.load(); provider = AgentRegistryProvider(config.agent_registry)
+    management = AgentManagementService(service.config_repository, provider, AgentCredentialService(provider, SecretsService(path.parent / ".secrets")))
+    service.register_agent_management_service(management)
+    parent, child = multiprocessing.Pipe(); stop = Event(); thread = Thread(target=serve_lifecycle, args=(parent, service, stop)); thread.start()
+    try:
+        client = LifecycleClient(child)
+        create = {"agent_id": "policy", "display_name": "Policy", "permission_profile": "observer", "skin": {"enabled": True, "id": "ambient"}, "appearance": {"participate": True, "priority": 85, "activity_timeout_seconds": 10}}
+        assert client.execute("application.create_agent", create)["ok"]
+        update = {**create, "appearance": {"participate": False, "priority": 25, "activity_timeout_seconds": 80}}
+        assert client.execute("application.update_agent", update)["ok"]
+        assert RuntimeConfig.from_file(path).agent_registry.get("policy").appearance == update["appearance"]
+        omitted = {"agent_id": "policy", "display_name": "Policy Updated", "permission_profile": "observer"}
+        assert client.execute("application.update_agent", omitted)["ok"]
+        before = path.read_bytes()
+        invalid = {**update, "appearance": {"participate": True, "priority": 101, "activity_timeout_seconds": 80}}
+        assert not client.execute("application.update_agent", invalid)["ok"]
+        assert path.read_bytes() == before
+    finally:
+        stop.set(); child.close(); thread.join(timeout=2)
 
 
 def test_lifecycle_channel_dispatches_eyes_configuration(runtime):
@@ -903,6 +1318,26 @@ def test_lifecycle_dispatcher_survives_one_unexpected_service_failure(caplog):
         child.close()
         thread.join(timeout=2)
         assert not thread.is_alive()
+
+
+def test_lifecycle_client_uses_the_web_request_budget_and_does_not_repeat_a_timed_out_write():
+    class Connection:
+        def __init__(self): self.sent, self.poll_timeouts = [], []
+        def send(self, request): self.sent.append(request)
+        def poll(self, timeout): self.poll_timeouts.append(timeout); return False
+
+    connection = Connection()
+    client = LifecycleClient(connection)
+    request = {"operation": "application.apply_skin", "payload": {"id": "neural"}}
+    expected = {"ok": False,
+                "error": "Runtime lifecycle service is unavailable. An in-flight request may have completed; check PHOS locally before retrying."}
+
+    assert client.execute(request) == expected
+    assert connection.poll_timeouts == [30]
+    # The timeout may occur after the owner process accepted the operation.
+    # Retiring this client prevents a browser retry from applying a skin twice.
+    assert client.execute(request) == expected
+    assert connection.sent == [request]
 
 
 def test_lifecycle_channel_forwards_presence_and_attention_read_models(runtime):

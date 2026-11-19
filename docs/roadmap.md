@@ -21,6 +21,10 @@ FURIOUS and expression intensity are not implemented in this milestone.
 
 ## Semantic Physical Context v1
 
+- [x] MCP Stage 2 — COMPLETE: semantic event model, filtering/deduplication,
+  subscription lifecycle, modern protocol Resource cues, capability/system-health
+  events, snapshot Resources, sensor availability/freshness events, and
+  standalone bridge compatibility are complete and validated as recorded below.
 - [x] Read-only provider-independent aggregation of canonical perception state.
 - [x] Minimal Agent Permission Model: immutable semantic permission profiles,
   deterministic evaluation, and a permission-checked application facade.
@@ -29,13 +33,59 @@ FURIOUS and expression intensity are not implemented in this milestone.
 - [x] MCP Stage 2 Part 6B — Camera Snapshot Resource: application boundary,
   dedicated `read_camera_snapshot` permission, `resources/list`/`resources/read`,
   bounded JPEG output, no second camera provider, and preview independence in
-  automated coverage. Physical Raspberry Pi validation, including preview-disabled
-  acceptance, remains pending.
+  automated coverage. Raspberry Pi validation confirmed preview-disabled
+  `resources/read` acceptance with a non-empty `image/jpeg` blob.
 - [x] Transport-neutral semantic event model, filtering, duplicate suppression,
   and `SemanticSubscription` lifecycle.
-- [ ] MCP async push adapter — pending re-evaluation against current MCP SDK
-  session lifecycle support; camera snapshots are synchronous and independent
-  of async delivery. Agent authentication also remains pending.
+- [x] MCP async semantic Resource cues — SDK `subscriptions/listen`, bounded
+  URI coalescing, and Resource re-read model. Camera snapshots remain
+  synchronous and independent of async delivery.
+- [x] MCP Stage 2 Part 5B — sensor availability/freshness semantic events,
+  runtime freshness monitoring, MCP Resource cues, and Raspberry Pi environment
+  and IMU validation.
+- [x] MCP Stage 3.3 — COMPLETE: credential-backed per-client MCP authentication
+  and authorization through non-secret `SecretsService` references.
+
+### MCP Stage 3.1 — COMPLETE: Agent Identity & Authentication Boundary
+
+- [x] Immutable provider-neutral `AgentIdentity` with a stable identifier,
+  optional display name, and reference to an existing permission profile.
+- [x] One pluggable MCP authentication boundary resolves an identity once per
+  inbound request before the identity-bound `AgentApplicationService` applies
+  existing permission evaluation.
+- [x] Transitional `LocalAgentAuthenticator` preserves current trusted-local
+  clients as `local-agent` with the existing `standard` profile. It performs no
+  credential verification and is not production-grade authentication.
+- [ ] External identity providers.
+
+### MCP Stage 3.2 — Persistent Agent & Permission Configuration
+
+- [x] MCP Stage 3.2 — COMPLETE.
+- [x] Canonical `agents` configuration and immutable configured registry.
+- [x] Configured default identity resolves through its existing permission profile.
+- [x] Stage 3.3: credential-backed per-client authorization.
+- [x] MCP Stage 3.4 — COMPLETE: encrypted bearer credential creation, rotation,
+  revocation, and non-secret lifecycle status through `AgentCredentialService`.
+- [x] MCP Stage 3.5 — COMPLETE: authenticated Web Admin status and one-time
+  credential create/rotate/revoke controls for configured agents.
+- [x] Stage 3.6 — COMPLETE: `phos-mcp-bridge` transports an already-issued
+  `PHOS_MCP_TOKEN` bearer through Streamable HTTP while PHOS remains
+  authoritative for identity and permission enforcement. Automated bridge
+  validation passed (10 tests); no physical live interoperability result is
+  claimed here.
+- [ ] Stage 3.7 — PENDING: external multi-agent PoC / final Stage 3 validation.
+
+Stage 2 physical validation completed for direct Streamable HTTP includes
+`phos://status` sleep/wake notifications, `phos://physical-context` semantic
+updates, `phos://environment` availability updates, environment loss/recovery,
+and motion/IMU availability transitions. The independently owned
+`phos-mcp-bridge` was also externally validated with a stdio
+`subscriptions/listen` client receiving two consecutive `phos://status`
+ResourceUpdated notifications. Raspberry Pi camera validation confirmed that,
+with Camera Preview disabled, `phos://vision/snapshot` remained available and
+returned a non-empty `image/jpeg` blob. This establishes resource availability
+and JPEG output only; it does not establish image-content quality. No
+air-quality physical validation is claimed.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 

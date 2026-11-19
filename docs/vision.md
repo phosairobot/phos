@@ -28,7 +28,7 @@ Raspberry Pi Camera
 Initial implementation: `Picamera2CameraProvider`.
 
 Default target:
-- 640x480 RGB
+- 640x480 BGR arrays, requested from Picamera2 as `RGB888` on the supported Pi build
 - Picamera2 hidden behind the provider abstraction
 - capture frequency may be higher than inference frequency
 
@@ -59,6 +59,14 @@ other Vision settings remain restart-required.
 
 ## MCP camera snapshot Resource
 
+## On-demand object awareness
+
+Object awareness reuses the single VisionPipeline frame owner; it never opens a
+second camera or runs continuously. The optional local NanoDet model is loaded
+lazily only after an authorized on-demand request. Results are semantic labels
+and confidences only: PHOS retains no object history, image, bounding box,
+identity, or tracking data.
+
 `phos://vision/snapshot` is a synchronous, read-only, on-demand `image/jpeg`
 MCP Resource. `VisionPipeline` remains the single camera owner: the Resource
 uses its latest captured frame, copies it before bounded encoding, and neither
@@ -67,6 +75,27 @@ display concern; the MCP snapshot is an external read-only perception concern.
 Therefore a snapshot remains available when Camera Preview is disabled, as long
 as Vision/camera capture itself is available. It is not streaming, video, or a
 frame subscription. See [MCP](mcp.md) for permissions and privacy details.
+
+The pipeline records acquisition metadata at the earliest reliable application
+point: immediately after `CameraProvider.capture_frame()` returns. It stores the
+raw frame, a monotonic receipt timestamp, and a timezone-aware UTC receipt
+timestamp as one immutable record, so a JPEG and its reported metadata always
+refer to the same frame. Picamera2's current adapter does not expose a hardware
+capture timestamp, so this is not a sensor-exposure timestamp. Snapshot age is
+calculated from the monotonic clock and is therefore unaffected by wall-clock
+changes. A frame is `fresh` through 2 seconds and `stale` thereafter; stale
+frames remain readable but are explicitly labelled by the snapshot tool. Start
+and stop invalidate the cached frame, preventing a previous camera run from
+being served after shutdown or restart.
+
+`phos_capture_camera_snapshot` is distinct from the cached Snapshot tool. It
+records the current pipeline generation and frame sequence, then waits up to
+three seconds for a strictly later frame publication by the continuously running
+pipeline. It does not command a sensor exposure or alter capture cadence. The
+pipeline permits at most four pending waits; a stop, restart, camera failure,
+timeout, or cancellation completes the request without falling back to an old
+frame. Concurrent accepted waits may use the same next published frame. JPEG
+encoding remains bounded to 512 KiB.
 
 ## FaceDetector
 
@@ -306,7 +335,7 @@ Simple UI/behavior reactions should be possible without involving the LLM.
 ## Initial implementation
 
 `VisionPipeline` is the lifecycle-managed service implementing this flow. It
-captures RGB frames in memory and rate-limits Haar face detection. For every
+captures BGR frames in memory and rate-limits Haar face detection. For every
 detection interval with a face, it publishes `vision.face_position`, whose
 `face_position.x` and `face_position.y` are the detected face center normalized
 to `[-1, 1]` in camera coordinates. Vision does not choose pupil geometry;
@@ -328,7 +357,7 @@ Pi Camera and OpenCV dependencies using the Raspberry Pi OS instructions in
 `docs/installation.md`, which includes the MobileFaceNet candidate launch command.
 For rollback/comparison, the ONNX Model Zoo FER+ baseline expects a
 `1x1x64x64` grayscale input and emits eight scores. The provider converts the
-RGB face crop to grayscale before creating its OpenCV DNN blob. Configure `expression.enabled=true`, `expression.provider="local"`, and replace
+BGR face crop to grayscale before creating its OpenCV DNN blob. Configure `expression.enabled=true`, `expression.provider="local"`, and replace
 the `expression.local` object in `config/phos.yaml` with:
 
 ```json
@@ -358,16 +387,16 @@ setting after diagnosis because it logs every expression inference.
 Face tracking alone needs no ONNX model: set `vision.face_tracking_enabled=true`
 and `expression.enabled=false`, then use the same config-file startup command.
 
-### Camera channel-order inconsistency
+### Camera channel convention
 
-The camera adapter currently requests Picamera2 `RGB888`, which yields BGR
-array bytes despite the adapter's RGB documentation. The detector and legacy
-FER+ grayscale conversion use `COLOR_RGB2GRAY`. The MobileFaceNet configuration
-swaps channels to obtain the required RGB tensor. This evaluation preserves
-the existing detector and FER+ baseline so results compare against current PHOS;
-it does not silently change the camera contract. A future correction must update
-camera, detector and expression configurations together and repeat the baseline.
-See the [Picamera2 format mapping](https://github.com/raspberrypi/picamera2/blob/main/picamera2/request.py).
+On the supported Picamera2 build, the adapter requests `RGB888` and receives
+BGR array bytes. Captured, cached, snapshot and latest-frame arrays therefore
+use BGR. OpenCV JPEG encoding consumes that convention directly. The local Tk
+preview converts its bounded BGR resize to RGB exactly once because PPM uses
+RGB bytes. Haar and grayscale FER+ use BGR conversion, while models that
+require RGB (MobileFaceNet and NanoDet) perform their model-specific conversion
+at preprocessing. This keeps camera ownership and all frame consumers on one
+explicit convention.
 
 ## Presence and attention
 

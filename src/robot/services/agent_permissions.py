@@ -1,9 +1,4 @@
-"""A small semantic permission boundary for future trusted agent adapters.
-
-This module deliberately has no identity, transport, persistence, or runtime
-knowledge.  It decides only whether a named semantic operation may enter the
-existing application-service boundary.
-"""
+"""A small semantic permission boundary for authenticated agent adapters."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,6 +16,7 @@ class AgentPermission(str, Enum):
 
     READ_STATUS = "read_status"
     READ_PHYSICAL_CONTEXT = "read_physical_context"
+    READ_PHYSICAL_HISTORY = "read_physical_history"
     READ_PERCEPTION = "read_perception"
     READ_CAMERA_SNAPSHOT = "read_camera_snapshot"
     CONTROL_EXPRESSION = "control_expression"
@@ -34,9 +30,11 @@ class AgentOperation(str, Enum):
 
     STATUS = "status"
     GET_PHYSICAL_CONTEXT = "get_physical_context"
+    QUERY_PHYSICAL_HISTORY = "query_physical_history"
     PRESENCE = "presence"
     ATTENTION = "attention"
     OBSERVED_EXPRESSION = "observed_expression"
+    VISIBLE_OBJECTS = "visible_objects"
     CAMERA_SNAPSHOT = "camera_snapshot"
     SET_EXPRESSION = "set_expression"
     SPEAK = "speak"
@@ -48,9 +46,11 @@ class AgentOperation(str, Enum):
 OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyType({
     AgentOperation.STATUS: AgentPermission.READ_STATUS,
     AgentOperation.GET_PHYSICAL_CONTEXT: AgentPermission.READ_PHYSICAL_CONTEXT,
+    AgentOperation.QUERY_PHYSICAL_HISTORY: AgentPermission.READ_PHYSICAL_HISTORY,
     AgentOperation.PRESENCE: AgentPermission.READ_PERCEPTION,
     AgentOperation.ATTENTION: AgentPermission.READ_PERCEPTION,
     AgentOperation.OBSERVED_EXPRESSION: AgentPermission.READ_PERCEPTION,
+    AgentOperation.VISIBLE_OBJECTS: AgentPermission.READ_PERCEPTION,
     AgentOperation.CAMERA_SNAPSHOT: AgentPermission.READ_CAMERA_SNAPSHOT,
     AgentOperation.SET_EXPRESSION: AgentPermission.CONTROL_EXPRESSION,
     AgentOperation.SPEAK: AgentPermission.CONTROL_VOICE,
@@ -134,12 +134,23 @@ class AgentApplicationService:
     lifecycle behavior of the delegated application method.
     """
 
-    __slots__ = ("_application", "_access", "_permissions")
+    __slots__ = ("_application", "_access", "_identity", "_permissions")
 
-    def __init__(self, application, access: AgentAccess,
+    def __init__(self, application, identity_or_access,
                  permissions: AgentPermissionService | None = None) -> None:
+        from .agent_identity import AgentIdentity
+
         self._application = application
-        self._access = access
+        # ``AgentAccess`` remains accepted for in-process compatibility while
+        # adapters migrate to explicit identities. MCP always supplies identity.
+        if isinstance(identity_or_access, AgentIdentity):
+            self._identity = identity_or_access
+            self._access = AgentAccess.for_profile(identity_or_access.permission_profile)
+        elif isinstance(identity_or_access, AgentAccess):
+            self._identity = None
+            self._access = identity_or_access
+        else:
+            raise TypeError("AgentApplicationService requires AgentIdentity or AgentAccess.")
         self._permissions = permissions or AgentPermissionService()
 
     def _require(self, operation: AgentOperation) -> None:
@@ -161,7 +172,7 @@ class AgentApplicationService:
         environment = status.get("environment") if isinstance(status, dict) else {}
         motion = status.get("motion") if isinstance(status, dict) else {}
         sensors = status.get("sensors") if isinstance(status, dict) else {}
-        air_quality = sensors.get("ccs811") if isinstance(sensors, dict) else {}
+        air_quality = sensors.get("ens160") if isinstance(sensors, dict) else {}
         observed_expression = status.get("observed_expression") if isinstance(status, dict) else {}
         voice = status.get("voice") if isinstance(status, dict) else {}
         speech = status.get("speech") if isinstance(status, dict) else {}
@@ -204,6 +215,14 @@ class AgentApplicationService:
         self._require(AgentOperation.GET_PHYSICAL_CONTEXT)
         return self._application.get_physical_context()
 
+    def query_measurements(self, metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+        self._require(AgentOperation.QUERY_PHYSICAL_HISTORY)
+        return self._application.query_measurements(metric, start=start, end=end, limit=limit)
+
+    def list_physical_transitions(self, event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        self._require(AgentOperation.QUERY_PHYSICAL_HISTORY)
+        return self._application.list_physical_transitions(event_type=event_type, limit=limit)
+
     def presence(self) -> dict[str, Any]:
         self._require(AgentOperation.PRESENCE)
         value = self._application.presence()
@@ -222,9 +241,32 @@ class AgentApplicationService:
         value = self._application.observed_expression()
         return {key: value.get(key) for key in ("available", "label", "confidence", "observed_at", "unavailable_reason")}
 
+    async def visible_objects(self) -> dict[str, Any]:
+        self._require(AgentOperation.VISIBLE_OBJECTS)
+        return await self._application.visible_objects()
+
     def camera_snapshot(self) -> bytes:
         self._require(AgentOperation.CAMERA_SNAPSHOT)
         return self._application.get_camera_snapshot()
+
+    def camera_snapshot_with_metadata(self):
+        self._require(AgentOperation.CAMERA_SNAPSHOT)
+        return self._application.get_camera_snapshot_with_metadata()
+
+    async def capture_camera_snapshot_with_metadata(self):
+        self._require(AgentOperation.CAMERA_SNAPSHOT)
+        return await self._application.capture_camera_snapshot_with_metadata()
+
+    def _subscribe_semantic_events(self, listener, *, event_types=None):
+        """Attach an adapter-owned observer to stable semantic transitions.
+
+        The listener receives no direct client/session reference.  Transports
+        map the transition to their own bounded change cues.
+        """
+        subscribe = getattr(self._application, "subscribe_semantic_events", None)
+        if not callable(subscribe):
+            return None
+        return subscribe(listener, event_types=event_types)
 
     def set_expression(self, expression: str) -> dict[str, Any]:
         self._require(AgentOperation.SET_EXPRESSION)

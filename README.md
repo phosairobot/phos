@@ -1,137 +1,86 @@
 # PHOS
 
-![PHOS robot](img/phos.png)
+**An open-source Raspberry Pi robot that gives AI agents safe, structured physical context.**
 
-**An open-source expressive robot platform for Raspberry Pi.**
+PHOS combines an expressive display, camera perception, sensors, and controlled
+robot actions into a lightweight Raspberry Pi robot platform. It keeps hardware
+ownership and physical observations on the robot while external AI agents can
+reason through its MCP interface. PHOS is not a standalone LLM or an autonomous
+agent: agents interpret observations and make decisions; PHOS provides bounded
+robot capabilities and enforces permissions.
 
-PHOS combines an animated face, camera-based perception, environmental and motion sensing, touch, voice, and LAN administration into a modular physical robot platform. It targets Raspberry Pi 3 today and is developed as a real hardware project: capabilities are designed behind explicit provider boundaries, covered by hardware-free tests where possible, and distinguished from physical Pi validation.
+![PHOS robot](docs/assets/images/phos.png)
 
-**Current release:** PHOS 1.8.0 — MCP & Runtime Administration Stabilization · **Target:** Raspberry Pi 3 · **Documentation:** [phosairobot.github.io/phos](https://phosairobot.github.io/phos/)
+## Key features
 
-## What is PHOS?
+- Animated eyes, semantic robot states, and optional LED/touch reactions.
+- Camera-based face, presence, attention, and local expression observations.
+- On-demand NanoDet object categories through MCP; disabled by default and not
+  a continuous detector.
+- Optional BME280/BMP280 environment sensing, MPU6050 motion sensing, and
+  controller-backed ENS160/AHT21 air-quality telemetry.
+- ESP32-compatible `phos-hw` v1 JSON Lines controller protocol over wired serial.
+- Semantic physical transitions plus bounded RAM-only temporal measurement history.
+- Streamable HTTP MCP server with identity-aware permissions and Resources.
+- Authenticated Web Admin and a semantic Remote API.
 
-PHOS is built around expressive, observable robot behavior rather than a single cloud service or a browser-only demo. Sensors and providers produce observations; the central `BehaviorEngine` turns those into semantic robot state and visual intent. The renderer, LEDs, audio, Web Admin, and API consume those boundaries without reaching into hardware internals.
+Software support and physical acceptance are deliberately separate. See the
+[hardware guide](docs/hardware.md) before assuming a component is validated on
+your particular build.
 
-The project is local-first where practical. Its core display, local vision, local Vosk speech recognition, and local Piper speech synthesis can run on the Pi. Cloud providers are optional, selected explicitly, and kept behind the same provider-neutral interfaces.
+## Supported hardware
 
-## What PHOS can do today
-
-### Eyes & display
-
-- Render animated expressive eyes with blink, idle gaze, semantic accents, and runtime face states.
-- Present a startup/readiness experience with a splash, optional ready sound, and display-session safeguards for the physical face display.
-
-### Vision & presence
-
-- Use the Raspberry Pi Camera for face detection, selected-face tracking, and bounded pupil gaze.
-- Derive confirmed presence and attention states, including optional LED arrival and departure reactions.
-- Run local OpenCV/ONNX expression observations with cautious reaction policy; PHOS does not perform identity recognition by default.
-
-### Voice input & speech
-
-- Capture bounded utterances from a USB microphone with resampling, VAD, and pre-roll.
-- Transcribe through provider-neutral `STTProvider`: Local/Vosk is the default, with opt-in Cartesia Ink batch STT.
-- Synthesize through `TTSProvider`: Local/Piper, Cartesia, and ElevenLabs integration feed a separate `AudioOutputProvider` playback boundary.
-- Accept speech through `/api/v1/speak`, reflecting playback through the `SPEAKING` state.
-- Apply supported STT, TTS, and audio-output changes live: active operations retain their original provider, while subsequent work uses the replacement.
-- Resolve the supported local English/Italian command catalog; see [Voice Commands](docs/voice-commands.md) for the exact accepted phrases and required interaction settings.
-
-### Sensors & physical interaction
-
-- Recognize local touchscreen taps, long presses, and horizontal swipes as semantic gestures.
-- Integrate optional BME280/BMP280 environmental sensing, CCS811 air-quality estimates, MPU-6050/GY-521 motion sensing, and WS2812B LED-ring feedback.
-- Translate confirmed environmental and motion observations into behavioral visual intent rather than letting drivers control the display directly.
-
-### Behavior, Web Admin & API
-
-- Use a central `BehaviorEngine` and explicit robot states for presence, attention, environmental context, motion, listening, thinking, and speaking.
-- Provide authenticated Web Admin for configuration, runtime status, encrypted credentials, and Voice & Speech settings.
-- Expose a provider-neutral Remote API and runtime status without giving web clients direct access to GPIO, camera frames, or renderer internals.
-- Persist validated configuration atomically. YAML is the canonical editable format; existing legacy JSON configuration remains supported as a fallback.
-
-## Local first, cloud optional
-
-| Capability | Local default | Optional cloud |
+| Hardware | PHOS role | Current support |
 | --- | --- | --- |
-| Speech to Text | Vosk | Cartesia Ink batch STT |
-| Text to Speech | Piper | Cartesia, ElevenLabs |
-| Expression observation | OpenCV / ONNX | AWS Rekognition |
+| Raspberry Pi 3 | Primary lightweight deployment target | Reference target; deployment acceptance remains build-specific |
+| Raspberry Pi-compatible camera | VisionPipeline input | Implemented through Picamera2 |
+| ESP32 | External controller | `phos-hw` v1 serial JSONL protocol; firmware is not included here |
+| BME280 / BMP280 | Temperature, pressure, humidity where available | Optional Pi I2C providers |
+| ENS160 + AHT21 | Air quality plus controller temperature/humidity | Controller-backed ESP32 telemetry, not Pi I2C polling |
+| MPU6050 / GY-521 | Motion/orientation | Optional provider, disabled by default |
+| 5-inch 800×600 display | Animated face | Reference display configuration |
 
-Cloud selection is opt-in: PHOS does not silently substitute a local provider when an explicitly selected cloud provider is unavailable. Credentials live in encrypted external storage through `SecretsService`, not in runtime YAML or Web responses. ElevenLabs integration is implemented, while its end-to-end physical availability depends on the provider account and selected voice/plan.
+CCS811 appears in older project history, but the current air-quality baseline is
+controller-backed ENS160/AHT21; consult the current [hardware documentation](docs/hardware.md).
 
-## Architecture at a glance
+## Repository contents
 
-```text
-Camera / microphone / sensors / touch
-                 |
-                 v
-         Providers and adapters
-                 |
-                 v
-           BehaviorEngine
-                 |
-                 v
-      Semantic robot state / FaceState
-                 |
-                 v
-       Face / LEDs / audio / Web & API
-```
+| Path | Purpose |
+| --- | --- |
+| `src/robot/` | Core runtime, providers, services, vision, hardware, UI, web, and MCP code |
+| `src/robot/vision/` | VisionPipeline, face/expression perception, NanoDet, and object-awareness internals |
+| `src/robot/hardware/` | Pi I2C/GPIO adapters and controller protocol/serial integration |
+| `src/robot/mcp/` | MCP semantic server and transport lifecycle |
+| `src/robot/web/` | Web Admin and Remote API implementation |
+| `config/` | Canonical YAML configuration and compatibility JSON examples |
+| `scripts/` | Pi installer, diagnostics, and standalone benchmark utilities |
+| `tests/` | Hardware-free automated tests |
+| `docs/` | MkDocs source documentation |
 
-Providers observe or perform focused capabilities; `BehaviorEngine` owns behavioral decisions; the renderer consumes semantic `FaceState`; and Web/API adapters use application services rather than manipulating hardware directly. This keeps local and cloud provider choices independently replaceable. Read the [architecture reference](https://phosairobot.github.io/phos/architecture/) for the complete design.
+## MCP — Model Context Protocol
 
-## Reference hardware
-
-The reference platform is a Raspberry Pi 3 with a 5-inch 800×600 display, Raspberry Pi Camera, and USB microphone. Optional integrations include BME280/BMP280, CCS811, MPU-6050/GY-521, and a WS2812B RGB LED ring. Software support and physical acceptance are tracked separately; consult the [hardware guide](https://phosairobot.github.io/phos/hardware/) before wiring or assuming a module is validated on a particular build.
-
-## Web Admin & Remote API
-
-PHOS can be administered from a trusted LAN through authenticated Web Admin. It provides runtime/system status, validated configuration, a write-only credentials page, and a Voice & Speech area split into Speech to Text, Text to Speech, and Audio Output. The page intentionally shows configured and active provider/device state separately, with Unknown status when a runtime snapshot is unavailable. Supported live changes are activated before they are persisted.
-
-The Remote API exposes semantic status and control through the shared application-service boundary. See the [Web Admin manual](https://phosairobot.github.io/phos/web-administration/) and [Remote API reference](https://phosairobot.github.io/phos/remote-api/) for deployment, authentication, and endpoint details.
-
-## MCP: semantic context and current perception
-
-PHOS can expose semantic tools and read-only MCP Resources to an external AI
-agent through Streamable HTTP. Resources read PHOS state/context; tools request
-supported semantic actions. The external agent never accesses hardware or the
-Raspberry Pi camera directly:
+MCP is PHOS's agent boundary:
 
 ```text
-External Agent → MCP semantic interface → AgentApplicationService
-               → PhosApplicationService → PHOS runtime services
+External AI Agent → MCP → PHOS application services → sensors, vision, state, permitted controls
 ```
 
-Available Resources are `phos://status`, `phos://physical-context`,
-`phos://environment`, and `phos://vision/snapshot`. The vision resource is one
-current on-demand JPEG frame, not a video stream or continuous subscription.
-It is protected separately from generic physical-context reads because the
-image may contain people visible to the camera. See the [MCP guide](docs/mcp.md).
-The currently exposed tools are `phos_get_status`, `phos_get_physical_context`,
-`phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression`,
-`phos_set_expression`, `phos_speak`, `phos_sleep`, `phos_wake`, and
-`phos_signal_user`.
+Rather than embedding a large model on a Raspberry Pi 3, PHOS exposes
+permission-controlled structured reads and actions to an authorized external
+agent. Useful examples include physical context, bounded measurement history,
+recent physical transitions, and on-demand visible object categories through
+`phos_get_visible_objects`.
 
-## Project status & roadmap
+Object awareness requires `read_perception`, is on-demand only, and is disabled
+by default. It returns labels/confidence and frame freshness metadata—not raw
+images, bounding boxes, identities, or tracking data. See [MCP](docs/mcp.md)
+for the complete 15-tool catalog, authentication, permissions, transport, and
+error behavior.
 
-### PHOS 1.8.0 — MCP & Runtime Administration Stabilization
+## Getting started
 
-This release adds the permission-checked MCP semantic adapter, Streamable HTTP
-transport, stdio bridge Resource forwarding, and the on-demand camera snapshot
-Resource. It also stabilizes Web Admin Runtime settings with immediate Camera
-Preview and logging-level application through the PHOS lifecycle boundary.
-
-PHOS continues to distinguish source implementation from physical validation.
-MCP camera-snapshot acceptance on the Raspberry Pi, including a non-empty JPEG
-read with Camera Preview disabled, remains pending. Optional sensor, provider,
-and deployment acceptance remains component-specific.
-
-Next, PHOS is deliberately not jumping straight to a generic assistant. The major deferred capabilities are conversational LLM interaction, wake-word and continuous listening, Home Assistant, and the MCP async push adapter. Cartesia STT remains batch/utterance-based; provider-side streaming and turn detection are not implemented.
-
-See the concise [roadmap](https://phosairobot.github.io/phos/roadmap/) and the detailed [current implementation handoff](https://phosairobot.github.io/phos/current-state/) for scope, release history, and physical acceptance limits.
-
-## Quick start
-
-On a Raspberry Pi OS system with a graphical desktop:
+PHOS targets Raspberry Pi OS with a graphical desktop. The supported Raspberry
+Pi installation path is:
 
 ```bash
 git clone https://github.com/phosairobot/phos.git
@@ -139,18 +88,26 @@ cd phos
 ./scripts/install-phos.sh
 ```
 
-The installer is the supported Raspberry Pi OS/Debian ARM path. It does not replace the setup guide: review the [installation documentation](https://phosairobot.github.io/phos/installation/) for display, camera, optional hardware, configuration, and managed user-service startup requirements.
+Review the [installation guide](docs/installation.md) before installation for
+display, camera, controller, optional sensor, and managed-service requirements.
+Configuration is in [config/phos.yaml](config/phos.yaml); optional features,
+including object awareness, must be explicitly enabled with locally installed
+model assets.
 
 ## Documentation
 
-Detailed documentation lives at **[phosairobot.github.io/phos](https://phosairobot.github.io/phos/)**. It covers [installation](https://phosairobot.github.io/phos/installation/), [hardware](https://phosairobot.github.io/phos/hardware/), [architecture](https://phosairobot.github.io/phos/architecture/), [configuration and development](https://phosairobot.github.io/phos/development/), [vision](https://phosairobot.github.io/phos/vision/), [voice](https://phosairobot.github.io/phos/voice/), [Web Admin](https://phosairobot.github.io/phos/web-administration/), and the [Remote API](https://phosairobot.github.io/phos/remote-api/).
+- [Documentation home](docs/index.md)
+- [Architecture](docs/architecture.md)
+- [Hardware and controller protocol](docs/hardware.md) · [controller details](docs/hardware-controller.md)
+- [Vision](docs/vision.md) · [expression model evaluation](docs/vision-model-evaluation.md)
+- [MCP](docs/mcp.md)
+- [Installation](docs/installation.md) · [development and testing](docs/development.md)
 
-## Contributing
+## Contributing and license
 
-Contributions are welcome from Python developers, Raspberry Pi and hardware makers, provider/integration developers, and documentation contributors. Start with [the architecture](docs/architecture.md), [accepted decisions](docs/decisions.md), and the repository's [contributor guidance](AGENTS.md). Keep hardware-specific work behind adapters, preserve provider-neutral boundaries, and retain hardware-free test coverage where possible.
+Contributions from developers, makers, documentation contributors, and hardware
+vendors are welcome. Start with [architecture](docs/architecture.md),
+[accepted decisions](docs/decisions.md), and [repository guidance](AGENTS.md).
 
-Project links: [GitHub](https://github.com/phosairobot/phos) · [X](https://x.com/phosairobot) · [Instagram](https://www.instagram.com/phosairobot/)
-
-## License
-
-No license file is currently included in this repository. Contact the project maintainers before redistributing or reusing the code.
+No repository license file or contribution guide is currently included. Contact
+the maintainers before redistributing or reusing the code.

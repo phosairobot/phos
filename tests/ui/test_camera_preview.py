@@ -26,18 +26,24 @@ def test_missing_graphical_environment_fails_clearly_at_display_boundary(monkeyp
         TkEyeDisplay().open(800, 600, fullscreen=True)
 
 
-def test_preview_passes_binary_ppm_to_tk_and_draws_image(monkeypatch):
-    pixels = b"\x00\x80\xff" * 2
-    small = SimpleNamespace(tobytes=lambda: pixels)
+def test_preview_converts_bgr_to_rgb_before_passing_binary_ppm_to_tk(monkeypatch):
+    # Pure red, blue and green expressed in the VisionPipeline BGR contract.
+    bgr_pixels = b"\x00\x00\xff\xff\x00\x00\x00\xff\x00"
+    rgb_pixels = b"\xff\x00\x00\x00\x00\xff\x00\xff\x00"
+    small = SimpleNamespace(tobytes=lambda: bgr_pixels)
+    rgb = SimpleNamespace(tobytes=lambda: rgb_pixels)
     resize = Mock(return_value=small)
+    cvt_color = Mock(return_value=rgb)
     monkeypatch.setitem(__import__("sys").modules, "cv2",
-                        SimpleNamespace(resize=resize, INTER_AREA=3))
-    frame = SimpleNamespace(shape=(2, 4, 3))
-    encoded = _encode_preview_ppm(frame, 2)
-    assert encoded == (2, 1, b"P6 2 1 255\n" + pixels)
-    resize.assert_called_once_with(frame, (2, 1), interpolation=3)
+                        SimpleNamespace(resize=resize, cvtColor=cvt_color,
+                                        INTER_AREA=3, COLOR_BGR2RGB=4))
+    frame = SimpleNamespace(shape=(1, 3, 3))
+    encoded = _encode_preview_ppm(frame, 3)
+    assert encoded == (3, 1, b"P6 3 1 255\n" + rgb_pixels)
+    resize.assert_called_once_with(frame, (3, 1), interpolation=3)
+    cvt_color.assert_called_once_with(small, 4)
 
-    photo = SimpleNamespace(width=lambda: 2, height=lambda: 1)
+    photo = SimpleNamespace(width=lambda: 3, height=lambda: 1)
     display = TkEyeDisplay()
     display._tk = SimpleNamespace(PhotoImage=Mock(return_value=photo))
     display._canvas = Mock()
@@ -47,7 +53,8 @@ def test_preview_passes_binary_ppm_to_tk_and_draws_image(monkeypatch):
     display._draw_preview(CameraPreviewView(frame), CameraPreviewSettings(enabled=True), 800, 600)
 
     display._tk.PhotoImage.assert_called_once_with(data=encoded[2], format="PPM")
-    display._canvas.create_image.assert_called_once_with(782, 583, image=photo, anchor="nw")
+    # Bottom-right layout keeps the bordered preview within its 16px safe margin.
+    display._canvas.create_image.assert_called_once_with(778, 580, image=photo, anchor="nw")
 
 
 def test_preview_failure_is_logged_once_until_recovery(caplog):

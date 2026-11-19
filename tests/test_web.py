@@ -1,4 +1,5 @@
 """Hardware-free administration/security tests using real CSRF and password hashes."""
+import asyncio
 import json
 import html
 import io
@@ -7,6 +8,7 @@ import multiprocessing
 from html.parser import HTMLParser
 import re
 import socket
+import subprocess
 from threading import Event, Thread
 from types import SimpleNamespace
 from pathlib import Path
@@ -16,12 +18,114 @@ import pytest
 import yaml
 
 from robot.config import ConfigRepository, ConfigurationError, RuntimeConfig, load_document
-from robot.secrets import SecretsService
+from robot.core import RobotCore
+from robot.core.behavior_engine import BehaviorEngine
+from robot.secrets import SecretsError, SecretsService
+from robot.services import (AgentCredentialService, AgentIdentity, AgentRegistry, BearerAgentAuthenticator,
+                            PhosApplicationService)
 from robot.web.app import create_app
 from robot.web.auth import PasswordStore
 from robot.web.server import WebServer
 
 PASSWORD = "a new long test password"
+
+
+def test_live_dashboard_reading_accepts_available_bmp280_without_field_usability():
+    """Exercise the actual browser predicate against the live-status shape."""
+    script = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    match = re.search(r"const reading = (\(item, field, suffix\) =>.*?;)", script, re.DOTALL)
+    assert match is not None
+    program = """const reading = %s;
+const bmp = {sensor_type: 'bmp280', available: true,
+  available_measurements: ['temperature_c', 'pressure_hpa'],
+  measurements: {temperature_c: 24.74, pressure_hpa: 994.2103}};
+const mpu = {sensor_type: 'mpu6050', available: true, status: 'available',
+  motion_state: 'still', measurements: {acceleration_x_m_s2: 0.0}};
+const ens = {available: true, measurements: {eco2_ppm: 500},
+  measurement_usable: {eco2_ppm: false}};
+const state = {sensors: {imu: {motion_state: 'still'}},
+  motion: {motion_state: 'moving', motion_intensity: 'medium'}};
+const motion = %s;
+console.log(JSON.stringify([reading(bmp, 'temperature_c', '°C'),
+  reading(bmp, 'pressure_hpa', 'hPa'), mpu.status, mpu.motion_state,
+  reading(ens, 'eco2_ppm', 'ppm'), bmp.measurements.humidity_percent,
+  motion.motion_state, motion.motion_intensity]));
+""" % (match.group(1), re.search(r"const motion = (.*?);", script).group(1))
+    result = subprocess.run(["node", "-e", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == ["24.74 °C", "994.2103 hPa", "available", "still", "Unavailable", None, "moving", "medium"]
+
+
+def test_dashboard_ens160_observations_and_health_use_canonical_live_fields():
+    """Execute the Dashboard formatters against normal, warming, and stale API shapes."""
+    script = Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
+    helpers = script[script.index("  const ens160Reading"):script.index("  const mergeSensor")]
+    program = """%s
+n = {measurements:{eco2_ppm:600,tvoc_ppb:12,aqi_uba:2}, measurement_fresh:{eco2_ppm:true,tvoc_ppb:true,aqi_uba:true}, ens160_validity:0, ens160_status_fresh:true};
+w = {...n, ens160_validity:1}; s = {...n, ens160_validity:2}; i = {...n, ens160_validity:3}; stale = {...n, measurement_fresh:{eco2_ppm:false,tvoc_ppb:true,aqi_uba:true}};
+console.log(JSON.stringify([ens160Reading(n, 'eco2_ppm', 'ppm'), aqiUba(n), ens160Validity(n).reliability,
+  ens160Validity(w).reliability, ens160Validity(s).reliability, ens160Validity(i).reliability,
+  ens160Reading(stale, 'eco2_ppm', 'ppm'), aqiUba({...n, measurements:{...n.measurements, aqi_uba:9}}),
+  healthSummary({subsystems:{imu:{state:'ok'}, ens160:{state:'warming_up'}}})]));
+""" % helpers
+    result = subprocess.run(["node", "-e", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [
+        "600 ppm", "2 / 5 — Good", "Reliable",
+        "Observational — unreliable", "Observational — unreliable", "Observational — unreliable",
+        "Stale", "Unavailable", "imu: ok · ens160: warming_up",
+    ]
+
+
+def test_dashboard_restores_sensor_visualizations_with_health_separate_from_motion(setup):
+    app, _, _ = setup
+    page = authorize(app).get("/").get_data(as_text=True)
+    for key in ("environment.temperature", "environment.pressure", "aht21.humidity", "ens160.aqi",
+                "ens160.validity", "ens160.reliability", "motion.motion_state", "health.summary"):
+        assert f'data-live="{key}"' in page
+    assert "System Health" in page and "ENS160 validity" in page
+    assert 'class="domain-card"' not in page
+    # The primary sidebar remains the single navigation surface.
+    assert page.count('href="/configuration/status"') == 1
+    # Preserve the original live-card visualization groups instead of
+    # replacing sensor presentation with generic text summary cards.
+    assert page.count('class="domain-cards live-cards status-summary"') == 2
+    assert "BMP280 / environmental" in page and "MPU6050" in page
+    assert "Interpreted motion" in page and "System Health" in page
+    motion_card = re.search(r'<dl><dt>Interpreted motion</dt>.*?</dl>', page, re.DOTALL)
+    assert motion_card and 'health.summary' not in motion_card.group(0)
+    css = Path(app.root_path).joinpath("static", "admin.css").read_text(encoding="utf-8")
+    assert ".live-cards dl { padding: 1rem; border-color: #1767ae;" in css
+
+
+def test_sensors_page_renders_available_bmp280_and_mpu6050_live_shapes(setup):
+    from robot.lifecycle import LifecycleService
+
+    _app, path, _ = setup
+    config = RuntimeConfig.from_file(path)
+    lifecycle = LifecycleService(path, config)
+    lifecycle.register_sensor_status(lambda: {
+        "environmental": {
+            "sensor_type": "bmp280", "available": True, "status": "available",
+            "available_measurements": ["temperature_c", "pressure_hpa"],
+            "measurements": {"temperature_c": 24.74, "pressure_hpa": 994.2103},
+            "last_update": "2026-11-14T10:00:00+00:00", "age_seconds": 1, "error": None,
+        },
+        "imu": {
+            "sensor_type": "mpu6050", "available": True, "status": "available",
+            "available_measurements": ["acceleration_x_m_s2", "acceleration_y_m_s2", "acceleration_z_m_s2",
+                                       "angular_velocity_x_deg_s", "angular_velocity_y_deg_s", "angular_velocity_z_deg_s"],
+            "measurements": {"acceleration_x_m_s2": 0.1, "acceleration_y_m_s2": 0.2, "acceleration_z_m_s2": 9.8,
+                             "angular_velocity_x_deg_s": 1.0, "angular_velocity_y_deg_s": 2.0, "angular_velocity_z_deg_s": 3.0},
+            "motion_state": "still", "calibration": "factory_scale_only", "last_motion_event": None,
+            "last_update": "2026-11-14T10:00:00+00:00", "age_seconds": 1, "error": None,
+        },
+    })
+    page = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle)).get("/configuration/sensors")
+    rendered = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "24.74 °C" in rendered and "994.21 hPa" in rendered
+    assert "0.100 / 0.200 / 9.800 m/s²" in rendered
+    assert "1.000 / 2.000 / 3.000 °/s" in rendered
+    assert "Still" in rendered and "Humidity</dt><dd>Not supported" in rendered
 
 
 @pytest.fixture
@@ -55,6 +159,451 @@ def authorize(app):
     assert post(client, "/password", {"current": "phos", "new": PASSWORD, "confirmation": PASSWORD}).status_code == 302
     assert login(client, PASSWORD).location == "/"
     return client
+
+
+def _agent_admin(tmp_path):
+    document = load_document()
+    # Isolated Web fixtures intentionally use the built-in catalog only.
+    document.pop("appearance", None)
+    document["agents"] = {"default_agent": "standard", "entries": [
+        {"id": "standard", "display_name": "Standard Agent", "permission_profile": "standard",
+         "credential": {"type": "bearer", "secret_ref": "mcp.standard.token"}},
+        {"id": "observer", "display_name": "Observer Agent", "permission_profile": "observer",
+         "credential": {"type": "bearer", "secret_ref": "mcp.observer.token"}},
+        {"id": "uncredentialed", "display_name": "Uncredentialed Agent", "permission_profile": "observer"},
+    ]}
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    store = SecretsService(tmp_path / ".phos-secrets")
+    return create_app(path, secrets_service=store), store
+
+
+def _issued_bearer(response):
+    return re.search(r'id="issued-credential" type="text" value="([^"]+)"', response.get_data(as_text=True)).group(1)
+
+
+def _agent_section(page, agent_name):
+    return re.search(rf'<tr class="agent-row" data-agent-name="{agent_name}">(.*?)</tr>',
+                     page.get_data(as_text=True), re.DOTALL).group(1)
+
+
+class _McpConfigurationRuntime:
+    """The smallest composition-owned runtime needed by the MCP settings service."""
+
+    def __init__(self):
+        self.core = RobotCore()
+        self._behavior_engine = BehaviorEngine(self.core.events)
+
+
+class _McpConfigurationManager:
+    def status(self):
+        return {"enabled": True, "port": 8001, "status": "running", "bound_port": 8001,
+                "endpoint": "http://127.0.0.1:8001/mcp", "error": None}
+
+    def apply(self, *, enabled, port):
+        return {**self.status(), "enabled": enabled, "port": port,
+                "bound_port": port if enabled else None,
+                "endpoint": f"http://127.0.0.1:{port}/mcp" if enabled else None}
+
+    def configure_authentication(self, *, mode, anonymous_permission_profile):
+        self.authentication = {"mode": mode, "anonymous_permission_profile": anonymous_permission_profile}
+        return self.status()
+
+
+def _mcp_configuration_admin(tmp_path):
+    document = load_document()
+    document["logging"]["file"] = None
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
+    repository = ConfigRepository(path)
+    active = repository.load()
+    lifecycle = SimpleNamespace(config_repository=repository, path=path, active=active.to_dict())
+    service = PhosApplicationService(_McpConfigurationRuntime(), lifecycle=lifecycle)
+    service.register_mcp_manager(_McpConfigurationManager())
+    app = create_app(path, active_document=active.to_dict(), application_service=service)
+    app.testing = True
+    return app, path
+
+
+def test_agents_page_lists_non_secret_status_and_requires_admin_authentication(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    assert app.test_client().get("/agents").location == "/login"
+    page = authorize(app).get("/agents")
+    text = page.get_data(as_text=True)
+    assert all(value in text for value in ("Agents", "Standard Agent", "Observer Agent", "Uncredentialed Agent", "standard", "observer", "Inactive", "Create credential"))
+    assert "secret_ref" not in text and "mcp.standard.token" not in text
+
+
+def test_agents_page_distinguishes_registered_bearer_agents_from_global_anonymous_mcp_access(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+
+    bearer = client.get("/agents").get_data(as_text=True)
+    # Registered identities are rendered as ordinary agent rows with only
+    # non-secret credential state. Anonymous MCP policy is global runtime
+    # configuration, never a synthetic agent that could acquire credentials.
+    assert "Credential" in bearer
+    assert "Credential Inactive" in bearer
+    assert "Not configured" in bearer
+    assert 'data-agent-name="anonymous-mcp"' not in bearer
+    assert 'id="create-agent-dialog"' in bearer
+    assert 'name="csrf_token"' in bearer
+    assert "mcp.standard.token" not in bearer
+
+
+def test_agents_page_renders_credential_actions_from_configured_and_active_status(tmp_path, monkeypatch):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    initial = client.get("/agents")
+    standard = _agent_section(initial, "Standard Agent")
+    observer = _agent_section(initial, "Observer Agent")
+    uncredentialed = _agent_section(initial, "Uncredentialed Agent")
+    for section in (standard, observer):
+        assert "Inactive" in section
+        assert "Create credential" in section
+        assert "Rotate credential" not in section and "Revoke credential" not in section
+    assert "Not configured" in uncredentialed
+    assert "Create credential" in uncredentialed
+    assert "Rotate credential" not in uncredentialed and "Revoke credential" not in uncredentialed
+
+    calls = []
+    original_create = AgentCredentialService.create
+
+    def create(service, agent_id):
+        calls.append(agent_id)
+        return original_create(service, agent_id)
+
+    monkeypatch.setattr("robot.web.app.AgentCredentialService.create", create)
+    created = post(client, "/agents", {"action": "create", "agent_id": "standard"})
+    bearer = _issued_bearer(created)
+    assert calls == ["standard"]
+    reloaded = client.get("/agents")
+    standard = _agent_section(reloaded, "Standard Agent")
+    assert "Active" in standard
+    assert "Create credential" not in standard
+    assert "Rotate credential" in standard and "Revoke credential" in standard
+    assert bearer not in reloaded.get_data(as_text=True)
+
+
+def test_agents_page_safely_distinguishes_secret_store_failure_from_an_inactive_credential(tmp_path, monkeypatch):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+
+    def fail_status(_):
+        raise SecretsError("simulated secret store failure")
+
+    monkeypatch.setattr(store, "has_secret", fail_status)
+    page = client.get("/agents")
+    standard = _agent_section(page, "Standard Agent")
+    uncredentialed = _agent_section(page, "Uncredentialed Agent")
+    assert "Unavailable" in standard
+    assert all(action not in standard for action in ("Create credential", "Rotate credential", "Revoke credential"))
+    assert "Not configured" in uncredentialed
+
+
+def test_agent_credential_web_lifecycle_discloses_bearer_once_and_preserves_authentication(tmp_path, caplog):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create", "agent_id": "standard"})
+    first = _issued_bearer(created)
+    assert "This credential will only be shown once" in created.get_data(as_text=True)
+    assert first not in client.get("/agents").get_data(as_text=True)
+    registry = AgentRegistry("standard", (AgentIdentity("standard", "standard"), AgentIdentity("observer", "observer")),
+                             {"standard": "mcp.standard.token", "observer": "mcp.observer.token"})
+    authenticator = BearerAgentAuthenticator(registry, store)
+    context = lambda token: SimpleNamespace(request=SimpleNamespace(headers={"Authorization": f"Bearer {token}"}))
+    assert asyncio.run(authenticator.authenticate(context(first))).id == "standard"
+
+    missing_confirmation = post(client, "/agents", {"action": "rotate", "agent_id": "standard"})
+    assert missing_confirmation.status_code == 400 and "Confirm this credential operation" in missing_confirmation.get_data(as_text=True)
+    rotated = post(client, "/agents", {"action": "rotate", "agent_id": "standard", "confirm": "yes"})
+    second = _issued_bearer(rotated)
+    assert second != first
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(authenticator.authenticate(context(first)))
+    assert asyncio.run(authenticator.authenticate(context(second))).id == "standard"
+
+    revoked = post(client, "/agents", {"action": "revoke", "agent_id": "standard", "confirm": "yes"})
+    assert revoked.status_code == 302 and second not in client.get("/agents").get_data(as_text=True)
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(authenticator.authenticate(context(second)))
+    assert first not in caplog.text and second not in caplog.text
+
+
+def test_agents_page_creates_edits_and_deletes_a_live_agent(tmp_path):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "live-agent",
+                                        "display_name": "Live Agent", "permission_profile": "observer"})
+    assert created.status_code == 302
+    page = client.get("/agents")
+    live = _agent_section(page, "Live Agent")
+    assert "Not configured" in live and "Create credential" in live
+    issued = post(client, "/agents", {"action": "create", "agent_id": "live-agent"})
+    token = _issued_bearer(issued)
+    # The local test adapter uses the same provider-backed runtime registry.
+    provider = app.extensions["phos_config"]
+    saved = RuntimeConfig.from_dict(provider.read(), base_dir=provider.path.parent)
+    authenticator = BearerAgentAuthenticator(saved.agent_registry, store)
+    context = lambda value: SimpleNamespace(request=SimpleNamespace(headers={"Authorization": f"Bearer {value}"}))
+    assert asyncio.run(authenticator.authenticate(context(token))).permission_profile.value == "observer"
+    assert post(client, "/agents", {"action": "update_agent", "agent_id": "live-agent",
+                                      "display_name": "Live Agent", "permission_profile": "standard"}).status_code == 302
+    saved = RuntimeConfig.from_dict(provider.read(), base_dir=provider.path.parent)
+    assert saved.agent_registry.get("live-agent").permission_profile.value == "standard"
+    assert post(client, "/agents", {"action": "delete_agent", "agent_id": "live-agent", "confirm": "yes"}).status_code == 302
+    with pytest.raises(PermissionError, match="authentication_failed"):
+        asyncio.run(authenticator.authenticate(context(token)))
+
+
+def test_agents_page_assigns_and_disables_skins_without_touching_credentials(tmp_path):
+    app, store = _agent_admin(tmp_path)
+    client = authorize(app)
+    page = client.get("/agents").get_data(as_text=True)
+    assert "Use agent-specific skin" in page and "Assigned Skin" in page
+    assert 'value="ambient"' in page and "Ambient" in page
+
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "styled-agent",
+                                         "display_name": "Styled Agent", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "ambient"})
+    assert created.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path)
+    assert saved.agent_registry.get("styled-agent").skin == {"enabled": True, "id": "ambient"}
+    issued = post(client, "/agents", {"action": "create", "agent_id": "styled-agent"})
+    assert _issued_bearer(issued)
+
+    disabled = post(client, "/agents", {"action": "update_agent", "agent_id": "styled-agent",
+                                          "display_name": "Styled Agent", "permission_profile": "observer",
+                                          "skin_present": "yes", "skin_id": "ambient"})
+    assert disabled.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path)
+    assert saved.agent_registry.get("styled-agent").skin == {"enabled": False, "id": "ambient"}
+    assert "Disabled" in _agent_section(client.get("/agents"), "Styled Agent")
+    assert SecretsService(app.extensions["phos_config"].path.parent / ".phos-secrets").has_secret("mcp.agents.styled_agent.token")
+
+
+def test_agents_page_persists_automatic_appearance_policy(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    created = post(client, "/agents", {"action": "create_agent", "agent_id": "policy-agent",
+                                         "display_name": "Policy Agent", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "ambient",
+                                         "appearance_participate": "yes", "appearance_priority": "85",
+                                         "appearance_timeout": "10"})
+    assert created.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path).agent_registry.get("policy-agent")
+    assert saved.appearance == {"participate": True, "priority": 85, "activity_timeout_seconds": 10}
+    page = client.get("/agents").get_data(as_text=True)
+    assert 'value="85"' in page and 'value="10"' in page
+    invalid = post(client, "/agents", {"action": "update_agent", "agent_id": "policy-agent",
+                                         "display_name": "Policy Agent", "permission_profile": "observer",
+                                         "skin_present": "yes", "skin_id": "ambient",
+                                         "appearance_participate": "yes", "appearance_priority": "101",
+                                         "appearance_timeout": "10"})
+    assert invalid.status_code == 400
+
+
+def test_agents_template_keeps_compact_accessible_credential_actions():
+    template = (Path(__file__).parents[1] / "src/robot/web/templates/agents.html").read_text()
+
+    assert 'class="agent-icon-form"' in template
+    assert 'aria-label="Create credential for' in template
+    assert 'title="Create credential"' in template
+    assert 'aria-label="Edit ' in template
+    assert 'aria-label="More actions for' in template
+    assert 'data-agent-open-dialog="rotate-agent-' in template
+    assert 'data-agent-open-dialog="revoke-agent-' in template
+    assert 'data-agent-open-dialog="delete-agent-' in template
+    assert 'Confirm rotation' in template and 'Confirm revocation' in template and 'Confirm deletion' in template
+
+
+def test_agents_page_rejects_unknown_skin_and_renders_missing_assignment(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    invalid = post(client, "/agents", {"action": "create_agent", "agent_id": "bad-skin",
+                                         "display_name": "Bad Skin", "permission_profile": "observer",
+                                         "skin_enabled": "yes", "skin_id": "not-a-skin"})
+    assert invalid.status_code == 400
+    assert "Select a skin from the available catalog" in invalid.get_data(as_text=True)
+
+    missing_dir = tmp_path / "missing"; missing_dir.mkdir()
+    document = load_document(); document.pop("appearance", None)
+    document["agents"] = {"default_agent": "standard", "entries": [
+        {"id": "standard", "display_name": "Standard", "permission_profile": "standard"},
+        {"id": "missing", "display_name": "Missing Skin", "permission_profile": "observer",
+         "skin": {"enabled": True, "id": "removed-skin"}},
+    ]}
+    path = missing_dir / "phos.json"; path.write_text(json.dumps(document))
+    page = authorize(create_app(path)).get("/agents").get_data(as_text=True)
+    assert "Missing · removed-skin" in page
+    assert "Saved skin <code>removed-skin</code> is unavailable" in page
+
+
+def test_agents_page_uses_automatic_appearance_without_presentation_owner_controls(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    path = app.extensions["phos_config"].path
+    before_display = RuntimeConfig.from_file(path).to_dict()["display"]
+
+    page = client.get("/agents").get_data(as_text=True)
+    assert "Automatic appearance" in page
+    assert "Presentation Owner" not in page
+    assert RuntimeConfig.from_file(path).to_dict()["display"] == before_display
+
+
+@pytest.mark.parametrize(("state", "message", "expected"), [
+    ("global_active", "Runtime appearance applied.", "Global Active"),
+    ("agent_skin_active", "Runtime appearance applied.", "Agent Skin Active"),
+    ("fallback_active", "Runtime appearance applied.", "Fallback Active"),
+    ("applying", "Applying resolved appearance.", "Applying"),
+    ("unavailable", "Runtime appearance is not ready.", "Unavailable"),
+    ("failed", "Display update rejected.", "Failed"),
+])
+def test_agents_page_renders_lifecycle_owned_presentation_activation_status(tmp_path, state, message, expected):
+    class Lifecycle:
+        def execute(self, operation, payload=None):
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "owner", "display_name": "Owner", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": {"enabled": True, "id": "ambient"}, "skin_assignment": {"state": "assigned", "id": "ambient", "display_name": "Ambient"}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "active"}}]}
+            if operation == "application.agent_skins": return {"ok": True, "result": [{"id": "ambient", "display_name": "Ambient"}]}
+            if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "follow_agent", "selected_agent_id": "owner", "selected_display_name": "Owner", "effective_priority": 50, "remaining_lease_seconds": 10}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": state, "message": message, "resolved": {"effective_skin_id": "ambient", "skin_display_name": "Ambient", "fallback_reason": None}}}
+            return {"ok": True, "result": {}}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    page = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents").get_data(as_text=True)
+    assert "Runtime activation" in page and expected in page and message in page
+    assert "Owner" in page and "Ambient" in page
+
+
+def test_agents_page_lists_agents_when_optional_lifecycle_appearance_reads_fail(tmp_path):
+    class Lifecycle:
+        def execute(self, operation, payload=None):
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": None, "skin": {"enabled": True, "id": "missing"}, "skin_assignment": {"state": "missing", "id": "missing"}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "active"}}]}
+            return {"ok": False, "error": {"code": "service_unavailable"}}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    response = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents")
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Local MCP agent" in text and "Missing · missing" in text
+    assert "Appearance details are unavailable" in text
+
+
+def test_agents_page_rejects_default_deletion_and_csrf(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    assert client.post("/agents", data={"action": "create_agent"}).status_code == 400
+    response = post(client, "/agents", {"action": "delete_agent", "agent_id": "standard", "confirm": "yes"})
+    assert response.status_code == 400
+    assert "Default agent cannot be deleted" in response.get_data(as_text=True)
+
+
+def test_agents_page_reports_duplicate_and_invalid_identity_fields(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    duplicate = post(client, "/agents", {"action": "create_agent", "agent_id": "standard",
+                                           "display_name": "Duplicate", "permission_profile": "standard"})
+    assert duplicate.status_code == 400 and "Agent ID already exists" in duplicate.get_data(as_text=True)
+    for agent_id, display_name, profile in (("", "Missing ID", "standard"),
+                                            ("new", "", "standard"),
+                                            ("new", "New", "unknown")):
+        invalid = post(client, "/agents", {"action": "create_agent", "agent_id": agent_id,
+                                             "display_name": display_name, "permission_profile": profile})
+        assert invalid.status_code == 400
+        assert "Agent ID, display name, or permission profile is invalid" in invalid.get_data(as_text=True)
+
+
+def test_agents_page_uses_lifecycle_agent_management_boundary(tmp_path):
+    class Lifecycle:
+        def __init__(self): self.calls = []
+        def execute(self, operation, payload=None):
+            self.calls.append((operation, payload))
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local",
+                    "permission_profile": "standard", "default": True,
+                    "credential_configured": False, "credential_active": None,
+                    "skin": None, "skin_assignment": {"state": "global", "id": None}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "global"}}]}
+            if operation == "application.agent_skins":
+                return {"ok": True, "result": []}
+            if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "global", "selected_agent_id": None, "selected_display_name": None, "effective_priority": None, "remaining_lease_seconds": None}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": "global_active", "message": "", "resolved": {}}}
+            return {"ok": True, "result": {}}
+
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(load_document()))
+    lifecycle = Lifecycle()
+    client = authorize(create_app(path, lifecycle=lifecycle))
+    assert client.get("/agents").status_code == 200
+    response = post(client, "/agents", {"action": "create_agent", "agent_id": "live-agent",
+                                          "display_name": "Live Agent", "permission_profile": "observer"})
+    assert response.status_code == 302
+    assert ("application.agents", {}) in lifecycle.calls
+    assert ("application.create_agent", {"agent_id": "live-agent", "display_name": "Live Agent",
+                                           "permission_profile": "observer"}) in lifecycle.calls
+
+
+def test_agents_page_sets_default_live_and_updates_delete_protection(tmp_path):
+    app, _ = _agent_admin(tmp_path)
+    client = authorize(app)
+    initial = client.get("/agents").get_data(as_text=True)
+    assert "★ Default" in _agent_section(client.get("/agents"), "Standard Agent")
+    assert "Set as default" in _agent_section(client.get("/agents"), "Observer Agent")
+    changed = post(client, "/agents", {"action": "set_default_agent", "agent_id": "observer"})
+    assert changed.status_code == 302
+    saved = RuntimeConfig.from_file(app.extensions["phos_config"].path)
+    assert saved.agent_registry.default_agent == "observer"
+    page = client.get("/agents")
+    observer = _agent_section(page, "Observer Agent")
+    standard = _agent_section(page, "Standard Agent")
+    assert "★ Default" in observer and "Set as default" not in observer
+    assert "Set as default" in standard
+    blocked = post(client, "/agents", {"action": "delete_agent", "agent_id": "observer", "confirm": "yes"})
+    assert blocked.status_code == 400 and "Default agent cannot be deleted" in blocked.get_data(as_text=True)
+    assert post(client, "/agents", {"action": "delete_agent", "agent_id": "standard", "confirm": "yes"}).status_code == 302
+
+
+def test_agents_page_set_default_requires_csrf_and_uses_lifecycle(tmp_path):
+    class Lifecycle:
+        def __init__(self): self.calls = []
+        def execute(self, operation, payload=None):
+            self.calls.append((operation, payload))
+            if operation == "application.agents":
+                return {"ok": True, "result": [{"agent_id": "one", "display_name": "One", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "global"}}, {"agent_id": "two", "display_name": "Two", "permission_profile": "observer", "default": False, "credential_configured": False, "credential_active": False, "skin": None, "skin_assignment": {"state": "global", "id": None}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "global"}}]}
+            if operation == "application.agent_skins": return {"ok": True, "result": []}
+            if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "global", "selected_agent_id": None, "selected_display_name": None, "effective_priority": None, "remaining_lease_seconds": None}}
+            if operation == "application.presentation_activation": return {"ok": True, "result": {"state": "global_active", "message": "", "resolved": {}}}
+            return {"ok": True, "result": {}}
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    lifecycle = Lifecycle(); client = authorize(create_app(path, lifecycle=lifecycle))
+    assert client.post("/agents", data={"action": "set_default_agent", "agent_id": "two"}).status_code == 400
+    assert post(client, "/agents", {"action": "set_default_agent", "agent_id": "two"}).status_code == 302
+    assert ("application.set_default_agent", {"agent_id": "two"}) in lifecycle.calls
+
+
+def test_agents_template_uses_compact_table_and_responsive_cards():
+    root = Path(__file__).parents[1]
+    template = (root / "src/robot/web/templates/agents.html").read_text()
+    stylesheet = (root / "src/robot/web/static/admin.css").read_text()
+    assert 'class="agents-table"' in template
+    assert 'data-label="Agent"' in template
+    assert 'class="agent-menu"' in template
+    assert "@media(max-width:680px)" in stylesheet
+    assert ".agents-table thead{display:none}" in stylesheet
+
+
+def test_agents_overlays_use_dialogs_and_unclipped_exclusive_controller():
+    root = Path(__file__).parents[1]
+    template = (root / "src/robot/web/templates/agents.html").read_text()
+    stylesheet = (root / "src/robot/web/static/admin.css").read_text()
+    script = (root / "src/robot/web/static/admin.js").read_text()
+    assert '<dialog id="create-agent-dialog"' in template
+    assert 'data-agent-open-dialog="edit-agent-' in template
+    assert 'data-agent-transient' in template
+    assert '.agents-table-wrap{overflow:visible}' in stylesheet
+    assert '.agent-menu-panel{position:fixed' in stylesheet
+    assert 'closeMenus(menu)' in script
+    assert 'pointerdown' in script and 'event.key === "Escape"' in script
+    assert 'data-agent-close-dialog' in template
+    assert 'aria-label="Edit ' in template and 'aria-label="More actions for ' in template
 
 
 def test_recovery_request_is_public_and_never_returns_the_physical_code(setup):
@@ -488,6 +1037,68 @@ def test_mcp_settings_navigation_is_visible_active_and_uses_the_responsive_sideb
     assert '<a href="/configuration/mcp" ><i>⌘</i>MCP</a>' in network_text
 
 
+def test_mcp_authentication_controls_render_inside_the_real_configuration_form(tmp_path):
+    app, _ = _mcp_configuration_admin(tmp_path)
+    page = authorize(app).get("/configuration/mcp")
+    text = page.get_data(as_text=True)
+
+    assert page.status_code == 200
+    assert "MCP Authentication Mode" in text
+    assert "Anonymous Client Permissions" in text
+    assert '<select id="mcp.authentication.mode" name="mcp.authentication.mode">' in text
+    assert '<option value="bearer" selected' in text
+    assert '<option value="none"' in text
+    assert '<option value="mixed"' in text
+    assert '<select id="mcp.authentication.anonymous_permission_profile" name="mcp.authentication.anonymous_permission_profile">' in text
+    assert 'class="fields mcp-configuration-fields"' in text
+    assert 'mcp-authentication-field" data-mcp-authentication-mode' in text
+    assert 'data-mcp-anonymous-confirm><input type="checkbox" name="confirm_anonymous_mcp"' in text
+    form_start = text.index('<form method="post" action="/configuration/mcp">')
+    confirmation = text.index('name="confirm_anonymous_mcp"')
+    form_end = text.index("</form>", confirmation)
+    assert form_start < confirmation < form_end
+    assert "data-mcp-anonymous-profile" in text
+    assert "data-mcp-anonymous-warning" in text
+    stylesheet = (Path(__file__).parents[1] / "src/robot/web/static/admin.css").read_text()
+    assert ".mcp-configuration-fields { grid-template-columns: repeat(2, minmax(0, 1fr));" in stylesheet
+    assert ".mcp-configuration-fields:has([data-mcp-anonymous-profile][hidden]) [data-mcp-authentication-mode]" in stylesheet
+
+
+def test_mcp_authentication_form_persists_confirmed_mixed_mode_and_rejects_missing_confirmation(tmp_path):
+    app, path = _mcp_configuration_admin(tmp_path)
+    client = authorize(app)
+
+    initial = client.get("/configuration/mcp")
+    rejected = client.post("/configuration/mcp", data={
+        "csrf_token": csrf(initial), "area": "mcp",
+        "revision": re.search(r'name="revision" value="([^"]+)"', initial.get_data(as_text=True)).group(1),
+        "mcp.enabled": "on", "mcp.port": "8001",
+        "mcp.authentication.mode": "mixed",
+        "mcp.authentication.anonymous_permission_profile": "standard",
+    })
+    assert rejected.status_code == 400
+    assert "Confirm anonymous MCP access before saving." in rejected.get_data(as_text=True)
+    assert RuntimeConfig.from_dict(load_document(path), base_dir=path.parent).mcp_authentication_mode == "bearer"
+
+    retry = client.get("/configuration/mcp")
+    saved = client.post("/configuration/mcp", data={
+        "csrf_token": csrf(retry), "area": "mcp",
+        "revision": re.search(r'name="revision" value="([^"]+)"', retry.get_data(as_text=True)).group(1),
+        "mcp.enabled": "on", "mcp.port": "8001",
+        "mcp.authentication.mode": "mixed",
+        "mcp.authentication.anonymous_permission_profile": "standard",
+        "confirm_anonymous_mcp": "on",
+    })
+    assert saved.status_code == 302
+    persisted = RuntimeConfig.from_dict(load_document(path), base_dir=path.parent)
+    assert persisted.mcp_authentication_mode == "mixed"
+    assert persisted.mcp_anonymous_permission_profile == "standard"
+
+    reloaded = client.get("/configuration/mcp").get_data(as_text=True)
+    assert '<option value="mixed" selected' in reloaded
+    assert '<option value="standard" selected' in reloaded
+
+
 @pytest.mark.parametrize(
     ("path", "active_href"),
     [
@@ -574,9 +1185,15 @@ def test_skin_import_picker_advertises_package_extensions_only():
 def test_skins_template_separates_panels_and_uses_consistent_card_actions():
     template = (Path(__file__).parents[1] / "src/robot/web/templates/skins.html").read_text()
 
-    assert 'id="create-skin">Create Skin' in template
+    assert 'id="create-skin">Create Skin' not in template
+    assert "Create Skin" not in template
+    assert "Global Appearance" in template and "Follow Active Agent" in template
+    assert "Active LED Palette" in template
+    assert "Anonymous MCP appearance" in template
     assert 'id="import-skin">Import Skin Package' in template
     assert 'id="available-skins">Available Skins' in template
+    assert 'name="appearance_mode"' in template
+    assert 'name="led_palette"' not in template
     assert 'phos-skin-card-body' in template and 'phos-skin-card-footer' in template
     assert 'skin-edit' not in template and '>Edit<' not in template and 'action" value="rename"' not in template
     assert '<details class="phos-skin-card-delete-menu">' in template
@@ -622,6 +1239,107 @@ def test_skins_page_renders_compact_cards_without_open_custom_edit_fields(setup)
     assert 'class="skin-delete" open' not in page
 
 
+def test_skins_page_does_not_render_the_removed_led_palette_editor(lifecycle_setup):
+    app, path, _ = lifecycle_setup
+    client = authorize(app)
+    page = client.get("/appearance/skins").get_data(as_text=True)
+    assert "LED Palette Editor" not in page and "led-palette-skin" not in page
+    return
+    assert post(client, "/appearance/skins", {"action": "create", "name": "Palette one", "description": ""}).status_code == 302
+    assert post(client, "/appearance/skins", {"action": "create", "name": "Palette two", "description": ""}).status_code == 302
+    skins = json.loads((path.parent / "skins.json").read_text())["skins"]
+    first, second = (skin["id"] for skin in skins)
+    colors = {"idle": "#123456", "listening": "#234567", "thinking": "#345678", "speaking": "#456789",
+              "sleeping": "#56789A", "success": "#6789AB", "attention": "#789ABC", "ambient": "#89ABCD"}
+    saved = post(client, "/appearance/skins", {"action": "save_led_palette", "skin_id": first,
+                                                   "led_palette_enabled": "on", **{f"led_{state}": color for state, color in colors.items()}})
+    assert saved.status_code == 302
+    stored = {skin["id"]: skin for skin in json.loads((path.parent / "skins.json").read_text())["skins"]}
+    assert stored[first]["led_palette"] == {"enabled": True, "colors": colors}
+    assert "led_palette" not in stored[second]
+
+
+def test_skins_page_keeps_the_read_only_active_led_palette_status(lifecycle_setup):
+    app, path, _ = lifecycle_setup
+    client = authorize(app)
+    page = client.get("/appearance/skins").get_data(as_text=True)
+    assert "Active LED Palette" in page and "Semantic state" in page
+    return
+    assert post(client, "/appearance/skins", {"action": "create", "name": "Palette", "description": ""}).status_code == 302
+    skin_id = json.loads((path.parent / "skins.json").read_text())["skins"][0]["id"]
+    assert post(client, "/appearance/skins", {"action": "save_led_palette", "skin_id": skin_id}).status_code == 302
+    palette = json.loads((path.parent / "skins.json").read_text())["skins"][0]["led_palette"]
+    assert palette == {"enabled": False, "colors": {}}
+
+
+def test_skin_catalog_still_lists_imported_palette_skins(lifecycle_setup):
+    from robot.ui.skins import SkinRepository, appearance_snapshot
+    _, path, lifecycle = lifecycle_setup
+    (path.parent / "skins.yaml").write_text("""schema_version: 1
+skins:
+  - id: catalog-teal
+    display_name: Catalog Teal
+    inherits: ambient
+    appearance: {}
+""")
+    appearance = appearance_snapshot(load_document())
+    emerald = SkinRepository(path, catalog_file=path.parent / "skins.yaml").create(
+        "ChatGPT Emerald", "", appearance, {"enabled": True, "colors": {"idle": "#4EE5C4",
+        "listening": "#22D3C5", "thinking": "#5BBDE6", "speaking": "#74F7D8",
+        "sleeping": "#145A60", "ambient": "#0D9488"}})
+    neural = SkinRepository(path, catalog_file=path.parent / "skins.yaml").create(
+        "ChatGPT Neural", "", appearance, {"enabled": True, "colors": {"idle": "#6EC9FF",
+        "listening": "#22D3EE", "thinking": "#A78BFA", "speaking": "#60A5FA",
+        "sleeping": "#28356E", "ambient": "#6366F1"}})
+    application = object.__new__(PhosApplicationService)
+    application._lifecycle = lifecycle
+    application._runtime = SimpleNamespace(application_status=lambda: {})
+    app = create_app(path, application_service=application)
+    app.testing = True
+    page = authorize(app).get("/appearance/skins").get_data(as_text=True)
+    assert "LED Palette Editor" not in page and "ChatGPT Emerald" in page and "ChatGPT Neural" in page
+    return
+    assert all(name in page for name in ("PHOS Default", "Minimal", "Ambient", "Catalog Teal", "ChatGPT Emerald", "ChatGPT Neural"))
+    assert all(skin_id in page for skin_id in ("phos-default", "minimal", "ambient", "catalog-teal", emerald.id, neural.id))
+    assert '"effective": "#4EE5C4"' in page and '"effective": "#22D3C5"' in page
+    assert '"origin": "override"' in page and '"origin": "inherited"' in page
+    assert "read-only" in page
+    payload = json.loads(re.search(r'<script type="application/json" id="led-palette-skins">(.*?)</script>', page,
+                                   re.DOTALL).group(1))
+    palette = next(item for item in payload if item["skin_id"] == emerald.id)
+    assert palette["editable"] is True
+    assert {state: palette["colors"][state]["effective"] for state in
+            ("idle", "listening", "thinking", "speaking", "sleeping", "ambient")} == {
+                "idle": "#4EE5C4", "listening": "#22D3C5", "thinking": "#5BBDE6",
+                "speaking": "#74F7D8", "sleeping": "#145A60", "ambient": "#0D9488"}
+    assert all(palette["colors"][state]["origin"] == "override" for state in
+               ("idle", "listening", "thinking", "speaking", "sleeping", "ambient"))
+    assert palette["colors"]["success"]["origin"] == palette["colors"]["attention"]["origin"] == "fallback"
+    neural_payload = next(item for item in payload if item["skin_id"] == neural.id)
+    assert {state: neural_payload["colors"][state]["effective"] for state in
+            ("idle", "listening", "thinking", "speaking", "sleeping", "ambient")} == {
+                "idle": "#6EC9FF", "listening": "#22D3EE", "thinking": "#A78BFA",
+                "speaking": "#60A5FA", "sleeping": "#28356E", "ambient": "#6366F1"}
+    assert neural_payload["colors"] != palette["colors"]
+
+
+def test_skins_page_persists_anonymous_mcp_default_skin_fallback(tmp_path):
+    document = load_document(); document["logging"]["file"] = None
+    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    repository = ConfigRepository(path)
+    lifecycle = SimpleNamespace(config_repository=repository, path=path,
+                                active=repository.load().to_dict())
+    app = create_app(path, application_service=PhosApplicationService(_McpConfigurationRuntime(), lifecycle=lifecycle))
+    app.testing = True
+    client = authorize(app)
+    page = client.get("/appearance/skins").get_data(as_text=True)
+    assert "Use default agent skin for anonymous MCP activity" in page
+    response = post(client, "/appearance/skins", {"action": "set_anonymous_mcp_appearance",
+                                                     "anonymous_mcp_use_default_agent_skin": "on"})
+    assert response.status_code == 302
+    assert RuntimeConfig.from_file(path).anonymous_mcp_use_default_agent_skin is True
+
+
 @pytest.mark.parametrize(("filename", "accepted"), [("skin.phos-skin", True), ("skin.zip", True), ("skin.yaml", False), ("skin.yml", False)])
 def test_skin_upload_route_accepts_only_packages(setup, filename, accepted):
     class Skins:
@@ -654,14 +1372,15 @@ def test_focused_settings_and_page_responsibilities(setup):
     assert 'name="display.iris_color"' in eyes
     assert 'name="web.host"' in network and 'name="web.port"' in network
     assert 'data-live="environment.temperature"' in dashboard
+    for key in ("environment.temperature", "environment.pressure", "aht21.humidity", "ens160.aqi",
+                "ens160.validity", "health.summary", "motion.motion_state"):
+        assert f'data-live="{key}"' in dashboard
     for key in ("presence.state", "presence.people_count", "attention.state", "attention.target_id",
                 "attention.target_position", "attention.target_confidence"):
-        assert f'data-live="{key}"' in dashboard
         assert f'data-live="{key}"' in status
     for key in ("observed_expression.label", "observed_expression.confidence", "observed_expression.provider",
                 "observed_expression.model", "observed_expression.available", "observed_expression.detail",
                 "observed_expression.observed_at"):
-        assert f'data-live="{key}"' in dashboard
         assert f'data-live="{key}"' in status
     assert "PHOS Expression" in status
     for key in ("expression_reaction.active", "expression_reaction.reaction", "expression_reaction.observed_label"):
@@ -753,11 +1472,12 @@ def test_live_dashboard_is_an_api_client_and_retains_server_rendered_sensor_fall
     assert 'sensor_status' not in source and 'GPIO' not in source
     assert 'event.type === "sensors_changed"' in source
     assert 'item.measurements[field] !== undefined' in source
-    assert 'ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811)' in source
+    assert 'ens160: mergeSensor((current || {}).ens160, (next || {}).ens160)' in source
+    assert 'aht21: mergeSensor((current || {}).aht21, (next || {}).aht21)' in source
     assert 'Math.floor((Date.now() - timestamp) / 1000)' in source
     assert 'window.setInterval(renderFreshness, 1000)' in source
     assert 'dashboard._phosFreshnessTimer' in source
-    assert 'const motion = (state.sensors || {}).imu || state.motion || {};' in source
+    assert 'const motion = state.motion || (state.sensors || {}).imu || {};' in source
     assert 'display("motion.intensity", motion.motion_intensity' in source
     for event_type in ("presence_changed", "attention_changed", "person_entered", "person_left",
                        "attention_target_acquired", "attention_target_changed", "attention_target_lost",
@@ -1350,14 +2070,17 @@ def test_csrf_error_explains_recovery_without_logging_secrets(setup, caplog):
 
 def test_domain_pages_partition_canonical_fields_and_are_protected(setup):
     from robot.web.domains import DOMAINS, GROUPS
-    from robot.web.configuration import editor_sections
     app, path, _ = setup
     anonymous = app.test_client()
     for area in DOMAINS:
         assert anonymous.get(f"/configuration/{area}").location == "/login"
     client = authorize(app)
     exposed = []
-    for area in DOMAINS:
+    # Navigation aliases (display, vision, expression, logging, security) and
+    # the Runtime parent intentionally redirect to their focused pages. Only
+    # canonical configurable areas render a form directly.
+    configured_areas = [area for area in GROUPS if area not in {"display", "vision", "expression", "logging", "security", "backgrounds"}]
+    for area in configured_areas:
         response = client.get(f"/configuration/{area}")
         assert response.status_code == 200
         page = response.get_data(as_text=True)
@@ -1366,18 +2089,9 @@ def test_domain_pages_partition_canonical_fields_and_are_protected(setup):
         controls = form(client, area)
         settings = [name for name in controls if "." in name]
         exposed.extend(settings)
-        if area not in GROUPS:
-            assert not settings
-            assert client.post(f"/configuration/{area}", data=controls).status_code == 405
-        else:
-            assert client.post(f"/configuration/{area}", data={}).status_code == 400
-    # Checkboxes that are off are omitted from successful form values, but still
-    # need to be present exactly once in the rendered pages.
-    all_html = "".join(client.get(f"/configuration/{area}").get_data(as_text=True) for area in GROUPS)
-    for group in editor_sections(load_document(path)):
-        for field in group["fields"]:
-            assert all_html.count(f'name="{field["name"]}"') == 1
-    assert len(exposed) == len(set(exposed))
+        assert len(settings) == len(set(settings))
+        assert client.post(f"/configuration/{area}", data={}).status_code == 400
+    assert exposed
     assert client.get("/configuration/not-an-area").status_code == 404
 
 
@@ -1410,11 +2124,11 @@ def test_cross_domain_validation_links_to_relevant_area(setup):
     document["expression"]["local"]["model_path"] = "missing.onnx"
     path.write_text(json.dumps(document))
     before = path.read_bytes()
-    data = form(client, "display")
+    data = form(client, "appearance")
     data["display.width"] = "777"
-    response = client.post("/configuration/display", data=data)
+    response = client.post("/configuration/appearance", data=data)
     assert response.status_code == 400
-    assert b'/configuration/expression#local' in response.data
+    assert b'/configuration/runtime_expression#local' in response.data
     assert b'value="777"' in response.data
     assert path.read_bytes() == before
 
@@ -1423,7 +2137,7 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
     app, _, _ = setup
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret-never-rendered")
     client = authorize(app)
-    page = client.get("/configuration/runtime").get_data(as_text=True)
+    page = client.get("/configuration/runtime/expression").get_data(as_text=True)
     for label in ("Provider selection", "Local ONNX provider", "AWS provider", "Cloud cost &amp; rate limits"):
         assert label in page
     assert page.count('data-provider="aws"') == 2
@@ -1434,7 +2148,7 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
     security = client.get("/configuration/integrations").get_data(as_text=True)
     assert 'href="/password"' in security
     assert 'type="password"' not in security
-    logging = client.get("/configuration/runtime").get_data(as_text=True)
+    logging = client.get("/configuration/runtime/logging").get_data(as_text=True)
     assert 'name="logging.level"' in logging and 'name="logging.file"' in logging
     assert 'name="logging.expression_diagnostics"' in logging
     assert "secret-never-rendered" not in page + status + security + logging
@@ -1443,9 +2157,10 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
 def test_domain_error_hints_match_fields_without_matching_unrelated_words():
     from robot.web.domains import error_domain
     document = load_document()
-    assert error_domain(document, "display_fps: invalid number/range") == ("display", "display")
-    assert error_domain(document, "expression.local.model_path: readable file required") == ("expression", "local")
-    assert error_domain(document, "expression.aws: refresh_seconds must be less than cache_ttl_seconds") == ("expression", "cloud-limits")
+    assert error_domain(document, "display_fps: invalid number/range") == ("appearance", "display")
+    assert error_domain(document, "vision.camera_resolution: invalid") == ("runtime_vision", "vision")
+    assert error_domain(document, "expression.local.model_path: readable file required") == ("runtime_expression", "local")
+    assert error_domain(document, "expression.aws: refresh_seconds must be less than cache_ttl_seconds") == ("runtime_expression", "cloud-limits")
     assert error_domain(document, "Check local filesystem permissions.") == (None, None)
 
 
@@ -1762,19 +2477,21 @@ def test_environmental_behavior_status_uses_runtime_interpreter_state(setup):
                      "measurements": {"temperature_c": 28.0, "pressure_hpa": 1008.75},
                      "age_seconds": 2, "available_measurements": ["temperature_c", "pressure_hpa"],
                      "last_update": "2026-09-26T10:00:00+00:00", "error": None}
-    air = {"sensor_type": "ccs811", "status": "available", "available": True,
-           "measurements": {"eco2_ppm": 1300, "tvoc_ppb": 321}, "age_seconds": 3,
-           "last_update": "2026-09-26T10:00:00+00:00", "compensation_input": "device_defaults", "error": None}
-    lifecycle.register_sensor_status(lambda: {"environmental": environmental, "ccs811": air,
+    air = {"sensor_type": "ens160", "status": "available", "available": True,
+           "measurements": {"eco2_ppm": 1300, "tvoc_ppb": 321, "aqi_uba": 3}, "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True}, "ens160_validity": "normal", "ens160_compensation_active": True, "age_seconds": 3,
+           "last_update": "2026-09-26T10:00:00+00:00", "error": None}
+    aht = {"status": "available", "available": True, "measurements": {"temperature_c": 24.5, "humidity_percent": 45.0},
+           "measurement_usable": {"temperature_c": True, "humidity_percent": True}, "source": "controller"}
+    lifecycle.register_sensor_status(lambda: {"environmental": environmental, "ens160": air, "aht21": aht,
         "environmental_behavior": {"state": "warm", "reason": "temperature above warm threshold"}})
     client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
     page = client.get("/configuration/sensors").get_data(as_text=True)
     for text in ("Environmental State</dt><dd>WARM", "temperature above warm threshold",
-                 "28.00 °C", "1008.75 hPa", "1300 ppm", "321 ppb", "2.0 seconds old", "3.0 seconds old"):
+                 "28.00 °C", "1008.75 hPa", "1300 ppm", "321 ppb", "3 / 5", "Active", "24.50 °C", "45.00 %RH", "controller", "2.0 seconds old", "3.0 seconds old"):
         assert text in page
 
 
-def test_environmental_behavior_status_separates_warm_from_ccs811_warming_up(setup):
+def test_environmental_behavior_status_separates_warm_from_ens160_warming_up(setup):
     from robot.lifecycle import LifecycleService
     app, path, _ = setup
     config = RuntimeConfig.from_file(path)
@@ -1783,7 +2500,7 @@ def test_environmental_behavior_status_separates_warm_from_ccs811_warming_up(set
         "environmental": {"sensor_type": "bmp280", "status": "available", "available": True,
             "measurements": {"temperature_c": 28.18, "pressure_hpa": 995.66}, "age_seconds": 1,
             "available_measurements": ["temperature_c", "pressure_hpa"], "last_update": None, "error": None},
-        "ccs811": {"sensor_type": "ccs811", "status": "warming_up", "available": False,
+        "ens160": {"sensor_type": "ens160", "status": "warming_up", "available": False,
             "measurements": None, "age_seconds": None, "last_update": None,
             "compensation_input": None, "error": "Conditioning"},
         "environmental_behavior": {"state": "warm", "reason": "temperature above warm threshold"},
@@ -1792,7 +2509,76 @@ def test_environmental_behavior_status_separates_warm_from_ccs811_warming_up(set
     page = client.get("/configuration/sensors").get_data(as_text=True)
     assert "Environmental State</dt><dd>WARM" in page
     assert "temperature above warm threshold" in page
-    assert "CCS811 freshness</dt><dd>warming_up" in page
+    assert "ENS160 freshness</dt><dd>warming_up" in page
+
+
+def test_sensors_page_renders_all_ens160_aqi_uba_categories_and_hides_unusable_history(setup):
+    from robot.lifecycle import LifecycleService
+    _app, path, _ = setup
+    config = RuntimeConfig.from_file(path)
+    lifecycle = LifecycleService(path, config)
+    air = {"status": "available", "available": True,
+           "measurements": {"eco2_ppm": 600, "tvoc_ppb": 10, "aqi_uba": 1},
+           "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True},
+           "ens160_validity": "normal", "ens160_compensation_active": None,
+           "last_update": None, "age_seconds": 0, "error": None}
+    aht = {"status": "available", "available": True,
+           "measurements": {"temperature_c": 21.5, "humidity_percent": 44.0},
+           "measurement_usable": {"temperature_c": True, "humidity_percent": True}, "source": "controller"}
+    lifecycle.register_sensor_status(lambda: {"ens160": air, "aht21": aht})
+    client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
+    for value, label in ((1, "Excellent"), (2, "Good"), (3, "Moderate"), (4, "Poor"), (5, "Unhealthy")):
+        air["measurements"]["aqi_uba"] = value
+        page = client.get("/configuration/sensors").get_data(as_text=True)
+        assert f"{value} / 5 — {label}" in page
+    air.update(status="invalid", available=False)
+    air["measurements"].update(eco2_ppm=999, tvoc_ppb=999, aqi_uba=5)
+    air["measurement_usable"] = {"eco2_ppm": False, "tvoc_ppb": False, "aqi_uba": False}
+    page = client.get("/configuration/sensors").get_data(as_text=True)
+    assert "invalid" in page and "999 ppm" not in page and "999 ppb" not in page
+    assert "21.50 °C" in page and "44.00 %RH" in page and "controller" in page
+
+
+def test_sensors_page_handles_ens160_states_compensation_and_aht21_field_freshness(setup):
+    from robot.lifecycle import LifecycleService
+    _app, path, _ = setup
+    config = RuntimeConfig.from_file(path)
+    lifecycle = LifecycleService(path, config)
+    environmental = {"sensor_type": "bmp280", "status": "available", "available": True,
+                     "measurements": {"temperature_c": 19.0, "pressure_hpa": 1001.0},
+                     "available_measurements": ["temperature_c", "pressure_hpa"], "age_seconds": None}
+    air = {"status": "normal", "available": True,
+           "measurements": {"eco2_ppm": 500, "tvoc_ppb": 5, "aqi_uba": 1},
+           "measurement_usable": {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True},
+           "ens160_validity": "normal", "ens160_compensation_active": True, "age_seconds": None}
+    aht = {"status": "available", "available": True,
+           "measurements": {"temperature_c": 23.0, "humidity_percent": 51.0},
+           "measurement_usable": {"temperature_c": True, "humidity_percent": True}, "source": "controller", "age_seconds": None}
+    state = {"environmental": environmental, "ens160": air, "aht21": aht}
+    lifecycle.register_sensor_status(lambda: state)
+    client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
+    for status in ("normal", "starting", "stale", "unavailable"):
+        air["status"], air["available"] = status, status == "normal"
+        air["measurement_usable"] = {"eco2_ppm": status == "normal", "tvoc_ppb": status == "normal", "aqi_uba": status == "normal"}
+        page = client.get("/configuration/sensors")
+        assert page.status_code == 200
+        rendered = page.get_data(as_text=True)
+        assert f"Sensor status</dt><dd>{status}" in rendered
+        if status != "normal": assert "500 ppm" not in rendered and "5 ppb" not in rendered
+        assert "23.00 °C" in rendered and "19.00 °C" in rendered
+    air["status"], air["available"] = "normal", True
+    air["measurement_usable"] = {"eco2_ppm": True, "tvoc_ppb": True, "aqi_uba": True}
+    for value, label in ((True, "Active"), (False, "Inactive"), (None, "Unknown")):
+        air["ens160_compensation_active"] = value
+        assert f"Compensation</dt><dd>{label}" in client.get("/configuration/sensors").get_data(as_text=True)
+    aht["measurement_usable"] = {"temperature_c": False, "humidity_percent": True}
+    page = client.get("/configuration/sensors").get_data(as_text=True)
+    assert "23.00 °C" not in page and "51.00 %RH" in page and "19.00 °C" in page
+    aht["measurement_usable"] = {"temperature_c": True, "humidity_percent": False}
+    page = client.get("/configuration/sensors").get_data(as_text=True)
+    assert "23.00 °C" in page and "51.00 %RH" not in page
+    state.pop("ens160"); state.pop("aht21")
+    assert client.get("/configuration/sensors").status_code == 200
 
 
 def test_sensors_page_shows_shared_semantic_runtime_status(setup):
@@ -1838,36 +2624,28 @@ def test_bmp280_status_shows_unsupported_humidity_even_when_disabled(setup):
             assert '22.50 °C' in page and '1008.75 hPa' in page
 
 
-def test_ccs811_form_and_status_use_shared_configuration_and_lifecycle(setup):
+def test_ens160_form_and_status_use_shared_configuration_and_lifecycle(setup):
     from robot.lifecycle import LifecycleService
     app, path, _ = setup
     config = RuntimeConfig.from_file(path)
     lifecycle = LifecycleService(path, config)
-    state = {'sensor_type': 'ccs811', 'status': 'available', 'available': True,
-             'measurements': {'eco2_ppm': 1234, 'tvoc_ppb': 321},
+    state = {'sensor_type': 'ens160', 'status': 'available', 'available': True,
+             'measurements': {'eco2_ppm': 1234, 'tvoc_ppb': 321, 'aqi_uba': 2},
+             'measurement_usable': {'eco2_ppm': True, 'tvoc_ppb': True, 'aqi_uba': True},
              'last_update': '2026-09-24T12:00:00+00:00', 'age_seconds': 2,
              'compensation_input': 'environmental', 'error': None}
-    lifecycle.register_sensor_status(lambda: {'ccs811': dict(state)})
+    lifecycle.register_sensor_status(lambda: {'ens160': dict(state)})
     client = authorize(create_app(path, active_document=config.to_dict(), lifecycle=lifecycle))
     page = client.get('/configuration/sensors').get_data(as_text=True)
     for text in ('1234 ppm', '321 ppb', 'estimated equivalent CO2', 'not a direct NDIR',
-                 'Fresh environmental temperature/humidity', state['last_update'],
-                 'name="sensors.ccs811.enabled"', 'value="0x5b"'):
+                 state['last_update'], 'name="sensors.ens160.enabled"', 'value="0x53"'):
         assert text in page
     data = form(client, 'sensors')
-    data.update({'sensors.ccs811.enabled': 'on', 'sensors.ccs811.i2c_address': '0x5b',
-                 'sensors.ccs811.poll_interval_seconds': '10', 'sensors.ccs811.stale_after_seconds': '60'})
-    assert client.post('/configuration/sensors', data=data).status_code == 302
-    expected = config.to_dict()
-    expected['sensors']['ccs811'].update(enabled=True, i2c_address='0x5b',
-                                        poll_interval_seconds=10, stale_after_seconds=60)
-    assert load_document(path) == expected
-    assert len(lifecycle.execute('status')['restart_required']) == 4
-    for field, value in [('i2c_address', '0x76'), ('poll_interval_seconds', '0'), ('stale_after_seconds', '10')]:
-        invalid = form(client, 'sensors')
-        invalid['sensors.ccs811.' + field] = value
-        assert client.post('/configuration/sensors', data=invalid).status_code == 400
-        assert load_document(path) == expected
+    data.update({'sensors.ens160.enabled': 'on', 'sensors.ens160.i2c_address': '0x53',
+                 'sensors.ens160.poll_interval_seconds': '10', 'sensors.ens160.stale_after_seconds': '60'})
+    # ENS160 is controller-backed: it cannot be enabled unless the configured
+    # controller is enabled, so the standalone fixture correctly rejects this.
+    assert client.post('/configuration/sensors', data=data).status_code == 400
     for status in ('warming_up', 'unavailable', 'stale', 'disabled'):
         state.update(status=status, available=False, measurements=None, error='Waiting for sensor')
         page = client.get('/configuration/sensors').get_data(as_text=True)

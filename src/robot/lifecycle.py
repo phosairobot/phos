@@ -55,7 +55,7 @@ HARDWARE_CONTROLLER_RELOADABLE = frozenset({
     "hardware_controller.reconnect.delay_seconds", "hardware_controller.heartbeat.interval_seconds",
     "hardware_controller.heartbeat.timeout_seconds",
 })
-RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
+RELOADABLE = frozenset({"logging.level", "display.iris_color", "display.eye_shape", "display.base_visual_source", "display.environment_overlays_enabled", *PREVIEW_RELOADABLE, *IMU_MOTION_RELOADABLE,
                         "display.backgrounds.enabled", "display.backgrounds.idle", "display.backgrounds.listening",
                         "display.backgrounds.thinking", "display.backgrounds.speaking", "display.backgrounds.sleeping",
                         "display.backgrounds.error", "display.eye_safe_layer.enabled", "display.eye_safe_layer.mode", "display.state_effects.enabled", "display.state_effects.preset", "display.state_effects.palette", "display.state_effects.reduce_motion", *IMU_BEHAVIOR_RELOADABLE, *LED_RING_RELOADABLE, *ENVIRONMENTAL_BEHAVIOR_RELOADABLE, *HARDWARE_CONTROLLER_RELOADABLE})
@@ -102,9 +102,15 @@ class LifecycleService:
         self._apply_backgrounds = None
         self._apply_eye_safe_layer = None
         self._apply_state_effects = None
+        self._apply_semantic_led_palette = None
+        self._apply_physical_personality = None
         self._sensor_status = None
         self._application_status = None
         self._application_service = None
+        self._agent_management_service = None
+        self._appearance_activity_tracker = None
+        self._presentation_activation = {"state": "pending", "message": "Presentation runtime is not ready."}
+        self._applied_appearance_key = None
         self._application_ready = False
         self._clock = clock
         self._lock = RLock()
@@ -154,6 +160,12 @@ class LifecycleService:
     def register_state_effects_applier(self, applier):
         with self._lock: self._apply_state_effects = applier
 
+    def register_semantic_led_palette_applier(self, applier):
+        with self._lock: self._apply_semantic_led_palette = applier
+
+    def register_physical_personality_applier(self, applier):
+        with self._lock: self._apply_physical_personality = applier
+
     def apply_temporary_appearance(self, config: RuntimeConfig) -> dict:
         """Apply validated visual settings without changing saved or active config."""
         if not isinstance(config, RuntimeConfig):
@@ -163,7 +175,8 @@ class LifecycleService:
                         ("eye safe layer", self._apply_eye_safe_layer), ("state effects", self._apply_state_effects))
             unavailable = next((name for name, applier in appliers if applier is None), None)
             if unavailable is not None:
-                return {"ok": False, "error": f"Runtime {unavailable} service is not ready. Try again shortly."}
+                return {"ok": False, "state": "unavailable",
+                        "error": f"Runtime {unavailable} service is not ready. Try again shortly."}
             try:
                 for _, applier in appliers: applier(config)
             except Exception:
@@ -172,7 +185,8 @@ class LifecycleService:
                 for _, applier in appliers:
                     try: applier(baseline)
                     except Exception: logger.exception("Temporary appearance preview rollback failed")
-                return {"ok": False, "error": "The running display could not accept the temporary preview."}
+                return {"ok": False, "state": "failed",
+                        "error": "The running display could not accept the temporary preview."}
             return {"ok": True, "applied": ["temporary_appearance"]}
 
     def apply_eyes(self, config: RuntimeConfig) -> dict:
@@ -184,7 +198,8 @@ class LifecycleService:
             display = self.active["display"]
             changes = (
                 ("display.iris_color", self._apply_appearance,
-                 display["iris_color"] != saved["display"]["iris_color"]),
+                 (display["iris_color"] != saved["display"]["iris_color"]
+                  or display["eye_shape"] != saved["display"]["eye_shape"])),
                 ("display.base_visual_source", self._apply_base_visual_source,
                  display["base_visual_source"] != saved["display"]["base_visual_source"]),
                 ("display.environment_overlays_enabled", self._apply_environment_overlays,
@@ -236,6 +251,80 @@ class LifecycleService:
         with self._lock:
             self._application_service = service
             self._application_ready = False
+
+    def register_agent_management_service(self, service):
+        """Register the owner-process boundary for live MCP agent updates."""
+        with self._lock:
+            self._agent_management_service = service
+            service.register_effective_appearance_applier(self.reconcile_effective_appearance)
+
+    def register_appearance_activity_tracker(self, tracker):
+        """Attach automatic arbitration without changing renderer behavior."""
+        with self._lock:
+            self._appearance_activity_tracker = tracker
+            tracker.set_change_callback(self._appearance_arbitration_changed)
+
+    def _appearance_arbitration_changed(self, result) -> None:
+        """Apply a new automatic intent; the tracker calls this after its lock."""
+        self.reconcile_effective_appearance(arbitration=result)
+
+    def appearance_arbitration_status(self) -> dict:
+        if self._appearance_activity_tracker is None:
+            return {"mode": "global", "selected_agent_id": None,
+                    "selection_reason": "activity_tracker_unavailable", "agents": []}
+        return self._appearance_activity_tracker.status()
+
+    def reconcile_effective_appearance(self, *, arbitration=None) -> dict:
+        """Apply mode-authoritative appearance without saving display config."""
+        with self._lock:
+            if self._agent_management_service is None:
+                self._presentation_activation = {"state": "unavailable", "message": "Presentation service is not ready."}
+                return {"ok": False, "error": self._presentation_activation["message"]}
+            try:
+                if arbitration is None:
+                    arbitration = self.appearance_arbitration_status()
+                candidate, resolved = self._agent_management_service.automatic_appearance_config(arbitration)
+                # Resolve the LED palette from the *applied* appearance.  A
+                # selected agent whose appearance has fallen back to global
+                # must not leave a mismatched LED theme behind.
+                palette = self._agent_management_service.effective_led_palette(arbitration, resolved=resolved)
+            except (ConfigurationError, OSError):
+                self._presentation_activation = {"state": "failed", "message": "Effective appearance could not be resolved."}
+                return {"ok": False, "error": self._presentation_activation["message"]}
+            key = (resolved.get("mode"), resolved.get("selected_agent_id"), resolved.get("effective_skin_id"),
+                   resolved.get("effective_personality"), repr(candidate.to_dict().get("display")), repr(palette))
+            if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
+                    "global_active", "agent_skin_active", "fallback_active"}:
+                return {"ok": True, "applied": [], "resolved": resolved}
+            self._presentation_activation = {"state": "applying", "message": "Applying resolved appearance.",
+                                             "mode": resolved.get("mode"), "arbitration": arbitration}
+            result = self.apply_temporary_appearance(candidate)
+            if result.get("ok"):
+                if self._apply_physical_personality is not None:
+                    self._apply_physical_personality(resolved.get("effective_personality", "analytical"))
+                if self._apply_semantic_led_palette is not None:
+                    self._apply_semantic_led_palette(palette)
+                self._applied_appearance_key = key
+                state = "agent_skin_active" if resolved.get("state") == "assigned" else (
+                    "global_active" if resolved.get("mode") == "global" else "fallback_active")
+                self._presentation_activation = {"state": state, "message": "Runtime appearance applied.",
+                                                 "mode": resolved.get("mode"), "resolved": resolved,
+                                                 "arbitration": arbitration, "led_palette": palette}
+            else:
+                self._presentation_activation = {"state": result.get("state", "unavailable"),
+                                                 "message": result.get("error", "Runtime appearance was not applied."),
+                                                 "mode": resolved.get("mode"), "resolved": resolved,
+                                                 "arbitration": arbitration}
+            return {**result, "resolved": resolved}
+
+    def presentation_activation_status(self) -> dict:
+        with self._lock:
+            return deepcopy(self._presentation_activation)
+
+    def agent_skin_references(self, skin_id):
+        if self._agent_management_service is None:
+            return ()
+        return self._agent_management_service.skin_references(skin_id)
 
     def mark_application_ready(self):
         """Publish that the registered service can safely enter the runtime loop."""
@@ -332,7 +421,8 @@ class LifecycleService:
             if operation == "reload":
                 if self.restart_at is not None:
                     return {"ok": False, "error": "Restart is already requested. Wait for PHOS to start again."}
-                if (self.active["display"]["iris_color"] != saved["display"]["iris_color"]
+                if ((self.active["display"]["iris_color"] != saved["display"]["iris_color"]
+                        or self.active["display"]["eye_shape"] != saved["display"]["eye_shape"])
                         and self._apply_appearance is None):
                     return {"ok": False, "error": "Runtime appearance service is not ready. No settings were applied; retry reload shortly."}
                 if (self.active["display"]["base_visual_source"] != saved["display"]["base_visual_source"]
@@ -380,13 +470,18 @@ class LifecycleService:
                     saved["hardware_controller"], "hardware_controller")
                 if controller_paths and self._apply_hardware_controller is None:
                     return {"ok": False, "error": "Runtime hardware controller service is not ready. No settings were applied; retry reload shortly."}
-                if self.active["display"]["iris_color"] != saved["display"]["iris_color"]:
+                if (self.active["display"]["iris_color"] != saved["display"]["iris_color"]
+                        or self.active["display"]["eye_shape"] != saved["display"]["eye_shape"]):
+                    appearance_paths = [path for path in ("display.iris_color", "display.eye_shape")
+                                        if self.active["display"][path.rsplit(".", 1)[1]]
+                                        != saved["display"][path.rsplit(".", 1)[1]]]
                     try:
                         self._apply_appearance(config)
                     except Exception:
                         return {"ok": False, "error": "The running display could not accept the appearance update. No active configuration was recorded; retry reload or restart PHOS."}
                     self.active["display"]["iris_color"] = saved["display"]["iris_color"]
-                    applied.append("display.iris_color")
+                    self.active["display"]["eye_shape"] = saved["display"]["eye_shape"]
+                    applied.extend(appearance_paths)
                 if self.active["display"]["base_visual_source"] != saved["display"]["base_visual_source"]:
                     self._apply_base_visual_source(config)
                     self.active["display"]["base_visual_source"] = saved["display"]["base_visual_source"]
@@ -466,12 +561,42 @@ class LifecycleService:
                     self._set_log_level(saved["logging"]["level"])
                     self.active["logging"]["level"] = saved["logging"]["level"]
                     applied.append("logging.level")
+                if self._agent_management_service is not None:
+                    presentation = self.reconcile_effective_appearance()
+                    if not presentation.get("ok"):
+                        return {"ok": False, **self._snapshot(saved), "applied": applied,
+                                "error": presentation.get("error", "Effective appearance could not be applied.")}
+                if self._appearance_activity_tracker is not None:
+                    self._appearance_activity_tracker.recompute()
                 self.loaded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             return {"ok": True, **self._snapshot(saved), "applied": applied}
 
     def _execute_application(self, request):
         name, payload = request.get("operation"), request.get("payload")
         handlers = {
+            "application.agents": lambda: self._agent_management_service.list_agents(),
+            "application.agent_skins": lambda: self._agent_management_service.available_skins(),
+            "application.create_agent": lambda: self._agent_management_service.create_agent(
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", ""),
+                skin=payload.get("skin"), appearance=payload.get("appearance")),
+            "application.update_agent": lambda: self._agent_management_service.update_agent(
+                payload.get("agent_id", ""), payload.get("display_name", ""), payload.get("permission_profile", ""),
+                skin=payload.get("skin"), appearance=payload.get("appearance")),
+            "application.set_default_agent": lambda: self._agent_management_service.set_default_agent(payload.get("agent_id", "")),
+            "application.delete_agent": lambda: self._agent_management_service.delete_agent(payload.get("agent_id", "")),
+            "application.create_agent_credential": lambda: self._agent_management_service.create_credential(payload.get("agent_id", "")),
+            "application.rotate_agent_credential": lambda: self._agent_management_service.rotate_credential(payload.get("agent_id", "")),
+            "application.revoke_agent_credential": lambda: self._agent_management_service.revoke_credential(payload.get("agent_id", "")),
+            "application.presentation_owner": lambda: self._agent_management_service.presentation_owner(),
+            "application.set_presentation_owner": lambda: self._agent_management_service.set_presentation_owner(payload.get("agent_id", "")),
+            "application.clear_presentation_owner": lambda: self._agent_management_service.clear_presentation_owner(),
+            "application.effective_skin": lambda: self._agent_management_service.effective_skin(),
+            "application.presentation_activation": lambda: self.presentation_activation_status(),
+            "application.appearance_arbitration": lambda: self.appearance_arbitration_status(),
+            "application.appearance_mode": lambda: self._agent_management_service.appearance_mode(),
+            "application.set_appearance_mode": lambda: self._agent_management_service.set_appearance_mode(payload.get("mode")),
+            "application.anonymous_mcp_appearance": lambda: self._agent_management_service.anonymous_mcp_appearance(),
+            "application.set_anonymous_mcp_appearance": lambda: self._agent_management_service.set_anonymous_mcp_appearance(payload.get("enabled")),
             "application.status": lambda: self._application_service.status(),
             "application.state": lambda: self._application_service.robot_state(),
             "application.environment": lambda: self._application_service.environment(),
@@ -528,7 +653,8 @@ class LifecycleService:
         }
         if name not in handlers or not isinstance(payload, (dict, type(None))):
             return {"ok": False, "error": "Unsupported application operation."}
-        if self._application_service is None or not getattr(self, "_application_ready", True):
+        agent_operation = name in {"application.agents", "application.agent_skins", "application.create_agent", "application.update_agent", "application.set_default_agent", "application.delete_agent", "application.create_agent_credential", "application.rotate_agent_credential", "application.revoke_agent_credential", "application.presentation_owner", "application.set_presentation_owner", "application.clear_presentation_owner", "application.effective_skin", "application.presentation_activation", "application.appearance_arbitration", "application.appearance_mode", "application.set_appearance_mode", "application.anonymous_mcp_appearance", "application.set_anonymous_mcp_appearance"}
+        if (agent_operation and self._agent_management_service is None) or (not agent_operation and (self._application_service is None or not getattr(self, "_application_ready", True))):
             return {"ok": False, "error": {
                 "code": "service_unavailable",
                 "message": "PHOS runtime command service is starting. Retry shortly.",

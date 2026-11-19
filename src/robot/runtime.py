@@ -14,7 +14,6 @@ from typing import Callable, Optional
 
 from robot.config import RuntimeConfig
 from robot.hardware.environmental import environmental_provider_type
-from robot.hardware.ccs811 import CCS811Provider
 from robot.hardware.mpu6050 import MPU6050Provider
 from robot.hardware.ws2812b import LEDRingProvider, LEDRingSocketProvider
 from robot.hardware.serial_controller import ControllerService
@@ -52,9 +51,12 @@ from robot.vision import (
     Picamera2CameraProvider,
     VisionPipeline,
 )
+from robot.vision.nanodet import NanoDetDetector
+from robot.vision.object_awareness import ObjectAwarenessCoordinator
 
 from robot.vision.aws_expression import AWSExpressionProvider
 from robot.admin_access import AdminOverlayState, NetworkInfoService, QRMatrixCache
+from robot.services.temporal_history import TemporalHistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,7 @@ class PhosRuntime:
         controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
         semantic_overlay: Optional[SemanticOverlayService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
+        object_awareness: Optional[ObjectAwarenessCoordinator] = None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
@@ -106,14 +109,18 @@ class PhosRuntime:
         self._interaction_coordinator = interaction_coordinator
         self._controller = controller
         self._semantic_led = semantic_led
+        self._pending_semantic_led_palette = None
+        self._semantic_led_palette_metadata = {"state": "global", "skin_id": None, "colors": {}}
         self._semantic_overlay = semantic_overlay
         self._tts_provider, self._audio_output = tts_provider, audio_output
+        self._object_awareness = object_awareness
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
         self._tts_status = tts_status or {"enabled": False, "configured_provider": None,
                                           "available": False, "reason": "disabled"}
         self._tts_lock = asyncio.Lock()
         self._speech_task: asyncio.Task | None = None
+        self._sensor_freshness_task: asyncio.Task | None = None
         self._touch_voice_task: asyncio.Task | None = None
         self._next_speech_request_id = 0
         self._touch_status = TouchStatus(enabled=bool(config and config.touch_enabled))
@@ -149,9 +156,38 @@ class PhosRuntime:
             task.add_done_callback(_log_motion_publish_failure)
         loop.call_soon_threadsafe(publish)
 
+    def publish_sensor_status(self) -> None:
+        if self._loop is None or self._stopping:
+            return
+        self._loop.call_soon_threadsafe(lambda: asyncio.create_task(
+            self.core.events.publish(Event("sensor_status_changed", {}))))
+
+    def _sensor_freshness_interval(self) -> float:
+        if self._config is None:
+            return 5.0
+        thresholds = (self._config.environmental_stale_after_seconds,
+                      self._config.ens160_stale_after_seconds,
+                      self._config.imu_stale_after_seconds)
+        return min(5.0, max(.1, min(thresholds) / 2))
+
+    async def _monitor_sensor_freshness(self) -> None:
+        """Re-evaluate the existing snapshot freshness state on the runtime loop."""
+        try:
+            while not self._stopping:
+                await asyncio.sleep(self._sensor_freshness_interval())
+                if not self._stopping:
+                    await self._check_sensor_freshness()
+        except asyncio.CancelledError:
+            raise
+
+    async def _check_sensor_freshness(self) -> None:
+        """Publish one runtime-owned semantic status re-evaluation."""
+        if not self._stopping:
+            await self.core.events.publish(Event("sensor_status_changed", {}))
+
     def apply_appearance(self, config: RuntimeConfig) -> None:
         """Apply validated appearance through the display runtime boundary."""
-        self._eye_render_loop.request_appearance(iris_color=config.iris_color)
+        self._eye_render_loop.request_appearance(iris_color=config.iris_color, shape=config.eye_shape)
 
     def admin_overlay_available(self) -> bool:
         """Return whether the physical display can safely receive local secrets."""
@@ -206,11 +242,16 @@ class PhosRuntime:
                 self.clear_admin_overlay()
                 logger.info("PHOS ADMIN: access overlay closed")
             return True
-        if (event.kind.value == "long_press" and event.duration_ms >= 2500
+        if (event.kind.value == "double_tap"
                 and event.normalized_x >= .80 and event.normalized_y <= .20):
+            logger.info("PHOS ADMIN: top-right double-tap recognized")
             try:
                 self.show_admin_access_overlay()
-            except RuntimeError:
+            except RuntimeError as error:
+                logger.info("PHOS ADMIN: access overlay rejected reason=%s", str(error))
+                return False
+            except Exception:
+                logger.exception("PHOS ADMIN: access overlay failed")
                 return False
             return True
         return False
@@ -272,6 +313,9 @@ class PhosRuntime:
     def apply_base_visual_source(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_base_visual_source(config.base_visual_source)
 
+    def apply_physical_personality(self, preset: str) -> None:
+        self._behavior_engine.configure_physical_personality(preset)
+
     def apply_environment_overlays(self, config: RuntimeConfig) -> None:
         self._behavior_engine.configure_environment_overlays(config.environment_overlays_enabled)
 
@@ -313,7 +357,26 @@ class PhosRuntime:
         """Read-only application boundary, safe for the lifecycle thread."""
         state = {"environmental": self._sensor_service.snapshot()} if self._sensor_service is not None else {}
         if self._air_quality_service is not None:
-            state["ccs811"] = self._air_quality_service.snapshot()
+            air = self._air_quality_service.snapshot()
+            values = air.get("measurements") or {}
+            state["ens160"] = {**air, "measurements": {key: values.get(key) for key in ("eco2_ppm", "tvoc_ppb", "aqi_uba")},
+                               "aqi_scale": "uba_1_to_5"}
+            aht_fields = {"temperature_c": "aht21_temperature_c",
+                          "humidity_percent": "aht21_humidity_percent"}
+            usable = air.get("measurement_usable") or {}
+            fresh = air.get("measurement_fresh") or {}
+            ages = air.get("measurement_age_seconds") or {}
+            aht_usable = {field: bool(usable.get(source)) for field, source in aht_fields.items()}
+            aht_values = {field: values.get(source) for field, source in aht_fields.items()}
+            aht_has_history = any(value is not None for value in aht_values.values())
+            state["aht21"] = {
+                "status": "available" if any(aht_usable.values()) else "stale" if aht_has_history else "unavailable",
+                "available": any(aht_usable.values()), "measurements": aht_values,
+                "measurement_usable": aht_usable,
+                "measurement_fresh": {field: bool(fresh.get(source)) for field, source in aht_fields.items()},
+                "measurement_age_seconds": {field: ages.get(source) for field, source in aht_fields.items()},
+                "source": "controller",
+            }
         if self._imu_service is not None:
             state["imu"] = self._imu_service.snapshot()
         if self._led_ring_controller is not None:
@@ -335,7 +398,17 @@ class PhosRuntime:
     def led_status(self) -> dict:
         status = self._semantic_led.status() if self._semantic_led is not None else {"active_intent": None, "winning_source": None, "resolved_animation": None}
         status["available"] = bool(self._controller and self._controller.led_output_available())
+        status["effective_skin_palette"] = dict(self._semantic_led_palette_metadata)
         return status
+
+    def apply_semantic_led_palette(self, palette: dict) -> None:
+        """Queue lifecycle-resolved skin colors on the runtime event loop."""
+        colors = dict(palette.get("colors", {})) if isinstance(palette, dict) and palette.get("state") == "configured" else {}
+        self._semantic_led_palette_metadata = dict(palette) if isinstance(palette, dict) else {"state": "global", "skin_id": None, "colors": {}}
+        self._pending_semantic_led_palette = colors
+        if self._semantic_led is None or self._loop is None or self._stopping:
+            return
+        self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._semantic_led.set_palette(colors)))
 
     async def signal_user(self, signal: str) -> dict:
         if self._semantic_led is None: raise RuntimeError("Semantic LED service is unavailable")
@@ -647,6 +720,8 @@ class PhosRuntime:
         self._unsubscribers = [self.core.events.subscribe(STATE_CHANGED, self._log_state_transition)]
         self._stopping = False
         self._loop = asyncio.get_running_loop()
+        if self._semantic_led is not None and self._pending_semantic_led_palette is not None:
+            await self._semantic_led.set_palette(self._pending_semantic_led_palette)
         self._vision_changed = asyncio.Event()
         splash = self._config.resolve_startup_splash_image() if self._config else None
         sound = self._config.resolve_startup_ready_sound() if self._config else None
@@ -676,7 +751,7 @@ class PhosRuntime:
             self._startup.set("core", StartupState.READY)
             if self._sensor_service is not None:
                 await self._sensor_service.start()
-            self._startup.set("sensors", StartupState.READY if self._config and (self._config.environmental_enabled or self._config.ccs811_enabled or self._config.imu_enabled) else StartupState.UNAVAILABLE, "optional sensors disabled" if self._config and not (self._config.environmental_enabled or self._config.ccs811_enabled or self._config.imu_enabled) else None)
+            self._startup.set("sensors", StartupState.READY if self._config and (self._config.environmental_enabled or self._config.ens160_enabled or self._config.imu_enabled) else StartupState.UNAVAILABLE, "optional sensors disabled" if self._config and not (self._config.environmental_enabled or self._config.ens160_enabled or self._config.imu_enabled) else None)
             if self._air_quality_service is not None:
                 await self._air_quality_service.start()
             if self._imu_service is not None:
@@ -696,6 +771,8 @@ class PhosRuntime:
             self._started = True
             for callback in tuple(self._started_callbacks):
                 callback()
+            self._sensor_freshness_task = asyncio.create_task(
+                self._monitor_sensor_freshness(), name="sensor-freshness-monitor")
             logger.info("STARTUP: %s", self._startup.overall_state.value)
             self._play_ready_sound()
             logger.info("PHOS runtime started")
@@ -778,6 +855,11 @@ class PhosRuntime:
 
     async def stop(self) -> None:
         self._stopping = True
+        freshness_task = self._sensor_freshness_task
+        if freshness_task is not None and not freshness_task.done():
+            freshness_task.cancel()
+            await asyncio.gather(freshness_task, return_exceptions=True)
+        self._sensor_freshness_task = None
         if self._interaction_coordinator is not None:
             self._interaction_coordinator.close()
         if self._voice_session is not None and self._voice_session.status().get("listening"):
@@ -800,6 +882,11 @@ class PhosRuntime:
             await self._imu_service.stop()
         if self._sensor_service is not None:
             await self._sensor_service.stop()
+        if self._object_awareness is not None:
+            try:
+                await self._object_awareness.close()
+            except Exception:
+                logger.exception("PHOS object-awareness shutdown failed")
         if self._vision_started and self._vision_pipeline is not None:
             try:
                 await self._vision_pipeline.stop()
@@ -816,6 +903,9 @@ class PhosRuntime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers = []
+        history = getattr(self, "_temporal_history", None)
+        if history is not None:
+            history.close()
         self._started = False
         logger.info("PHOS runtime stopped")
 
@@ -850,6 +940,12 @@ def build_runtime(
     config.validate()
     config.validate_paths()
     core = RobotCore()
+    temporal_history = TemporalHistoryService()
+    def record_history(metric, value, unit, source):
+        try:
+            temporal_history.record_measurement(metric, value, unit, source=source)
+        except Exception:
+            logger.warning("PHOS HISTORY: measurement was not retained", exc_info=True)
     behavior_engine = BehaviorEngine(
         core.events, blink_interval=config.blink_interval_seconds,
         gaze_interval=config.gaze_interval_seconds, face_gaze_smoothing=config.face_gaze_smoothing,
@@ -951,22 +1047,36 @@ def build_runtime(
         asyncio.create_task(core.events.publish(Event(TOUCH_EVENT_NAMES[event.kind.value], payload)))
 
     controller_sensors = {}
-    def accept_controller_sensor(name, value):
+    def accept_controller_sensor(name, value, generation=None):
         if name in {"temperature", "pressure", "humidity"}:
             if config.environmental_provider == "controller":
                 controller_sensors["environmental"].accept_controller_update(name, value)
-        elif name in {"eco2", "tvoc"} and config.ccs811_provider == "controller":
-            controller_sensors["air_quality"].accept_controller_update(name, value)
+        if name in {"humidity", "aht21_temperature"} and config.ens160_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value, generation=generation)
+        elif name in {"eco2", "tvoc", "aqi"} and config.ens160_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_update(name, value, generation=generation)
+
+    def accept_controller_sensor_status(payload, generation=None):
+        if config.ens160_provider == "controller":
+            controller_sensors["air_quality"].accept_controller_status(payload, generation=generation)
 
     def controller_provider_disconnected():
         if config.environmental_provider == "controller":
             controller_sensors["environmental"].mark_external_unavailable()
-        if config.ccs811_provider == "controller":
+        if config.ens160_provider == "controller":
             controller_sensors["air_quality"].mark_external_unavailable()
         if config.imu_provider == "controller":
             controller_sensors["imu"].mark_external_unavailable()
 
-    def accept_controller_imu(message):
+    def controller_session_activated(generation):
+        if config.ens160_provider == "controller": controller_sensors["air_quality"].activate_controller_generation(generation)
+        if config.imu_provider == "controller": controller_sensors["imu"].activate_controller_generation(generation)
+
+    def controller_session_retired(generation):
+        if config.ens160_provider == "controller": controller_sensors["air_quality"].retire_controller_generation(generation)
+        if config.imu_provider == "controller": controller_sensors["imu"].retire_controller_generation(generation)
+
+    def accept_controller_imu(message, generation):
         if config.imu_provider != "controller":
             return
         imu = controller_sensors["imu"]
@@ -975,11 +1085,11 @@ def build_runtime(
                       "tilt_left": MotionState.TILT_LEFT, "tilt_right": MotionState.TILT_RIGHT,
                       "tilt_forward": MotionState.TILT_FORWARD, "tilt_backward": MotionState.TILT_BACK,
                       "shake": MotionState.SHAKE, "impact": MotionState.IMPACT}
-            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"])
+            imu.accept_controller_motion(states[message.payload["state"]], message.payload["intensity"], generation=generation)
         elif message.type == "orientation_update":
             acceleration, angular = message.payload["acceleration_m_s2"], message.payload["angular_velocity_dps"]
             imu.accept_controller_orientation(IMUReading(acceleration["x"], acceleration["y"], acceleration["z"],
-                                                         angular["x"], angular["y"], angular["z"]))
+                                                         angular["x"], angular["y"], angular["z"]), generation=generation)
 
     semantic_led_holder = {}
     def controller_led_capabilities_changed():
@@ -995,7 +1105,8 @@ def build_runtime(
         reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
         heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
         heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
-        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor,
+        touch_sink=publish_touch, sensor_update_sink=accept_controller_sensor, sensor_status_sink=accept_controller_sensor_status,
+        session_activated_sink=controller_session_activated, session_retired_sink=controller_session_retired,
         imu_update_sink=accept_controller_imu,
         provider_disconnected_sink=controller_provider_disconnected,
         led_capabilities_sink=controller_led_capabilities_changed,
@@ -1016,7 +1127,8 @@ def build_runtime(
     state_effect_resolver = StateEffectResolver(config)
     eye_render_loop = EyeRenderLoop(
         EyeRenderer(width=config.display_width, height=config.display_height,
-                    transition_seconds=config.display_transition_seconds, iris_color=config.iris_color),
+                    transition_seconds=config.display_transition_seconds, iris_color=config.iris_color,
+                    shape=config.eye_shape),
         eye_display or TkEyeDisplay(),
         lambda: behavior_engine.face_state,
         fps=config.display_fps,
@@ -1050,6 +1162,15 @@ def build_runtime(
         vision_factory(core.events) if vision_factory is not None else _build_configured_vision(config, core.events)
     )
     vision_holder["pipeline"] = resolved_vision
+    object_awareness = None
+    if config.object_awareness_enabled and resolved_vision is not None:
+        model_path = config.resolve_path(config.object_awareness_model_path)
+        object_awareness = ObjectAwarenessCoordinator(
+            resolved_vision,
+            lambda: NanoDetDetector(model_path, confidence=config.object_awareness_confidence,
+                                    max_detections=config.object_awareness_max_detections),
+            timeout_seconds=config.object_awareness_timeout_seconds,
+        )
     provider_type = environmental_provider_type(config.environmental_type)
     sensors = EnvironmentalSensorService(
         sensor_provider_factory if sensor_provider_factory is not None else
@@ -1059,9 +1180,13 @@ def build_runtime(
         enabled=config.environmental_enabled,
         poll_interval_seconds=config.environmental_poll_interval_seconds,
         stale_after_seconds=config.environmental_stale_after_seconds,
-        reading_sink=lambda reading, now: environmental_interpreter.observe_environmental(reading.temperature_c, now=now),
+        reading_sink=lambda reading, now: (record_history("temperature_c", reading.temperature_c, "c", "environmental"),
+                                           record_history("pressure_hpa", reading.pressure_hpa, "hpa", "environmental"),
+                                           record_history("humidity_percent", reading.humidity_percent, "%rh", "environmental") if reading.humidity_percent is not None else None,
+                                           environmental_interpreter.observe_environmental(reading.temperature_c, now=now)),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="environmental", status=status),
+        status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
         externally_managed=config.environmental_provider == "controller",
     )
     if config.environmental_enabled and config.environmental_provider == "local":
@@ -1069,17 +1194,22 @@ def build_runtime(
                     config.environmental_type.upper(), config.environmental_i2c_address, config.environmental_poll_interval_seconds)
     air_quality = AirQualitySensorService(
         air_quality_provider_factory if air_quality_provider_factory is not None else
-        lambda: CCS811Provider(address=int(config.ccs811_i2c_address, 16)),
-        enabled=config.ccs811_enabled, poll_interval_seconds=config.ccs811_poll_interval_seconds,
-        stale_after_seconds=config.ccs811_stale_after_seconds, compensation_supplier=sensors.compensation,
-        reading_sink=lambda reading, now: environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now),
+        lambda: (_ for _ in ()).throw(RuntimeError("ENS160 is controller-backed; local Raspberry Pi I2C is unsupported")),
+        enabled=config.ens160_enabled, poll_interval_seconds=config.ens160_poll_interval_seconds,
+        stale_after_seconds=config.ens160_stale_after_seconds, compensation_supplier=sensors.compensation,
+        reading_sink=lambda reading, now: (record_history("eco2_ppm", reading.eco2_ppm, "ppm", "air_quality"),
+            record_history("tvoc_ppb", reading.tvoc_ppb, "ppb", "air_quality"),
+            record_history("aqi_uba", reading.aqi_uba, "index", "air_quality") if reading.aqi_uba is not None else None,
+            environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now)
+            if all(air_quality.snapshot().get("measurement_usable", {}).get(field, False)
+                   for field in ("eco2_ppm", "tvoc_ppb")) else None),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="air_quality", status=status),
-        externally_managed=config.ccs811_provider == "controller",
+        status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
+        externally_managed=config.ens160_provider == "controller",
     )
-    if config.ccs811_enabled and config.ccs811_provider == "local":
-        logger.info("CCS811 enabled: I2C bus 1, address %s, polling every %s seconds",
-                    config.ccs811_i2c_address, config.ccs811_poll_interval_seconds)
+    if config.ens160_enabled and config.ens160_provider != "controller":
+        raise ValueError("ENS160 requires sensors.ens160.provider=controller")
     imu = IMUSensorService(
         imu_provider_factory if imu_provider_factory is not None else
         lambda: MPU6050Provider(address=int(config.imu_i2c_address, 16)),
@@ -1087,6 +1217,7 @@ def build_runtime(
         stale_after_seconds=config.imu_stale_after_seconds,
         motion_settings=_motion_settings(config),
         motion_state_sink=lambda state: runtime_holder["runtime"].publish_motion_state(state),
+        status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
         externally_managed=config.imu_provider == "controller",
     )
     if config.imu_enabled and config.imu_provider == "local":
@@ -1104,16 +1235,22 @@ def build_runtime(
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
                        interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        semantic_overlay=semantic_overlay,
-                       tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
+                       tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status,
+                       object_awareness=object_awareness)
+    runtime._temporal_history = temporal_history
     runtime._secrets_service = secrets_service
-    # Compose once after the runtime exists, since the application service owns
-    # the only permitted state/expression operations. The coordinator remains
-    # the sole voice-event subscriber.
+    # Compose one canonical application service after the runtime exists.  It
+    # owns the semantic Core-event observers as well as the permitted
+    # state/expression operations; main, MCP, lifecycle, and interaction must
+    # reuse this instance so a semantic transition reaches history once.
     from robot.services.application import PhosApplicationService
-    runtime._interaction_application_service = PhosApplicationService(runtime)
-    runtime._interaction_executor = CommandExecutor(runtime._interaction_application_service)
+    runtime._application_service = PhosApplicationService(runtime)
+    # Retain the private interaction attribute while callers migrate to the
+    # canonical runtime-owned service.
+    runtime._interaction_application_service = runtime._application_service
+    runtime._interaction_executor = CommandExecutor(runtime._application_service)
     interaction.set_executor(runtime._interaction_executor)
-    interaction.set_speech_coordinator(InteractionSpeechCoordinator(runtime._interaction_application_service))
+    interaction.set_speech_coordinator(InteractionSpeechCoordinator(runtime._application_service))
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

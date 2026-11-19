@@ -7,6 +7,22 @@ mcp:
   host: 127.0.0.1
   port: 8001
   path: /mcp
+  authentication:
+    mode: bearer
+    anonymous_permission_profile: standard
+agents:
+  default_agent: local-agent
+  entries:
+    - id: local-agent
+      display_name: Local MCP agent
+      permission_profile: standard
+appearance:
+  config_file: skins.yaml
+  mode: global
+  global_skin_id: null
+  anonymous_mcp_use_default_agent_skin: false
+  presentation_owner:
+    agent_id: null
 display:
   width: 800
   height: 600
@@ -14,6 +30,7 @@ display:
   fullscreen: true
   transition_seconds: 0.18
   iris_color: "#28CEEB"
+  eye_shape: classic_oval
   base_visual_source: manual
   environment_overlays_enabled: true
   backgrounds:
@@ -263,6 +280,12 @@ expression:
     retry_max_seconds: 600.0
     connect_timeout_seconds: 3.0
     read_timeout_seconds: 5.0
+object_awareness:
+  enabled: false
+  model_path: null
+  confidence: 0.35
+  max_detections: 5
+  timeout_seconds: 2.0
 expression_reactions:
   enabled: true
   min_confidence: 0.7
@@ -277,10 +300,10 @@ sensors:
     i2c_address: '0x76'
     poll_interval_seconds: 5.0
     stale_after_seconds: 30.0
-  ccs811:
+  ens160:
     enabled: false
-    provider: local
-    i2c_address: '0x5a'
+    provider: controller
+    i2c_address: '0x53'
     poll_interval_seconds: 5.0
     stale_after_seconds: 30.0
   imu:

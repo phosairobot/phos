@@ -1,10 +1,91 @@
 # PHOS web administration user manual
 
+Current controller-backed sensor status uses `sensors.ens160` and `sensors.aht21`. The Sensors page distinguishes ENS160 validity/warm-up, AQI-UBA (1–5), compensation and per-measurement usability from AHT21 controller-provenance temperature/humidity. No direct-Pi ENS160/AHT21 configuration path exists.
+
 PHOS includes an optional single-administrator configuration editor. It uses the
 same typed configuration model and validation as startup, with no camera, AWS or display access
 from the web worker. Runtime-page saves apply camera-preview settings and logging level through
 the parent runtime boundary; other Runtime settings are saved as Restart PHOS pending changes.
 System Reload remains available for the other documented reloadable settings.
+
+## Presentation Owner migration and skin resolution
+
+PHOS retains the legacy optional **Presentation Owner** in
+`appearance.presentation_owner.agent_id`. It remains readable and is preserved
+when configuration is saved, but it is no longer a runtime appearance authority:
+`appearance.mode` is authoritative. This explicit migration rule prevents a
+stale manual owner from competing with automatic activity selection. Existing
+files without `appearance.mode` load as `global`, so their canonical global
+appearance remains safe and predictable; no legacy owner data is deleted.
+
+The legacy read-only resolver can still describe that owner's assignment. It is
+not used for visual activation. Selecting or clearing an owner never overwrites
+the canonical global `display` appearance.
+
+## Agent appearance administration
+
+**Settings → Agents** can assign an available built-in, declarative, or custom
+skin while creating or editing an agent. Select **Use agent-specific skin** and
+choose an entry from the catalog. Clearing that checkbox disables an existing
+assignment while retaining its skin ID, so it can be re-enabled later; agents
+without assignment metadata remain **Global**. The list identifies Global,
+Disabled, Assigned, and Missing assignments. A missing reference is preserved
+and safely falls back to the global appearance until an administrator selects a
+replacement.
+
+The same page retains the legacy **Active Presentation** controls during the
+migration. They preserve or clear the legacy value only; they do not activate a
+skin. The Default Agent is a separate MCP compatibility setting.
+
+The Active Presentation panel separates configured intent from runtime result:
+**Presentation Owner** is the saved administrator choice, **Resolved
+appearance** is the currently valid skin or fallback, and **Runtime activation**
+reports whether the running display accepted that temporary update. An
+unavailable or failed runtime leaves the saved owner and global display
+configuration unchanged; a later reconciliation, including startup, can recover
+when the renderer becomes available.
+
+## Agent appearance policy foundation
+
+`appearance.mode` defaults to `global`. In `global`, PHOS applies the complete
+Skin selected by `appearance.global_skin_id` when it is valid; this includes
+appearance (including optional `eyes.shape`), semantic LED palette, and Skin-owned Physical Personality. Legacy
+global appearance values remain supported when no global Skin is selected and
+use the analytical personality fallback. **Preview** remains visual-only and
+does not save or select a global Skin. In `follow_agent`, PHOS applies the
+complete skin snapshot of the highest-priority recently active eligible agent.
+Agents
+may carry optional appearance policy metadata:
+`participate` (default `true`), `priority` (default `50`, `0`–`100`), and
+`activity_timeout_seconds` (default `30`, `5`–`3600`). This timeout will be a
+monotonic appearance-activity window, not an MCP session, credential, or
+transport timeout. Static eligibility requires participation and a valid enabled
+skin; it never implies that an agent is currently active. When no active agent
+qualifies, PHOS restores the latest global appearance. Runtime status reports
+the mode, automatic selected identity, resolved skin, fallback reason, and
+whether the display accepted the temporary update.
+
+Configure this without editing YAML: open **Appearance → Skins** and select
+**Global Appearance** or **Follow Active Agent**. The same page reports the
+selected agent, runtime activation and any fallback. In **Settings → Agents**,
+enable an assigned complete skin, then set participation, priority and activity
+timeout. For example, an Ambient skin at priority 100 with a 10-second timeout
+temporarily wins over a Minimal skin at priority 50 with an 80-second timeout.
+Recent authenticated MCP semantic activity—not merely an MCP connection—starts
+or renews the timer. The Agents page shows configured policy; Appearance →
+Skins shows current runtime arbitration.
+
+Appearance → Skins also offers **Use default agent skin for anonymous MCP
+activity**, stored as `appearance.anonymous_mcp_use_default_agent_skin` and
+disabled by default. In Follow Active Agent mode, a permitted request with no
+authorization header can start a separate 30-second monotonic anonymous lease.
+It uses the configured default agent's enabled, valid, participating skin only
+as a transient visual fallback; it does not authenticate or authorize the
+caller as that agent. The anonymous candidate has lower precedence than every
+eligible authenticated agent. A missing/disabled default skin, global mode,
+connection/discovery traffic, denied requests, or any supplied invalid bearer
+falls back to the canonical global appearance. The page displays the resolved
+default skin, diagnostics, current source, and remaining lease.
 
 ## Install and enable
 
@@ -55,8 +136,8 @@ Do not configure router port forwarding or expose this interface to the Internet
 ## Local Admin Access
 
 The Dashboard Network card shows PHOS's selected LAN IPv4 address, interface and
-the effective Admin URL. On the physical display, long-press the top-right 20%
-of the screen for at least 2.5 seconds to open the Admin Access overlay. Scan
+the effective Admin URL. On the physical display, double-tap the top-right 20%
+of the screen to open the Admin Access overlay. Scan
 its QR code with a phone on the **same LAN**, or enter the displayed URL
 manually. A single tap closes the overlay. PHOS uses its current LAN IPv4
 address only; it does not require `phos.local`, mDNS, Internet access, or router
@@ -116,7 +197,7 @@ page is highlighted. No frontend framework is needed.
 | Runtime → Camera Preview | Optional display-only camera picture-in-picture preview. Its settings apply immediately when saved. |
 | Runtime → Expression | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. These settings require Restart PHOS. |
 | Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
-| Sensors | Environmental type (BME280/BMP280), CCS811 air quality, environmental behavior and GY-521/MPU-6050 motion: enable, I2C address, polling and stale timeout; read-only current readings, interpreter state/reason, age and sensor health from the parent runtime. Hardware settings require Restart PHOS; IMU and environmental interpretation settings use Reload configuration. |
+| Sensors | Environmental type (BME280/BMP280), controller-backed ENS160/AHT21 status, environmental behavior and GY-521/MPU-6050 motion. `sensors.ens160` and `sensors.aht21` are read-only public status records; ENS160 values require validity and usability, while AHT21 freshness is independent. No direct-Pi AHT21 provider is configured. |
 | Runtime → Logging | Supported log level, output file and expression diagnostics. Log level applies immediately; output file and diagnostics require Restart PHOS. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
 | Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
@@ -194,6 +275,24 @@ account. This protects against accidental disclosure in configuration, source
 control, normal Web administration and logs; it does **not** protect against a
 host/root-level compromise. Back up or recover the key and encrypted store
 together. This foundation does not itself configure or contact a cloud provider.
+
+## MCP agents
+
+**Settings → Agents** lists MCP identities, their permission profile, default
+status, and non-secret bearer status in a compact desktop table that becomes
+stacked cards on narrow screens. It creates agents, edits display names and
+profiles, selects the default agent, and deletes non-default agents through
+`AgentManagementService`; the ID is immutable. It calls `AgentCredentialService`, which uses
+`SecretsService`; the page never reads secret-store values directly.
+Create and rotate display a newly issued bearer exactly once with a copy/store
+warning. Refreshing or revisiting the page cannot retrieve it; rotate a lost
+credential. Rotation and revocation require explicit confirmation, take effect
+without a PHOS restart, and leave the configured agent identity/profile intact.
+Creating a credential generates its valid non-secret reference automatically.
+Agent changes are persisted through the canonical configuration repository and
+replace the runtime registry for subsequent MCP requests without a restart.
+Only one default agent is allowed. The current default is clearly marked and
+cannot be deleted until another configured agent is selected as default.
 
 **Save** on an editable page converts fields and calls the same model validation and
 atomic persistence used elsewhere. Invalid input leaves the file unchanged,
@@ -369,12 +468,30 @@ shown as a representative static frame.
 **Appearance → Skins** provides named presets for the existing eyes,
 backgrounds, Eye Safe Layer and State Effects settings. Built-in PHOS Default,
 Minimal and Ambient skins are read-only. Create a custom skin from the current
-appearance, then apply, preview, rename or delete it. Preview updates only the
+appearance by importing a complete Skin package, then apply, preview, rename or delete it. Preview updates only the
 live appearance temporarily and does not save configuration. Apply validates,
 saves, and updates the canonical display configuration; it never changes robot
 behavior or voice settings. Custom skins live in internal `skins.json` storage beside the active
 configuration. A skin may retain a deleted background asset reference; the
 background safely falls back until that asset is available again.
+
+PHOS can retain internal, explicit agent skin-assignment metadata for future
+administration workflows. Enabled references are validated against built-in,
+declarative YAML, or custom skins. `global`, `disabled`, `assigned`, and
+`missing` are distinct assignment states; a missing reference retains its ID
+and falls back to global appearance. Referenced custom skins cannot be deleted.
+WebUI assignment controls, Presentation Owner, runtime agent-skin switching,
+and MCP-driven assignment changes are not implemented.
+
+Administrators may additionally configure a read-only declarative catalog with
+`appearance.config_file` in `phos.yaml` (for example `skins.yaml`). Catalog
+skins use schema version 1, inherit from a built-in or catalog skin, and support
+only the current procedural appearance fields: iris color, state backgrounds,
+Eye Safe Layer, and State Effects. The catalog is validated when it is used;
+invalid, missing, duplicate, cyclic, or unsafe entries are rejected rather than
+partially applied. Manual catalog edits require PHOS restart before they are
+used. This does not replace `skins.json`, package import/export, or the global
+Appearance workflow. Agent-to-skin assignment is not implemented yet.
 
 Portable PHOS Skin packages use the `.phos-skin` ZIP-compatible archive format
 with a `skin.yaml` schema-version-`2` manifest and optional `assets/` PNG/JPEG
@@ -494,14 +611,13 @@ active configuration path under System / Status if the logged sensor type
 differs from the file you edited.
 
 
-### CCS811 air quality
+### ENS160 air quality and AHT21 environment
 
-The same **Sensors** page has a **CCS811 air quality** configuration group:
-enabled, address (`0x5a`/`0x5b`), polling interval and stale timeout. Install its
-optional dependency and verify wiring using the
-[CCS811 setup instructions](installation.md#optional-ccs811-air-quality-sensor).
-Every setting requires **Save → System actions → Restart PHOS**; Reload leaves
-changes pending. The committed default is disabled.
+The Sensors page shows controller-backed ENS160/AHT21 state. `sensors.ens160`
+contains estimated eCO2, TVOC, AQI-UBA, validity, compensation and measurement
+usability; `sensors.aht21` contains controller-provenance temperature and humidity
+with independent freshness. The page does not configure or access a direct-Pi
+AHT21 provider. See the [ENS160/AHT21 installation procedure](installation.md#controller-backed-ens160-and-aht21).
 
 The read-only panel shows **eCO2 (estimated equivalent CO2), ppm**, **TVOC, ppb**,
 last successful UTC update, age, health and compensation input. eCO2 is not a
@@ -538,3 +654,73 @@ alert overlays followed by smooth decay. `imu_tilt_eye_asymmetry_strength`
 mirrors horizontal tilt eye sizes; impact strength must exceed shake strength so
 the strongest alert remains unambiguous. Robot states such as
 sleeping, speaking and error retain priority.
+
+## Skin LED palettes (SKIN-03)
+
+A skin may optionally carry an `led_palette` alongside its eye appearance. It
+is declarative theme metadata applied only through the existing runtime
+`SemanticLedService`. Configure this metadata directly in a skin YAML/package
+definition; **Appearance → Skins** does not edit palettes. Its Active LED
+Palette status reports the current runtime skin, palette state, semantic state,
+and available colors without creating a second palette selection or draft.
+Supported semantic states are `idle`, `listening`, `thinking`, `speaking`,
+`sleeping`, `success`, `attention`, and `ambient`. Omitted colors use the
+semantic LED fallback; catalog palettes may inherit parent colors. Warning and
+error remain protected system colors. The external-controller `SemanticLedService`
+remains the exclusive authority for intent, priority, animation, expiry, safety
+signals, and controller capability fallback.
+
+The palette shape is `{"enabled": true, "colors": {...}}`. Colors must be
+canonical `#RRGGBB` values. Supported semantic keys are `idle`, `listening`,
+`thinking`, `speaking`, `sleeping`, `success`, `attention`, and `ambient`.
+`warning` and `error` are deliberately excluded: their safety colours remain
+arbiter-owned. A palette may be partial; omitted colors fall back to the
+arbiter's existing command colors. `{"enabled": false, "colors": {}}`
+explicitly disables a palette.
+
+For catalog skins, an omitted `led_palette` inherits the parent palette; an
+enabled palette overlays only named colors; `null` removes an inherited palette;
+and a disabled palette stops inheritance. Built-in and custom skins without a
+palette are unchanged. Package exports now use manifest schema version 3 while
+imports remain compatible with schema version 2 packages. Read-only resolution
+follows the currently effective agent/default-agent skin, but no global LED
+settings are mutated.
+
+The runtime supplies the resolved palette only after the corresponding visual
+appearance has been accepted. `SemanticLedService` then re-evaluates its current
+winner: a configured themeable color replaces that command's default color;
+missing/disabled/global palettes clear theme colors and use the existing command
+color; warning/error always use protected colors. This does not create, cancel,
+or extend an intent, so priorities, effects and expiries are unchanged. A
+controller reconnection still uses the existing arbiter reapply path, now with
+the current themed command. Read-only LED status includes palette metadata and
+whether the active color is palette, fallback, or protected.
+
+## Authenticated MCP appearance activity
+
+PHOS can retain per-agent appearance policy metadata: participation, priority,
+and an activity timeout. In `appearance.mode: follow_agent`, the runtime records
+an in-memory lease only after a registered agent has authenticated and completed
+an accepted MCP semantic tool or resource interaction. A successful MCP
+connection, transport keepalive, health check, anonymous request, invalid token,
+or permission-denied request does not renew a registered agent lease.
+
+Leases use a monotonic clock and are never persisted. They expire after the
+agent's configured timeout, including when no new requests arrive. A restart
+therefore begins with no active leases. Eligible agents must participate and
+have an enabled, available assigned skin. The selector chooses the highest
+priority active eligible agent; equal priorities retain the previous winner
+while it remains eligible, otherwise their canonical IDs provide a stable tie
+break. The Default Agent does not affect this decision.
+
+The arbitration result is lifecycle-owned and safe for later administration
+read models; it contains identities, selected skin IDs, priorities and lease
+state, never bearer values or secret references. Anonymous MCP clients retain
+their configured permissions and are never mapped to the default agent; when
+the explicit Appearance → Skins fallback is enabled they can select only its
+low-priority temporary skin candidate. Multiple authenticated sessions for one
+agent share one lease.
+
+SKIN-02d.2 deliberately does not apply this result to the physical display.
+Existing manual Presentation Owner behavior remains unchanged; runtime visual
+activation is deferred to SKIN-02d.3.

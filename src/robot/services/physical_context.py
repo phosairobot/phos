@@ -34,7 +34,7 @@ class SemanticPhysicalContextService:
     def build(self, *, robot: dict, sensors: dict, presence: dict, attention: dict,
               observed_expression: dict) -> SemanticPhysicalContext:
         environmental = sensors.get("environmental", {})
-        air = sensors.get("ccs811", {})
+        air = sensors.get("ens160", {})
         imu = sensors.get("imu", {})
         behavior = sensors.get("environmental_behavior", {})
         env_values = environmental.get("measurements") or {}
@@ -49,6 +49,10 @@ class SemanticPhysicalContextService:
                        "condition": condition, "reason": behavior.get("reason")}
         air_quality = {"status": air.get("status", "unavailable"), "available": bool(air.get("available", False)),
                        "eco2_ppm": air_values.get("eco2_ppm"), "tvoc_ppb": air_values.get("tvoc_ppb"),
+                       "aqi_uba": air_values.get("aqi_uba"), "aqi_scale": "uba_1_to_5",
+                       "humidity_percent": air_values.get("aht21_humidity_percent"),
+                       "aht21_temperature_c": air_values.get("aht21_temperature_c"),
+                       "temperature_provenance": "aht21",
                        "last_update": air.get("last_update"), "age_seconds": air.get("age_seconds"),
                        "condition": condition if condition in {"air_quality_warning", "air_quality_bad"} else "normal"}
         motion = {key: imu.get(key) for key in ("status", "available", "motion_state", "motion_intensity",

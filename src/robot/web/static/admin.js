@@ -1,4 +1,59 @@
 "use strict";
+ (() => {
+  const button = document.querySelector("[data-copy-credential]"), credential = document.getElementById("issued-credential");
+  if (!button || !credential || !navigator.clipboard) return;
+  button.addEventListener("click", () => { navigator.clipboard.writeText(credential.value); });
+})();
+
+// The Agents page keeps all mutations in ordinary CSRF-protected forms.  This
+// controller only manages transient presentation: native dialogs and menus.
+(() => {
+  const page = document.querySelector("[data-agents-page]");
+  if (!page) return;
+  const menus = () => [...page.querySelectorAll("details[data-agent-transient]")];
+  const closeMenus = (except = null) => menus().forEach((menu) => {
+    if (menu !== except) menu.open = false;
+  });
+  const closeDialogs = (except = null) => page.querySelectorAll("dialog[open]").forEach((dialog) => {
+    if (dialog !== except) dialog.close();
+  });
+  page.querySelectorAll("[data-agent-open-dialog]").forEach((button) => button.addEventListener("click", () => {
+    const dialog = document.getElementById(button.dataset.agentOpenDialog);
+    if (!dialog) return;
+    closeMenus(); closeDialogs(dialog);
+    dialog.querySelector("form")?.reset();
+    // Edit forms need their server-rendered values, so reset only restores
+    // defaults; create starts blank because its controls have no defaults.
+    dialog.showModal();
+  }));
+  page.querySelectorAll("[data-agent-close-dialog]").forEach((button) => button.addEventListener("click", () => {
+    button.closest("dialog")?.close();
+  }));
+  page.querySelectorAll("[data-agent-skin-controls]").forEach((controls) => {
+    const enabled = controls.querySelector("[data-agent-skin-enabled]");
+    const select = controls.querySelector("[data-agent-skin-select]");
+    const stored = controls.querySelector("[data-agent-skin-id]");
+    if (!enabled || !select || !stored) return;
+    const sync = () => {
+      select.disabled = !enabled.checked;
+      if (select.value) stored.value = select.value;
+    };
+    enabled.addEventListener("change", sync);
+    select.addEventListener("change", sync);
+    controls.closest("form")?.addEventListener("reset", () => setTimeout(sync));
+    sync();
+  });
+  menus().forEach((menu) => menu.addEventListener("toggle", () => {
+    if (menu.open) { closeMenus(menu); closeDialogs(); }
+  }));
+  document.addEventListener("pointerdown", (event) => {
+    if (!page.contains(event.target) || !event.target.closest("details[data-agent-transient]")) closeMenus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { closeMenus(); closeDialogs(); }
+  });
+})();
+
 (() => {
   const controls = document.querySelector("[data-iris-color-controls]");
   if (!controls) return;
@@ -31,6 +86,26 @@
     else { stored.value = value; error.hidden = false; form.querySelector("button.save")?.setAttribute("disabled", ""); }
   });
   updateMode();
+})();
+
+// MCP authentication remains an ordinary server-validated form. This only
+// reveals the anonymous-only controls; hidden controls keep their values.
+(() => {
+  const mode = document.getElementById("mcp.authentication.mode");
+  if (!mode) return;
+  const profile = document.querySelector("[data-mcp-anonymous-profile]");
+  const warning = document.querySelector("[data-mcp-anonymous-warning]");
+  const confirmation = document.querySelector("[data-mcp-anonymous-confirm]");
+  const mixedNote = document.querySelector("[data-mcp-mixed-note]");
+  const update = () => {
+    const anonymous = mode.value === "none" || mode.value === "mixed";
+    if (profile) profile.hidden = !anonymous;
+    if (warning) warning.hidden = !anonymous;
+    if (confirmation) confirmation.hidden = !anonymous;
+    if (mixedNote) mixedNote.hidden = mode.value !== "mixed";
+  };
+  mode.addEventListener("change", update);
+  update();
 })();
 
 const provider = document.getElementById("expression.provider");
@@ -187,7 +262,46 @@ if (ttsProvider) {
       : Number.isFinite(item.age_seconds) ? Math.max(0, Math.floor(item.age_seconds)) : null;
     return seconds === null ? "Unavailable" : `${seconds}s ago`;
   };
-  const reading = (item, field, suffix) => item && item.available && item.measurements && item.measurements[field] !== null && item.measurements[field] !== undefined ? `${item.measurements[field]} ${suffix}` : "Unavailable";
+  // ENS160/AHT21 publish field-level usability because their individual
+  // measurements may have different validity/freshness.  Established sensor
+  // snapshots such as BMP280 and MPU6050 use their aggregate `available`
+  // contract instead; requiring a non-existent field map hid valid readings.
+  const reading = (item, field, suffix) => item && item.available &&
+    (!item.measurement_usable || item.measurement_usable[field] === true) &&
+    item.measurements && item.measurements[field] !== null && item.measurements[field] !== undefined
+    ? `${item.measurements[field]} ${suffix}` : "Unavailable";
+  // ENS160 validity governs whether a measurement is safe for environmental
+  // decisions, not whether the controller acquired it.  The dashboard keeps
+  // fresh non-normal samples visible as explicitly unreliable observations.
+  const ens160Reading = (item, field, suffix) => {
+    const value = item && item.measurements && item.measurements[field];
+    if (value === null || value === undefined) return "Unavailable";
+    if (item.measurement_fresh && item.measurement_fresh[field] !== true) return "Stale";
+    if (item.ens160_status_fresh === false) return "Stale";
+    return `${value} ${suffix}`;
+  };
+  const ens160Validity = (item) => {
+    const validity = item && item.ens160_validity;
+    const labels = {0: "Normal", 1: "Warm-up", 2: "Initial startup", 3: "Invalid output"};
+    if (!Object.hasOwn(labels, validity)) return {label: "Unknown", reliability: "Reliability unavailable"};
+    if (item.ens160_status_fresh !== true) return {label: labels[validity], reliability: "Status stale — readings unreliable"};
+    return validity === 0 ? {label: labels[validity], reliability: "Reliable"}
+      : {label: labels[validity], reliability: "Observational — unreliable"};
+  };
+  const aqiUba = (item) => {
+    const value = item && item.measurements && item.measurements.aqi_uba;
+    const labels = {1: "Excellent", 2: "Good", 3: "Moderate", 4: "Poor", 5: "Unhealthy"};
+    const observed = ens160Reading(item, "aqi_uba", "");
+    if (observed === "Stale") return observed;
+    return Object.hasOwn(labels, value) ? `${value} / 5 — ${labels[value]}` : "Unavailable";
+  };
+  const healthSummary = (health) => {
+    const subsystems = health && health.subsystems;
+    if (!subsystems || typeof subsystems !== "object") return "Unavailable";
+    const values = Object.entries(subsystems).map(([name, value]) =>
+      `${name.replaceAll("_", " ")}: ${(value && (value.state || value.status)) || "unavailable"}`);
+    return values.length ? values.join(" · ") : "Unavailable";
+  };
   const mergeSensor = (current, next) => next === undefined ? current : {
     ...(current || {}), ...next,
     measurements: next.measurements === undefined ? (current || {}).measurements : {
@@ -197,20 +311,26 @@ if (ttsProvider) {
   const mergeSensors = (current, next) => ({
     ...(current || {}), ...(next || {}),
     environmental: mergeSensor((current || {}).environmental, (next || {}).environmental),
-    ccs811: mergeSensor((current || {}).ccs811, (next || {}).ccs811),
+    ens160: mergeSensor((current || {}).ens160, (next || {}).ens160),
+    aht21: mergeSensor((current || {}).aht21, (next || {}).aht21),
     imu: mergeSensor((current || {}).imu, (next || {}).imu)
   });
   const renderFreshness = () => {
     const sensors = state.sensors || {};
     display("environment.age", age(state.environment || sensors.environmental));
-    display("ccs811.age", age(sensors.ccs811));
+    display("ens160.age", age(sensors.ens160));
     display("motion.age", age(state.motion || sensors.imu));
   };
   const render = () => {
     const visual = state.visual || {};
     const environment = state.environment || {};
-    const motion = (state.sensors || {}).imu || state.motion || {};
-    const ccs811 = state.ccs811 || (state.sensors || {}).ccs811 || {};
+    // motion_update is a semantic transition and arrives ahead of the next
+    // aggregate sensors refresh. Prefer its current snapshot over a stale
+    // sensors.imu object retained from the initial Dashboard response.
+    const motion = state.motion || (state.sensors || {}).imu || {};
+    const ens160 = state.ens160 || (state.sensors || {}).ens160 || {};
+    const aht21 = state.aht21 || (state.sensors || {}).aht21 || {};
+    const health = state.health || {};
     const overlay = (state.overlay || {}).resolved || {};
     const presence = state.presence || {};
     const attention = state.attention || {};
@@ -227,9 +347,14 @@ if (ttsProvider) {
     display("environment.state", environment.state || ((state.sensors || {}).environmental_behavior || {}).state);
     display("environment.status", status(environment)); display("environment.temperature", reading(environment, "temperature_c", "°C"));
     display("environment.pressure", reading(environment, "pressure_hpa", "hPa"));
-    display("ccs811.status", status(ccs811)); display("ccs811.eco2", reading(ccs811, "eco2_ppm", "ppm"));
-    display("ccs811.tvoc", reading(ccs811, "tvoc_ppb", "ppb"));
+    display("aht21.humidity", reading(aht21, "humidity_percent", "% RH"));
+    const validity = ens160Validity(ens160);
+    display("ens160.status", status(ens160)); display("ens160.eco2", ens160Reading(ens160, "eco2_ppm", "ppm"));
+    display("ens160.tvoc", ens160Reading(ens160, "tvoc_ppb", "ppb"));
+    display("ens160.aqi", aqiUba(ens160));
+    display("ens160.validity", validity.label); display("ens160.reliability", validity.reliability);
     display("motion.status", status(motion));
+    display("health.summary", healthSummary(health));
     renderFreshness();
     display("overlay.resolved", `${overlay.temperature || "none"} / ${overlay.air_quality || "none"}`);
     const manual = (state.overlay || {}).override || (state.overlay || {}).manual || {};
@@ -396,7 +521,7 @@ if (ttsProvider) {
     else if (event.type === "touch_changed") state.touch = payload;
     else if (event.type === "voice_changed") state.voice = payload;
     else if (event.type.startsWith("voice_")) state.voice = {...(state.voice || {}), ...(event.type === "voice_transcription_completed" ? {last_transcript: payload.text, last_confidence: payload.confidence, language: payload.language, state: "idle"} : {})};
-    else if (["touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right"].includes(event.type)) {
+    else if (["touch_tap", "touch_double_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right"].includes(event.type)) {
       state.touch = {...(state.touch || {}), last_event: payload.kind, x: payload.x, y: payload.y,
         normalized_x: payload.normalized_x, normalized_y: payload.normalized_y, duration_ms: payload.duration_ms,
         last_event_at: event.timestamp};
@@ -405,7 +530,7 @@ if (ttsProvider) {
     else if (["person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost"].includes(event.type)) {
       snapshot(); return;
     }
-    else if (!["sensors_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
+    else if (!["sensors_changed", "touch_changed", "touch_tap", "touch_double_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error"].includes(event.type)) return;
     render(); syncControls();
   };
   const fallback = () => { if (!fallbackTimer) fallbackTimer = window.setInterval(snapshot, 30000); };
@@ -414,7 +539,7 @@ if (ttsProvider) {
     stream.onopen = async () => { const reconnect = opened; opened = true; retries = 0; setConnection("connected"); window.clearInterval(fallbackTimer); fallbackTimer = undefined; if (reconnect) await snapshot(); };
     // The SSE adapter uses named semantic events, so listen explicitly rather
     // than relying on EventSource's unnamed-message default.
-    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "sensors_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
+    for (const type of ["robot_state_changed", "expression_changed", "visual_state_changed", "environmental_state_changed", "sensors_changed", "environmental_overlay_changed", "motion_state_changed", "health_changed", "presence_changed", "attention_changed", "observed_expression_changed", "expression_reaction_changed", "touch_changed", "touch_tap", "touch_double_tap", "touch_long_press", "touch_swipe_left", "touch_swipe_right", "voice_changed", "voice_listening_started", "voice_speech_started", "voice_speech_ended", "voice_transcription_started", "voice_transcription_completed", "voice_empty_utterance", "voice_session_cancelled", "voice_error", "person_entered", "person_left", "attention_target_acquired", "attention_target_changed", "attention_target_lost", "overlay_changed"]) {
       stream.addEventListener(type, (message) => { try { applyEvent(JSON.parse(message.data)); } catch (_) {} });
     }
     stream.onerror = () => { stream.close(); setConnection("reconnecting"); fallback(); const delay = Math.min(30000, 1000 * 2 ** Math.min(retries++, 5)); retryTimer = window.setTimeout(connect, delay); };

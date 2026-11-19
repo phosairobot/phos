@@ -162,6 +162,10 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
         return result
     try:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+        if isinstance(document, dict):
+            document.setdefault("object_awareness", {"enabled": False, "model_path": None,
+                                                       "confidence": .35, "max_detections": 5,
+                                                       "timeout_seconds": 2.0})
         # Explicit schema evolution only: no general missing-key permissiveness.
         if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
             evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice", "tts")
@@ -312,10 +316,16 @@ class CloudExpressionConfig:
 # live only in phos.json; this mapping is schema, not a second set of defaults.
 _SCHEMA = {
     "web": {"enabled": "web_enabled", "host": "web_host", "port": "web_port"},
-    "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path"},
+    "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
+            "authentication": {"mode": "mcp_authentication_mode", "anonymous_permission_profile": "mcp_anonymous_permission_profile"}},
+    "agents": "agent_registry",
+    "appearance": {"config_file": "appearance_catalog_file", "mode": "appearance_mode",
+                   "global_skin_id": "global_skin_id",
+                   "anonymous_mcp_use_default_agent_skin": "anonymous_mcp_use_default_agent_skin",
+                   "presentation_owner": {"agent_id": "presentation_owner_agent_id"}},
     "display": {"width": "display_width", "height": "display_height", "fps": "display_fps",
                 "fullscreen": "fullscreen", "transition_seconds": "display_transition_seconds",
-                "iris_color": "iris_color", "base_visual_source": "base_visual_source",
+                "iris_color": "iris_color", "eye_shape": "eye_shape", "base_visual_source": "base_visual_source",
                 "environment_overlays_enabled": "environment_overlays_enabled",
                 "backgrounds": {"enabled": "backgrounds_enabled", "idle": "background_idle",
                     "listening": "background_listening", "thinking": "background_thinking",
@@ -384,14 +394,15 @@ _SCHEMA = {
         "aws": "cloud_expression",
     },
     "expression_reactions": {"enabled": "expression_reactions_enabled", "min_confidence": "expression_reactions_min_confidence", "confirmation_ms": "expression_reactions_confirmation_ms", "cooldown_ms": "expression_reactions_cooldown_ms", "reaction_duration_ms": "expression_reactions_duration_ms"},
+    "object_awareness": {"enabled": "object_awareness_enabled", "model_path": "object_awareness_model_path", "confidence": "object_awareness_confidence", "max_detections": "object_awareness_max_detections", "timeout_seconds": "object_awareness_timeout_seconds"},
     "sensors": {"environmental": {"type": "environmental_type", "provider": "environmental_provider",
                            "enabled": "environmental_enabled",
                            "i2c_address": "environmental_i2c_address",
                            "poll_interval_seconds": "environmental_poll_interval_seconds",
                            "stale_after_seconds": "environmental_stale_after_seconds"},
-                "ccs811": {"enabled": "ccs811_enabled", "provider": "ccs811_provider", "i2c_address": "ccs811_i2c_address",
-                           "poll_interval_seconds": "ccs811_poll_interval_seconds",
-                           "stale_after_seconds": "ccs811_stale_after_seconds"},
+                "ens160": {"enabled": "ens160_enabled", "provider": "ens160_provider", "i2c_address": "ens160_i2c_address",
+                           "poll_interval_seconds": "ens160_poll_interval_seconds",
+                           "stale_after_seconds": "ens160_stale_after_seconds"},
                 "imu": {"enabled": "imu_enabled", "provider": "imu_provider", "i2c_address": "imu_i2c_address",
                         "poll_interval_seconds": "imu_poll_interval_seconds",
                         "stale_after_seconds": "imu_stale_after_seconds",
@@ -406,7 +417,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
+_PATH_FIELDS = {"appearance_catalog_file", "expression_model_path", "object_awareness_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size",
                  "interaction_supported_languages"}
@@ -424,6 +435,31 @@ def _decode(document, schema=_SCHEMA, location="config"):
                 result[target] = CloudExpressionConfig.from_dict(value)
             except (ValueError, TypeError) as error:
                 raise ConfigurationError(f"{name}: {error}") from error
+        elif target == "agent_registry":
+            from robot.services.agent_identity import AgentIdentity, AgentRegistry
+            if not isinstance(value, dict) or set(value) != {"default_agent", "entries"} or not isinstance(value["default_agent"], str):
+                raise ConfigurationError(f"{name} must contain default_agent and entries")
+            if not isinstance(value["entries"], list):
+                raise ConfigurationError(f"{name}.entries must be an array")
+            try:
+                entries = tuple(AgentIdentity(item["id"], item["permission_profile"], item.get("display_name"), item.get("skin"), item.get("appearance"), item.get("personality"))
+                                for item in value["entries"] if isinstance(item, dict) and set(item) <= {"id", "display_name", "permission_profile", "credential", "skin", "appearance", "personality"})
+                if len(entries) != len(value["entries"]):
+                    raise ValueError("malformed agent entry")
+                refs = {}
+                for item in value["entries"]:
+                    credential = item.get("credential")
+                    if credential is not None:
+                        if not isinstance(credential, dict) or set(credential) != {"type", "secret_ref"} or credential["type"] != "bearer" or not isinstance(credential["secret_ref"], str) or not credential["secret_ref"].strip(): raise ValueError("invalid credential reference")
+                        from robot.secrets import SecretsError, SecretsService
+                        try:
+                            SecretsService.validate_name(credential["secret_ref"])
+                        except SecretsError as error:
+                            raise ValueError("invalid credential reference") from error
+                        refs[item["id"]] = credential["secret_ref"]
+                result[target] = AgentRegistry(value["default_agent"], entries, refs)
+            except (KeyError, TypeError, ValueError) as error:
+                raise ConfigurationError(f"{name}: invalid configured agents ({error})") from error
         else:
             if target in _TUPLE_FIELDS:
                 if not isinstance(value, (list, tuple)):
@@ -533,11 +569,11 @@ class RuntimeConfig:
     environmental_i2c_address: str
     environmental_poll_interval_seconds: float
     environmental_stale_after_seconds: float
-    ccs811_enabled: bool
-    ccs811_provider: str
-    ccs811_i2c_address: str
-    ccs811_poll_interval_seconds: float
-    ccs811_stale_after_seconds: float
+    ens160_enabled: bool
+    ens160_provider: str
+    ens160_i2c_address: str
+    ens160_poll_interval_seconds: float
+    ens160_stale_after_seconds: float
     imu_enabled: bool
     imu_provider: str
     imu_i2c_address: str
@@ -559,12 +595,21 @@ class RuntimeConfig:
     mcp_host: str
     mcp_port: int
     mcp_path: str
+    mcp_authentication_mode: str
+    mcp_anonymous_permission_profile: str
+    agent_registry: object
+    appearance_catalog_file: Optional[Path]
+    appearance_mode: str
+    global_skin_id: Optional[str]
+    anonymous_mcp_use_default_agent_skin: bool
+    presentation_owner_agent_id: Optional[str]
     display_width: int
     display_height: int
     display_fps: int
     fullscreen: bool
     display_transition_seconds: float
     iris_color: str
+    eye_shape: str
     base_visual_source: str
     environment_overlays_enabled: bool
     backgrounds_enabled: bool
@@ -658,6 +703,11 @@ class RuntimeConfig:
     expression_reactions_confirmation_ms: int
     expression_reactions_cooldown_ms: int
     expression_reactions_duration_ms: int
+    object_awareness_enabled: bool
+    object_awareness_model_path: Optional[Path]
+    object_awareness_confidence: float
+    object_awareness_max_detections: int
+    object_awareness_timeout_seconds: float
     log_level: str
     log_file: Optional[Path]
     _base_dir: Path = field(init=False, repr=False, compare=False)
@@ -672,7 +722,15 @@ class RuntimeConfig:
             if overrides[name] is not None:
                 overrides[name] = Path(overrides[name]).resolve()
         repository = ConfigRepository()
-        self._assign(_decode(repository.document()), repository.active_path.parent, overrides)
+        document = repository.document()
+        appearance = document.setdefault("appearance", {"config_file": None})
+        if isinstance(appearance, dict):
+            appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
+            appearance.setdefault("global_skin_id", None)
+            appearance.setdefault("anonymous_mcp_use_default_agent_skin", False)
+        if isinstance(document.get("mcp"), dict):
+            document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
+        self._assign(_decode(document), repository.active_path.parent, overrides)
 
     def _assign(self, values, base_dir, overrides=None):
         values = dict(values)
@@ -718,6 +776,7 @@ class RuntimeConfig:
             if isinstance(display["backgrounds"], dict):
                 display["backgrounds"].setdefault("max_upload_bytes", 4 * 1024 * 1024)
             display.setdefault("eye_safe_layer", {"enabled": True, "mode": "balanced"})
+            display.setdefault("eye_shape", "classic_oval")
             display.setdefault("state_effects", {"enabled": False, "preset": "balanced", "palette": "phos",
                                                   "reduce_motion": False})
             if isinstance(display["state_effects"], dict):
@@ -726,16 +785,25 @@ class RuntimeConfig:
                 display["state_effects"].pop("smooth_transitions", None)
                 display["state_effects"].setdefault("palette", "phos")
         if isinstance(document, dict):
+            appearance = document.setdefault("appearance", {"config_file": None})
+            if isinstance(appearance, dict):
+                appearance.setdefault("presentation_owner", {"agent_id": None}); appearance.setdefault("mode", "global")
+                appearance.setdefault("global_skin_id", None)
+                appearance.setdefault("anonymous_mcp_use_default_agent_skin", False)
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
+            document.setdefault("object_awareness", {"enabled": False, "model_path": None, "confidence": .35, "max_detections": 5, "timeout_seconds": 2.0})
+            if isinstance(document.get("mcp"), dict):
+                document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
+            document.setdefault("agents", {"default_agent": "local-agent", "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]})
             document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
                 "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
                 "reconnect": {"delay_seconds": 2},
                 "heartbeat": {"interval_seconds": 5, "timeout_seconds": 15}})
             sensors = document.get("sensors")
             if isinstance(sensors, dict):
-                for name in ("environmental", "ccs811", "imu"):
+                for name in ("environmental", "ens160", "imu"):
                     if isinstance(sensors.get(name), dict):
                         sensors[name].setdefault("provider", "local")
         result = object.__new__(cls)
@@ -755,6 +823,13 @@ class RuntimeConfig:
                     value = getattr(self, target)
                     if isinstance(value, CloudExpressionConfig):
                         value = asdict(value)
+                    elif key == "agents":
+                        value = {"default_agent": value.default_agent, "entries": [
+                            {"id": item.id, "display_name": item.display_name, "permission_profile": item.permission_profile.value,
+                             **({"skin": item.skin} if item.skin is not None else {}),
+                             **({"appearance": item.appearance} if item.appearance is not None else {}),
+                             **({"credential": {"type": "bearer", "secret_ref": value.credential_refs[item.id]}} if item.id in value.credential_refs else {})}
+                            for item in value.entries]}
                     elif isinstance(value, Path):
                         value = str(value)
                     elif isinstance(value, tuple):
@@ -812,12 +887,12 @@ class RuntimeConfig:
 
         if not isinstance(self.environmental_type, str) or self.environmental_type not in {"bme280", "bmp280"}:
             raise ConfigurationError("sensors.environmental.type must be bme280 or bmp280")
-        for name in ("environmental", "ccs811", "imu"):
-            provider = getattr(self, f"{name}_provider")
+        for config_name, field_name in (("environmental", "environmental"), ("ens160", "ens160"), ("imu", "imu")):
+            provider = getattr(self, f"{field_name}_provider")
             if provider not in {"local", "controller"}:
-                raise ConfigurationError(f"sensors.{name}.provider must be local or controller")
-            if provider == "controller" and not self.hardware_controller_enabled:
-                raise ConfigurationError(f"sensors.{name}.provider controller requires hardware_controller.enabled")
+                raise ConfigurationError(f"sensors.{config_name}.provider must be local or controller")
+            if provider == "controller" and getattr(self, f"{field_name}_enabled") and not self.hardware_controller_enabled:
+                raise ConfigurationError(f"sensors.{config_name}.provider controller requires hardware_controller.enabled")
         if self.hardware_controller_transport != "serial":
             raise ConfigurationError("hardware_controller.transport must be serial")
         if not isinstance(self.hardware_controller_serial_device, str) or not self.hardware_controller_serial_device.strip():
@@ -833,12 +908,12 @@ class RuntimeConfig:
             raise ConfigurationError("sensors.environmental.stale_after_seconds must exceed poll_interval_seconds")
         if not isinstance(self.environmental_i2c_address, str) or self.environmental_i2c_address not in {"0x76", "0x77"}:
             raise ConfigurationError("sensors.environmental.i2c_address must be 0x76 or 0x77")
-        number("ccs811_poll_interval_seconds", minimum=1, inclusive=True, maximum=3600)
-        number("ccs811_stale_after_seconds", maximum=86400)
-        if self.ccs811_stale_after_seconds <= self.ccs811_poll_interval_seconds:
-            raise ConfigurationError("sensors.ccs811.stale_after_seconds must exceed poll_interval_seconds")
-        if not isinstance(self.ccs811_i2c_address, str) or self.ccs811_i2c_address not in {"0x5a", "0x5b"}:
-            raise ConfigurationError("sensors.ccs811.i2c_address must be 0x5a or 0x5b")
+        number("ens160_poll_interval_seconds", minimum=1, inclusive=True, maximum=3600)
+        number("ens160_stale_after_seconds", maximum=86400)
+        if self.ens160_stale_after_seconds <= self.ens160_poll_interval_seconds:
+            raise ConfigurationError("sensors.ens160.stale_after_seconds must exceed poll_interval_seconds")
+        if not isinstance(self.ens160_i2c_address, str) or self.ens160_i2c_address not in {"0x52", "0x53"}:
+            raise ConfigurationError("sensors.ens160.i2c_address must be 0x52 or 0x53")
         number("imu_poll_interval_seconds", minimum=.05, inclusive=True, maximum=3600)
         number("imu_stale_after_seconds", maximum=86400)
         if self.imu_stale_after_seconds <= self.imu_poll_interval_seconds:
@@ -900,6 +975,22 @@ class RuntimeConfig:
             raise ConfigurationError("mcp.host must be an IP address string")
         if not isinstance(self.mcp_path, str) or not self.mcp_path.startswith("/") or self.mcp_path == "/" or "?" in self.mcp_path or "#" in self.mcp_path:
             raise ConfigurationError("mcp.path must be a non-root absolute URL path without query or fragment")
+        if self.mcp_authentication_mode not in {"bearer", "none", "mixed"}:
+            raise ConfigurationError("mcp.authentication.mode must be bearer, none, or mixed")
+        if self.mcp_anonymous_permission_profile not in {"standard", "observer"}:
+            raise ConfigurationError("mcp.authentication.anonymous_permission_profile must be standard or observer")
+        if self.presentation_owner_agent_id is not None:
+            if (not isinstance(self.presentation_owner_agent_id, str)
+                    or not self.presentation_owner_agent_id.strip()):
+                raise ConfigurationError("appearance.presentation_owner.agent_id must be a nonempty agent ID or null")
+            if self.agent_registry.get(self.presentation_owner_agent_id) is None:
+                raise ConfigurationError("appearance.presentation_owner.agent_id must reference a configured agent")
+        if self.appearance_mode not in {"global", "follow_agent"}:
+            raise ConfigurationError("appearance.mode must be global or follow_agent")
+        if self.global_skin_id is not None and (not isinstance(self.global_skin_id, str) or not self.global_skin_id.strip()):
+            raise ConfigurationError("appearance.global_skin_id must be a nonempty Skin ID or null")
+        if type(self.anonymous_mcp_use_default_agent_skin) is not bool:
+            raise ConfigurationError("appearance.anonymous_mcp_use_default_agent_skin must be a boolean")
 
         for name in ("display_width", "display_height", "display_fps", "expression_minimum_observations"):
             number(name, integer=True)
@@ -1009,7 +1100,7 @@ class RuntimeConfig:
             number(name, minimum=1, inclusive=True, maximum=60000, integer=True)
         if self.presence_led_entered_direction not in {"clockwise", "counter_clockwise"} or self.presence_led_left_direction not in {"clockwise", "counter_clockwise"}:
             raise ConfigurationError("presence LED directions must be clockwise or counter_clockwise")
-        for name in ("ccs811_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "mcp_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
+        for name in ("ens160_enabled", "environmental_enabled", "environmental_behavior_enabled", "imu_enabled", "led_ring_enabled", "led_ring_follow_visual_state", "led_ring_imu_reactions_enabled", "led_ring_clockwise", "presence_led_reactions_enabled", "voice_enabled", "voice_debug_dump_utterance_wav", "web_enabled", "mcp_enabled", "fullscreen", "face_tracking_enabled", "camera_preview_enabled",
                      "camera_preview_show_face_box", "camera_preview_show_expression", "camera_preview_show_confidence", "expression_enabled", "expression_neutral_enabled",
                      "expression_swap_rb", "expression_grayscale", "expression_diagnostics", "expression_reactions_enabled",
                      "startup_splash_enabled", "startup_ready_sound_enabled", "tts_enabled", "tts_audio_output_debug_retain_final_wav",
@@ -1034,6 +1125,8 @@ class RuntimeConfig:
             IrisColorResolver.normalize(self.iris_color)
         except ValueError as error:
             raise ConfigurationError("display.iris_color must be a supported preset name or #RRGGBB") from error
+        if self.eye_shape not in {"classic_oval", "round", "expressive", "angular", "compact"}:
+            raise ConfigurationError("display.eye_shape must be a supported eye shape")
         if self.base_visual_source not in {item.value for item in VisualSource}:
             raise ConfigurationError("display.base_visual_source must be manual, environment or state")
         if type(self.environment_overlays_enabled) is not bool:
@@ -1073,6 +1166,13 @@ class RuntimeConfig:
             value = getattr(self, name)
             if value is not None and not isinstance(value, Path):
                 raise ConfigurationError(f"{name} must be a Path or null")
+        if type(self.object_awareness_enabled) is not bool:
+            raise ConfigurationError("object_awareness.enabled must be a boolean")
+        number("object_awareness_confidence", inclusive=True, maximum=1)
+        number("object_awareness_max_detections", minimum=1, inclusive=True, maximum=5, integer=True)
+        number("object_awareness_timeout_seconds", minimum=0, maximum=30)
+        if self.object_awareness_enabled and self.object_awareness_model_path is None:
+            raise ConfigurationError("Enabled object awareness requires object_awareness.model_path")
         labels = self.expression_labels
         if (not isinstance(labels, tuple) or any(not isinstance(v, str) or not v.strip() for v in labels)
                 or len(set(labels)) != len(labels)):
@@ -1088,6 +1188,8 @@ class RuntimeConfig:
         required = []
         if self.expression_enabled and self.expression_provider == "local":
             required.append(("expression.local.model_path", self.expression_model_path))
+        if self.object_awareness_enabled:
+            required.append(("object_awareness.model_path", self.object_awareness_model_path))
         if self.vision_enabled and self.cascade_path is not None:
             required.append(("vision.detector.cascade_path", self.cascade_path))
         for name, value in required:

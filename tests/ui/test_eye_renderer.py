@@ -4,6 +4,19 @@ from types import SimpleNamespace
 import pytest
 
 from robot.ui import AmbientOverlayState, BlinkPhase, EyeRenderer, FaceExpression, FaceState, TkEyeDisplay, VisualAccent
+from robot.ui.eyes import EyeGeometry, contain_custom_eye_graphics, custom_eye_interior_contour
+
+
+def test_eye_geometry_contour_is_optional_immutable_and_validated():
+    base = dict(center_x=0, center_y=0, radius_x=1, radius_y=1, pupil_x=0, pupil_y=0,
+                iris_radius=.5, pupil_radius=.2, squint=0, upper_lid_slope=0,
+                upper_lid_depth=0, upper_lid_curve=0, closed=False)
+    legacy = EyeGeometry(**base)
+    contour = ((-1.0, 0.0), (0.0, -1.0), (1.0, 0.0), (0.0, 1.0))
+    custom = EyeGeometry(**base, contour=contour)
+    assert legacy.contour is None and custom.contour == contour
+    with pytest.raises(ValueError): EyeGeometry(**base, contour=((0.0, 0.0), (1.0, 1.0)))
+    with pytest.raises(ValueError): EyeGeometry(**base, contour=[(0.0, 0.0)] * 3)
 from robot.ui.display import ambient_overlay_layout
 from robot.ui.eyes import upper_lid_points, valid_polygon_points
 
@@ -441,3 +454,191 @@ def test_tk_draws_separate_eye_body_iris_pupil_and_highlights():
     assert frame.iris_color in fills
     assert frame.pupil_color in fills
     assert "#071522" in fills
+
+
+class _RecordingCanvas:
+    def __init__(self):
+        self.calls = []
+
+    def create_oval(self, *args, **kwargs):
+        self.calls.append(("oval", args, kwargs))
+
+    def create_polygon(self, *args, **kwargs):
+        self.calls.append(("polygon", args, kwargs))
+
+    def create_arc(self, *args, **kwargs):
+        self.calls.append(("arc", args, kwargs))
+
+
+def _tk_display_with_recording_canvas():
+    display = object.__new__(TkEyeDisplay)
+    canvas = _RecordingCanvas()
+    display._canvas = canvas
+    display._tk = SimpleNamespace(ARC="arc")
+    return display, canvas
+
+
+def test_tk_legacy_eye_body_canvas_calls_are_unchanged():
+    frame = render(FaceState())
+    eye = frame.eyes[0]
+    display, canvas = _tk_display_with_recording_canvas()
+
+    display._draw_eye(eye, frame)
+
+    assert canvas.calls[:3] == [
+        ("oval", (eye.center_x - eye.radius_x, eye.center_y - eye.radius_y + 7,
+                  eye.center_x + eye.radius_x, eye.center_y + eye.radius_y + 7),
+         {"fill": "#071522", "outline": ""}),
+        ("oval", (eye.center_x - eye.radius_x, eye.center_y - eye.radius_y,
+                  eye.center_x + eye.radius_x, eye.center_y + eye.radius_y),
+         {"fill": "#8FA8B8", "outline": "#526C80", "width": 3}),
+        ("oval", (eye.center_x - eye.radius_x + 5, eye.center_y - eye.radius_y + 5,
+                  eye.center_x + eye.radius_x - 5, eye.center_y + eye.radius_y - 5),
+         {"fill": frame.eye_color, "outline": ""}),
+    ]
+    assert [kind for kind, _, _ in canvas.calls] == ["oval"] * 8
+
+
+def test_tk_custom_contour_draws_three_ordered_body_polygons_with_safe_inset():
+    frame = render(FaceState())
+    eye = replace(
+        frame.eyes[0], center_x=100, center_y=120, radius_x=40, radius_y=30,
+        pupil_x=100, pupil_y=120,
+        contour=((60, 120), (100, 90), (140, 120), (100, 150)),
+    )
+    display, canvas = _tk_display_with_recording_canvas()
+
+    display._draw_eye(eye, frame)
+
+    body = canvas.calls[:3]
+    assert [kind for kind, _, _ in body] == ["polygon", "polygon", "polygon"]
+    assert [kwargs for _, _, kwargs in body] == [
+        {"fill": "#071522", "outline": ""},
+        {"fill": "#8FA8B8", "outline": "#526C80", "width": 3},
+        {"fill": frame.eye_color, "outline": ""},
+    ]
+    assert body[0][1] == (60, 127, 100, 97, 140, 127, 100, 157)
+    assert body[1][1] == (60, 120, 100, 90, 140, 120, 100, 150)
+    assert body[2][1] == (65, 120, 100, 95, 135, 120, 100, 145)
+    assert len([call for call in canvas.calls if call[0] == "polygon"]) == 3
+    fills = [kwargs.get("fill") for kind, _, kwargs in canvas.calls if kind == "oval"]
+    assert fills.count("#123246") == fills.count(frame.iris_color) == fills.count(frame.pupil_color) == 1
+
+
+def test_tk_custom_contour_keeps_blink_arc_and_upper_lid_draw_order():
+    frame = render(FaceState(expression=FaceExpression.SAD, reaction_strength=1))
+    contour = ((200, 300), (240, 250), (280, 300), (240, 350))
+    open_eye = replace(frame.eyes[0], contour=contour, upper_lid_depth=.2)
+    display, canvas = _tk_display_with_recording_canvas()
+
+    display._draw_eye(open_eye, frame)
+
+    assert [kind for kind, _, _ in canvas.calls[:3]] == ["polygon"] * 3
+    assert canvas.calls[-1][0] == "polygon"
+    assert canvas.calls[-1][2] == {"fill": "#8FA8B8", "outline": ""}
+
+    closed_eye = replace(open_eye, closed=True)
+    display, canvas = _tk_display_with_recording_canvas()
+    display._draw_eye(closed_eye, frame)
+
+    assert canvas.calls == [
+        ("arc", (closed_eye.center_x - closed_eye.radius_x, closed_eye.center_y - 18,
+                 closed_eye.center_x + closed_eye.radius_x, closed_eye.center_y + 24),
+         {"start": 200, "extent": 140, "style": "arc", "outline": frame.eye_color, "width": 12}),
+    ]
+
+
+def _contour_clearances(contour, point):
+    area = sum(x1 * y2 - y1 * x2 for (x1, y1), (x2, y2) in zip(contour, contour[1:] + contour[:1]))
+    orientation = 1 if area > 0 else -1
+    return [orientation * ((x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)) /
+            ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** .5
+            for (x1, y1), (x2, y2) in zip(contour, contour[1:] + contour[:1])]
+
+
+def _assert_custom_graphics_contained(eye):
+    assert eye.contour is not None
+    if eye.iris_radius == 0:
+        return
+    # The renderer reserves two extra pixels beyond the iris for the minimum
+    # white highlight, so this also bounds both highlight circles.
+    assert min(_contour_clearances(custom_eye_interior_contour(eye), (eye.pupil_x, eye.pupil_y))) >= eye.iris_radius + 2 - 1e-9
+
+
+@pytest.mark.parametrize("shape", ("round", "expressive", "angular", "compact"))
+def test_custom_shapes_contain_full_graphics_at_maximum_gaze(shape):
+    frame = EyeRenderer(shape=shape).render(FaceState(pupil_x=1, pupil_y=-1), timestamp=0)
+
+    for eye in frame.eyes:
+        _assert_custom_graphics_contained(eye)
+
+
+def test_angular_wings_and_compact_eyes_clamp_their_narrow_axes():
+    closing = FaceState(pupil_x=1, pupil_y=1, blink_phase=BlinkPhase.CLOSING, blink_progress=.8)
+    angular = EyeRenderer(shape="angular").render(closing, timestamp=0).eyes[0]
+    compact = EyeRenderer(shape="compact").render(closing, timestamp=0).eyes[0]
+
+    _assert_custom_graphics_contained(angular)
+    _assert_custom_graphics_contained(compact)
+    assert abs(angular.pupil_y - angular.center_y) < angular.radius_y
+    assert abs(compact.pupil_y - compact.center_y) < compact.radius_y
+
+
+def test_custom_shape_partial_blinks_and_expression_transitions_stay_finite_and_contained():
+    renderer = EyeRenderer(shape="expressive", transition_seconds=.2)
+    renderer.render(FaceState(), timestamp=0)
+    transition = renderer.render(FaceState(expression=FaceExpression.ANGRY, reaction_strength=1, pupil_x=-1), timestamp=.1)
+    partial = renderer.render(
+        FaceState(expression=FaceExpression.ANGRY, reaction_strength=1, pupil_x=-1,
+                  blink_phase=BlinkPhase.CLOSING, blink_progress=.8), timestamp=.2,
+    )
+
+    for frame in (transition, partial):
+        for eye in frame.eyes:
+            assert all(value == value and abs(value) != float("inf")
+                       for value in (eye.pupil_x, eye.pupil_y, eye.iris_radius, eye.pupil_radius))
+            _assert_custom_graphics_contained(eye)
+
+
+def test_custom_shape_left_right_graphics_are_mirrored_for_symmetric_gaze():
+    frame = EyeRenderer(shape="round").render(FaceState(pupil_x=.7, pupil_y=-.4), timestamp=0)
+    left, right = frame.eyes
+
+    assert left.pupil_x - left.center_x == right.pupil_x - right.center_x
+    assert left.pupil_y - left.center_y == right.pupil_y - right.center_y
+    assert left.iris_radius == right.iris_radius
+    _assert_custom_graphics_contained(left)
+    _assert_custom_graphics_contained(right)
+
+
+def test_degenerate_custom_contours_hide_graphics_without_nan_or_canvas_ovals():
+    frame = render(FaceState())
+    eye = replace(frame.eyes[0], contour=((10, 10), (10, 10), (10, 10)), radius_x=1, radius_y=1)
+    contained = contain_custom_eye_graphics(eye)
+    display, canvas = _tk_display_with_recording_canvas()
+
+    display._draw_eye(eye, frame)
+
+    assert contained.iris_radius == contained.pupil_radius == 0
+    assert [kind for kind, _, _ in canvas.calls] == ["polygon", "polygon", "polygon"]
+
+
+def test_custom_shapes_use_the_existing_closed_eye_arc_and_classic_oval_is_identical():
+    closed = EyeRenderer(shape="angular").render(FaceState(blink_phase=BlinkPhase.CLOSED), timestamp=0).eyes[0]
+    default = EyeRenderer().render(FaceState(pupil_x=.4, pupil_y=-.3), timestamp=0)
+    explicit = EyeRenderer(shape="classic_oval").render(FaceState(pupil_x=.4, pupil_y=-.3), timestamp=0)
+
+    assert closed.closed and closed.contour is None
+    assert default == explicit
+
+
+def test_renderer_updates_shape_without_recreating_or_resetting_appearance_state():
+    renderer = EyeRenderer(iris_color="amber")
+    renderer.render(FaceState(), timestamp=0)
+    renderer.update_appearance(shape="angular")
+    frame = renderer.render(FaceState(), timestamp=.1)
+    renderer.update_appearance(iris_color="violet")
+
+    assert renderer.shape == "angular"
+    assert frame.eyes[0].contour is not None
+    assert renderer.iris_color == "#A670F5"

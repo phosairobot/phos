@@ -81,7 +81,7 @@ controller or add controller-specific behavior logic.
 
 For controller-backed sensors, set `hardware_controller.enabled: true` and the
 corresponding canonical `sensors.environmental.provider`,
-`sensors.ccs811.provider`, or `sensors.imu.provider` to `controller`, while
+`sensors.ens160.provider`, or `sensors.imu.provider` to `controller`, while
 retaining `enabled: true`. This prevents local I2C workers from starting while
 controller `sensor_update` messages update the same semantic snapshots used by
 the application services. The controller is a generic provider, not a hardware
@@ -168,15 +168,17 @@ camera-frame access, serial/controller transport, hardware/configuration
 mutation, and administrative/recovery controls are intentionally absent from
 this facade.
 
-Permission answers whether a trusted adapter may request an operation.
-Capability answers whether the delegated application service can currently
-perform it; validation, availability, lifecycle, and arbitration errors still
-come from that service after a permission check.  Authentication answers who is
-calling and is not implemented here.  This is therefore an application-level
-semantic authorization model, not a complete security boundary: it does not
-replace transport authentication, OS permissions, network security, or
-sandboxing.  MCP, network identities, credentials, and persistence remain
-deferred.
+Permission answers whether an identity may request an operation. Capability
+answers whether the delegated application service can currently perform it;
+validation, availability, lifecycle, and arbitration errors still come from
+that service after a permission check. Authentication answers who is calling:
+MCP Stage 3.1 resolves one immutable provider-neutral `AgentIdentity` per
+inbound request before constructing the identity-bound agent facade. The
+transitional local authenticator resolves the existing trusted-local client to
+the `standard` profile without credential verification. This is not a complete
+security boundary: credential-backed transport authentication, persisted
+identities, network authorization, OS permissions, and sandboxing remain
+separate concerns.
 
 ### MCP Semantic Adapter — Stage 1
 
@@ -195,22 +197,24 @@ PHOS runtime/services
 Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
 Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
 creates one listener over the existing application services, and normal runtime
-shutdown closes it. It exposes ten request/response tools: `phos_get_status`,
+shutdown closes it. It exposes fifteen request/response tools: `phos_get_status`,
 `phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`,
-`phos_get_observed_expression`, `phos_set_expression`, `phos_speak`,
-`phos_sleep`, `phos_wake`, and `phos_signal_user`. Every one delegates through
+`phos_get_observed_expression`, `phos_get_camera_snapshot`,
+`phos_capture_camera_snapshot`, `phos_set_expression`, `phos_speak`,
+`phos_sleep`, `phos_wake`, `phos_signal_user`, `phos_query_measurements`, and
+`phos_list_physical_transitions`. Every one delegates through
 `AgentApplicationService`; MCP owns no permissions, runtime state, provider,
 or hardware logic.
 
 MCP clients connect to the already-running PHOS instance. Client sessions do
 not create runtimes, application services, or permission boundaries. The
 default listener is loopback-only; a non-loopback bind requires explicit
-configuration and is warned because transport authentication, agent identity,
+configuration and is warned because credential-backed transport authentication
 and network authorization are not implemented.
 
-This is for trusted local/integrated execution. There is no MCP authentication;
-application permissions are not transport authentication. Do not expose the
-endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
+This is for trusted local/integrated execution. Stage 3.1 resolves a
+credential-free local identity; application permissions are not transport
+authentication. Do not expose the endpoint on the public Internet. Raw hardware, controller transport, renderer, camera,
 audio device, configuration, and administrative/recovery controls are absent.
 Stage 2 begins with a transport-neutral semantic event model. The application
 service projects meaningful interpreted transitions (robot state, environmental
@@ -232,8 +236,12 @@ state, idempotent `close()`, and optional context-manager cleanup. The publisher
 holds the handler strongly only while the handle is active; explicit close is
 the required ownership boundary. A dispatch snapshot already in progress may
 complete when a handle is closed, but no later delivery starts after `close()`
-returns. MCP subscriptions/notifications, REST or WebSocket delivery, and
-camera resources remain deferred.
+returns. The MCP adapter may consume this model through its bounded
+`McpSemanticEventBridge`: standard MCP `subscriptions/listen` clients receive
+URI-only `notifications/resources/updated` cues and re-read the relevant
+Resource. This remains separate from the Core event bus; REST/WebSocket
+delivery and an optional future MCP Events webhook adapter are not Core
+responsibilities. Camera resources remain excluded from semantic push cues.
 
 `phos_get_status` is intentionally narrower than `/api/v1/status`. Its agent
 status document contains only `running`, `state`, semantic subsystem
@@ -603,29 +611,15 @@ IPC operation is exposed. See ADR-022, [hardware](hardware.md#bme280) and
 [configuration migration](development.md#environmental-configuration-migration).
 
 
-### CCS811 air-quality extension
+### Controller-backed ENS160 and AHT21
 
-`hardware.CCS811Provider → AirQualitySensorService → PhosRuntime.sensor_status`
-uses the same lifecycle status channel and authenticated Sensors page. An
-immutable `AirQualityReading` holds eCO2 ppm / TVOC ppb; environmental measurement
-interfaces remain unchanged. The two services reuse the existing worker algorithm
-through a private base, with typed reading hooks. Each enabled sensor has one
-worker and its adapter-owned smbus2 handle on bus 1. No rendering, Vision, web
-handler or BehaviorEngine accesses these adapters.
-
-Expected readiness/conditioning uses `SensorNotReady`, keeping the device open
-and polling at the configured interval. Faults use the shared reconnect/backoff;
-failed/stale readings are hidden and shutdown remains bounded per worker.
-A stalled warm-up poll also becomes unavailable after its freshness timeout.
-Disabled means no provider construction, imports or bus operations.
-
-Environmental compensation flows through the environmental service's immutable,
-fresh snapshot boundary to the air-quality service, then the provider. No driver
-references another driver. The UI receives only state/metadata. Missing humidity
-(including BMP280) or invalid/stale inputs restore device defaults; baseline
-persistence remains deferred. Confirmed air-quality semantics are handled by
-EnvironmentalInterpreter, not by this service. See ADR-023 and the
-[installation policy](installation.md#optional-ccs811-air-quality-sensor).
+`ESP32 telemetry → ControllerService → runtime lifecycle callbacks →
+AirQualitySensorService → runtime/application status → WebUI/MCP` is the
+air-quality path. The controller acquires measurements and publishes phos-hw v1
+records; Pi services own freshness, validity, controller-generation isolation and
+environmental interpretation. ENS160 provides estimated eCO2, TVOC and AQI-UBA;
+AHT21 temperature and humidity are independently fresh. Retiring a session
+immediately makes controller readings unusable until fresh telemetry arrives.
 
 ### MPU-6050 IMU extension
 
@@ -675,6 +669,6 @@ bounded cached result every 30 seconds. Web Admin obtains that read model only
 through `RemoteApplicationService` and lifecycle. The physical Admin overlay is
 a separate top display layer. It receives only the effective LAN Admin URL and
 a cached `qrcode` matrix; Tk renders individual square canvas modules, so Pillow
-and image resampling are unnecessary. A 2.5-second long press in the top-right
+and image resampling are unnecessary. A top-right double-tap
 20% of the display opens it, and a tap closes it. This never changes
 `FaceState`, `RobotState`, or `BehaviorEngine` state.

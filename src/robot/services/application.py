@@ -30,7 +30,9 @@ from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_S
 from robot.core.presence import PRESENCE_CHANGED, PERSON_ENTERED, PERSON_LEFT
 from robot.core.attention import (ATTENTION_CHANGED, ATTENTION_TARGET_ACQUIRED,
                                   ATTENTION_TARGET_CHANGED, ATTENTION_TARGET_LOST)
-from robot.vision.pipeline import OBSERVED_EXPRESSION_CHANGED
+from robot.vision.pipeline import CameraSnapshot, OBSERVED_EXPRESSION_CHANGED
+from robot.vision.object_awareness import (ObjectAwarenessBusy, ObjectAwarenessFailure,
+                                           ObjectAwarenessTimeout, ObjectAwarenessUnavailable)
 from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESSION_REACTION_COMPLETED,
                                             EXPRESSION_REACTION_SUPPRESSED)
 from robot.core.touch import TOUCH_EVENT_NAMES
@@ -47,6 +49,7 @@ from robot.lifecycle import changed_fields
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
 from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
+from robot.services.temporal_history import TemporalHistoryService
 from robot.services.agent_permissions import AgentApplicationService
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -316,6 +319,11 @@ class PhosApplicationService:
         self._admin_recovery = RecoveryState(clock=clock)
         self._physical_context = SemanticPhysicalContextService()
         self._semantic_events = SemanticEventPublisher()
+        history = getattr(runtime, "_temporal_history", None)
+        if history is None:
+            history = TemporalHistoryService()
+            setattr(runtime, "_temporal_history", history)
+        self._temporal_history = history
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -337,6 +345,7 @@ class PhosApplicationService:
             self._core.events.subscribe(OBSERVED_EXPRESSION_CHANGED, self._on_observed_expression_changed),
             self._core.events.subscribe(IMU_MOTION_STATE, self._on_motion_state_changed),
             self._core.events.subscribe(ENVIRONMENTAL_STATE_CHANGED, self._on_environmental_state_changed),
+            self._core.events.subscribe("sensor_status_changed", self._on_semantic_system_input),
             self._core.events.subscribe(EXPRESSION_REACTION_STARTED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_COMPLETED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
             self._core.events.subscribe(EXPRESSION_REACTION_SUPPRESSED, lambda event: self._emit("expression_reaction_changed", self.expression_reaction())),
@@ -361,6 +370,22 @@ class PhosApplicationService:
             unsubscribe()
         self._unsubscribers = []
 
+    def attach_lifecycle(self, lifecycle) -> None:
+        """Attach the one lifecycle owner after runtime composition.
+
+        ``build_runtime`` creates the canonical application service because the
+        interaction executor needs it during composition.  ``async_main`` owns
+        the optional lifecycle service, so it attaches that collaborator later
+        instead of constructing a second Core-event observer.
+        """
+        self._lifecycle = lifecycle
+
+    def query_measurements(self, metric: str, *, start: str | None = None, end: str | None = None, limit: int = 360) -> dict:
+        return self._temporal_history.query_measurements(metric, start=start, end=end, limit=limit)
+
+    def list_physical_transitions(self, *, event_type: str | None = None, limit: int = 100) -> dict:
+        return self._temporal_history.list_transitions(event_type=event_type, limit=limit)
+
     def subscribe(self, listener: Callable[[dict], None]) -> Callable[[], None]:
         with self._lock:
             self._listeners.append(listener)
@@ -380,7 +405,11 @@ class PhosApplicationService:
             payload["previous"] = previous
         if details:
             payload.update(details)
-        self._semantic_events.publish(event_type, source, payload)
+        event = self._semantic_events.publish(event_type, source, payload)
+        try:
+            self._temporal_history.record_semantic_event(event)
+        except Exception:
+            logger.warning("PHOS HISTORY: semantic transition was not retained", exc_info=True)
 
     def _establish_semantic_system_baseline(self) -> None:
         """Record ready-state availability without inventing startup transitions."""
@@ -405,16 +434,28 @@ class PhosApplicationService:
             previous_health = self._semantic_health
             self._semantic_availability = availability
             self._semantic_health = health
-        if previous_availability is None:
-            return
-        for capability, current in availability.items():
-            previous = previous_availability[capability]
-            if current != previous:
-                self._semantic_events.publish("capability_changed", "capability", {
-                    "capability": capability, "previous": previous, "current": current,
-                })
-        if health != previous_health:
+        if previous_availability is not None:
+            for capability, current in availability.items():
+                previous = previous_availability[capability]
+                if current != previous:
+                    self._semantic_events.publish("capability_changed", "capability", {
+                        "capability": capability, "previous": previous, "current": current,
+                    })
+        if previous_health is not None and health != previous_health:
             self._semantic_transition("system_health_changed", "system", health, previous=previous_health)
+        sensors = status.get("sensors") if isinstance(status, dict) else {}
+        for key, event_type, source in (("environmental", "environment_availability_changed", "environment"),
+                                        ("ens160", "air_quality_availability_changed", "air_quality"),
+                                        ("imu", "motion_availability_changed", "motion")):
+            snapshot = sensors.get(key) if isinstance(sensors, dict) else {}
+            current = snapshot.get("status", "unavailable") if isinstance(snapshot, dict) else "unavailable"
+            last_key = f"semantic.{event_type}"
+            previous = self._last.get(last_key)
+            if previous is None and current == "starting":
+                continue
+            self._last[last_key] = current
+            if previous is not None and current != previous:
+                self._semantic_transition(event_type, source, current, previous=previous)
 
     def _on_robot_state_changed(self, event) -> None:
         self._semantic_transition("robot_state_changed", "robot", event.data.get("current"),
@@ -437,11 +478,16 @@ class PhosApplicationService:
 
     def _on_motion_state_changed(self, event) -> None:
         current = event.data.get("state")
+        # This transition is low-rate semantic input, unlike raw orientation
+        # telemetry.  Publish the canonical IMU snapshot so the Dashboard does
+        # not retain an older sensors.imu value until its periodic refresh.
+        snapshot = self.motion()
+        self._emit("motion_state_changed", snapshot)
         previous = self._last.get("semantic.motion")
         if current != previous:
             self._last["semantic.motion"] = current
             self._semantic_transition("motion_state_changed", "motion", current, previous=previous,
-                                      details={"intensity": event.data.get("intensity")})
+                                      details={"intensity": snapshot.get("motion_intensity")})
 
     def _on_environmental_state_changed(self, event) -> None:
         data = event.data
@@ -566,26 +612,98 @@ class PhosApplicationService:
                      id(pipeline), id(observation), observation.available, observation.label, observation.confidence)
         return self._plain(observation)
 
+    async def visible_objects(self) -> dict:
+        """Return one bounded semantic object observation, never image content."""
+        coordinator = getattr(self._runtime, "_object_awareness", None)
+        if coordinator is None:
+            raise ApplicationError("object_awareness_disabled", "Object awareness is unavailable.", status=503)
+        try:
+            observation = await coordinator.observe()
+        except ObjectAwarenessBusy as error:
+            raise ApplicationError("object_awareness_busy", "Object awareness is busy.", status=429) from error
+        except ObjectAwarenessTimeout as error:
+            raise ApplicationError("object_awareness_timeout", "Object awareness timed out.", status=504) from error
+        except ObjectAwarenessUnavailable as error:
+            raise ApplicationError("object_awareness_unavailable", "Object awareness is unavailable.", status=503) from error
+        except ObjectAwarenessFailure as error:
+            raise ApplicationError("object_awareness_failed", "Object awareness inference failed.", status=503) from error
+        return {"captured_at": observation.captured_at_utc.isoformat().replace("+00:00", "Z"),
+                "age_ms": observation.age_ms, "freshness": observation.freshness,
+                "objects": [{"label": item.label, "confidence": item.confidence} for item in observation.objects],
+                "truncated": observation.truncated}
+
     def get_camera_snapshot(self) -> bytes:
-        """Return one privacy-bounded current Vision frame, encoded on demand."""
+        """Return one bounded JPEG from the latest cached Vision frame."""
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
         reader = getattr(pipeline, "camera_snapshot_jpeg", None)
         if not callable(reader):
             raise ApplicationError("vision_unavailable", "Vision is unavailable.", status=503)
         try:
-            return reader()
+            image = reader()
         except RuntimeError as error:
             reason = str(error)
             if reason == "no_frame":
                 raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
             raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        self._validate_camera_snapshot_jpeg(image)
+        return image
+
+    def get_camera_snapshot_with_metadata(self) -> CameraSnapshot:
+        """Return the JPEG and acquisition metadata from one immutable cached frame."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "camera_snapshot", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision snapshot metadata is unavailable.", status=503)
+        try:
+            snapshot = reader()
+        except RuntimeError as error:
+            if str(error) == "no_frame":
+                raise ApplicationError("camera_frame_unavailable", "No camera frame is available yet.", status=503) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        if (not isinstance(snapshot, CameraSnapshot) or not isinstance(snapshot.age_ms, int)
+                or snapshot.age_ms < 0 or snapshot.freshness not in {"fresh", "stale"}
+                or not isinstance(snapshot.captured_at_utc, datetime)
+                or snapshot.captured_at_utc.tzinfo is None
+                or snapshot.captured_at_utc.utcoffset() is None):
+            raise ApplicationError("camera_snapshot_metadata_invalid", "Camera snapshot metadata is unavailable.", status=503)
+        self._validate_camera_snapshot_jpeg(snapshot.jpeg)
+        return snapshot
+
+    async def capture_camera_snapshot_with_metadata(self) -> CameraSnapshot:
+        """Wait for a post-request frame from the existing running pipeline."""
+        pipeline = getattr(self._runtime, "_vision_pipeline", None)
+        reader = getattr(pipeline, "capture_camera_snapshot", None)
+        if not callable(reader):
+            raise ApplicationError("vision_unavailable", "Vision capture is unavailable.", status=503)
+        try:
+            snapshot = await reader()
+        except RuntimeError as error:
+            reason = str(error)
+            if reason in {"pipeline_not_running", "pipeline_stopped"}:
+                raise ApplicationError("camera_capture_unavailable", "Vision capture is not running.", status=503) from None
+            if reason == "capture_timeout":
+                raise ApplicationError("camera_capture_timeout", "No new camera frame arrived in time.", status=504) from None
+            if reason == "capture_busy":
+                raise ApplicationError("camera_capture_busy", "Camera capture is busy.", status=429) from None
+            raise ApplicationError("camera_unavailable", "Camera snapshot is unavailable.", status=503) from None
+        if not isinstance(snapshot, CameraSnapshot):
+            raise ApplicationError("camera_snapshot_metadata_invalid", "Camera snapshot metadata is unavailable.", status=503)
+        self._validate_camera_snapshot_jpeg(snapshot.jpeg)
+        return snapshot
+
+    @staticmethod
+    def _validate_camera_snapshot_jpeg(image: object) -> None:
+        if (not isinstance(image, bytes) or len(image) > 512 * 1024
+                or _header_image_details(image) is None
+                or not image.startswith(b"\xff\xd8") or not image.endswith(b"\xff\xd9")):
+            raise ApplicationError("camera_snapshot_invalid", "Camera snapshot is unavailable.", status=503)
 
     def expression_reaction(self) -> dict:
         return self._plain(self._behavior.expression_reaction_state())
 
     def health(self) -> dict:
         snapshots = self.sensors()
-        mapping = {"environmental": "environmental", "ccs811": "ccs811", "imu": "mpu6050", "led_ring": "led_ring"}
+        mapping = {"environmental": "environmental", "ens160": "ens160", "aht21": "aht21", "imu": "imu", "led_ring": "led_ring"}
         subsystems = {}
         for name, source in mapping.items():
             item = snapshots.get(source)
@@ -842,33 +960,64 @@ class PhosApplicationService:
     def mcp_settings(self) -> dict:
         if self._lifecycle is None or self._mcp_manager is None:
             raise ApplicationError("service_unavailable", "MCP runtime service is unavailable.", status=503)
-        return self._mcp_manager.status()
+        result = self._mcp_manager.status()
+        result["authentication"] = self._lifecycle.config_repository.load().to_dict()["mcp"]["authentication"]
+        result["authentication_restart_required"] = False
+        return result
 
     def configure_mcp(self, patch: dict) -> dict:
         if (self._lifecycle is None or self._mcp_manager is None or not isinstance(patch, dict)
-                or set(patch) - {"enabled", "port"}):
+                or set(patch) - {"enabled", "port", "authentication", "confirm_anonymous_mcp"}):
             raise ApplicationError("invalid_mcp_settings", "MCP settings are invalid.")
         if type(patch.get("enabled")) is not bool or type(patch.get("port")) is not int or not 1 <= patch["port"] <= 65535:
             raise ApplicationError("invalid_mcp_settings", "MCP port must be an integer between 1 and 65535.")
         previous = self._lifecycle.config_repository.load()
         document = previous.to_dict()
-        document["mcp"].update(patch)
+        authentication = patch.get("authentication")
+        if authentication is not None and (not isinstance(authentication, dict)
+                                           or set(authentication) != {"mode", "anonymous_permission_profile"}):
+            raise ApplicationError("invalid_mcp_settings", "MCP authentication settings are invalid.")
+        if authentication and previous.mcp_authentication_mode == "bearer" and authentication["mode"] in {"none", "mixed"}:
+            if patch.get("confirm_anonymous_mcp") is not True:
+                raise ApplicationError("anonymous_mcp_confirmation_required", "Confirm anonymous MCP access before saving.", status=400)
+        document["mcp"].update({key: value for key, value in patch.items() if key in {"enabled", "port"}})
+        if authentication is not None:
+            document["mcp"]["authentication"] = authentication
         candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
-        try:
-            result = self._mcp_manager.apply(enabled=candidate.mcp_enabled, port=candidate.mcp_port)
-        except Exception as error:
-            current = self._mcp_manager.status()
-            message = (f"MCP could not start on port {patch['port']}. "
-                       f"MCP remains available on port {current['bound_port']}." if current.get("bound_port")
-                       else "MCP could not start on the requested port.")
-            raise ApplicationError("port_in_use", message, status=409) from error
+        listener_changed = (candidate.mcp_enabled != previous.mcp_enabled or candidate.mcp_port != previous.mcp_port)
+        if listener_changed:
+            try:
+                result = self._mcp_manager.apply(enabled=candidate.mcp_enabled, port=candidate.mcp_port)
+            except Exception as error:
+                current = self._mcp_manager.status()
+                message = (f"MCP could not start on port {patch['port']}. "
+                           f"MCP remains available on port {current['bound_port']}." if current.get("bound_port")
+                           else "MCP could not start on the requested port.")
+                raise ApplicationError("port_in_use", message, status=409) from error
+        else:
+            result = self._mcp_manager.status()
         try:
             self._lifecycle.config_repository.save(candidate)
         except OSError as error:
             # Keep runtime and persistence coherent if storage fails.
-            self._mcp_manager.apply(enabled=previous.mcp_enabled, port=previous.mcp_port)
+            if listener_changed:
+                self._mcp_manager.apply(enabled=previous.mcp_enabled, port=previous.mcp_port)
             raise ApplicationError("configuration_unavailable", "MCP settings could not be saved.", status=503) from error
+        if authentication is not None:
+            try:
+                self._mcp_manager.configure_authentication(
+                    mode=candidate.mcp_authentication_mode,
+                    anonymous_permission_profile=candidate.mcp_anonymous_permission_profile,
+                )
+            except Exception as error:
+                # The candidate was fully validated before persistence; an
+                # activation failure is nevertheless surfaced rather than
+                # falsely claiming the running policy changed.
+                raise ApplicationError("mcp_authentication_unavailable",
+                                       "MCP authentication settings were saved but could not be activated.", status=503) from error
         self._lifecycle.active["mcp"] = candidate.to_dict()["mcp"]
+        result.update({"authentication": candidate.to_dict()["mcp"]["authentication"],
+                       "restart_required": False})
         return result
 
     def request_admin_password_recovery(self):
@@ -1110,7 +1259,8 @@ class PhosApplicationService:
     def _skins(self) -> SkinRepository:
         if self._lifecycle is None:
             raise ApplicationError("service_unavailable", "Skin service is unavailable.", status=503)
-        return SkinRepository(self._lifecycle.path)
+        config = self._lifecycle.config_repository.load()
+        return SkinRepository(self._lifecycle.path, catalog_file=config.resolve_path(config.appearance_catalog_file))
 
     @staticmethod
     def _owns_live_backgrounds(skin_id: str, backgrounds: dict) -> bool:
@@ -1144,13 +1294,37 @@ class PhosApplicationService:
 
     def delete_skin(self, skin_id: str) -> dict:
         try:
+            references = getattr(self._lifecycle, "agent_skin_references", lambda _skin_id: ())(skin_id)
+            if references:
+                raise ApplicationError("skin_in_use", "Skin is assigned to one or more agents. Remove or replace those assignments before deleting it.", status=409)
             current = self._lifecycle.config_repository.load().to_dict()["display"]["backgrounds"]
             if self._owns_live_backgrounds(skin_id, current):
                 raise ApplicationError("skin_in_use", "This skin is currently used by PHOS. Apply another skin before deleting it.", status=409)
-            self._skins().delete(skin_id); return {"deleted": skin_id}
+            self._skins().delete(skin_id)
+            # A persisted global identity may now be unavailable.  Reconcile
+            # through the same lifecycle boundary so it immediately falls back
+            # to legacy global appearance and analytical personality.
+            reconcile = getattr(self._lifecycle, "reconcile_effective_appearance", None)
+            if callable(reconcile):
+                reconcile()
+            return {"deleted": skin_id}
         except ApplicationError:
             raise
         except (ConfigurationError, OSError) as error: raise ApplicationError("invalid_skin", str(error)) from error
+
+    def update_skin_led_palette(self, skin_id: str, palette: dict | None) -> dict:
+        if not isinstance(skin_id, str):
+            raise ApplicationError("invalid_skin", "Skin identifier is invalid.")
+        try:
+            skin = self._skins().update_led_palette(skin_id, palette)
+            # This is safe and transient: reconciliation applies the palette
+            # only when this skin is actually the active appearance.
+            reconcile = getattr(self._lifecycle, "reconcile_effective_appearance", None)
+            if callable(reconcile):
+                reconcile()
+            return skin.document()
+        except (ConfigurationError, OSError) as error:
+            raise ApplicationError("invalid_skin", str(error)) from error
 
     def preview_skin(self, skin_id: str) -> dict:
         """Apply a Skin only to the live display; never save configuration."""
@@ -1175,6 +1349,7 @@ class PhosApplicationService:
             skin = self._skins().get(skin_id)
             snapshot, missing_backgrounds = available_appearance_snapshot(skin.appearance, self._lifecycle.path.parent)
             document = apply_appearance_snapshot(previous.to_dict(), snapshot)
+            document["appearance"]["global_skin_id"] = skin.id
             candidate = RuntimeConfig.from_dict(document, base_dir=self._lifecycle.path.parent)
             self._lifecycle.config_repository.save(candidate)
             result = self._lifecycle.execute("reload")

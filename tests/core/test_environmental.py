@@ -42,7 +42,7 @@ def test_air_quality_warning_bad_and_invalid_data_recover_without_false_alarm():
     assert subject.state is EnvironmentalState.NORMAL
 
 
-def test_warm_temperature_survives_ccs811_warming_up():
+def test_warm_temperature_survives_ens160_warming_up():
     subject, _ = interpreter(enabled=True, confirmation_seconds=5)
     subject.observe_environmental(28.18, now=0)
     subject.unavailable(now=1, source="air_quality", status="warming_up")
@@ -51,7 +51,7 @@ def test_warm_temperature_survives_ccs811_warming_up():
     assert subject.reason == "temperature above warm threshold"
 
 
-def test_cold_temperature_survives_ccs811_warming_up_and_normal_stays_normal():
+def test_cold_temperature_survives_ens160_warming_up_and_normal_stays_normal():
     cold, _ = interpreter(enabled=True, confirmation_seconds=5)
     cold.observe_environmental(16, now=0)
     cold.unavailable(now=1, source="air_quality", status="warming_up")
@@ -85,7 +85,7 @@ def test_air_quality_priority_over_valid_warm_temperature():
     assert bad.state is EnvironmentalState.AIR_QUALITY_BAD
 
 
-def test_warm_state_survives_ccs811_unavailability():
+def test_warm_state_survives_ens160_unavailability():
     subject, _ = interpreter(enabled=True, confirmation_seconds=5)
     subject.observe_environmental(28, now=0)
     subject.observe_environmental(28, now=5)

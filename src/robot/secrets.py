@@ -61,7 +61,8 @@ class SecretsService:
             pass
 
     @staticmethod
-    def _validate_name(name: str) -> None:
+    def validate_name(name: str) -> None:
+        """Validate a non-secret logical name shared by credential references."""
         if not isinstance(name, str) or not _NAME.fullmatch(name):
             raise SecretsError("Secret name must be a dot-separated logical identifier.")
 
@@ -82,7 +83,7 @@ class SecretsService:
                                               for key, value in values.items()):
             raise SecretsError("Encrypted secret store has an invalid format.")
         for key in values:
-            self._validate_name(key)
+            self.validate_name(key)
         return values
 
     def _write(self, values: dict[str, str]) -> None:
@@ -92,18 +93,18 @@ class SecretsService:
         self._restrict(self.store_path, 0o600)
 
     def has_secret(self, name: str) -> bool:
-        self._validate_name(name)
+        self.validate_name(name)
         with self.lock:
             return name in self._read()
 
     def get_secret(self, name: str) -> str | None:
         """Return a value only for trusted runtime code, never Web DTOs."""
-        self._validate_name(name)
+        self.validate_name(name)
         with self.lock:
             return self._read().get(name)
 
     def set_secret(self, name: str, value: str) -> None:
-        self._validate_name(name)
+        self.validate_name(name)
         self._validate_value(value)
         with self.lock:
             values = self._read()
@@ -112,7 +113,7 @@ class SecretsService:
         logger.info("Secret %s configured", name)
 
     def remove_secret(self, name: str) -> bool:
-        self._validate_name(name)
+        self.validate_name(name)
         with self.lock:
             values = self._read()
             if name not in values:

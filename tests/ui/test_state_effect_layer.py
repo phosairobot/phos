@@ -160,7 +160,7 @@ def test_disabled_effects_preserve_legacy_display_call():
     loop = _loop(display, _resolver(state_effects_enabled=False), state)
     frame = EyeRenderer().render(FaceState(), timestamp=0)
     loop._draw(frame, timestamp=1)
-    assert display.calls == [((frame,), {})]
+    assert display.calls == [((frame,), {"transient_overlay": None})]
 
 
 @pytest.mark.parametrize("state", list(RobotState))

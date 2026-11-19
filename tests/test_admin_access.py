@@ -63,7 +63,7 @@ def test_qr_matrix_cache_encodes_only_the_effective_admin_url(monkeypatch):
     assert all("password" not in payload and "token" not in payload for payload in payloads)
 
 
-def test_admin_overlay_long_press_and_tap_do_not_mutate_semantic_state(monkeypatch):
+def test_admin_overlay_top_right_double_tap_and_close_do_not_mutate_semantic_state(monkeypatch):
     class Loop:
         admin_overlay_available = True
         def __init__(self): self.admin_overlay = AdminOverlayState(); self.overlays = []
@@ -80,11 +80,11 @@ def test_admin_overlay_long_press_and_tap_do_not_mutate_semantic_state(monkeypat
     runtime.core = SimpleNamespace(state="idle")
     runtime._behavior_engine = SimpleNamespace(face_state=object())
     before = runtime._behavior_engine.face_state
-    short = SimpleNamespace(kind=TouchKind.LONG_PRESS, duration_ms=2499, normalized_x=.9, normalized_y=.1)
-    outside = SimpleNamespace(kind=TouchKind.LONG_PRESS, duration_ms=2500, normalized_x=.7, normalized_y=.1)
-    inside = SimpleNamespace(kind=TouchKind.LONG_PRESS, duration_ms=2500, normalized_x=.8, normalized_y=.2)
+    single = SimpleNamespace(kind=TouchKind.TAP, duration_ms=20, normalized_x=.9, normalized_y=.1)
+    outside = SimpleNamespace(kind=TouchKind.DOUBLE_TAP, duration_ms=20, normalized_x=.7, normalized_y=.1)
+    inside = SimpleNamespace(kind=TouchKind.DOUBLE_TAP, duration_ms=20, normalized_x=.8, normalized_y=.2)
 
-    assert not runtime.handle_admin_touch(short)
+    assert not runtime.handle_admin_touch(single)
     assert not runtime.handle_admin_touch(outside)
     assert runtime.handle_admin_touch(inside)
     assert runtime._eye_render_loop.admin_overlay.mode == "admin_access"
@@ -98,6 +98,17 @@ def test_recovery_overlay_stays_distinct_from_admin_access():
     access = AdminOverlayState.admin_access("http://192.168.1.42:8080/", ((False, True),))
     assert recovery.mode == "recovery" and recovery.admin_url is None
     assert access.mode == "admin_access" and access.recovery_code is None
+
+
+def test_top_right_double_tap_fails_closed_when_admin_access_is_unavailable():
+    runtime = object.__new__(PhosRuntime)
+    runtime._eye_render_loop = SimpleNamespace(admin_overlay=AdminOverlayState())
+    runtime.show_admin_access_overlay = lambda: (_ for _ in ()).throw(RuntimeError("Admin network is unavailable."))
+
+    event = SimpleNamespace(kind=TouchKind.DOUBLE_TAP, normalized_x=.9, normalized_y=.1)
+
+    assert runtime.handle_admin_touch(event) is False
+    assert runtime._eye_render_loop.admin_overlay.mode == "hidden"
 
 
 def test_top_left_tap_toggles_voice_only_in_idle_or_listening_and_respects_overlays():

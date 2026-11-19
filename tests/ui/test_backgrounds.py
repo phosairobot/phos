@@ -37,7 +37,7 @@ def test_disabled_backgrounds_preserve_the_legacy_display_call(tmp_path):
 
     loop._draw(frame)
 
-    assert display.calls == [((frame,), {})]
+    assert display.calls == [((frame,), {"transient_overlay": None})]
 
 
 @pytest.mark.parametrize("state", [RobotState.IDLE, RobotState.LISTENING, RobotState.SPEAKING,
@@ -81,7 +81,7 @@ def test_unassigned_and_missing_assets_fall_back_to_legacy_background(tmp_path):
         display = RecordingDisplay()
         loop = _loop(display, BackgroundResolver(config), [RobotState.SPEAKING])
         loop._draw(frame)
-        assert display.calls == [((frame,), {})]
+        assert display.calls == [((frame,), {"transient_overlay": None})]
 
 
 def test_status_is_filename_only_and_reports_unavailable_assignment(tmp_path):

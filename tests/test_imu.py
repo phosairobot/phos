@@ -324,6 +324,60 @@ def test_tilt_state_reaches_service_sink_even_during_event_cooldown():
     assert states == [MotionState.STILL, MotionState.MOVING, MotionState.TILT_RIGHT, MotionState.STILL]
 
 
+def test_controller_orientation_recomputes_tilt_and_neutral_state_from_current_gravity():
+    now = [0.0]
+    states = []
+    service = IMUSensorService(lambda: None, enabled=True, poll_interval_seconds=.05,
+                               stale_after_seconds=30, externally_managed=True,
+                               motion_settings=motion_settings(confirmation_seconds=.3),
+                               motion_state_sink=states.append, clock=lambda: now[0])
+
+    def controller_samples(sample, count=20):
+        for _ in range(count):
+            service.accept_controller_orientation(sample)
+            now[0] += .05
+
+    controller_samples(reading())
+    controller_samples(oriented(angle=-35))
+    assert service.snapshot()["motion_state"] == "tilt_left"
+    # Returning to level is a new current-orientation classification, not an
+    # inactivity timeout or a firmware semantic-event dependency.
+    controller_samples(reading())
+    snapshot = service.snapshot()
+    assert snapshot["motion_state"] == "still"
+    assert snapshot["tilt_direction"] is None
+    assert states == [MotionState.STILL, MotionState.TILT_LEFT, MotionState.STILL]
+
+
+def test_controller_orientation_confirmation_does_not_overwrite_newer_semantic_motion_state():
+    now = [0.0]
+    service = IMUSensorService(lambda: None, enabled=True, poll_interval_seconds=.05,
+                               stale_after_seconds=30, externally_managed=True,
+                               motion_settings=motion_settings(confirmation_seconds=.3),
+                               clock=lambda: now[0])
+    # The first physical tilt sample starts host confirmation, but firmware's
+    # semantic transition arrives immediately afterwards.
+    service.accept_controller_orientation(oriented(angle=-35))
+    service.accept_controller_motion(MotionState.TILT_LEFT, "low")
+    assert service.snapshot()["motion_state"] == "tilt_left"
+    # Until host confirmation completes, MotionInterpreter still returns its
+    # previous state.  That historical result must not overwrite the newer
+    # semantic state exposed to the dashboard.
+    now[0] = .1
+    service.accept_controller_orientation(oriented(angle=-35))
+    assert service.snapshot()["motion_state"] == "tilt_left"
+    now[0] = .35
+    service.accept_controller_orientation(oriented(angle=-35))
+    assert service.snapshot()["motion_state"] == "tilt_left"
+
+    service.accept_controller_orientation(reading())
+    service.accept_controller_motion(MotionState.STILL, "low")
+    assert service.snapshot()["motion_state"] == "still"
+    now[0] = .45
+    service.accept_controller_orientation(reading())
+    assert service.snapshot()["motion_state"] == "still"
+
+
 def test_noise_around_enter_does_not_confirm_tilt():
     interpreter = MotionInterpreter(motion_settings(confirmation_seconds=.3))
     feed(interpreter, reading())

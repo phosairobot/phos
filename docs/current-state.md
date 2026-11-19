@@ -12,7 +12,7 @@ This file is an implementation handoff for coding agents. It records what is pre
 
 ## Current source version
 
-The authoritative source version is **1.8.0**. The following records retain
+The authoritative source version is **1.9.0**. The following records retain
 earlier implementation milestones as historical context.
 
 ## Transient Overlay System v1
@@ -23,6 +23,17 @@ passes; physical Raspberry display validation is deferred.
 
 ## Semantic Physical Context v1
 
+### Temporal History v0.1
+
+PHOS retains a RAM-only, six-hour rolling history of accepted environmental and
+air-quality measurements (at most one per metric per minute) and confirmed
+semantic physical transitions. History is discarded on restart, contains no
+camera frames, audio, transcripts, or identity, and is exposed only through
+the `read_physical_history` permission via `phos_query_measurements` and
+`phos_list_physical_transitions`. It is bounded to 360 samples per metric and
+500 transitions; it neither pushes a notification for every sample nor
+interpolates missing observations.
+
 The repository implements a read-only, provider-independent semantic perception
 context through `PhosApplicationService`; it is automated-tested and available
 to the MCP semantic adapter.
@@ -32,10 +43,10 @@ to the MCP semantic adapter.
 The repository implements an in-code, immutable semantic permission boundary
 for future trusted external-agent adapters. `AgentApplicationService` delegates
 only approved semantic reads and actions to `PhosApplicationService`; it adds
-no MCP transport, authentication, user/account model, persistence, or raw
-hardware/render surface. `standard` and read-only `observer` profiles are
-automated-tested. This is not a network or OS security boundary; adapter
-identity and authentication remain deferred.
+no MCP transport, user/account model, persistence, or raw hardware/render
+surface. `standard` and read-only `observer` profiles are automated-tested.
+This is not a network or OS security boundary; Stage 3.1 adds the separate
+transitional identity/authentication boundary below.
 
 ## MCP Semantic Adapter — Stage 2
 
@@ -51,9 +62,91 @@ through the application/agent permission boundary without opening another
 camera. The `standard` profile has the dedicated `read_camera_snapshot`
 permission; the `observer` profile does not. The stdio `phos-mcp-bridge`
 dynamically forwards Resources without snapshot-specific bridge code. Automated
-coverage verifies preview independence; physical Raspberry Pi, including the
-preview-disabled acceptance case, remains pending. Subscriptions, asynchronous
-notifications and MCP authentication remain deferred.
+coverage verifies preview independence, and Raspberry Pi validation confirmed
+that `phos://vision/snapshot` remains available with Camera Preview disabled
+and returns a non-empty `image/jpeg` blob. This establishes resource
+availability and JPEG output, not image-content quality. Async semantic change
+cues use SDK `subscriptions/listen`; clients receive URI-only notifications and
+re-read current Resources. Camera snapshots are excluded from notifications.
+MCP Stage 3.3 is complete: configured bearer `secret_ref` values resolve only
+through `SecretsService`; valid credentials resolve a request-scoped
+`AgentIdentity` and existing permission profile. Missing, malformed, or invalid
+bearers fail before application execution with no default-agent fallback.
+
+Stage 3.2 loads the canonical `agents` registry at startup. A configured default
+agent resolves to `AgentIdentity`, its existing permission profile, and then the
+agent application facade. Changes are restart-only. Stage 3.3 adds only
+non-secret credential references, not tokens, Web Admin management, bridge
+credentials, or credential-management UI.
+
+MCP Stage 3.4 supplies `AgentCredentialService` for creation, rotation,
+revocation, and non-secret status of configured bearer references. It uses the
+existing encrypted `SecretsService`; bearer values are generated with the OS
+CSPRNG, disclosed only at create/rotate time, and are never readable through
+the lifecycle service. Rotation preserves `secret_ref` and invalidates the old
+bearer; revocation removes the stored value while retaining the configured
+identity/profile. Stage 3.4 itself did not add Web Admin management, bridge
+transport support, expiry policy, or an external identity provider.
+
+MCP Stage 3.5 adds the authenticated Web Admin **Settings → Agents** page for
+existing configured agents. It displays only identity/profile and non-secret
+credential status, calls `AgentCredentialService` rather than `SecretsService`,
+requires confirmation for rotate/revoke, and renders a newly issued bearer only
+in its immediate create/rotate response. Agent-definition editing remains the
+canonical restart-required configuration workflow.
+
+MCP Stage 3.6 is complete in the separately owned `phos-mcp-bridge`: its stdio
+transport reads `PHOS_MCP_TOKEN` and creates an authenticated Streamable HTTP
+connection to PHOS. The security boundary is deliberate: the bridge transports
+the credential, while PHOS resolves `AgentIdentity` and `PermissionProfile` and
+enforces authorization, including camera and Resource permissions, through
+`BearerAgentAuthenticator` and `AgentApplicationService`. The bridge has no
+identity or permission logic, rejects visible bearer CLI arguments, and does
+not fall back to an unauthenticated/default identity. Credential rotation or
+revocation in PHOS invalidates the old bearer; update `PHOS_MCP_TOKEN` and
+restart/relaunch the bridge if required to create a new authenticated upstream
+connection. Hot credential reload is not claimed. Bridge automated validation
+passed (10 tests); live PHOS/bridge interoperability validation is not yet
+recorded and remains Stage 3.7 work.
+
+MCP Stage 3.1 establishes an application-level identity boundary. Each inbound
+MCP request passes through one authentication middleware hook that resolves an
+immutable provider-neutral `AgentIdentity`; its permission-profile reference is
+then used to create the permission-checked `AgentApplicationService` facade.
+The transitional `LocalAgentAuthenticator` resolves every trusted-local client
+as `local-agent` with the existing `standard` profile and verifies no
+credentials. It preserves prior behavior but is explicitly not production-grade
+authentication. Credential-backed configuration, per-client authentication,
+and lifecycle operations are now implemented; expiry policy and external
+identity providers remain future work.
+
+Sensor availability/freshness transitions are complete: numeric samples remain
+read-only, while status transitions publish semantic Resource cues. Raspberry
+Pi validation confirmed direct-HTTP `phos://status` sleep/wake notifications,
+`phos://physical-context` semantic updates, `phos://environment` availability
+updates, environment loss/recovery, and motion/IMU availability transitions.
+The separately owned `phos-mcp-bridge` was externally validated with a stdio
+subscription receiving two consecutive `phos://status` ResourceUpdated
+notifications. No physical air-quality validation is claimed. A fake-clock
+test of the monitor sleep loop with a real sensor-service age calculation
+remains a non-blocking test improvement; `_check_sensor_freshness()` is
+automated-tested.
+
+## PHOS 1.9.0 — Physical Context & Object Awareness
+
+PHOS 1.9.0 adds bounded six-hour, RAM-only physical measurement and semantic
+transition history, queried through `phos_query_measurements` and
+`phos_list_physical_transitions`. The documented Physical Context Intelligence
+v0.1 pattern lets external Agents combine those bounded observations with
+`phos_get_physical_context`; PHOS supplies facts and summaries, while Agents
+remain responsible for interpretation and decisions.
+
+It also adds optional, on-demand NanoDet object awareness through
+`phos_get_visible_objects`. It reuses the existing VisionPipeline frame owner,
+is disabled by default, and returns only labels, confidences, and frame
+freshness—not images, boxes, identities, tracking, or retained object history.
+The release also corrects the BGR/RGB preview boundary while preserving BGR for
+OpenCV vision consumers.
 
 ## PHOS 1.8.0 — MCP & Runtime Administration Stabilization
 
@@ -61,7 +154,9 @@ PHOS 1.8.0 includes Streamable HTTP MCP semantic tools and Resources, the
 on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
-boundaries; physical Raspberry Pi MCP/preview acceptance remains separate.
+boundaries; Raspberry Pi camera-snapshot acceptance has confirmed operation
+with Camera Preview disabled. MCP Stages 2 and 3.3–3.6 are complete; live
+external multi-agent interoperability validation remains Stage 3.7 work.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
@@ -130,6 +225,21 @@ from this startup acceptance slice.
 ### Core and behavior
 - Event bus and explicit `RobotState` state machine.
 - `BehaviorEngine` under `src/robot/core/behavior_engine.py`.
+- Skin-owned Physical Personality v0.2 is an IDLE-only policy: `analytical`,
+  `playful`, and `calm` select bounded blink/gaze timing internally (the
+  missing-field fallback is `analytical`).  Analytical uses 4.8–7.2 s blinks,
+  4.0–7.0 s gaze rests, 1.4–2.3 s holds and a 1.5% double-blink chance;
+  playful uses 2.4–4.2 s, 1.5–3.2 s, 0.65–1.25 s and 18%; calm uses 5.5–8.0 s,
+  4.8–8.0 s, 1.8–3.0 s and 4%.  A double blink has a bounded 90–220 ms open
+  pause (preset-specific).  Gaze targets hold, return to neutral, then rest.
+  Attention, vision tracking, IMU motion, explicit reactions, non-IDLE states,
+  and skin changes cancel pending personality sequences. In global appearance
+  mode, the persisted `appearance.global_skin_id` selects the complete Skin
+  identity (appearance, palette, and personality); no selected Skin retains
+  legacy global appearance with the analytical fallback. Focused automated
+  coverage is present. User-confirmed Raspberry Pi observations cover visible preset
+  differences, persistence, manual application, and IMU integration; broader
+  Vision/attention and performance acceptance remain unverified.
 - Environmental behavior is implemented through `EnvironmentalInterpreter`: confirmed, hysteretic temperature and CCS811 eCO2/TVOC context becomes `EnvironmentalState`, then a `BehaviorEngine` eye/LED accent. Missing, stale or unavailable data produces no alarm.
 - Environmental overlays are additive display decoration: the interpreter also exposes independently confirmed temperature (`warm`/`cold`) and air-quality (`warning`/`bad`) intents, allowing sweat/snow and haze to coexist while the existing single priority `EnvironmentalState` continues to drive eyes and LEDs.
 - Behavior produces `FaceState` and handles blink/idle gaze.
@@ -371,13 +481,14 @@ the still-deferred roadmap capabilities remain outside this path.
 
 ## Eye appearance refinement
 
-Display & Appearance now validates and exposes `display.iris_color` in the
-canonical JSON. EyeRenderer receives this theme at startup and layers lightweight
-Canvas eye-body, iris, pupil and highlight geometry. FaceState continues to
-supply semantic reaction intent; expression labels/providers do not control
-rendering. Theme changes apply after configuration reload without restarting
-Vision or other runtime services. Raspberry Pi frame-rate impact awaits
-target hardware verification.
+Display & Appearance validates `display.iris_color` and `display.eye_shape` in
+the canonical configuration. Skins may select `classic_oval`, `round`,
+`expressive`, `angular`, or `compact`; omitted legacy values use
+`classic_oval`. EyeRenderer receives the resolved shape at startup and through
+the render-loop appearance queue, while Tk keeps the legacy oval path and uses
+layered contours for custom shapes. Custom iris/pupil graphics use conservative
+containment rather than pixel clipping. FaceState continues to supply semantic
+reaction intent; expression labels/providers do not control rendering.
 
 
 ## Local camera picture-in-picture
@@ -392,11 +503,11 @@ disabling it releases the camera when no other Vision feature needs it.
 
 ## Live eye appearance reload verification
 
-Only `display.iris_color` is currently a configurable eye-style setting and is
-live-reloadable. Semantic accents remain BehaviorEngine-produced FaceState and
+`display.iris_color` and `display.eye_shape` are live-reloadable eye-style settings.
+Semantic accents remain BehaviorEngine-produced FaceState and
 need no configuration reload. The lifecycle service validates the whole
 canonical document, then gives the typed RuntimeConfig to PhosRuntime. Its
-display-loop boundary safely queues the iris theme onto the asyncio render
+display-loop boundary safely queues the iris theme and eye shape onto the asyncio render
 thread; EyeRenderer interpolates the color on subsequent frames. Reload does not
 rebuild Core, Vision, camera, BehaviorEngine, providers or the renderer object.
 Mixed changes apply logging, iris appearance and preview while retaining other changed

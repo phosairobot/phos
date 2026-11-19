@@ -2,24 +2,48 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+from contextvars import ContextVar
 import ipaddress
 import logging
+from threading import RLock
+import time
 from typing import Annotated, Any, Callable
 
 from pydantic import Field
 
-from robot.services import AgentApplicationService, AgentPermissionDenied, ApplicationError, USER_SIGNAL_INTENTS
+from robot.services import (AgentApplicationService, AgentPermissionDenied, ApplicationError, SemanticEvent,
+                            USER_SIGNAL_INTENTS, AgentIdentity, LocalAgentAuthenticator)
 from robot.services.application import COMMANDS
 
 logger = logging.getLogger(__name__)
+_REQUEST_IDENTITY: ContextVar[AgentIdentity | None] = ContextVar("mcp_request_identity", default=None)
+_REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_without_authorization", default=False)
 
 
 MCP_TOOL_NAMES = frozenset({
     "phos_get_status", "phos_get_physical_context", "phos_get_presence", "phos_get_attention",
-    "phos_get_observed_expression", "phos_set_expression", "phos_speak", "phos_sleep",
-    "phos_wake", "phos_signal_user",
+    "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_capture_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
+    "phos_wake", "phos_signal_user", "phos_query_measurements", "phos_list_physical_transitions", "phos_get_visible_objects",
 })
 MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
+_SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS = 1.0
+_SNAPSHOT_TOOL_MAX_IDENTITIES = 64
+
+_EVENT_RESOURCE_URIS = {
+    "robot_state_changed": frozenset({"phos://status", "phos://physical-context"}),
+    "environment_condition_changed": frozenset({"phos://environment", "phos://physical-context"}),
+    "air_quality_condition_changed": frozenset({"phos://physical-context"}),
+    "motion_state_changed": frozenset({"phos://physical-context"}),
+    "presence_changed": frozenset({"phos://physical-context"}),
+    "attention_changed": frozenset({"phos://physical-context"}),
+    "observed_expression_changed": frozenset({"phos://physical-context"}),
+    "capability_changed": frozenset({"phos://status"}),
+    "system_health_changed": frozenset({"phos://status"}),
+    "environment_availability_changed": frozenset({"phos://environment", "phos://physical-context"}),
+    "air_quality_availability_changed": frozenset({"phos://physical-context"}),
+    "motion_availability_changed": frozenset({"phos://physical-context"}),
+}
 
 Expression = Annotated[str, Field(min_length=1, json_schema_extra={
     "enum": COMMANDS["set_expression"].allowed_values,
@@ -34,84 +58,219 @@ class McpToolError(Exception):
     """Sanitized semantic error returned as an MCP tool failure."""
 
 
+class _SnapshotToolRateLimiter:
+    """Bound snapshot transfer work per authenticated identity without workers."""
+
+    def __init__(self, *, clock=time.monotonic) -> None:
+        self._clock = clock
+        self._last_request: dict[str, float] = {}
+        self._lock = RLock()
+
+    def require_allowed(self, identity: str) -> None:
+        now = self._clock()
+        with self._lock:
+            previous = self._last_request.get(identity)
+            if previous is not None and now - previous < _SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS:
+                raise McpToolError("rate_limited: Camera snapshots are limited to one request per second.")
+            if identity not in self._last_request and len(self._last_request) >= _SNAPSHOT_TOOL_MAX_IDENTITIES:
+                oldest = min(self._last_request, key=self._last_request.__getitem__)
+                del self._last_request[oldest]
+            self._last_request[identity] = now
+
+
+def _snapshot_request_identity(agent_service: AgentApplicationService) -> str:
+    """Use the authenticated principal when available, never a credential."""
+    identity = _REQUEST_IDENTITY.get() or getattr(agent_service, "_identity", None)
+    return getattr(identity, "id", None) or "trusted-local"
+
+
+class McpSemanticEventBridge:
+    """Bounded thread-safe bridge from PHOS events to MCP change cues."""
+
+    def __init__(self, agent_service: AgentApplicationService) -> None:
+        from mcp.server.subscriptions import InMemorySubscriptionBus
+
+        self.bus = InMemorySubscriptionBus()
+        self._agent_service = agent_service
+        self._loop = self._subscription = None
+        self._pending: set[str] = set()
+        self._draining = self._closed = False
+        self._lock = RLock()
+
+    def start(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Attach once after the server loop exists; safe to call repeatedly."""
+        with self._lock:
+            if self._closed or self._subscription is not None:
+                return
+            self._loop = loop
+            self._subscription = self._agent_service._subscribe_semantic_events(self._on_semantic_event)
+
+    def _on_semantic_event(self, event: SemanticEvent) -> None:
+        uris = _EVENT_RESOURCE_URIS.get(event.type)
+        if not uris:
+            return
+        with self._lock:
+            if self._closed or self._loop is None:
+                return
+            self._pending.update(uris)
+            if self._draining:
+                return
+            self._draining = True
+            self._loop.call_soon_threadsafe(self._start_drain)
+
+    def _start_drain(self) -> None:
+        asyncio.create_task(self._drain(), name="mcp-semantic-resource-updates")
+
+    async def _drain(self) -> None:
+        from mcp.shared.subscriptions import ResourceUpdated
+
+        while True:
+            with self._lock:
+                pending = tuple(sorted(self._pending))
+                self._pending.clear()
+                closed = self._closed
+            if closed or not pending:
+                with self._lock:
+                    if self._pending and not self._closed:
+                        continue
+                    self._draining = False
+                return
+            for uri in pending:
+                await self.bus.publish(ResourceUpdated(uri=uri))
+
+    def close(self) -> None:
+        """Release the PHOS observer; SDK owns client-stream teardown."""
+        with self._lock:
+            self._closed = True
+            self._pending.clear()
+            subscription, self._subscription = self._subscription, None
+        if subscription is not None:
+            subscription.close()
+
+
 class McpSemanticAdapter:
     """Maps Stage 1 tools to an existing ``AgentApplicationService`` only."""
 
-    def __init__(self, agent_service: AgentApplicationService) -> None:
+    def __init__(self, agent_service: AgentApplicationService, *, authenticator=None, activity_tracker=None) -> None:
         self._agent_service = agent_service
+        self._authenticator = authenticator or LocalAgentAuthenticator()
+        self._activity_tracker = activity_tracker
+
+    def _record_accepted_activity(self) -> None:
+        """Refresh only a trusted identity after authorization accepted work."""
+        identity = _REQUEST_IDENTITY.get()
+        if identity is not None and self._activity_tracker is not None:
+            is_anonymous = getattr(self._authenticator, "is_anonymous_identity", lambda _: False)
+            # A supplied bearer must never become an appearance-eligible
+            # anonymous request, even under an authentication mode that treats
+            # it as an anonymous principal for compatibility.
+            if is_anonymous(identity) and _REQUEST_WITHOUT_AUTHORIZATION.get():
+                self._activity_tracker.record_anonymous_mcp()
+            else:
+                self._activity_tracker.record(identity)
+
+    def _request_agent_service(self) -> AgentApplicationService:
+        """Bind the facade to the identity resolved once by MCP middleware."""
+        identity = _REQUEST_IDENTITY.get()
+        if identity is None:
+            return self._agent_service
+        return AgentApplicationService(self._agent_service._application, identity)
 
     def _call(self, operation: str, handler: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         try:
-            return handler()
+            result = handler()
         except AgentPermissionDenied as error:
             raise McpToolError(
                 f"permission_denied: operation={error.operation.value} required_permission={error.permission.value}"
             ) from None
         except ApplicationError as error:
+            # Authorization already passed; a domain rejection still represents
+            # an accepted MCP interaction, not a transport keepalive.
+            self._record_accepted_activity()
             raise McpToolError(_application_error_message(error)) from None
         except Exception:
             raise McpToolError("internal_error: PHOS could not complete the requested operation.") from None
+        self._record_accepted_activity()
+        return result
 
     async def _call_async(self, handler) -> dict[str, Any]:
         try:
-            return await handler()
+            result = await handler()
         except AgentPermissionDenied as error:
             raise McpToolError(
                 f"permission_denied: operation={error.operation.value} required_permission={error.permission.value}"
             ) from None
         except ApplicationError as error:
+            self._record_accepted_activity()
             raise McpToolError(_application_error_message(error)) from None
         except Exception:
             raise McpToolError("internal_error: PHOS could not complete the requested operation.") from None
+        self._record_accepted_activity()
+        return result
 
     def get_status(self) -> dict[str, Any]:
-        return self._call("phos_get_status", self._agent_service.status)
+        return self._call("phos_get_status", self._request_agent_service().status)
 
     def get_physical_context(self) -> dict[str, Any]:
-        return self._call("phos_get_physical_context", self._agent_service.get_physical_context)
+        return self._call("phos_get_physical_context", self._request_agent_service().get_physical_context)
 
     def get_presence(self) -> dict[str, Any]:
-        return self._call("phos_get_presence", self._agent_service.presence)
+        return self._call("phos_get_presence", self._request_agent_service().presence)
 
     def get_attention(self) -> dict[str, Any]:
-        return self._call("phos_get_attention", self._agent_service.attention)
+        return self._call("phos_get_attention", self._request_agent_service().attention)
 
     def get_observed_expression(self) -> dict[str, Any]:
-        return self._call("phos_get_observed_expression", self._agent_service.observed_expression)
+        return self._call("phos_get_observed_expression", self._request_agent_service().observed_expression)
+
+    async def visible_objects(self) -> dict[str, Any]:
+        return await self._call_async(self._request_agent_service().visible_objects)
 
     def environment(self) -> dict[str, Any]:
         """Return the canonical environmental semantic-context section."""
-        return self._call("phos://environment", lambda: self._agent_service.get_physical_context()["environment"])
+        return self._call("phos://environment", lambda: self._request_agent_service().get_physical_context()["environment"])
 
     def camera_snapshot(self) -> bytes:
-        return self._call("phos://vision/snapshot", self._agent_service.camera_snapshot)
+        return self._call("phos://vision/snapshot", self._request_agent_service().camera_snapshot)
+
+    def camera_snapshot_with_metadata(self):
+        return self._call("phos_get_camera_snapshot", self._request_agent_service().camera_snapshot_with_metadata)
+
+    async def capture_camera_snapshot_with_metadata(self):
+        return await self._call_async(self._request_agent_service().capture_camera_snapshot_with_metadata)
 
     def set_expression(self, expression: str) -> dict[str, Any]:
-        return self._call("phos_set_expression", lambda: self._agent_service.set_expression(expression))
+        return self._call("phos_set_expression", lambda: self._request_agent_service().set_expression(expression))
 
     def speak(self, text: str) -> dict[str, Any]:
-        return self._call("phos_speak", lambda: self._agent_service.speak(text))
+        return self._call("phos_speak", lambda: self._request_agent_service().speak(text))
 
     def sleep(self) -> dict[str, Any]:
-        return self._call("phos_sleep", self._agent_service.sleep)
+        return self._call("phos_sleep", self._request_agent_service().sleep)
 
     def wake(self) -> dict[str, Any]:
-        return self._call("phos_wake", self._agent_service.wake)
+        return self._call("phos_wake", self._request_agent_service().wake)
 
     def signal_user(self, signal: str) -> dict[str, Any]:
-        return self._call("phos_signal_user", lambda: self._agent_service.signal_user(signal))
+        return self._call("phos_signal_user", lambda: self._request_agent_service().signal_user(signal))
+
+    def query_measurements(self, metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+        return self._call("phos_query_measurements", lambda: self._request_agent_service().query_measurements(metric, start, end, limit))
+
+    def list_physical_transitions(self, event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return self._call("phos_list_physical_transitions", lambda: self._request_agent_service().list_physical_transitions(event_type, limit))
 
     async def speak_async(self, text: str) -> dict[str, Any]:
-        return await self._call_async(lambda: self._agent_service.speak_async(text))
+        return await self._call_async(lambda: self._request_agent_service().speak_async(text))
 
     async def sleep_async(self) -> dict[str, Any]:
-        return await self._call_async(self._agent_service.sleep_async)
+        return await self._call_async(self._request_agent_service().sleep_async)
 
     async def wake_async(self) -> dict[str, Any]:
-        return await self._call_async(self._agent_service.wake_async)
+        return await self._call_async(self._request_agent_service().wake_async)
 
     async def signal_user_async(self, signal: str) -> dict[str, Any]:
-        return await self._call_async(lambda: self._agent_service.signal_user_async(signal))
+        return await self._call_async(lambda: self._request_agent_service().signal_user_async(signal))
 
 
 def _application_error_message(error: ApplicationError) -> str:
@@ -122,7 +281,8 @@ def _application_error_message(error: ApplicationError) -> str:
     return f"{category}: {error.message}"
 
 
-def create_mcp_server(agent_service: AgentApplicationService):
+def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=None, authenticator=None,
+                      activity_tracker=None):
     """Create a server without constructing or owning a PHOS runtime."""
     try:
         from mcp.server.mcpserver import MCPServer
@@ -130,8 +290,24 @@ def create_mcp_server(agent_service: AgentApplicationService):
     except ImportError as error:
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
-    adapter = McpSemanticAdapter(agent_service)
-    server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.")
+    adapter = McpSemanticAdapter(agent_service, authenticator=authenticator,
+                                 activity_tracker=activity_tracker)
+    snapshot_limiter = _SnapshotToolRateLimiter()
+
+    async def authenticate_request(request_context, call_next):
+        identity = await adapter._authenticator.authenticate(request_context)
+        token = _REQUEST_IDENTITY.set(identity)
+        headers = getattr(getattr(request_context, "request", None), "headers", None) or {}
+        authorization_token = _REQUEST_WITHOUT_AUTHORIZATION.set(
+            (headers.get("authorization") or headers.get("Authorization")) is None)
+        try:
+            return await call_next(request_context)
+        finally:
+            _REQUEST_WITHOUT_AUTHORIZATION.reset(authorization_token)
+            _REQUEST_IDENTITY.reset(token)
+
+    server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
+                       subscriptions=subscriptions, middleware=[authenticate_request])
 
     def tool(name: str, description: str):
         return server.tool(name=name, description=description, structured_output=True)
@@ -178,6 +354,26 @@ def create_mcp_server(agent_service: AgentApplicationService):
     def get_observed_expression() -> dict[str, Any]:
         return _tool_result(adapter.get_observed_expression, ToolError)
 
+    @tool("phos_get_visible_objects", "Return bounded on-demand visible-object semantics without image content.")
+    async def get_visible_objects() -> dict[str, Any]:
+        return await _async_tool_result(adapter.visible_objects, ToolError)
+
+    @server.tool(name="phos_get_camera_snapshot",
+                 description="Return a JPEG from PHOS's latest cached camera frame without interpreting it.",
+                 structured_output=False)
+    def get_camera_snapshot():
+        """Return the existing JPEG as an MCP image block, never as JSON text."""
+        snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
+        return _snapshot_tool_result(adapter.camera_snapshot_with_metadata, ToolError, source="cached")
+
+    @server.tool(name="phos_capture_camera_snapshot",
+                 description="Wait for PHOS's next Vision frame without interpreting it.",
+                 structured_output=False)
+    async def capture_camera_snapshot():
+        snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
+        return await _async_snapshot_tool_result(adapter.capture_camera_snapshot_with_metadata, ToolError,
+                                                 source="on_demand")
+
     @tool("phos_set_expression", "Set a supported semantic expression.")
     def set_expression(expression: Expression) -> dict[str, Any]:
         return _tool_result(lambda: adapter.set_expression(expression), ToolError)
@@ -198,6 +394,14 @@ def create_mcp_server(agent_service: AgentApplicationService):
     async def signal_user(signal: SignalIntent) -> dict[str, Any]:
         return await _async_tool_result(lambda: adapter.signal_user_async(signal), ToolError)
 
+    @tool("phos_query_measurements", "Return bounded RAM-only physical measurement history.")
+    def query_measurements(metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+        return _tool_result(lambda: adapter.query_measurements(metric, start, end, limit), ToolError)
+
+    @tool("phos_list_physical_transitions", "Return bounded confirmed physical transition history.")
+    def list_physical_transitions(event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return _tool_result(lambda: adapter.list_physical_transitions(event_type, limit), ToolError)
+
     return server
 
 
@@ -206,6 +410,31 @@ def _tool_result(handler: Callable[[], dict[str, Any]], error_type) -> dict[str,
         return handler()
     except McpToolError as error:
         raise error_type(str(error)) from None
+
+
+def _snapshot_tool_result(handler, error_type, *, source: str):
+    """Build SDK-native image content from the authorized Vision JPEG."""
+    try:
+        return _snapshot_content(handler(), source)
+    except McpToolError as error:
+        raise error_type(str(error)) from None
+
+
+async def _async_snapshot_tool_result(handler, error_type, *, source: str):
+    try:
+        return _snapshot_content(await handler(), source)
+    except McpToolError as error:
+        raise error_type(str(error)) from None
+
+
+def _snapshot_content(snapshot, source: str):
+    from mcp.types import ImageContent, TextContent
+    return [
+        ImageContent(data=base64.b64encode(snapshot.jpeg).decode("ascii"), mimeType="image/jpeg"),
+        TextContent(text=(f"source={source}; captured_at="
+                          f"{snapshot.captured_at_utc.isoformat().replace('+00:00', 'Z')}; "
+                          f"age_ms={snapshot.age_ms}; freshness={snapshot.freshness}.")),
+    ]
 
 
 async def _async_tool_result(handler, error_type) -> dict[str, Any]:
@@ -236,9 +465,12 @@ def _resource_bytes_result(handler: Callable[[], bytes]) -> bytes:
 class McpHttpServer:
     """One Streamable HTTP listener owned by the normal PHOS process."""
 
-    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str) -> None:
+    def __init__(self, agent_service: AgentApplicationService, *, host: str, port: int, path: str,
+                 authenticator=None, activity_tracker=None) -> None:
         self.host, self.port, self.path = host, port, path
-        self._mcp_server = create_mcp_server(agent_service)
+        self._semantic_events = McpSemanticEventBridge(agent_service)
+        self._mcp_server = create_mcp_server(agent_service, subscriptions=self._semantic_events.bus,
+                                             authenticator=authenticator, activity_tracker=activity_tracker)
         self._uvicorn_server = None
 
     @property
@@ -253,21 +485,25 @@ class McpHttpServer:
         except ImportError as error:
             raise RuntimeError("MCP Streamable HTTP requires the optional 'mcp' dependency.") from error
 
+        self._semantic_events.start(asyncio.get_running_loop())
         if not ipaddress.ip_address(self.host).is_loopback:
-            logger.warning("PHOS MCP: non-loopback bind host=%s; network authentication, agent identity, and network authorization are not implemented", self.host)
+            logger.warning("PHOS MCP: non-loopback bind host=%s; require TLS and appropriate network controls", self.host)
         logger.info("PHOS MCP: starting host=%s port=%s path=%s", self.host, self.port, self.path)
         app = self._mcp_server.streamable_http_app(host=self.host, streamable_http_path=self.path)
         config = uvicorn.Config(app, host=self.host, port=self.port,
                                 log_level="warning", access_log=False)
         server = self._uvicorn_server = uvicorn.Server(config)
         try:
-            await server.serve()
-        except (OSError, SystemExit) as error:
-            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
-            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}") from error
-        if not server.started:
-            logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
-            raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}")
+            try:
+                await server.serve()
+            except (OSError, SystemExit) as error:
+                logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+                raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}") from error
+            if not server.started:
+                logger.error("PHOS MCP: bind failure host=%s port=%s path=%s", self.host, self.port, self.path)
+                raise RuntimeError(f"MCP Streamable HTTP could not bind {self.url}")
+        finally:
+            self._semantic_events.close()
 
     @property
     def started(self) -> bool:
@@ -275,6 +511,7 @@ class McpHttpServer:
 
     async def stop(self) -> None:
         """Request graceful listener shutdown; its ASGI lifespan closes sessions."""
+        self._semantic_events.close()
         if self._uvicorn_server is not None:
             self._uvicorn_server.should_exit = True
             await asyncio.sleep(0)
@@ -285,9 +522,10 @@ class McpServerManager:
     """Own only the MCP listener, never the PHOS runtime or service graph."""
 
     def __init__(self, agent_service: AgentApplicationService, *, host: str, path: str,
-                 enabled: bool, port: int) -> None:
+                 enabled: bool, port: int, authenticator=None, activity_tracker=None) -> None:
         self._agent_service, self._host, self._path = agent_service, host, path
-        self._enabled, self._configured_port = enabled, port
+        self._enabled, self._configured_port, self._authenticator = enabled, port, authenticator
+        self._activity_tracker = activity_tracker
         self._server = self._task = self._loop = None
         self._status, self._error = ("disabled" if not enabled else "starting"), None
         self._lock = asyncio.Lock()
@@ -298,6 +536,14 @@ class McpServerManager:
         endpoint = server.url if bound is not None else None
         return {"enabled": self._enabled, "port": self._configured_port, "status": self._status,
                 "bound_port": bound, "endpoint": endpoint, "error": self._error}
+
+    def configure_authentication(self, *, mode: str, anonymous_permission_profile: str) -> dict[str, Any]:
+        """Apply request-bound authentication policy without rebinding MCP."""
+        configure = getattr(self._authenticator, "configure", None)
+        if not callable(configure):
+            raise RuntimeError("MCP authentication runtime is unavailable")
+        configure(mode=mode, anonymous_permission_profile=anonymous_permission_profile)
+        return self.status()
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -320,7 +566,8 @@ class McpServerManager:
         # Resolve through the package at start time so deployments/tests can
         # provide the listener adapter without changing lifecycle semantics.
         from robot.mcp import McpHttpServer as Listener
-        server = Listener(self._agent_service, host=self._host, port=port, path=self._path)
+        server = Listener(self._agent_service, host=self._host, port=port, path=self._path,
+                          authenticator=self._authenticator, activity_tracker=self._activity_tracker)
         task = asyncio.create_task(server.serve(), name="mcp-streamable-http")
         for _ in range(200):
             if server.started:

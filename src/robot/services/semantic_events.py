@@ -17,6 +17,7 @@ SEMANTIC_EVENT_TYPES = frozenset({
     "robot_state_changed", "environment_condition_changed", "air_quality_condition_changed",
     "motion_state_changed", "presence_changed", "attention_changed",
     "observed_expression_changed", "capability_changed", "system_health_changed",
+    "environment_availability_changed", "air_quality_availability_changed", "motion_availability_changed",
 })
 
 

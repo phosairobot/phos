@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import math
@@ -18,6 +19,7 @@ from robot.hardware.controller_protocol import (ControllerMessage, JsonLinesDeco
 from robot.ui.touch import TouchEvent, TouchKind
 
 logger = logging.getLogger(__name__)
+imu_logger = logging.getLogger(f"{__name__}.imu")
 
 OPEN_SETTLE_SECONDS = .5
 
@@ -68,7 +70,17 @@ class SerialControllerTransport:
         if self._serial is None:
             raise OSError("serial transport is closed")
         try:
-            return self._serial.read(size)
+            # pyserial's read(size) waits for *size* bytes or its timeout.
+            # JSONL telemetry frames are much smaller than this adapter's
+            # bounded read size, so waiting for 1024 bytes adds up to 250 ms
+            # of avoidable motion-status latency.  Block only until the first
+            # byte, then immediately drain bytes already buffered by the OS.
+            first = self._serial.read(1)
+            if not first or size <= 1:
+                return first
+            waiting = getattr(self._serial, "in_waiting", 0)
+            waiting = int(waiting) if isinstance(waiting, (int, float)) else 0
+            return first + (self._serial.read(min(size - 1, waiting)) if waiting > 0 else b"")
         except OSError as error:
             raise SerialTransportError("read", self.device, error) from error
 
@@ -97,14 +109,25 @@ class ControllerService(Behavior):
                  reconnect_delay_seconds: float, heartbeat_interval_seconds: float,
                  heartbeat_timeout_seconds: float, touch_sink: Callable[[TouchEvent], None],
                  sensor_update_sink: Callable[[str, int | float], None] = lambda _name, _value: None,
+                 sensor_status_sink: Callable[[dict], None] = lambda _payload: None,
+                 session_activated_sink: Callable[[int], None] = lambda _generation: None,
+                 session_retired_sink: Callable[[int], None] = lambda _generation: None,
                  imu_update_sink: Callable[[ControllerMessage], None] = lambda _message: None,
                  provider_disconnected_sink: Callable[[], None] = lambda: None,
                  led_capabilities_sink: Callable[[], None] = lambda: None,
-                 transport_factory=SerialControllerTransport) -> None:
+                 transport_factory=SerialControllerTransport, clock=time.monotonic, read_operation=None) -> None:
         self._core, self._enabled = core, enabled
         self._device, self._baud_rate = device, baud_rate
         self._reconnect_delay, self._heartbeat_interval, self._heartbeat_timeout = reconnect_delay_seconds, heartbeat_interval_seconds, heartbeat_timeout_seconds
-        self._touch_sink, self._sensor_update_sink, self._imu_update_sink = touch_sink, sensor_update_sink, imu_update_sink
+        self._touch_sink = touch_sink
+        self._sensor_update_sink = sensor_update_sink if len(inspect.signature(sensor_update_sink).parameters) >= 3 else lambda name, value, _generation: sensor_update_sink(name, value)
+        self._sensor_status_sink = sensor_status_sink if len(inspect.signature(sensor_status_sink).parameters) >= 2 else lambda payload, _generation: sensor_status_sink(payload)
+        # Adapt legacy one-argument IMU sinks once at registration.  Never
+        # catch TypeError around execution: an integration error in a callback
+        # must remain observable and must not result in a duplicate delivery.
+        self._imu_update_sink = (imu_update_sink if len(inspect.signature(imu_update_sink).parameters) >= 2
+                                 else lambda message, _generation: imu_update_sink(message))
+        self._session_activated_sink, self._session_retired_sink = session_activated_sink, session_retired_sink
         self._provider_disconnected_sink, self._led_capabilities_sink, self._factory = provider_disconnected_sink, led_capabilities_sink, transport_factory
         self._state = ControllerConnection.DISCONNECTED
         self._task = None
@@ -117,9 +140,15 @@ class ControllerService(Behavior):
         self._active_capabilities = None
         self._session_generation = 0
         self._last_led_availability = None
+        # Read-only, bounded evidence for the most recent semantic LED
+        # dispatch.  phos-hw v1 does not acknowledge animation application,
+        # so a successful write is deliberately not represented as an ACK.
+        self._last_led_dispatch = None
         self._capabilities_request_attempt = 0
         self._open_settle_seconds = OPEN_SETTLE_SECONDS
         self._sleep = asyncio.sleep
+        self._clock = clock
+        self._read_operation = read_operation or (lambda transport, started: asyncio.to_thread(self._read_once, started))
         self._messages = deque(maxlen=100)
         self._reconfigure_lock = None
 
@@ -146,6 +175,7 @@ class ControllerService(Behavior):
                 "last_heartbeat": self._last_heartbeat, "capabilities": self._capabilities,
                 "active_capabilities": self._active_capabilities,
                 "led_output": self.led_output_status(),
+                "last_led_dispatch": self._last_led_dispatch,
                 "session_generation": self._session_generation}
 
     def recent_messages(self) -> list[dict]: return list(self._messages)
@@ -179,10 +209,23 @@ class ControllerService(Behavior):
 
     async def set_led_animation(self, payload: dict) -> bool:
         """Transport boundary for the semantic arbiter; never exposes a UI command."""
+        color = payload.get("color") if isinstance(payload, dict) else None
+        dispatch = {"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "color": color, "animation": payload.get("animation") if isinstance(payload, dict) else None,
+                    "session_generation": self._session_generation, "acknowledged": None}
         if not self.led_output_available() or self._transport is None:
+            self._last_led_dispatch = {**dispatch, "state": "unavailable"}
             self._log_led_availability("set_led_animation_unavailable")
             return False
-        await self._send("set_led_animation", payload)
+        try:
+            await self._send("set_led_animation", payload)
+        except Exception as error:
+            self._last_led_dispatch = {**dispatch, "state": "write_failed",
+                                       "error": type(error).__name__}
+            raise
+        self._last_led_dispatch = {**dispatch, "state": "written"}
+        logger.debug("PHOS CONTROLLER LED OUTPUT: dispatch=written color=%s animation=%s generation=%s",
+                     color, dispatch["animation"], self._session_generation)
         return True
 
     def _record(self, direction: str, message_type: str, summary: str, raw: bytes | None = None) -> None:
@@ -190,6 +233,18 @@ class ControllerService(Behavior):
         self._messages.append({"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                "direction": direction, "type": message_type, "summary": summary[:240],
                                "raw": raw_text})
+
+    def _record_rejected_frame(self, error: ProtocolError) -> None:
+        """Keep bounded, opt-in-safe evidence without retaining raw input."""
+        frame = error.frame or b""
+        prefix = frame[:24].hex()
+        category = error.parse_category or "validation"
+        summary = (f"category={category} length={len(frame)} prefix_hex={prefix or '-'} "
+                   f"generation={self._session_generation}")
+        self._record("RX", "rejected_frame", summary)
+        # Debug logging is opt-in through the existing logging-level setting;
+        # never emit complete untrusted frames at warning level.
+        logger.debug("PHOS CONTROLLER: rejected frame diagnostics %s", summary)
 
     async def start(self) -> None:
         if self._enabled and (self._task is None or self._task.done()):
@@ -282,22 +337,24 @@ class ControllerService(Behavior):
                                getattr(error, "device", self._device), getattr(error, "operation", "lifecycle"),
                                getattr(error, "original_type", type(error).__name__), self._safe_error_message(error))
             finally:
+                self._session_retired_sink(self._session_generation)
                 if self._transport is transport:
                     self._transport = None
                 self._deactivate_session_capabilities()
                 self._state = ControllerConnection.DISCONNECTED
                 self._log_led_availability("disconnected")
                 await self._close_transport(transport)
-            await asyncio.sleep(self._reconnect_delay)
+            await self._sleep(self._reconnect_delay)
 
     def _new_session(self) -> tuple[JsonLinesDecoder, float]:
         """Reset only connection-local protocol state after a successful open."""
         self._session_generation += 1
+        self._session_activated_sink(self._session_generation)
         self._protocol = None
         self._active_capabilities = None
         self._capabilities_request_attempt = 0
         self._log_led_availability("session_opened")
-        self._last_peer_activity = time.monotonic()
+        self._last_peer_activity = self._clock()
         logger.debug("PHOS CONTROLLER: serial session opened generation=%s", self._session_generation)
         return JsonLinesDecoder(), self._last_peer_activity + self._heartbeat_interval
 
@@ -318,9 +375,9 @@ class ControllerService(Behavior):
                               initial_handshake_sent: asyncio.Event | None = None) -> None:
         peer_seen = False
         retry_interval = min(2.0, max(.25, self._heartbeat_timeout / 5))
-        next_handshake_retry = time.monotonic() + retry_interval if initial_handshake_sent is None else None
+        next_handshake_retry = self._clock() + retry_interval if initial_handshake_sent is None else None
         while True:
-            now = time.monotonic()
+            now = self._clock()
             if now - self._last_peer_activity > self._heartbeat_timeout:
                 raise OSError("controller heartbeat timed out")
             if initial_handshake_sent is not None and initial_handshake_sent.is_set() and next_handshake_retry is None:
@@ -333,7 +390,7 @@ class ControllerService(Behavior):
                 await self._send("ping", {})
                 next_heartbeat = now + self._heartbeat_interval
             read_started = threading.Event()
-            read_task = asyncio.create_task(asyncio.to_thread(self._read_once, read_started))
+            read_task = asyncio.create_task(self._read_operation(self._transport, read_started))
             if reader_ready is not None and not reader_ready.is_set():
                 await asyncio.to_thread(read_started.wait)
                 reader_ready.set()
@@ -344,13 +401,16 @@ class ControllerService(Behavior):
             try:
                 messages = decoder.feed(data)
             except ProtocolError as error:
+                self._record_rejected_frame(error)
                 logger.warning("PHOS CONTROLLER: rejected input code=%s type=%s reason=%s",
                                error.code, error.message_type or "unparseable", self._safe_error_message(error))
-                if error.frame is not None:
-                    logger.debug("PHOS CONTROLLER: rejected frame=%s", safe_frame_repr(error.frame))
+                for message in getattr(error, "recovered_messages", ()):
+                    self._last_peer_activity = self._clock()
+                    peer_seen = True
+                    await self._message(message)
                 continue
             for message in messages:
-                self._last_peer_activity = time.monotonic()
+                self._last_peer_activity = self._clock()
                 peer_seen = True
                 await self._message(message)
 
@@ -391,14 +451,26 @@ class ControllerService(Behavior):
                    else "accel + gyro" if message.type == "orientation_update" else message.type.replace("_", " "))
         self._record("RX", message.type, summary, message.raw_frame)
         if message.type in {"motion_update", "orientation_update"}:
-            logger.debug("PHOS CONTROLLER RX IMU raw=%s", safe_frame_repr(message.raw_frame or b"", limit=8192))
+            # IMU frames can arrive at high frequency.  Do not format raw
+            # telemetry merely because malformed-frame diagnostics are enabled.
+            if imu_logger.isEnabledFor(logging.DEBUG):
+                imu_logger.debug("PHOS CONTROLLER RX IMU raw=%s",
+                                 safe_frame_repr(message.raw_frame or b"", limit=8192))
             try:
-                self._imu_update_sink(message)
+                self._imu_update_sink(message, self._session_generation)
             except Exception as error:
                 logger.warning("PHOS CONTROLLER: IMU integration failure type=%s exception=%s message=%s",
                                message.type, type(error).__name__, self._safe_error_message(error))
             return
         if message.type != "sensor_update":
+            if message.type == "sensor_status":
+                payload = message.payload
+                if (payload.get("sensor") != "ens160" or type(payload.get("validity")) is not int
+                        or payload["validity"] not in {0, 1, 2, 3}
+                        or payload.get("compensation_active") not in {True, False, None}):
+                    self._invalid_sensor_update(message, "invalid ENS160 status")
+                    return
+                self._sensor_status_sink(dict(payload), self._session_generation)
             return
         if message.payload.get("sensor") == "push":
             if message.payload.get("event") != "pressed":
@@ -408,8 +480,8 @@ class ControllerService(Behavior):
             self._touch_sink(event)
             return
         sensor = message.payload.get("sensor")
-        expected_units = {"temperature": "c", "pressure": "hpa", "humidity": "%",
-                          "eco2": "ppm", "tvoc": "ppb"}
+        expected_units = {"temperature": "c", "pressure": "hpa", "humidity": "%rh",
+                          "aht21_temperature": "c", "eco2": "ppm", "tvoc": "ppb", "aqi": "index"}
         if sensor not in expected_units:
             self._invalid_sensor_update(message, "unsupported semantic sensor")
             return
@@ -420,11 +492,17 @@ class ControllerService(Behavior):
         if unit != expected_units[sensor]:
             self._invalid_sensor_update(message, f"unit must be {expected_units[sensor]!r}")
             return
-        if sensor in {"eco2", "tvoc"} and type(value) is not int:
+        if sensor in {"eco2", "tvoc", "aqi"} and type(value) is not int:
             self._invalid_sensor_update(message, "value must be an integer")
             return
+        if sensor == "aqi" and not 1 <= value <= 5:
+            self._invalid_sensor_update(message, "AQI-UBA must be from 1 to 5")
+            return
+        if sensor == "humidity" and not 0 <= value <= 100:
+            self._invalid_sensor_update(message, "humidity must be from 0 to 100")
+            return
         try:
-            self._sensor_update_sink(sensor, value)
+            self._sensor_update_sink(sensor, value, self._session_generation)
         except Exception as error:
             logger.warning("PHOS CONTROLLER: sensor integration failure sensor=%s value=%r unit=%r exception=%s message=%s raw=%s",
                            sensor, value, unit, type(error).__name__, self._safe_error_message(error),

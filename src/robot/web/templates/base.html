@@ -22,6 +22,7 @@
 <a href="{{ url_for('system') }}" {% if request.endpoint == 'system' or request.endpoint == 'reload_configuration' or request.endpoint == 'restart_phos' %}aria-current="page"{% endif %}><i>⚠</i>System Actions</a>
 <p class="nav-heading">Settings</p>
 <a href="{{ url_for('credentials') }}" {% if request.endpoint == 'credentials' %}aria-current="page"{% endif %}><i>◈</i>Credentials</a>
+<a href="{{ url_for('agents') }}" {% if request.endpoint == 'agents' %}aria-current="page"{% endif %}><i>♙</i>Agents</a>
 <a href="{{ url_for('configuration_editor') }}" {% if request.endpoint == 'configuration_editor' %}aria-current="page"{% endif %}><i>⌨</i>Configuration</a>
 {% set appearance_active = (area is defined and area in ('appearance', 'eyes')) or request.endpoint in ('appearance_preview_page', 'appearance_skins', 'appearance_backgrounds', 'appearance_eye_safe_layer', 'appearance_state_effects') %}
 <details class="nav-group{% if appearance_active %} is-active{% endif %}"{% if appearance_active %} open{% endif %}>
