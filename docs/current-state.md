@@ -12,7 +12,7 @@ This file is an implementation handoff for coding agents. It records what is pre
 
 ## Current source version
 
-The authoritative source version is **1.8.0**. The following records retain
+The authoritative source version is **1.9.0**. The following records retain
 earlier implementation milestones as historical context.
 
 ## Transient Overlay System v1
@@ -131,6 +131,22 @@ notifications. No physical air-quality validation is claimed. A fake-clock
 test of the monitor sleep loop with a real sensor-service age calculation
 remains a non-blocking test improvement; `_check_sensor_freshness()` is
 automated-tested.
+
+## PHOS 1.9.0 — Physical Context & Object Awareness
+
+PHOS 1.9.0 adds bounded six-hour, RAM-only physical measurement and semantic
+transition history, queried through `phos_query_measurements` and
+`phos_list_physical_transitions`. The documented Physical Context Intelligence
+v0.1 pattern lets external Agents combine those bounded observations with
+`phos_get_physical_context`; PHOS supplies facts and summaries, while Agents
+remain responsible for interpretation and decisions.
+
+It also adds optional, on-demand NanoDet object awareness through
+`phos_get_visible_objects`. It reuses the existing VisionPipeline frame owner,
+is disabled by default, and returns only labels, confidences, and frame
+freshness—not images, boxes, identities, tracking, or retained object history.
+The release also corrects the BGR/RGB preview boundary while preserving BGR for
+OpenCV vision consumers.
 
 ## PHOS 1.8.0 — MCP & Runtime Administration Stabilization
 
