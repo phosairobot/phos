@@ -280,6 +280,12 @@ expression:
     retry_max_seconds: 600.0
     connect_timeout_seconds: 3.0
     read_timeout_seconds: 5.0
+object_awareness:
+  enabled: false
+  model_path: null
+  confidence: 0.35
+  max_detections: 5
+  timeout_seconds: 2.0
 expression_reactions:
   enabled: true
   min_confidence: 0.7

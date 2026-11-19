@@ -24,7 +24,7 @@ _REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_witho
 MCP_TOOL_NAMES = frozenset({
     "phos_get_status", "phos_get_physical_context", "phos_get_presence", "phos_get_attention",
     "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_capture_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
-    "phos_wake", "phos_signal_user", "phos_query_measurements", "phos_list_physical_transitions",
+    "phos_wake", "phos_signal_user", "phos_query_measurements", "phos_list_physical_transitions", "phos_get_visible_objects",
 })
 MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
 _SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS = 1.0
@@ -223,6 +223,9 @@ class McpSemanticAdapter:
     def get_observed_expression(self) -> dict[str, Any]:
         return self._call("phos_get_observed_expression", self._request_agent_service().observed_expression)
 
+    async def visible_objects(self) -> dict[str, Any]:
+        return await self._call_async(self._request_agent_service().visible_objects)
+
     def environment(self) -> dict[str, Any]:
         """Return the canonical environmental semantic-context section."""
         return self._call("phos://environment", lambda: self._request_agent_service().get_physical_context()["environment"])
@@ -350,6 +353,10 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     @tool("phos_get_observed_expression", "Return observed-expression semantics, not emotion claims.")
     def get_observed_expression() -> dict[str, Any]:
         return _tool_result(adapter.get_observed_expression, ToolError)
+
+    @tool("phos_get_visible_objects", "Return bounded on-demand visible-object semantics without image content.")
+    async def get_visible_objects() -> dict[str, Any]:
+        return await _async_tool_result(adapter.visible_objects, ToolError)
 
     @server.tool(name="phos_get_camera_snapshot",
                  description="Return a JPEG from PHOS's latest cached camera frame without interpreting it.",

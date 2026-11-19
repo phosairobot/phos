@@ -197,7 +197,7 @@ PHOS runtime/services
 Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
 Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
 creates one listener over the existing application services, and normal runtime
-shutdown closes it. It exposes fourteen request/response tools: `phos_get_status`,
+shutdown closes it. It exposes fifteen request/response tools: `phos_get_status`,
 `phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`,
 `phos_get_observed_expression`, `phos_get_camera_snapshot`,
 `phos_capture_camera_snapshot`, `phos_set_expression`, `phos_speak`,

@@ -51,6 +51,8 @@ from robot.vision import (
     Picamera2CameraProvider,
     VisionPipeline,
 )
+from robot.vision.nanodet import NanoDetDetector
+from robot.vision.object_awareness import ObjectAwarenessCoordinator
 
 from robot.vision.aws_expression import AWSExpressionProvider
 from robot.admin_access import AdminOverlayState, NetworkInfoService, QRMatrixCache
@@ -83,6 +85,7 @@ class PhosRuntime:
         controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
         semantic_overlay: Optional[SemanticOverlayService] = None,
         tts_provider=None, audio_output=None, tts_status=None,
+        object_awareness: Optional[ObjectAwarenessCoordinator] = None,
     ) -> None:
         self.core = core
         self._behavior_engine = behavior_engine
@@ -110,6 +113,7 @@ class PhosRuntime:
         self._semantic_led_palette_metadata = {"state": "global", "skin_id": None, "colors": {}}
         self._semantic_overlay = semantic_overlay
         self._tts_provider, self._audio_output = tts_provider, audio_output
+        self._object_awareness = object_awareness
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
         self._tts_status = tts_status or {"enabled": False, "configured_provider": None,
@@ -878,6 +882,11 @@ class PhosRuntime:
             await self._imu_service.stop()
         if self._sensor_service is not None:
             await self._sensor_service.stop()
+        if self._object_awareness is not None:
+            try:
+                await self._object_awareness.close()
+            except Exception:
+                logger.exception("PHOS object-awareness shutdown failed")
         if self._vision_started and self._vision_pipeline is not None:
             try:
                 await self._vision_pipeline.stop()
@@ -1153,6 +1162,15 @@ def build_runtime(
         vision_factory(core.events) if vision_factory is not None else _build_configured_vision(config, core.events)
     )
     vision_holder["pipeline"] = resolved_vision
+    object_awareness = None
+    if config.object_awareness_enabled and resolved_vision is not None:
+        model_path = config.resolve_path(config.object_awareness_model_path)
+        object_awareness = ObjectAwarenessCoordinator(
+            resolved_vision,
+            lambda: NanoDetDetector(model_path, confidence=config.object_awareness_confidence,
+                                    max_detections=config.object_awareness_max_detections),
+            timeout_seconds=config.object_awareness_timeout_seconds,
+        )
     provider_type = environmental_provider_type(config.environmental_type)
     sensors = EnvironmentalSensorService(
         sensor_provider_factory if sensor_provider_factory is not None else
@@ -1217,7 +1235,8 @@ def build_runtime(
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
                        interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        semantic_overlay=semantic_overlay,
-                       tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
+                       tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status,
+                       object_awareness=object_awareness)
     runtime._temporal_history = temporal_history
     runtime._secrets_service = secrets_service
     # Compose one canonical application service after the runtime exists.  It

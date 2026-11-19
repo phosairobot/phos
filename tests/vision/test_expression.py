@@ -34,7 +34,7 @@ class FakeDnn:
 
 
 class FakeCv2:
-    COLOR_RGB2GRAY = "rgb-to-gray"
+    COLOR_BGR2GRAY = "bgr-to-gray"
 
     def __init__(self):
         self.dnn = FakeDnn()
@@ -45,7 +45,7 @@ class FakeCv2:
         return "grayscale-crop"
 
 
-def test_expression_provider_converts_rgb_face_crop_to_grayscale_when_configured():
+def test_expression_provider_converts_bgr_face_crop_to_grayscale_when_configured():
     provider = OpenCVExpressionProvider(
         Path("unused.onnx"),
         ("neutral", "happiness", "surprise"),
@@ -62,7 +62,7 @@ def test_expression_provider_converts_rgb_face_crop_to_grayscale_when_configured
     image = FakeImage()
     observation = provider._classify_sync(image)
 
-    assert fake_cv2.convert_arguments == (image, fake_cv2.COLOR_RGB2GRAY)
+    assert fake_cv2.convert_arguments == (image, fake_cv2.COLOR_BGR2GRAY)
     assert fake_cv2.dnn.blob_arguments == (
         "grayscale-crop",
         {
@@ -113,7 +113,7 @@ def test_mobilefacenet_preprocessing_matches_reference_rgb_normalization():
     provider._cv2 = cv2
     provider._network = Network()
     crop = np.zeros((80, 80, 3), dtype=np.uint8)
-    crop[:] = [0, 127, 255]  # BGR bytes from the current Pi RGB888 capture.
+    crop[:] = [0, 127, 255]  # BGR bytes for an internally BGR red pixel.
     observation = provider._classify_sync(crop)
 
     blob = provider._network.input_blob

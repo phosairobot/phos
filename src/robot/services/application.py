@@ -31,6 +31,8 @@ from robot.core.presence import PRESENCE_CHANGED, PERSON_ENTERED, PERSON_LEFT
 from robot.core.attention import (ATTENTION_CHANGED, ATTENTION_TARGET_ACQUIRED,
                                   ATTENTION_TARGET_CHANGED, ATTENTION_TARGET_LOST)
 from robot.vision.pipeline import CameraSnapshot, OBSERVED_EXPRESSION_CHANGED
+from robot.vision.object_awareness import (ObjectAwarenessBusy, ObjectAwarenessFailure,
+                                           ObjectAwarenessTimeout, ObjectAwarenessUnavailable)
 from robot.core.expression_reaction import (EXPRESSION_REACTION_STARTED, EXPRESSION_REACTION_COMPLETED,
                                             EXPRESSION_REACTION_SUPPRESSED)
 from robot.core.touch import TOUCH_EVENT_NAMES
@@ -609,6 +611,26 @@ class PhosApplicationService:
         logger.debug("OBSERVED STATE READER: pipeline=%s state=%s available=%s label=%s confidence=%s",
                      id(pipeline), id(observation), observation.available, observation.label, observation.confidence)
         return self._plain(observation)
+
+    async def visible_objects(self) -> dict:
+        """Return one bounded semantic object observation, never image content."""
+        coordinator = getattr(self._runtime, "_object_awareness", None)
+        if coordinator is None:
+            raise ApplicationError("object_awareness_disabled", "Object awareness is unavailable.", status=503)
+        try:
+            observation = await coordinator.observe()
+        except ObjectAwarenessBusy as error:
+            raise ApplicationError("object_awareness_busy", "Object awareness is busy.", status=429) from error
+        except ObjectAwarenessTimeout as error:
+            raise ApplicationError("object_awareness_timeout", "Object awareness timed out.", status=504) from error
+        except ObjectAwarenessUnavailable as error:
+            raise ApplicationError("object_awareness_unavailable", "Object awareness is unavailable.", status=503) from error
+        except ObjectAwarenessFailure as error:
+            raise ApplicationError("object_awareness_failed", "Object awareness inference failed.", status=503) from error
+        return {"captured_at": observation.captured_at_utc.isoformat().replace("+00:00", "Z"),
+                "age_ms": observation.age_ms, "freshness": observation.freshness,
+                "objects": [{"label": item.label, "confidence": item.confidence} for item in observation.objects],
+                "truncated": observation.truncated}
 
     def get_camera_snapshot(self) -> bytes:
         """Return one bounded JPEG from the latest cached Vision frame."""
