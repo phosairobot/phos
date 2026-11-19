@@ -54,6 +54,7 @@ from robot.vision import (
 
 from robot.vision.aws_expression import AWSExpressionProvider
 from robot.admin_access import AdminOverlayState, NetworkInfoService, QRMatrixCache
+from robot.services.temporal_history import TemporalHistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -893,6 +894,9 @@ class PhosRuntime:
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers = []
+        history = getattr(self, "_temporal_history", None)
+        if history is not None:
+            history.close()
         self._started = False
         logger.info("PHOS runtime stopped")
 
@@ -927,6 +931,12 @@ def build_runtime(
     config.validate()
     config.validate_paths()
     core = RobotCore()
+    temporal_history = TemporalHistoryService()
+    def record_history(metric, value, unit, source):
+        try:
+            temporal_history.record_measurement(metric, value, unit, source=source)
+        except Exception:
+            logger.warning("PHOS HISTORY: measurement was not retained", exc_info=True)
     behavior_engine = BehaviorEngine(
         core.events, blink_interval=config.blink_interval_seconds,
         gaze_interval=config.gaze_interval_seconds, face_gaze_smoothing=config.face_gaze_smoothing,
@@ -1152,7 +1162,10 @@ def build_runtime(
         enabled=config.environmental_enabled,
         poll_interval_seconds=config.environmental_poll_interval_seconds,
         stale_after_seconds=config.environmental_stale_after_seconds,
-        reading_sink=lambda reading, now: environmental_interpreter.observe_environmental(reading.temperature_c, now=now),
+        reading_sink=lambda reading, now: (record_history("temperature_c", reading.temperature_c, "c", "environmental"),
+                                           record_history("pressure_hpa", reading.pressure_hpa, "hpa", "environmental"),
+                                           record_history("humidity_percent", reading.humidity_percent, "%rh", "environmental") if reading.humidity_percent is not None else None,
+                                           environmental_interpreter.observe_environmental(reading.temperature_c, now=now)),
         unavailable_sink=lambda status: environmental_interpreter.unavailable(now=time.monotonic(),
             source="environmental", status=status),
         status_sink=lambda: runtime_holder["runtime"].publish_sensor_status(),
@@ -1166,7 +1179,9 @@ def build_runtime(
         lambda: (_ for _ in ()).throw(RuntimeError("ENS160 is controller-backed; local Raspberry Pi I2C is unsupported")),
         enabled=config.ens160_enabled, poll_interval_seconds=config.ens160_poll_interval_seconds,
         stale_after_seconds=config.ens160_stale_after_seconds, compensation_supplier=sensors.compensation,
-        reading_sink=lambda reading, now: (
+        reading_sink=lambda reading, now: (record_history("eco2_ppm", reading.eco2_ppm, "ppm", "air_quality"),
+            record_history("tvoc_ppb", reading.tvoc_ppb, "ppb", "air_quality"),
+            record_history("aqi_uba", reading.aqi_uba, "index", "air_quality") if reading.aqi_uba is not None else None,
             environmental_interpreter.observe_air_quality(reading.eco2_ppm, reading.tvoc_ppb, now=now)
             if all(air_quality.snapshot().get("measurement_usable", {}).get(field, False)
                    for field in ("eco2_ppm", "tvoc_ppb")) else None),
@@ -1203,6 +1218,7 @@ def build_runtime(
                        interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        semantic_overlay=semantic_overlay,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
+    runtime._temporal_history = temporal_history
     runtime._secrets_service = secrets_service
     # Compose once after the runtime exists, since the application service owns
     # the only permitted state/expression operations. The coordinator remains

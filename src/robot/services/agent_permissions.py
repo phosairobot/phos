@@ -16,6 +16,7 @@ class AgentPermission(str, Enum):
 
     READ_STATUS = "read_status"
     READ_PHYSICAL_CONTEXT = "read_physical_context"
+    READ_PHYSICAL_HISTORY = "read_physical_history"
     READ_PERCEPTION = "read_perception"
     READ_CAMERA_SNAPSHOT = "read_camera_snapshot"
     CONTROL_EXPRESSION = "control_expression"
@@ -29,6 +30,7 @@ class AgentOperation(str, Enum):
 
     STATUS = "status"
     GET_PHYSICAL_CONTEXT = "get_physical_context"
+    QUERY_PHYSICAL_HISTORY = "query_physical_history"
     PRESENCE = "presence"
     ATTENTION = "attention"
     OBSERVED_EXPRESSION = "observed_expression"
@@ -43,6 +45,7 @@ class AgentOperation(str, Enum):
 OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyType({
     AgentOperation.STATUS: AgentPermission.READ_STATUS,
     AgentOperation.GET_PHYSICAL_CONTEXT: AgentPermission.READ_PHYSICAL_CONTEXT,
+    AgentOperation.QUERY_PHYSICAL_HISTORY: AgentPermission.READ_PHYSICAL_HISTORY,
     AgentOperation.PRESENCE: AgentPermission.READ_PERCEPTION,
     AgentOperation.ATTENTION: AgentPermission.READ_PERCEPTION,
     AgentOperation.OBSERVED_EXPRESSION: AgentPermission.READ_PERCEPTION,
@@ -209,6 +212,14 @@ class AgentApplicationService:
     def get_physical_context(self) -> dict[str, Any]:
         self._require(AgentOperation.GET_PHYSICAL_CONTEXT)
         return self._application.get_physical_context()
+
+    def query_measurements(self, metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+        self._require(AgentOperation.QUERY_PHYSICAL_HISTORY)
+        return self._application.query_measurements(metric, start=start, end=end, limit=limit)
+
+    def list_physical_transitions(self, event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        self._require(AgentOperation.QUERY_PHYSICAL_HISTORY)
+        return self._application.list_physical_transitions(event_type=event_type, limit=limit)
 
     def presence(self) -> dict[str, Any]:
         self._require(AgentOperation.PRESENCE)

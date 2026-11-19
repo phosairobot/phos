@@ -513,3 +513,14 @@ include physical air-quality validation. With Camera Preview disabled,
 `phos://vision/snapshot` remained available and `resources/read` returned an
 `image/jpeg` Resource with a non-empty blob. This validates resource
 availability and JPEG output only; it does not validate image content quality.
+# Temporal History v0.1
+
+`phos_query_measurements(metric, start?, end?, limit?)` returns accepted
+RAM-only numeric observations and a min/max/average summary. `start` and `end`
+are timezone-aware RFC 3339 timestamps, the requested interval may not exceed
+six hours, and `limit` is 1–360. `phos_list_physical_transitions(event_type?,
+limit?)` returns confirmed semantic transitions with a 1–360 limit. Both require
+`read_physical_history`. History holds at most six hours, one sample per metric
+per minute, 360 samples per metric, and 500 transitions; it is lost on restart.
+Missing, stale, and unavailable inputs are not fabricated or interpolated.
+History excludes camera/audio data, transcripts, and identity.

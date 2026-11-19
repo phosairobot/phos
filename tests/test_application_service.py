@@ -104,6 +104,26 @@ def test_physical_context_uses_existing_application_read_models():
     assert context["observed_expression"]["available"] is False
 
 
+def test_semantic_presence_transitions_are_recorded_once_without_identity():
+    runtime = Runtime(); service = PhosApplicationService(runtime)
+    async def publish():
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1,
+                                                                    "primary_candidate_id": "face-secret"}))
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "no_one", "people_count": 0}))
+    asyncio.run(publish())
+    records = service.list_physical_transitions(event_type="presence_changed")["transitions"]
+    assert [record["current"] for record in records] == ["person_present", "no_one"]
+    assert "face-secret" not in repr(records)
+    assert service._temporal_history is runtime._temporal_history
+
+
+def test_history_recording_failure_does_not_break_semantic_transition(monkeypatch):
+    runtime = Runtime(); service = PhosApplicationService(runtime)
+    monkeypatch.setattr(service._temporal_history, "record_semantic_event", lambda _event: (_ for _ in ()).throw(RuntimeError("history")))
+    asyncio.run(runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1})))
+    assert service.presence()["state"] == "no_one"  # history observer did not mutate runtime state
+
+
 def test_recovery_code_is_shown_only_locally_and_never_returned():
     runtime = RecoveryRuntime()
     service = PhosApplicationService(runtime)

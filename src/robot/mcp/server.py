@@ -24,7 +24,7 @@ _REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_witho
 MCP_TOOL_NAMES = frozenset({
     "phos_get_status", "phos_get_physical_context", "phos_get_presence", "phos_get_attention",
     "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_capture_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
-    "phos_wake", "phos_signal_user",
+    "phos_wake", "phos_signal_user", "phos_query_measurements", "phos_list_physical_transitions",
 })
 MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
 _SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS = 1.0
@@ -251,6 +251,12 @@ class McpSemanticAdapter:
     def signal_user(self, signal: str) -> dict[str, Any]:
         return self._call("phos_signal_user", lambda: self._request_agent_service().signal_user(signal))
 
+    def query_measurements(self, metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+        return self._call("phos_query_measurements", lambda: self._request_agent_service().query_measurements(metric, start, end, limit))
+
+    def list_physical_transitions(self, event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return self._call("phos_list_physical_transitions", lambda: self._request_agent_service().list_physical_transitions(event_type, limit))
+
     async def speak_async(self, text: str) -> dict[str, Any]:
         return await self._call_async(lambda: self._request_agent_service().speak_async(text))
 
@@ -380,6 +386,14 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     @tool("phos_signal_user", "Request a canonical transient semantic user signal.")
     async def signal_user(signal: SignalIntent) -> dict[str, Any]:
         return await _async_tool_result(lambda: adapter.signal_user_async(signal), ToolError)
+
+    @tool("phos_query_measurements", "Return bounded RAM-only physical measurement history.")
+    def query_measurements(metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+        return _tool_result(lambda: adapter.query_measurements(metric, start, end, limit), ToolError)
+
+    @tool("phos_list_physical_transitions", "Return bounded confirmed physical transition history.")
+    def list_physical_transitions(event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return _tool_result(lambda: adapter.list_physical_transitions(event_type, limit), ToolError)
 
     return server
 
