@@ -335,8 +335,11 @@ camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_attention`, `phos_get_observed_expression`, `phos_get_camera_snapshot`,
 `phos_capture_camera_snapshot`,
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
-`phos_wake`, and `phos_signal_user(signal)`. Input bounds, permission checks,
-semantic result documents, and sanitized error mapping are transport-independent.
+`phos_wake`, `phos_signal_user(signal)`,
+`phos_query_measurements(metric, start?, end?, limit?)`, and
+`phos_list_physical_transitions(event_type?, limit?)`. Input bounds, permission
+checks, semantic result documents, and sanitized error mapping are
+transport-independent.
 
 ## MCP Resources
 
@@ -513,3 +516,105 @@ include physical air-quality validation. With Camera Preview disabled,
 `phos://vision/snapshot` remained available and `resources/read` returned an
 `image/jpeg` Resource with a non-empty blob. This validates resource
 availability and JPEG output only; it does not validate image content quality.
+# Temporal History v0.1
+
+`phos_query_measurements(metric, start?, end?, limit?)` returns accepted
+RAM-only numeric observations and a min/max/average summary. `start` and `end`
+are timezone-aware RFC 3339 timestamps, the requested interval may not exceed
+six hours, and `limit` is 1–360. `phos_list_physical_transitions(event_type?,
+limit?)` returns confirmed semantic transitions with a 1–360 limit. Both require
+`read_physical_history`. History holds at most six hours, one sample per metric
+per minute, 360 samples per metric, and 500 transitions; it is lost on restart.
+Missing, stale, and unavailable inputs are not fabricated or interpolated.
+History excludes camera/audio data, transcripts, and identity.
+
+## Physical Context Intelligence v0.1 — agent composition contract
+
+PHOS supplies factual physical observations and bounded summaries. An external
+Agent combines those facts with its own task context and is solely responsible
+for interpretation and decisions. This is an on-demand composition pattern, not
+a PHOS runtime subsystem: it starts no worker, polls no sensor, persists no
+additional data, and adds no MCP tool or Resource.
+
+Use `phos_get_physical_context` first to obtain the current semantic context.
+Its `environment` section reports `status`, `available`, `temperature_c`,
+`pressure_hpa`, `humidity_percent`, `last_update`, and `age_seconds`. Its
+`air_quality` section similarly reports `status`, `available`, `eco2_ppm`,
+`tvoc_ppb`, `aqi_uba`, `last_update`, and `age_seconds`. The same document
+includes current `robot`, `presence`, and `attention` sections. The current
+context establishes whether a reading is currently available or stale; history
+does not turn an unavailable sensor into a current one.
+
+For a selected time window, call the history tools with their actual signatures:
+
+```text
+phos_get_physical_context()
+phos_query_measurements(metric, start?, end?, limit?)
+phos_list_physical_transitions(event_type?, limit?)
+```
+
+For example, an Agent determines its own RFC 3339 UTC start timestamp for one
+hour ago, then requests:
+
+```text
+phos_query_measurements("temperature_c", start="2026-11-19T09:00:00Z",
+                        end="2026-11-19T10:00:00Z", limit=360)
+```
+
+The measurement result contains `metric`, `samples`, `count`, and `summary`.
+Each sample contains `metric`, `value`, `unit`, `observed_at`, `source`, and
+`quality`. When samples exist, `summary` contains `minimum`, `maximum`,
+`average`, `delta`, `coverage`, `start`, and `end`; `start` and `end` are the
+first and last returned samples. The `delta` is PHOS's arithmetic last-value
+minus first-value summary, not an interpretation of comfort, safety, or cause.
+
+Use the same query for `humidity_percent`, `pressure_hpa`, `eco2_ppm`,
+`tvoc_ppb`, or `aqi_uba`. Query only the metrics relevant to the Agent's task;
+there is no combined trend endpoint. For the latest confirmed presence change,
+request:
+
+```text
+phos_list_physical_transitions(event_type="presence_changed", limit=1)
+```
+
+For recent attention or robot-state changes, use `event_type="attention_changed"`
+or `event_type="robot_state_changed"`, with a suitable `limit`. A transition
+result contains `transitions` and `count`; each transition contains `type`,
+`current`, `previous`, `observed_at`, and `source`.
+
+### Observation and interpretation boundary
+
+The following examples show the boundary deliberately:
+
+| Situation | PHOS measurement or semantic observation | PHOS mathematical summary | External Agent interpretation |
+| --- | --- | --- | --- |
+| Temperature rose in one requested hour | Returned `temperature_c` samples have `value` 20.0 then 21.0. | `summary.delta` is 1.0 with `coverage: "sufficient"`. | “Temperature increased by approximately 1 °C within the requested window.” |
+| Air-quality values changed | Returned `eco2_ppm`, `tvoc_ppb`, or `aqi_uba` samples differ across the requested window. | Each metric query returns its own min/max/average/delta. | Describe the reported direction and magnitude; do not infer pollutant source or issue an autonomous response. |
+| Presence became present | A `presence_changed` transition reports `previous: "no_one"` and `current: "person_present"`. | None. Transitions are semantic facts, not numerical trends. | “PHOS last confirmed a presence-state change to person present at `observed_at`.” |
+| Trend cannot be established | The metric has no samples, or one sample with `summary.coverage: "insufficient"` and `summary.delta: null`. | No delta is supplied for one sample; no summary exists for zero samples. | “There is insufficient retained measurement history to describe a trend.” |
+
+### Missing-data and retention contract
+
+- No samples means PHOS has no retained observations for that metric and query;
+  it does not mean the physical quantity was absent or unchanged.
+- One sample cannot establish a delta. Its summary has `coverage: "insufficient"`
+  and `delta: null`; it must not be presented as a complete trend.
+- Two or more samples provide PHOS's `coverage: "sufficient"` summary, but do
+  not guarantee continuous coverage of the requested interval. PHOS does not
+  interpolate gaps.
+- `phos_get_physical_context` is authoritative for current sensor status,
+  availability, and age. Stale or unavailable sensors must not be represented
+  as fresh merely because retained samples exist.
+- No matching retained transition does not prove that no transition occurred.
+  The requested event may predate retention, follow a restart, or not have been
+  recorded by the active semantic source.
+- A presence transition is a confirmed semantic observation after PHOS's
+  presence confirmation logic; it is not proof of a person's exact arrival or
+  departure time.
+- All history is RAM-only, limited to the last six hours, and discarded on
+  runtime restart.
+
+This composition requires `read_physical_history` for both history tools.
+`phos_get_physical_context` remains governed by `read_physical_context`; an
+Agent without history permission must not derive history from the current
+context.

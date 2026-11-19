@@ -47,6 +47,7 @@ from robot.lifecycle import changed_fields
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
 from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
+from robot.services.temporal_history import TemporalHistoryService
 from robot.services.agent_permissions import AgentApplicationService
 from robot.motion import MotionState
 from robot.ui.state import FaceExpression
@@ -316,6 +317,11 @@ class PhosApplicationService:
         self._admin_recovery = RecoveryState(clock=clock)
         self._physical_context = SemanticPhysicalContextService()
         self._semantic_events = SemanticEventPublisher()
+        history = getattr(runtime, "_temporal_history", None)
+        if history is None:
+            history = TemporalHistoryService()
+            setattr(runtime, "_temporal_history", history)
+        self._temporal_history = history
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -362,6 +368,22 @@ class PhosApplicationService:
             unsubscribe()
         self._unsubscribers = []
 
+    def attach_lifecycle(self, lifecycle) -> None:
+        """Attach the one lifecycle owner after runtime composition.
+
+        ``build_runtime`` creates the canonical application service because the
+        interaction executor needs it during composition.  ``async_main`` owns
+        the optional lifecycle service, so it attaches that collaborator later
+        instead of constructing a second Core-event observer.
+        """
+        self._lifecycle = lifecycle
+
+    def query_measurements(self, metric: str, *, start: str | None = None, end: str | None = None, limit: int = 360) -> dict:
+        return self._temporal_history.query_measurements(metric, start=start, end=end, limit=limit)
+
+    def list_physical_transitions(self, *, event_type: str | None = None, limit: int = 100) -> dict:
+        return self._temporal_history.list_transitions(event_type=event_type, limit=limit)
+
     def subscribe(self, listener: Callable[[dict], None]) -> Callable[[], None]:
         with self._lock:
             self._listeners.append(listener)
@@ -381,7 +403,11 @@ class PhosApplicationService:
             payload["previous"] = previous
         if details:
             payload.update(details)
-        self._semantic_events.publish(event_type, source, payload)
+        event = self._semantic_events.publish(event_type, source, payload)
+        try:
+            self._temporal_history.record_semantic_event(event)
+        except Exception:
+            logger.warning("PHOS HISTORY: semantic transition was not retained", exc_info=True)
 
     def _establish_semantic_system_baseline(self) -> None:
         """Record ready-state availability without inventing startup transitions."""

@@ -138,7 +138,17 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
                                         AgentRegistryProvider, BearerAgentAuthenticator, ConfiguredAgentAuthenticator,
                                         McpAuthenticationModeAuthenticator,
                                         PhosApplicationService)
-            application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
+            # Runtime composition creates the sole Core-event observer for
+            # semantic application events. Reusing it prevents MCP/lifecycle
+            # startup from recording every transition a second time.
+            application_service = getattr(runtime, "_application_service", None)
+            if application_service is None:
+                # Small injected runtimes used by compatibility tests may not
+                # use the production composition path.
+                application_service = PhosApplicationService(runtime, lifecycle=lifecycle)
+                runtime._application_service = application_service
+            elif lifecycle is not None:
+                application_service.attach_lifecycle(lifecycle)
             if config is not None:
                 from robot.mcp import McpServerManager
                 registry_provider = AgentRegistryProvider(config.agent_registry)
@@ -270,7 +280,7 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             await mcp_manager.close()
         if 'appearance_activity' in locals():
             appearance_activity.close()
-        if application_service is not None and lifecycle is None:
+        if application_service is not None:
             application_service.close()
         if lifecycle is not None:
             lifecycle.clear_application_ready()

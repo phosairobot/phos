@@ -47,6 +47,7 @@ def test_normal_startup_creates_one_mcp_server_from_the_existing_application(mon
     from robot import main
     from robot.core import RobotCore
     from robot.core.behavior_engine import BehaviorEngine
+    from robot.services.application import PhosApplicationService
 
     created = []
 
@@ -55,6 +56,7 @@ def test_normal_startup_creates_one_mcp_server_from_the_existing_application(mon
             self.core = RobotCore()
             self._behavior_engine = BehaviorEngine(self.core.events)
             self.callbacks = []
+            self._application_service = PhosApplicationService(self)
         def register_started_callback(self, callback): self.callbacks.append(callback)
         async def run(self, stop_event):
             for callback in self.callbacks:
@@ -84,7 +86,7 @@ def test_normal_startup_creates_one_mcp_server_from_the_existing_application(mon
 
     assert len(created) == 1
     assert created[0].host == "127.0.0.1" and created[0].port == 8123 and created[0].path == "/robot-mcp"
-    assert created[0].agent_service._application._runtime is runtime
+    assert created[0].agent_service._application is runtime._application_service
     assert created[0].stopped
 
 

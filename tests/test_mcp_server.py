@@ -55,6 +55,8 @@ class ApplicationSpy:
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
+    def query_measurements(self, metric, start=None, end=None, limit=360): return self._call("query_measurements", metric, start, end, limit)
+    def list_physical_transitions(self, event_type=None, limit=100): return self._call("list_physical_transitions", event_type, limit)
     def get_camera_snapshot(self):
         self._call("get_camera_snapshot")
         return b"\xff\xd8fake-jpeg\xff\xd9"
@@ -80,13 +82,22 @@ def _adapter(application=None, profile=AgentProfile.STANDARD):
     return McpSemanticAdapter(AgentApplicationService(application, AgentAccess.for_profile(profile))), application
 
 
+def test_history_tools_use_agent_permission_and_preserve_bounded_arguments():
+    adapter, application = _adapter()
+    assert adapter.query_measurements("temperature_c", "2026-01-01T00:00:00Z", None, 10)["operation"] == "query_measurements"
+    assert adapter.list_physical_transitions("presence_changed", 10)["operation"] == "list_physical_transitions"
+    denied, _ = _adapter(profile=AgentProfile.OBSERVER)
+    with pytest.raises(McpToolError, match="read_physical_history"):
+        denied.query_measurements("temperature_c")
+
+
 def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_creation():
     adapter, _ = _adapter()
     server = create_mcp_server(adapter._agent_service)
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == MCP_TOOL_NAMES
-    assert len(MCP_TOOL_NAMES) == 12
+    assert len(MCP_TOOL_NAMES) == 14
     source = inspect.getsource(__import__("robot.mcp.server", fromlist=["server"]))
     assert all(forbidden not in source for forbidden in (
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",

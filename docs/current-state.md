@@ -23,6 +23,17 @@ passes; physical Raspberry display validation is deferred.
 
 ## Semantic Physical Context v1
 
+### Temporal History v0.1
+
+PHOS retains a RAM-only, six-hour rolling history of accepted environmental and
+air-quality measurements (at most one per metric per minute) and confirmed
+semantic physical transitions. History is discarded on restart, contains no
+camera frames, audio, transcripts, or identity, and is exposed only through
+the `read_physical_history` permission via `phos_query_measurements` and
+`phos_list_physical_transitions`. It is bounded to 360 samples per metric and
+500 transitions; it neither pushes a notification for every sample nor
+interpolates missing observations.
+
 The repository implements a read-only, provider-independent semantic perception
 context through `PhosApplicationService`; it is automated-tested and available
 to the MCP semantic adapter.

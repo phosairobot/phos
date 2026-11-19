@@ -29,6 +29,8 @@ class ApplicationSpy:
             "semantic_led": {"available": True},
         }
     def get_physical_context(self): return self._call("get_physical_context")
+    def query_measurements(self, metric, *, start=None, end=None, limit=360): return self._call("query_measurements", metric, start, end, limit)
+    def list_physical_transitions(self, *, event_type=None, limit=100): return self._call("list_physical_transitions", event_type, limit)
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
@@ -64,6 +66,16 @@ def test_missing_or_unrelated_permission_is_a_distinct_denial_without_invocation
     assert error.value.operation is AgentOperation.SET_EXPRESSION
     assert error.value.permission is AgentPermission.CONTROL_EXPRESSION
     assert application.calls == []
+
+
+def test_history_requires_its_own_read_permission():
+    application = ApplicationSpy()
+    denied = AgentApplicationService(application, AgentAccess({AgentPermission.READ_PHYSICAL_CONTEXT}))
+    with pytest.raises(AgentPermissionDenied) as error:
+        denied.query_measurements("temperature_c")
+    assert error.value.permission is AgentPermission.READ_PHYSICAL_HISTORY
+    permitted = AgentApplicationService(application, AgentAccess({AgentPermission.READ_PHYSICAL_HISTORY}))
+    assert permitted.query_measurements("temperature_c")["operation"] == "query_measurements"
 
 
 def test_observer_can_read_the_minimal_semantic_surface_but_cannot_act():
@@ -212,5 +224,6 @@ def test_agent_surface_has_no_raw_hardware_renderer_or_admin_operations():
         "attention", "get_physical_context", "observed_expression", "presence", "set_expression",
         "signal_user", "sleep", "speak", "status", "wake", "sleep_async", "speak_async",
         "signal_user_async", "wake_async", "camera_snapshot", "camera_snapshot_with_metadata", "capture_camera_snapshot_with_metadata",
+        "query_measurements", "list_physical_transitions",
     }
     assert set(OPERATION_PERMISSIONS) == set(AgentOperation)
