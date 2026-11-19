@@ -13,8 +13,7 @@ from .provider import ExpressionObservation, ExpressionProvider
 
 logger = logging.getLogger(__name__)
 
-# Settings for the current Picamera2 RGB888 capture (BGR byte order).
-# FERPlus deliberately preserves the existing baseline, including RGB2GRAY.
+# Settings for the VisionPipeline BGR frame contract.
 EXPRESSION_PRESETS = {
     "ferplus": dict(
         labels=("neutral", "happiness", "surprise", "sadness", "anger", "disgust", "fear", "contempt"),
@@ -66,7 +65,7 @@ class OpenCVExpressionProvider(ExpressionProvider):
 
     @classmethod
     def from_preset(cls, model_path: Path, preset: str) -> OpenCVExpressionProvider:
-        """Construct a known model for the current Pi camera byte order."""
+        """Construct a known model for the VisionPipeline BGR byte order."""
         return cls(model_path, **EXPRESSION_PRESETS[preset])
 
     async def classify(self, face_crop: Any) -> Optional[ExpressionObservation]:
@@ -77,7 +76,7 @@ class OpenCVExpressionProvider(ExpressionProvider):
     def _classify_sync(self, face_crop: Any) -> ExpressionObservation:
         cv2, network = self._load_network()
         if self._grayscale:
-            face_crop = cv2.cvtColor(face_crop, cv2.COLOR_RGB2GRAY)
+            face_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
         blob = cv2.dnn.blobFromImage(
             face_crop,
             scalefactor=self._scale,

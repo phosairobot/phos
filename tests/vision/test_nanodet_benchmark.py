@@ -34,17 +34,18 @@ def test_diagnostics_are_shared_contract():
     assert report["returned_tensor_count"]==2 and report["tensors"][0]["role"]=="classification"
     assert report["tensors"][0]["matching_strides"]==[8]
 
-def test_preprocessing_uint8_rgb_float32_blob():
+def test_preprocessing_uint8_bgr_float32_blob():
     class D:
         def blobFromImage(self,x): self.value=x; return np.moveaxis(x,-1,0)[None]
     class C:
         COLOR_BGR2RGB=1; INTER_AREA=2; BORDER_CONSTANT=3; dnn=D()
         cvtColor=staticmethod(lambda x,_:x[...,::-1]); resize=staticmethod(lambda x,*_,**__:x)
         copyMakeBorder=staticmethod(lambda x,*_,**__:x)
-    detector=NanoDetDetector("missing",cv2_module=C,np_module=np); image=np.zeros((416,416,3),np.uint8); image[0,0]=[10,20,30]
+    detector=NanoDetDetector("missing",cv2_module=C,np_module=np); image=np.zeros((416,416,3),np.uint8); image[0,0]=[0,0,255]
     blob=detector._prepare_blob(image)
     assert C.dnn.value.dtype==np.float32 and blob.shape==(1,3,416,416)
-    np.testing.assert_allclose(C.dnn.value[0,0],(np.array([30,20,10],np.float32)-np.array([103.53,116.28,123.675],np.float32))/np.array([57.375,57.12,58.395],np.float32))
+    # A BGR pure-red input reaches the model as RGB [255, 0, 0].
+    np.testing.assert_allclose(C.dnn.value[0,0],(np.array([255,0,0],np.float32)-np.array([103.53,116.28,123.675],np.float32))/np.array([57.375,57.12,58.395],np.float32))
     with pytest.raises(NanoDetInvalidFrame): detector._prepare_blob(np.zeros((2,2),np.uint8))
 
 def test_missing_model_and_inference_failure(tmp_path):

@@ -862,11 +862,12 @@ class TkEyeDisplay(EyeDisplay):
 
 
 def _encode_preview_ppm(frame, target_width):
-    """Resize and encode off the Tk/display thread; only one job can be pending."""
+    """Convert a BGR Vision frame to Tk's RGB PPM off the display thread."""
     import cv2
     height, width = frame.shape[:2]
     target_height = max(1, round(height * target_width / width))
     small = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
+    rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
     header = f"P6 {target_width} {target_height} 255\n".encode("ascii")
     # Tk's PPM reader requires raw binary data, not base64 text.
-    return target_width, target_height, header + small.tobytes()
+    return target_width, target_height, header + rgb.tobytes()

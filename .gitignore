@@ -225,5 +225,8 @@ __marimo__/
 models/tts/piper/*.onnx
 models/tts/piper/*.onnx.json
 
+# Locally deployed OpenCV vision models (including NanoDet)
+models/vision/*.onnx
+
 # Local PHOS encrypted secrets and encryption keys
 .phos-secrets*/

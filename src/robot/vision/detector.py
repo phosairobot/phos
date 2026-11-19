@@ -37,7 +37,7 @@ class OpenCVFaceDetector(FaceDetector):
 
     def _detect_sync(self, frame: Any) -> Sequence[FaceRegion]:
         cv2, cascade = self._load_cascade()
-        grayscale = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        grayscale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         detected = cascade.detectMultiScale(
             grayscale,
             scaleFactor=self._scale_factor,
