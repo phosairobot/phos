@@ -1,0 +1,3130 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A physical companion for AI Agents, built on Raspberry Pi.">
+      
+      
+      
+        <link rel="canonical" href="https://phosairobot.github.io/phos/mcp/">
+      
+      
+        <link rel="prev" href="../mcp-overview/">
+      
+      
+        <link rel="next" href="../ai/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/phos.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>MCP Reference - PHOS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/css/phos.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-semantic-adapter" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PHOS" class="md-header__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PHOS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../discover/" class="md-tabs__link">
+          
+  
+  
+  Discover PHOS
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Technical Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../releases/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PHOS" class="md-nav__button md-logo" aria-label="PHOS" data-md-component="logo">
+      
+  <img src="../assets/images/phos.png" alt="logo">
+
+    </a>
+    PHOS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phosairobot/phos" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phosairobot/phos
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discover PHOS
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discover PHOS
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../discover/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What PHOS can do
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-phos-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How PHOS works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual personality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environmental-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environmental awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-awareness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion awareness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP — Connect AI Agents to PHOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../use-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Technical Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Technical Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation & setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration & migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware & sensors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-controller/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External controller / ESP32
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display & expressions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision & presence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision-model-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision model evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice & speech
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../voice-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Voice commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text to speech
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_13" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_13" id="__nav_3_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_13_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP — Connect AI Agents to PHOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agent-identity-and-transitional-local-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent identity and transitional local authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bearer-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bearer authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configurable-authentication-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configurable authentication modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configurable authentication modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anonymous-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anonymous permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-authentication-security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Authentication &amp; Security
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MCP Authentication &amp; Security">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#security-considerations-for-unauthenticated-mcp-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security considerations for unauthenticated MCP access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-remote-mcp-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting Remote MCP Clients
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connecting Remote MCP Clients">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-connecting-an-ai-assistant-through-an-https-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: connecting an AI assistant through an HTTPS tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#troubleshooting-remote-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting remote access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credential-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credential lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#permission-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permission profiles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-a-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting a client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bridge-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Resources
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MCP Resources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#object-awareness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Object awareness
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discovery-and-snapshot-read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Discovery and snapshot read
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#async-resource-change-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Async resource-change subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#raspberry-pi-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raspberry Pi validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Raspberry Pi validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recorded-physical-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorded physical validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent-connected model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../remote-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-administration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Administration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../web-admin-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Admin overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../appearance/creating-skins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Appearance skins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API contract notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development & testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../current-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Current implementation state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.9.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.9.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.8.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.8.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.7.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.7.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.4.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.4.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.3.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.2.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-1.0.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PHOS 1.0.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agent-identity-and-transitional-local-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent identity and transitional local authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bearer-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bearer authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configurable-authentication-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configurable authentication modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configurable authentication modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anonymous-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anonymous permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-authentication-security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Authentication &amp; Security
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MCP Authentication &amp; Security">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#security-considerations-for-unauthenticated-mcp-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security considerations for unauthenticated MCP access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-remote-mcp-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting Remote MCP Clients
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connecting Remote MCP Clients">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-connecting-an-ai-assistant-through-an-https-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: connecting an AI assistant through an HTTPS tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#troubleshooting-remote-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting remote access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credential-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credential lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#permission-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permission profiles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-a-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting a client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bridge-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Resources
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MCP Resources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#object-awareness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Object awareness
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discovery-and-snapshot-read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Discovery and snapshot read
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#async-resource-change-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Async resource-change subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#raspberry-pi-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raspberry Pi validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Raspberry Pi validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recorded-physical-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorded physical validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/phosairobot/phos/edit/main/mcp.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="mcp-semantic-adapter">MCP Semantic Adapter</h1>
+<p>New to MCP with PHOS? Start with <a href="../mcp-overview/">PHOS &amp; MCP — Give AI Agents a Physical
+Presence</a> for the user-facing capabilities guide.</p>
+<p>PHOS starts its trusted-local MCP Streamable HTTP endpoint as part of normal
+runtime startup. Install the <code>mcp</code> optional dependency, configure <code>mcp</code> in the
+canonical PHOS configuration, then start PHOS normally:</p>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+</code></pre></div>
+<p>PHOS requires Python 3.11 or later for MCP and pins the supported SDK family as
+<code>mcp&gt;=2.0,&lt;3</code>. The PHOS listener continues to own Uvicorn binding and shutdown;
+the SDK supplies only the Streamable HTTP ASGI app. This keeps listener
+lifecycle, Web Admin enable/disable, and port rebinding in <code>McpServerManager</code>.
+Under SDK 2.x the ASGI app owns the protocol's per-client session handling and
+its lifespan cleanup; PHOS does not retain SDK session objects. Uvicorn closes
+that app as part of the existing listener shutdown path.</p>
+<p>The committed default endpoint is <code>http://127.0.0.1:8001/mcp</code>. MCP is enabled
+by default, binds only to loopback, and uses one listener in the same process,
+runtime loop, <code>PhosApplicationService</code>, and <code>AgentApplicationService</code> as PHOS.
+Each HTTP client has its own MCP session but never creates a runtime or service
+graph. Stopping PHOS gracefully stops the listener and its sessions. If an
+enabled endpoint cannot bind, PHOS performs normal shutdown and exits with an
+error so the service manager applies its configured failure policy.</p>
+<p>When Web Administration is enabled, <strong>Settings → Network → MCP</strong> can enable or disable
+only this listener and change its port without restarting PHOS. The page and
+<code>/api/v1/settings/mcp</code> report the actual listener state and endpoint. A failed
+rebind restores the prior listener and does not persist the requested port;
+existing client sessions disconnect when a listener is intentionally stopped or
+rebound. The loopback host and <code>/mcp</code> path remain deliberately non-editable.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">mcp</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+<span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8001</span>
+<span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/mcp</span>
+</code></pre></div>
+<p>Older configuration files without this section retain these defaults. A
+non-loopback host is allowed only by explicit configuration and emits a warning.
+Bearer authentication is available when configured, but deployment/TLS policy
+remains the operator's responsibility; do not expose this endpoint publicly.</p>
+<h2 id="agent-identity-and-transitional-local-authentication">Agent identity and transitional local authentication</h2>
+<p>Every inbound MCP request passes through one authentication middleware boundary
+before any tool or Resource reaches <code>AgentApplicationService</code>. The middleware
+resolves an immutable <code>AgentIdentity</code> (<code>id</code>, optional display name, and an
+existing permission-profile reference); the application facade then applies the
+existing profile permissions before capability and runtime checks. Identity,
+permission, capability, and current activity remain separate concerns.</p>
+<p>Without configured credential references, the Stage 3.1 compatibility mode uses
+<code>LocalAgentAuthenticator</code>, a deliberately transitional resolver
+that identifies every trusted-local client as <code>local-agent</code> with the existing
+<code>standard</code> profile. It does not verify credentials and must not be treated as
+production-grade authentication. This preserves existing clients while a later
+stage adds credential-backed authentication, persistence, and per-client policy.</p>
+<p>Stage 3.2 persists the default identity in the canonical <code>agents</code> configuration.
+<code>agents</code> absent from an older configuration retains <code>local-agent</code>/<code>standard</code>.
+Once present, invalid records, duplicate IDs, unknown profiles, or an unknown
+default fail configuration loading; no fallback grants broader access. Web
+Admin updates replace the complete validated runtime registry, so agent
+create/edit/delete changes apply to subsequent MCP requests without restart.</p>
+<h2 id="bearer-authentication">Bearer authentication</h2>
+<p>An agent entry may contain only a non-secret bearer <code>secret_ref</code>. The actual
+token is read by trusted runtime code from <code>SecretsService</code>, never from runtime
+configuration or <code>AgentIdentity</code>. If any credential references are configured,
+identity is request-scoped: every MCP request must provide <code>Authorization:
+Bearer TOKEN</code>; missing or invalid credentials fail before application execution
+and never fall back to <code>default_agent</code>. Without credential references, Stage
+3.2 default-agent compatibility remains. Comparison uses a constant-time
+secret comparison. Tokens are not logged or returned in MCP errors. Expiry and
+external identity providers remain deferred.</p>
+<h2 id="configurable-authentication-modes">Configurable authentication modes</h2>
+<p>The canonical <code>mcp.authentication</code> configuration defaults to <code>bearer</code>, which
+preserves bearer-only operation. <code>none</code> resolves every request as the internal,
+non-persistent <code>anonymous-mcp</code> principal using the configured anonymous profile;
+a well-formed Bearer header is ignored for identity selection, while malformed
+or unsupported Authorization headers are rejected. <code>mixed</code> resolves a missing
+Authorization header as that anonymous principal and a valid Bearer header as
+its configured agent. An explicitly invalid or revoked Bearer is always
+rejected—PHOS never falls back to anonymous access after an invalid credential.</p>
+<p>Anonymous access is enabled only when <code>none</code> or <code>mixed</code> is selected. It uses
+the existing <code>standard</code> or <code>observer</code> permission profile and does not create an
+agent record or credential. In mixed mode, revoking a bearer prevents use of
+that authenticated identity, but does not prevent a client from reconnecting
+without a token when anonymous access is enabled.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Without token</th>
+<th>With valid Bearer token</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bearer</td>
+<td>Rejected</td>
+<td>Registered authenticated agent</td>
+</tr>
+<tr>
+<td>None</td>
+<td><code>anonymous-mcp</code></td>
+<td><code>anonymous-mcp</code></td>
+</tr>
+<tr>
+<td>Mixed</td>
+<td><code>anonymous-mcp</code></td>
+<td>Registered authenticated agent</td>
+</tr>
+</tbody>
+</table>
+<p>Bearer Token Only is the default. It resolves the registered agent identity and
+its configured permission profile; credentials can be rotated or revoked. No
+Authentication uses the shared <code>anonymous-mcp</code> principal, so callers are not
+individually identifiable through MCP authentication. Mixed permits both: a
+missing token selects the anonymous principal, while a valid token selects its
+registered agent. Explicitly invalid or revoked Bearer tokens are rejected and
+never fall back to anonymous access.</p>
+<h3 id="anonymous-permissions">Anonymous permissions</h3>
+<p>Both anonymous profiles use the same PHOS authorization boundary as registered
+agents. <code>observer</code> is read-only. <code>standard</code> can use the semantic reads and
+currently exposed actions permitted to a standard agent, including supported
+expression, speech, sleep/wake, and user-signal requests, subject to runtime,
+capability, privacy, and safety checks. It may also access Resources available
+to the standard profile. Anonymous access never bypasses semantic arbitration
+or PHOS safety protections.</p>
+<h2 id="mcp-authentication-security">MCP Authentication &amp; Security</h2>
+<p>Configure authentication in <strong>Settings → MCP</strong>. Select <strong>Bearer Token Only</strong>,
+<strong>No Authentication</strong>, or <strong>Mixed Authentication</strong>. For No Authentication and
+Mixed, choose the anonymous Standard or Observer profile. Web Administration
+shows a security warning and requires explicit confirmation before enabling
+unauthenticated access.</p>
+<p>The validated authentication policy is applied to new MCP HTTP requests without
+rebinding the listener or restarting PHOS. Clients affected by a mode change
+should reconnect. Requests already being processed retain the policy snapshot
+with which they started; PHOS does not claim targeted termination of SDK-owned
+transport sessions or subscriptions.</p>
+<h3 id="security-considerations-for-unauthenticated-mcp-access">Security considerations for unauthenticated MCP access</h3>
+<p>An endpoint without token enforcement can be used by any client that can reach
+it. With the Standard profile, an unintended caller may make PHOS speak, change
+expressions, request sleep or wake, trigger semantic signals, and read allowed
+environmental or presence-related context. This matters because PHOS is a
+physical robot.</p>
+<p>HTTPS encrypts traffic; it does <strong>not</strong> authenticate callers. A public HTTPS
+tunnel can make a local MCP endpoint reachable from the Internet, and a URL is
+not an adequate access control. A tunnel or reverse proxy with its own enforced
+access restrictions is different from a publicly reachable tunnel, but PHOS
+still applies its configured MCP authentication and authorization.</p>
+<p>Anonymous callers share one internal identity. PHOS cannot reliably distinguish
+anonymous applications, individual bearer revocation does not block anonymous
+access, and audit attribution is limited. Existing safety arbitration is not a
+substitute for authentication.</p>
+<p>Recommended safeguards:</p>
+<ol>
+<li>Keep Bearer Token Only as the default.</li>
+<li>Enable anonymous access only when it is required.</li>
+<li>Restrict access at the tunnel, reverse proxy, or network boundary.</li>
+<li>Use Observer when actions are unnecessary; use Standard only when needed.</li>
+<li>Monitor unexpected MCP access and disable anonymous access when finished.</li>
+<li>Do not expose Web Administration or unrelated PHOS services through an MCP tunnel.</li>
+</ol>
+<h2 id="connecting-remote-mcp-clients">Connecting Remote MCP Clients</h2>
+<p>PHOS exposes Streamable HTTP at its configured endpoint, for example
+<code>http://&lt;PHOS_IP&gt;:8001/mcp</code>. An HTTPS tunnel or reverse proxy can provide a
+remote endpoint such as <code>https://example.ngrok-free.app/mcp</code>; these URLs are
+illustrative. The tunnel provides connectivity, while PHOS performs configured
+authentication and permission checks.</p>
+<div class="highlight"><pre><span></span><code>External MCP Client → HTTPS tunnel / reverse proxy → PHOS MCP Server
+                                                    → authentication + permissions
+                                                    → AgentApplicationService
+                                                    → PHOS semantic services
+</code></pre></div>
+<p>For a remote client, verify transport reachability, MCP initialization, tool
+discovery, Resource access, tool execution, and subscriptions separately. A
+successful connection alone does not prove every capability is available.</p>
+<h3 id="example-connecting-an-ai-assistant-through-an-https-tunnel">Example: connecting an AI assistant through an HTTPS tunnel</h3>
+<p>ChatGPT is one example of a compatible MCP client; the same approach applies to
+other clients that support Streamable HTTP and the chosen authentication method.</p>
+<ol>
+<li>Enable the PHOS MCP listener.</li>
+<li>In <strong>Settings → MCP</strong>, select Mixed Authentication only if anonymous access is needed.</li>
+<li>Select the least-privileged anonymous profile for the use case.</li>
+<li>Configure an HTTPS tunnel to forward to the PHOS MCP port.</li>
+<li>Configure the client with the resulting URL ending in <code>/mcp</code>.</li>
+<li>Use its supported authentication option, connect, and verify tool discovery.</li>
+<li>Test a read-only operation before requesting an authorized action.</li>
+</ol>
+<p>Not every MCP client supports unauthenticated Streamable HTTP, and client setup
+screens vary. In Bearer mode, supply an issued credential through the client's
+safe credential mechanism rather than a URL or command line.</p>
+<h3 id="troubleshooting-remote-access">Troubleshooting remote access</h3>
+<ul>
+<li>Confirm the URL ends in <code>/mcp</code>, the tunnel forwards to the correct PHOS host
+  and port, and the MCP listener is running.</li>
+<li>A Bearer-only endpoint rejects missing credentials. In Mixed mode, an invalid
+  or revoked supplied Bearer is rejected; omit it only when anonymous access is
+  intentionally enabled.</li>
+<li>Check tunnel, reverse-proxy, and client protocol-header errors separately from
+  PHOS MCP errors. A tunnel <code>502</code>, timeout, or connection failure usually does
+  not identify an MCP application problem.</li>
+<li>Reconnect clients after authentication configuration changes.</li>
+</ul>
+<h2 id="credential-lifecycle">Credential lifecycle</h2>
+<p><code>AgentCredentialService</code> is the application/service boundary for credential
+management surfaces:</p>
+<div class="highlight"><pre><span></span><code>create / rotate / revoke
+→ AgentCredentialService
+→ SecretsService
+→ stable credential.secret_ref
+→ BearerAgentAuthenticator
+</code></pre></div>
+<p>The service generates a URL/header-safe 256-bit bearer with the operating
+system CSPRNG. It returns a bearer only from creation or rotation, never via
+status or a read-back operation. Rotation replaces the value at the same
+<code>secret_ref</code>, immediately invalidating the old bearer; revocation removes the
+stored secret and leaves its configured <code>AgentIdentity</code> and permission profile
+intact. Authentication looks up the secret for each request, so no PHOS restart
+is needed. Expiry policies and external identity providers remain future work.</p>
+<p>Authenticated Web Admin exposes agent create/edit/delete and this lifecycle at
+<strong>Settings → Agents</strong>. IDs are immutable; profile edits affect subsequent
+requests using the same bearer. It generates a valid non-secret reference only
+when a credential is created. The default agent cannot be deleted; deleting
+another agent confirms revocation first. Newly created or rotated bearers appear
+once in the immediate response and cannot be retrieved after navigation or
+reload. Rotation, revocation, and deletion require confirmation.</p>
+<p>Agent creation, deletion, and permission-profile edits do not require a PHOS
+restart: new MCP authentication resolves the current registry. Already-open MCP
+sessions are not forcibly terminated and may retain their current request or
+session context; clients should establish a new request/session after a change.
+Selecting a different default agent also persists and publishes immediately;
+it changes only trusted-local/default compatibility resolution, never an
+explicitly authenticated agent identity. The selected default is protected from
+deletion until another configured agent becomes default.</p>
+<h2 id="permission-profiles">Permission profiles</h2>
+<p><code>standard</code> agents can use the complete currently exposed semantic tool set and
+the protected camera snapshot Resource/tool. <code>observer</code> agents retain read-only
+semantic context but cannot request control actions such as sleep, wake,
+speech, expression changes, or user signals; they also cannot read the camera
+snapshot. Permissions are enforced by PHOS on every authenticated request.</p>
+<h2 id="connecting-a-client">Connecting a client</h2>
+<p>Use Streamable HTTP directly when the client supports it. Otherwise a separate
+transport bridge may be required; <code>phos-mcp-bridge</code> is separately owned and is
+not configured or modified by this repository. For a generic compatible client,
+connect to the configured endpoint (default <code>http://127.0.0.1:8001/mcp</code>) and
+send an already-issued bearer through an HTTP Authorization header when
+credential mode is enabled. See <a href="#bridge-authentication">Bridge authentication</a>
+for the verified boundary and keep bearer values out of command lines.</p>
+<h2 id="bridge-authentication">Bridge authentication</h2>
+<p>MCP Stage 3.6 completes authentication support in the separately owned
+<code>phos-mcp-bridge</code>. It is a transport-only stdio bridge; it does not validate a
+credential or contain identity, permission, camera-permission, or
+resource-permission logic:</p>
+<div class="highlight"><pre><span></span><code>Claude / Inspector
+→ MCP stdio
+→ phos-mcp-bridge
+→ Authorization: Bearer &lt;credential&gt;
+→ PHOS Streamable HTTP MCP
+→ BearerAgentAuthenticator
+→ AgentIdentity
+→ PermissionProfile
+→ AgentApplicationService
+</code></pre></div>
+<p>The bridge reads its already-issued bearer from <code>PHOS_MCP_TOKEN</code> and injects it
+only through its upstream Streamable HTTP transport. The bearer applies to
+initialization, tools, Resources, subscriptions, and reconnects. An absent or
+empty <code>PHOS_MCP_TOKEN</code> sends no <code>Authorization</code> header. A visible <code>--token</code> or
+visible <code>--header Authorization</code> argument is rejected: do not put a bearer in
+CLI arguments. Bearer values and Authorization headers are redacted from bridge
+logging and error paths.</p>
+<p>PHOS remains authoritative for authentication, <code>AgentIdentity</code> resolution,
+<code>PermissionProfile</code>, authorization, camera permissions, and Resource
+permissions. Invalid or missing credentials fail at PHOS; the bridge does not
+retry as an unauthenticated or default identity. PHOS errors, including
+<code>permission_denied</code>, are preserved.</p>
+<p>Obtain the bearer through the PHOS credential lifecycle/Web Admin, then launch
+the bridge without placing it on the command line:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">PHOS_MCP_TOKEN</span><span class="o">=</span><span class="s1">'...'</span>
+
+node<span class="w"> </span>/path/to/phos-mcp-bridge/dist/index.js<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span>http://&lt;phos-host&gt;:8001/mcp
+</code></pre></div>
+<p>For Inspector TUI, the current working syntax is:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">PHOS_MCP_TOKEN</span><span class="o">=</span><span class="s1">'...'</span><span class="w"> </span><span class="se">\</span>
+npx<span class="w"> </span>--yes<span class="w"> </span>@modelcontextprotocol/inspector@latest<span class="w"> </span>--tui<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--protocol-era<span class="w"> </span>modern<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>node<span class="w"> </span>/Users/francescoazzola/Documents/dev/phos-mcp-bridge/dist/index.js<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span>http://192.168.1.127:8001/mcp
+</code></pre></div>
+<p>The bridge does not manage the credential. If PHOS rotates or revokes it, the
+old bearer no longer authenticates. Update <code>PHOS_MCP_TOKEN</code> and restart or
+relaunch the bridge if required by its current implementation to establish a
+new authenticated upstream MCP connection. Hot credential reload is not
+claimed.</p>
+<p>MCP exposes the existing <code>AgentApplicationService</code>, never hardware, renderers,
+camera/provider objects, controllers, or raw runtime state. Available tools are
+<code>phos_get_status</code>, <code>phos_get_physical_context</code>, <code>phos_get_presence</code>,
+<code>phos_get_attention</code>, <code>phos_get_observed_expression</code>, <code>phos_get_camera_snapshot</code>,
+<code>phos_capture_camera_snapshot</code>,
+<code>phos_set_expression(expression)</code>, <code>phos_speak(text)</code>, <code>phos_sleep</code>,
+<code>phos_wake</code>, <code>phos_signal_user(signal)</code>,
+<code>phos_query_measurements(metric, start?, end?, limit?)</code>, and
+<code>phos_list_physical_transitions(event_type?, limit?)</code>. Input bounds, permission
+checks, semantic result documents, and sanitized error mapping are
+transport-independent.</p>
+<h2 id="mcp-resources">MCP Resources</h2>
+<p>PHOS exposes read-only MCP Resources through the same permission-checked
+application-service boundary as its tools:</p>
+<h3 id="object-awareness">Object awareness</h3>
+<p><code>phos_get_visible_objects</code> takes no arguments and requires <code>read_perception</code> (not
+<code>read_camera_snapshot</code>). It performs one on-demand NanoDet observation from the
+already-running VisionPipeline's latest in-memory frame. It returns no image,
+box, identity, or tracking data:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"captured_at"</span><span class="p">:</span><span class="s2">"2026-01-02T03:04:05Z"</span><span class="p">,</span><span class="nt">"age_ms"</span><span class="p">:</span><span class="mi">25</span><span class="p">,</span><span class="nt">"freshness"</span><span class="p">:</span><span class="s2">"fresh"</span><span class="p">,</span><span class="nt">"objects"</span><span class="p">:[{</span><span class="nt">"label"</span><span class="p">:</span><span class="s2">"car"</span><span class="p">,</span><span class="nt">"confidence"</span><span class="p">:</span><span class="mf">0.9</span><span class="p">}],</span><span class="nt">"truncated"</span><span class="p">:</span><span class="kc">false</span><span class="p">}</span>
+</code></pre></div>
+<p>Object awareness is disabled by default. Enabling it requires a locally installed
+NanoDet-m-plus-1.5x_416 FP32 ONNX model path; verify SHA-256
+<code>4b82da9944b88577175ee23a459dce2e26e6e4be573def65b1055dc2d9720186</code>.
+The OpenCV Zoo asset is Apache-2.0. Requests may report unavailable for no/stale
+frame or disabled Vision, busy for an active inference, and timeout when the
+bounded on-demand request expires. No frames or detections are persisted.</p>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>MIME type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>phos://status</code></td>
+<td><code>application/json</code></td>
+<td>Compact semantic robot status.</td>
+</tr>
+<tr>
+<td><code>phos://physical-context</code></td>
+<td><code>application/json</code></td>
+<td>Current Semantic Physical Context.</td>
+</tr>
+<tr>
+<td><code>phos://environment</code></td>
+<td><code>application/json</code></td>
+<td>Current environmental semantic context.</td>
+</tr>
+<tr>
+<td><code>phos://vision/snapshot</code></td>
+<td><code>image/jpeg</code></td>
+<td>Current on-demand camera snapshot.</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><code>phos://status</code> — compact agent-facing semantic status.</li>
+<li><code>phos://physical-context</code> — provider-independent semantic physical context.</li>
+<li><code>phos://environment</code> — the environmental section of that physical context.</li>
+<li><code>phos://vision/snapshot</code> — one current <code>image/jpeg</code> camera snapshot.</li>
+</ul>
+<p><code>phos_get_camera_snapshot</code> returns a JPEG encoded from the same latest cached
+Vision frame as an MCP image content block, plus a small text block with
+<code>captured_at</code> (UTC), <code>age_ms</code> (monotonic-clock elapsed time), and <code>freshness</code>
+(<code>fresh</code> through 2 seconds, otherwise <code>stale</code>). <code>captured_at</code> is recorded when
+PHOS receives the frame from its camera provider; it is not the request or JPEG
+encoding time, and it is not a hardware exposure timestamp. Stale frames remain
+available but are never labelled current. The tool never initiates a capture,
+infers scene content, or changes presence/attention state. Tool calls are
+bounded to one snapshot per second per authenticated identity; the existing
+Resource remains available for its current read-only JPEG contract.</p>
+<p><code>phos_capture_camera_snapshot</code> has the same image, permission, JPEG-bound, and
+metadata format, but its metadata starts <code>source=on_demand</code>. PHOS records the
+current Vision frame sequence when the request is accepted and waits for a later
+frame from the already-running pipeline, for up to three seconds. It is not a
+separate sensor capture. The cached and on-demand tools share the same
+per-identity transfer limit, so alternating calls cannot bypass it; at most four
+on-demand waits may be pending. A timeout, stopped/restarted pipeline, or camera
+failure returns a sanitized error and never falls back to the preceding frame.
+Both camera paths reject JPEGs larger than 512 KiB.</p>
+<p>Resources are live snapshots: each read calls the same permission-checked
+application-service boundary as the corresponding semantic tool. They do not
+poll providers, mutate PHOS, replay history, or expose controller/camera/
+renderer internals. The camera snapshot is synchronous, read-only and encodes
+the existing Vision pipeline's latest cached frame; it never opens another
+camera, starts a capture, or streams video. It is protected by the dedicated
+<code>read_camera_snapshot</code> permission;
+the standard profile has it while the observer profile deliberately does not.
+This is separate from generic physical-context access because a snapshot may
+contain people physically visible to the camera. It contains no camera device,
+provider/backend, filesystem, identity, candidate-ID, debug, or EXIF/location
+metadata.</p>
+<h3 id="discovery-and-snapshot-read">Discovery and snapshot read</h3>
+<p>The <code>phos-mcp-bridge</code> dynamically forwards MCP Resources, so no bridge-specific
+snapshot implementation is required. Set <code>PHOS_MCP_TOKEN</code> as described in
+<a href="#bridge-authentication">Bridge authentication</a> when PHOS uses bearer
+credentials. For a trusted-LAN PHOS endpoint:</p>
+<div class="highlight"><pre><span></span><code>npx<span class="w"> </span>--yes<span class="w"> </span>@modelcontextprotocol/inspector@latest<span class="w"> </span>--cli<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>node<span class="w"> </span>/Users/francescoazzola/Documents/dev/phos-mcp-bridge/dist/index.js<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span>http://192.168.1.127:8001/mcp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--method<span class="w"> </span>resources/list
+</code></pre></div>
+<p>The result includes the four URIs in the table above. Read the current snapshot
+with the Inspector CLI syntax supported by the installed version, for example:</p>
+<div class="highlight"><pre><span></span><code>npx<span class="w"> </span>--yes<span class="w"> </span>@modelcontextprotocol/inspector@latest<span class="w"> </span>--cli<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>node<span class="w"> </span>/Users/francescoazzola/Documents/dev/phos-mcp-bridge/dist/index.js<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span>http://192.168.1.127:8001/mcp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--method<span class="w"> </span>resources/read<span class="w"> </span>--uri<span class="w"> </span>phos://vision/snapshot
+</code></pre></div>
+<p>The response has MIME type <code>image/jpeg</code> and binary MCP Resource content. The
+Inspector may serialize that content as a textual blob representation for CLI
+output; PHOS itself does not use a JSON/base64 snapshot contract.</p>
+<h2 id="async-resource-change-subscriptions">Async resource-change subscriptions</h2>
+<p>Modern MCP clients negotiating protocol revision <code>2026-07-28</code> can use
+<code>subscriptions/listen</code> for <code>phos://status</code>, <code>phos://physical-context</code>, and
+<code>phos://environment</code>:</p>
+<div class="highlight"><pre><span></span><code>listen -&gt; notifications/resources/updated -&gt; resources/read
+</code></pre></div>
+<p>Notifications are URI-only change cues, not PHOS event payloads. Robot state
+maps to status and physical context; environmental condition maps to environment
+and physical context; air quality, motion, presence, attention, and observed
+expression map to physical context; capability and system-health changes map to
+status. <code>phos://vision/snapshot</code> is never announced because it is on-demand,
+not a video stream.</p>
+<p>Numeric sensor samples remain read-only Resource data and do not cause push
+notifications. Confirmed environmental/motion conditions and meaningful sensor
+availability or freshness status transitions do cause Resource update cues.
+<code>environment_availability_changed</code> updates both <code>phos://environment</code> and
+<code>phos://physical-context</code>; <code>air_quality_availability_changed</code> and
+<code>motion_availability_changed</code> update physical context only. Camera snapshots
+remain excluded from continuous notifications.</p>
+<p>The SDK owns listen-stream filtering, disconnect cleanup, and bounded
+per-client delivery. PHOS owns one bounded bridge subscription for its MCP
+listener and coalesces duplicate pending resource URIs. MCP subscriptions are
+not an event log: there is no replay, no history, and no raw sensor-telemetry
+push. Updates while disconnected are not replayed; reconnect, open a new
+listen stream, and read current Resources. In credential mode each subscription
+request is authenticated, but subscription authorization is deliberately
+cue-only: <code>ResourceUpdated</code> contains only a URI, and every subsequent
+<code>resources/read</code> authenticates and applies the resource permission again. A
+subscription therefore cannot disclose a protected camera frame to an observer.
+Presence changes (<code>no_one</code> / <code>person_present</code>) and semantic attention changes
+both update <code>phos://physical-context</code>. The re-read projection contains only
+anonymous presence state, count, and reliable confidence plus semantic attention
+state and non-identifying target coordinates/confidence; it never contains a
+candidate ID, target ID, face embedding, or camera frame. Delivery is
+best-effort: a notification says only that the Resource may have changed, not
+that a client acted on it or that every intermediate state was observed.</p>
+<p>This is standard MCP Resource subscription support, not MCP Events and not a
+mechanism that independently activates any AI agent's reasoning. Compatible
+agents choose whether to subscribe and what to do after re-reading a Resource.
+The currently pinned Python MCP SDK provides <code>subscriptions/listen</code> but does
+not provide native typed MCP Events discovery or the <code>events/list</code>,
+<code>events/subscribe</code>, and <code>events/unsubscribe</code> methods. A future, optional,
+provider-neutral MCP Events adapter remains deferred until those native SDK
+extension points are available. It must be independently enabled and must not
+change the endpoint behavior seen by ordinary MCP clients.
+The separately owned <code>phos-mcp-bridge</code> has been
+externally validated for a long-lived stdio <code>subscriptions/listen</code> connection:
+two consecutive <code>phos://status</code> ResourceUpdated notifications were forwarded
+from PHOS Streamable HTTP to the Inspector. Bridge code is not owned or
+modified by this repository.</p>
+<p>The bridge's Node 22 build and automated suite validate its standard MCP
+subscription forwarding path. Live physical interoperability remains a manual
+Raspberry Pi acceptance step.</p>
+<h2 id="raspberry-pi-validation">Raspberry Pi validation</h2>
+<div class="highlight"><pre><span></span><code>systemctl<span class="w"> </span>--user<span class="w"> </span>restart<span class="w"> </span>phos.service
+systemctl<span class="w"> </span>--user<span class="w"> </span>status<span class="w"> </span>phos.service<span class="w"> </span>--no-pager
+ss<span class="w"> </span>-ltnp<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="m">8001</span>
+journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>phos.service<span class="w"> </span>-n<span class="w"> </span><span class="m">100</span><span class="w"> </span>--no-pager
+</code></pre></div>
+<p>On the Pi, start the MCP Inspector with <code>npx @modelcontextprotocol/inspector</code>.
+In its connection form select <strong>Streamable HTTP</strong> and enter
+<code>http://127.0.0.1:8001/mcp</code>; connect, then call each available tool. From a
+workstation, first use an SSH tunnel and use the same Inspector URL locally:</p>
+<div class="highlight"><pre><span></span><code>ssh<span class="w"> </span>-N<span class="w"> </span>-L<span class="w"> </span><span class="m">8001</span>:127.0.0.1:8001<span class="w"> </span>pi@PHOS_HOST
+npx<span class="w"> </span>@modelcontextprotocol/inspector
+</code></pre></div>
+<p>For an explicitly configured LAN host, connect only from that trusted LAN to
+<code>http://LAN_ADDRESS:PORT/PATH</code>; do not forward it to the Internet.</p>
+<h3 id="recorded-physical-validation">Recorded physical validation</h3>
+<p>Direct Streamable HTTP validation confirmed <code>phos://status</code> sleep/wake
+notifications, <code>phos://physical-context</code> semantic updates, and
+<code>phos://environment</code> availability updates. Sensor freshness validation
+confirmed environment loss/recovery and motion/IMU availability transitions.
+The bridge validation above confirmed a stdio subscription to <code>phos://status</code>
+and two consecutive ResourceUpdated notifications. These checks did not
+include physical air-quality validation. With Camera Preview disabled,
+<code>phos://vision/snapshot</code> remained available and <code>resources/read</code> returned an
+<code>image/jpeg</code> Resource with a non-empty blob. This validates resource
+availability and JPEG output only; it does not validate image content quality.</p>
+<h1 id="temporal-history-v01">Temporal History v0.1</h1>
+<p><code>phos_query_measurements(metric, start?, end?, limit?)</code> returns accepted
+RAM-only numeric observations and a min/max/average summary. <code>start</code> and <code>end</code>
+are timezone-aware RFC 3339 timestamps, the requested interval may not exceed
+six hours, and <code>limit</code> is 1–360. <code>phos_list_physical_transitions(event_type?,
+limit?)</code> returns confirmed semantic transitions with a 1–360 limit. Both require
+<code>read_physical_history</code>. History holds at most six hours, one sample per metric
+per minute, 360 samples per metric, and 500 transitions; it is lost on restart.
+Missing, stale, and unavailable inputs are not fabricated or interpolated.
+History excludes camera/audio data, transcripts, and identity.</p>
+<h2 id="physical-context-intelligence-v01-agent-composition-contract">Physical Context Intelligence v0.1 — agent composition contract</h2>
+<p>PHOS supplies factual physical observations and bounded summaries. An external
+Agent combines those facts with its own task context and is solely responsible
+for interpretation and decisions. This is an on-demand composition pattern, not
+a PHOS runtime subsystem: it starts no worker, polls no sensor, persists no
+additional data, and adds no MCP tool or Resource.</p>
+<p>Use <code>phos_get_physical_context</code> first to obtain the current semantic context.
+Its <code>environment</code> section reports <code>status</code>, <code>available</code>, <code>temperature_c</code>,
+<code>pressure_hpa</code>, <code>humidity_percent</code>, <code>last_update</code>, and <code>age_seconds</code>. Its
+<code>air_quality</code> section similarly reports <code>status</code>, <code>available</code>, <code>eco2_ppm</code>,
+<code>tvoc_ppb</code>, <code>aqi_uba</code>, <code>last_update</code>, and <code>age_seconds</code>. The same document
+includes current <code>robot</code>, <code>presence</code>, and <code>attention</code> sections. The current
+context establishes whether a reading is currently available or stale; history
+does not turn an unavailable sensor into a current one.</p>
+<p>For a selected time window, call the history tools with their actual signatures:</p>
+<div class="highlight"><pre><span></span><code>phos_get_physical_context()
+phos_query_measurements(metric, start?, end?, limit?)
+phos_list_physical_transitions(event_type?, limit?)
+</code></pre></div>
+<p>For example, an Agent determines its own RFC 3339 UTC start timestamp for one
+hour ago, then requests:</p>
+<div class="highlight"><pre><span></span><code>phos_query_measurements("temperature_c", start="2026-11-19T09:00:00Z",
+                        end="2026-11-19T10:00:00Z", limit=360)
+</code></pre></div>
+<p>The measurement result contains <code>metric</code>, <code>samples</code>, <code>count</code>, and <code>summary</code>.
+Each sample contains <code>metric</code>, <code>value</code>, <code>unit</code>, <code>observed_at</code>, <code>source</code>, and
+<code>quality</code>. When samples exist, <code>summary</code> contains <code>minimum</code>, <code>maximum</code>,
+<code>average</code>, <code>delta</code>, <code>coverage</code>, <code>start</code>, and <code>end</code>; <code>start</code> and <code>end</code> are the
+first and last returned samples. The <code>delta</code> is PHOS's arithmetic last-value
+minus first-value summary, not an interpretation of comfort, safety, or cause.</p>
+<p>Use the same query for <code>humidity_percent</code>, <code>pressure_hpa</code>, <code>eco2_ppm</code>,
+<code>tvoc_ppb</code>, or <code>aqi_uba</code>. Query only the metrics relevant to the Agent's task;
+there is no combined trend endpoint. For the latest confirmed presence change,
+request:</p>
+<div class="highlight"><pre><span></span><code>phos_list_physical_transitions(event_type="presence_changed", limit=1)
+</code></pre></div>
+<p>For recent attention or robot-state changes, use <code>event_type="attention_changed"</code>
+or <code>event_type="robot_state_changed"</code>, with a suitable <code>limit</code>. A transition
+result contains <code>transitions</code> and <code>count</code>; each transition contains <code>type</code>,
+<code>current</code>, <code>previous</code>, <code>observed_at</code>, and <code>source</code>.</p>
+<h3 id="observation-and-interpretation-boundary">Observation and interpretation boundary</h3>
+<p>The following examples show the boundary deliberately:</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>PHOS measurement or semantic observation</th>
+<th>PHOS mathematical summary</th>
+<th>External Agent interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Temperature rose in one requested hour</td>
+<td>Returned <code>temperature_c</code> samples have <code>value</code> 20.0 then 21.0.</td>
+<td><code>summary.delta</code> is 1.0 with <code>coverage: "sufficient"</code>.</td>
+<td>“Temperature increased by approximately 1 °C within the requested window.”</td>
+</tr>
+<tr>
+<td>Air-quality values changed</td>
+<td>Returned <code>eco2_ppm</code>, <code>tvoc_ppb</code>, or <code>aqi_uba</code> samples differ across the requested window.</td>
+<td>Each metric query returns its own min/max/average/delta.</td>
+<td>Describe the reported direction and magnitude; do not infer pollutant source or issue an autonomous response.</td>
+</tr>
+<tr>
+<td>Presence became present</td>
+<td>A <code>presence_changed</code> transition reports <code>previous: "no_one"</code> and <code>current: "person_present"</code>.</td>
+<td>None. Transitions are semantic facts, not numerical trends.</td>
+<td>“PHOS last confirmed a presence-state change to person present at <code>observed_at</code>.”</td>
+</tr>
+<tr>
+<td>Trend cannot be established</td>
+<td>The metric has no samples, or one sample with <code>summary.coverage: "insufficient"</code> and <code>summary.delta: null</code>.</td>
+<td>No delta is supplied for one sample; no summary exists for zero samples.</td>
+<td>“There is insufficient retained measurement history to describe a trend.”</td>
+</tr>
+</tbody>
+</table>
+<h3 id="missing-data-and-retention-contract">Missing-data and retention contract</h3>
+<ul>
+<li>No samples means PHOS has no retained observations for that metric and query;
+  it does not mean the physical quantity was absent or unchanged.</li>
+<li>One sample cannot establish a delta. Its summary has <code>coverage: "insufficient"</code>
+  and <code>delta: null</code>; it must not be presented as a complete trend.</li>
+<li>Two or more samples provide PHOS's <code>coverage: "sufficient"</code> summary, but do
+  not guarantee continuous coverage of the requested interval. PHOS does not
+  interpolate gaps.</li>
+<li><code>phos_get_physical_context</code> is authoritative for current sensor status,
+  availability, and age. Stale or unavailable sensors must not be represented
+  as fresh merely because retained samples exist.</li>
+<li>No matching retained transition does not prove that no transition occurred.
+  The requested event may predate retention, follow a restart, or not have been
+  recorded by the active semantic source.</li>
+<li>A presence transition is a confirmed semantic observation after PHOS's
+  presence confirmation logic; it is not proof of a person's exact arrival or
+  departure time.</li>
+<li>All history is RAM-only, limited to the last six hours, and discarded on
+  runtime restart.</li>
+</ul>
+<p>This composition requires <code>read_physical_history</code> for both history tools.
+<code>phos_get_physical_context</code> remains governed by <code>read_physical_context</code>; an
+Agent without history permission must not derive history from the current
+context.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../mcp-overview/" class="md-footer__link md-footer__link--prev" aria-label="Previous: MCP — Connect AI Agents to PHOS">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                MCP — Connect AI Agents to PHOS
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../ai/" class="md-footer__link md-footer__link--next" aria-label="Next: Agent-connected model">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Agent-connected model
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/phosairobot/phos" target="_blank" rel="noopener" title="PHOS on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://x.com/phosairobot" target="_blank" rel="noopener" title="PHOS on X" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.instagram.com/phosairobot/" target="_blank" rel="noopener" title="PHOS on Instagram" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M224.3 141a115 115 0 1 0-.6 230 115 115 0 1 0 .6-230m-.6 40.4a74.6 74.6 0 1 1 .6 149.2 74.6 74.6 0 1 1-.6-149.2m93.4-45.1a26.8 26.8 0 1 1 53.6 0 26.8 26.8 0 1 1-53.6 0m129.7 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8M399 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.youtube.com/@phosairobot" target="_blank" rel="noopener" title="PHOS on YouTube" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M549.7 124.1c-6.2-23.7-24.8-42.3-48.3-48.6C458.9 64 288.1 64 288.1 64S117.3 64 74.7 75.5c-23.5 6.3-42 24.9-48.3 48.6C15 167 15 256.4 15 256.4s0 89.4 11.4 132.3c6.3 23.6 24.8 41.5 48.3 47.8C117.3 448 288.1 448 288.1 448s170.8 0 213.4-11.5c23.5-6.3 42-24.2 48.3-47.8 11.4-42.9 11.4-132.3 11.4-132.3s0-89.4-11.4-132.3zM232.2 337.6V175.2l142.7 81.2z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.footer", "content.action.edit", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
