@@ -1220,14 +1220,18 @@ def build_runtime(
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status)
     runtime._temporal_history = temporal_history
     runtime._secrets_service = secrets_service
-    # Compose once after the runtime exists, since the application service owns
-    # the only permitted state/expression operations. The coordinator remains
-    # the sole voice-event subscriber.
+    # Compose one canonical application service after the runtime exists.  It
+    # owns the semantic Core-event observers as well as the permitted
+    # state/expression operations; main, MCP, lifecycle, and interaction must
+    # reuse this instance so a semantic transition reaches history once.
     from robot.services.application import PhosApplicationService
-    runtime._interaction_application_service = PhosApplicationService(runtime)
-    runtime._interaction_executor = CommandExecutor(runtime._interaction_application_service)
+    runtime._application_service = PhosApplicationService(runtime)
+    # Retain the private interaction attribute while callers migrate to the
+    # canonical runtime-owned service.
+    runtime._interaction_application_service = runtime._application_service
+    runtime._interaction_executor = CommandExecutor(runtime._application_service)
     interaction.set_executor(runtime._interaction_executor)
-    interaction.set_speech_coordinator(InteractionSpeechCoordinator(runtime._interaction_application_service))
+    interaction.set_speech_coordinator(InteractionSpeechCoordinator(runtime._application_service))
     runtime_holder["runtime"] = runtime
     runtime._environmental_interpreter = environmental_interpreter
     return runtime

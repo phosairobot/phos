@@ -368,6 +368,16 @@ class PhosApplicationService:
             unsubscribe()
         self._unsubscribers = []
 
+    def attach_lifecycle(self, lifecycle) -> None:
+        """Attach the one lifecycle owner after runtime composition.
+
+        ``build_runtime`` creates the canonical application service because the
+        interaction executor needs it during composition.  ``async_main`` owns
+        the optional lifecycle service, so it attaches that collaborator later
+        instead of constructing a second Core-event observer.
+        """
+        self._lifecycle = lifecycle
+
     def query_measurements(self, metric: str, *, start: str | None = None, end: str | None = None, limit: int = 360) -> dict:
         return self._temporal_history.query_measurements(metric, start=start, end=end, limit=limit)
 

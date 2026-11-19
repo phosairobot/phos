@@ -21,6 +21,7 @@ from robot.core.presence import PRESENCE_CHANGED
 from robot.web.openapi import _resolve, load_spec
 from robot.config import RuntimeConfig, load_document
 from robot.services.application import ApplicationError
+from robot.services.temporal_history import TemporalHistoryService
 
 
 _PNG = base64.b64decode(
@@ -115,6 +116,75 @@ def test_semantic_presence_transitions_are_recorded_once_without_identity():
     assert [record["current"] for record in records] == ["person_present", "no_one"]
     assert "face-secret" not in repr(records)
     assert service._temporal_history is runtime._temporal_history
+
+
+def test_one_canonical_service_records_presence_availability_and_health_transitions_once():
+    runtime = Runtime()
+    service = PhosApplicationService(runtime)
+    clock = [0.0]
+    timestamps = iter(("2026-01-01T00:00:00+00:00", "2026-01-01T00:01:01+00:00",
+                       "2026-01-01T00:02:02+00:00", "2026-01-01T00:03:03+00:00",
+                       "2026-01-01T00:04:04+00:00"))
+    history = TemporalHistoryService(clock=lambda: clock[0], utc_now=lambda: next(timestamps))
+    runtime._temporal_history = service._temporal_history = history
+
+    baseline = {
+        "robot": {"running": True, "state": "idle"},
+        "environment": {"status": "available", "available": True},
+        "motion": {"status": "available", "available": True},
+        "sensors": {"environmental": {"status": "available", "available": True},
+                    "ens160": {"status": "available", "available": True},
+                    "imu": {"status": "available", "available": True}},
+        "observed_expression": {"available": False},
+        "voice": {"enabled": False, "last_error": None},
+        "speech": {"tts": {"available": False}}, "semantic_led": {"available": False},
+    }
+    unavailable_air = {**baseline, "sensors": {**baseline["sensors"],
+                                                  "ens160": {"status": "unavailable", "available": False}}}
+
+    async def publish():
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1,
+                                                                    "primary_candidate_id": "face-secret"}))
+        clock[0] = 61
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "no_one", "people_count": 0}))
+        clock[0] = 122
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1}))
+
+    asyncio.run(publish())
+    clock[0] = 183
+    service._observe_semantic_system_state(baseline)
+    clock[0] = 244
+    service._observe_semantic_system_state(unavailable_air)
+
+    presence = history.list_transitions(event_type="presence_changed")["transitions"]
+    assert [(item["previous"], item["current"]) for item in presence] == [
+        (None, "person_present"), ("person_present", "no_one"), ("no_one", "person_present")]
+    assert len({item["observed_at"] for item in presence}) == 3
+    assert "face-secret" not in repr(presence)
+    assert len(history.list_transitions(event_type="air_quality_availability_changed")["transitions"]) == 1
+    assert len(history.list_transitions(event_type="system_health_changed")["transitions"]) == 1
+
+
+def test_application_service_shutdown_detaches_observers_before_the_next_startup():
+    runtime = Runtime()
+    stopped = PhosApplicationService(runtime)
+    stopped.close()
+    first_start = PhosApplicationService(runtime)
+
+    async def publish_present():
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "person_present", "people_count": 1}))
+
+    asyncio.run(publish_present())
+    first_start.close()
+    second_start = PhosApplicationService(runtime)
+
+    async def publish_absent():
+        await runtime.core.events.publish(Event(PRESENCE_CHANGED, {"state": "no_one", "people_count": 0}))
+
+    asyncio.run(publish_absent())
+    records = second_start.list_physical_transitions(event_type="presence_changed")["transitions"]
+    assert [record["current"] for record in records] == ["person_present", "no_one"]
+    second_start.close()
 
 
 def test_history_recording_failure_does_not_break_semantic_transition(monkeypatch):
