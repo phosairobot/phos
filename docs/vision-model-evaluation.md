@@ -60,8 +60,8 @@ placement may reduce accuracy. Landmark detection was not added. If this crop
 fails practical tests, reject the candidate rather than claim the published
 RAF-DB result applies to PHOS.
 
-The current camera channel-order mismatch and preserved FER+ baseline are
-documented in [Vision](vision.md#camera-channel-order-inconsistency).
+The established camera channel convention and FER+ baseline are documented in
+[Vision](vision.md#camera-channel-convention).
 
 ## Verified evidence
 
