@@ -89,6 +89,17 @@ class CameraSnapshot:
     freshness: str
 
 
+@dataclass(frozen=True)
+class LatestFrame:
+    """Independent BGR copy of the latest captured frame, never a camera buffer."""
+
+    frame: Any
+    captured_at_utc: datetime
+    captured_at_monotonic: float
+    age_ms: int
+    freshness: str
+
+
 class VisionPipeline(Behavior):
     """Capture, detect, classify, smooth and publish local vision results."""
 
@@ -501,6 +512,25 @@ class VisionPipeline(Behavior):
         if captured is None:
             raise RuntimeError("no_frame")
         return self._encode_camera_snapshot(captured)
+
+    def latest_frame(self) -> LatestFrame:
+        """Return one safe BGR copy without capturing, encoding, or retaining it."""
+        with self._frame_lock:
+            captured = self._latest_frame
+            if captured is None:
+                raise RuntimeError("no_frame")
+            try:
+                frame = captured.frame.copy()
+            except Exception as error:
+                raise RuntimeError("frame_unavailable") from error
+            captured_at_monotonic = captured.captured_at_monotonic
+            captured_at_utc = captured.captured_at_utc
+        age_seconds = self._clock() - captured_at_monotonic
+        if not math.isfinite(age_seconds) or age_seconds < 0:
+            raise RuntimeError("invalid_capture_timestamp")
+        return LatestFrame(frame, captured_at_utc, captured_at_monotonic,
+                           round(age_seconds * 1000),
+                           "fresh" if age_seconds <= _CAMERA_SNAPSHOT_FRESH_SECONDS else "stale")
 
     async def capture_camera_snapshot(self, *, timeout_seconds: float = _ON_DEMAND_SNAPSHOT_TIMEOUT_SECONDS) -> CameraSnapshot:
         """Wait for a frame published after this request's sequence boundary."""

@@ -162,6 +162,10 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
         return result
     try:
         document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+        if isinstance(document, dict):
+            document.setdefault("object_awareness", {"enabled": False, "model_path": None,
+                                                       "confidence": .35, "max_detections": 5,
+                                                       "timeout_seconds": 2.0})
         # Explicit schema evolution only: no general missing-key permissiveness.
         if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
             evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice", "tts")
@@ -390,6 +394,7 @@ _SCHEMA = {
         "aws": "cloud_expression",
     },
     "expression_reactions": {"enabled": "expression_reactions_enabled", "min_confidence": "expression_reactions_min_confidence", "confirmation_ms": "expression_reactions_confirmation_ms", "cooldown_ms": "expression_reactions_cooldown_ms", "reaction_duration_ms": "expression_reactions_duration_ms"},
+    "object_awareness": {"enabled": "object_awareness_enabled", "model_path": "object_awareness_model_path", "confidence": "object_awareness_confidence", "max_detections": "object_awareness_max_detections", "timeout_seconds": "object_awareness_timeout_seconds"},
     "sensors": {"environmental": {"type": "environmental_type", "provider": "environmental_provider",
                            "enabled": "environmental_enabled",
                            "i2c_address": "environmental_i2c_address",
@@ -412,7 +417,7 @@ _SCHEMA = {
                                    "cooldown_seconds": "imu_motion_cooldown_seconds"}}},
     "logging": {"level": "log_level", "file": "log_file", "expression_diagnostics": "expression_diagnostics"},
 }
-_PATH_FIELDS = {"appearance_catalog_file", "expression_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
+_PATH_FIELDS = {"appearance_catalog_file", "expression_model_path", "object_awareness_model_path", "cascade_path", "log_file", "startup_ready_sound_file", "startup_splash_image", "voice_stt_model_path", "voice_debug_utterance_wav_path", "tts_local_model_path", "background_idle", "background_listening", "background_thinking", "background_speaking", "background_sleeping", "background_error"}
 _TUPLE_FIELDS = {"camera_resolution", "expression_labels", "expression_input_size", "expression_mean",
                  "blink_interval_seconds", "gaze_interval_seconds", "detector_min_size",
                  "interaction_supported_languages"}
@@ -698,6 +703,11 @@ class RuntimeConfig:
     expression_reactions_confirmation_ms: int
     expression_reactions_cooldown_ms: int
     expression_reactions_duration_ms: int
+    object_awareness_enabled: bool
+    object_awareness_model_path: Optional[Path]
+    object_awareness_confidence: float
+    object_awareness_max_detections: int
+    object_awareness_timeout_seconds: float
     log_level: str
     log_file: Optional[Path]
     _base_dir: Path = field(init=False, repr=False, compare=False)
@@ -783,6 +793,7 @@ class RuntimeConfig:
             # MCP was added after the initial canonical configuration schema.
             # Existing complete documents retain the safe local endpoint.
             document.setdefault("mcp", {"enabled": True, "host": "127.0.0.1", "port": 8001, "path": "/mcp"})
+            document.setdefault("object_awareness", {"enabled": False, "model_path": None, "confidence": .35, "max_detections": 5, "timeout_seconds": 2.0})
             if isinstance(document.get("mcp"), dict):
                 document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
             document.setdefault("agents", {"default_agent": "local-agent", "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]})
@@ -1155,6 +1166,13 @@ class RuntimeConfig:
             value = getattr(self, name)
             if value is not None and not isinstance(value, Path):
                 raise ConfigurationError(f"{name} must be a Path or null")
+        if type(self.object_awareness_enabled) is not bool:
+            raise ConfigurationError("object_awareness.enabled must be a boolean")
+        number("object_awareness_confidence", inclusive=True, maximum=1)
+        number("object_awareness_max_detections", minimum=1, inclusive=True, maximum=5, integer=True)
+        number("object_awareness_timeout_seconds", minimum=0, maximum=30)
+        if self.object_awareness_enabled and self.object_awareness_model_path is None:
+            raise ConfigurationError("Enabled object awareness requires object_awareness.model_path")
         labels = self.expression_labels
         if (not isinstance(labels, tuple) or any(not isinstance(v, str) or not v.strip() for v in labels)
                 or len(set(labels)) != len(labels)):
@@ -1170,6 +1188,8 @@ class RuntimeConfig:
         required = []
         if self.expression_enabled and self.expression_provider == "local":
             required.append(("expression.local.model_path", self.expression_model_path))
+        if self.object_awareness_enabled:
+            required.append(("object_awareness.model_path", self.object_awareness_model_path))
         if self.vision_enabled and self.cascade_path is not None:
             required.append(("vision.detector.cascade_path", self.cascade_path))
         for name, value in required:

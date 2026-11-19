@@ -59,6 +59,14 @@ other Vision settings remain restart-required.
 
 ## MCP camera snapshot Resource
 
+## On-demand object awareness
+
+Object awareness reuses the single VisionPipeline frame owner; it never opens a
+second camera or runs continuously. The optional local NanoDet model is loaded
+lazily only after an authorized on-demand request. Results are semantic labels
+and confidences only: PHOS retains no object history, image, bounding box,
+identity, or tracking data.
+
 `phos://vision/snapshot` is a synchronous, read-only, on-demand `image/jpeg`
 MCP Resource. `VisionPipeline` remains the single camera owner: the Resource
 uses its latest captured frame, copies it before bounded encoding, and neither

@@ -34,6 +34,7 @@ class AgentOperation(str, Enum):
     PRESENCE = "presence"
     ATTENTION = "attention"
     OBSERVED_EXPRESSION = "observed_expression"
+    VISIBLE_OBJECTS = "visible_objects"
     CAMERA_SNAPSHOT = "camera_snapshot"
     SET_EXPRESSION = "set_expression"
     SPEAK = "speak"
@@ -49,6 +50,7 @@ OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyTy
     AgentOperation.PRESENCE: AgentPermission.READ_PERCEPTION,
     AgentOperation.ATTENTION: AgentPermission.READ_PERCEPTION,
     AgentOperation.OBSERVED_EXPRESSION: AgentPermission.READ_PERCEPTION,
+    AgentOperation.VISIBLE_OBJECTS: AgentPermission.READ_PERCEPTION,
     AgentOperation.CAMERA_SNAPSHOT: AgentPermission.READ_CAMERA_SNAPSHOT,
     AgentOperation.SET_EXPRESSION: AgentPermission.CONTROL_EXPRESSION,
     AgentOperation.SPEAK: AgentPermission.CONTROL_VOICE,
@@ -238,6 +240,10 @@ class AgentApplicationService:
         self._require(AgentOperation.OBSERVED_EXPRESSION)
         value = self._application.observed_expression()
         return {key: value.get(key) for key in ("available", "label", "confidence", "observed_at", "unavailable_reason")}
+
+    async def visible_objects(self) -> dict[str, Any]:
+        self._require(AgentOperation.VISIBLE_OBJECTS)
+        return await self._application.visible_objects()
 
     def camera_snapshot(self) -> bytes:
         self._require(AgentOperation.CAMERA_SNAPSHOT)

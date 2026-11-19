@@ -8,6 +8,7 @@ from .pipeline import (
     VISION_FACE_LOST,
     VISION_FACE_POSITION,
     CameraSnapshot,
+    LatestFrame,
     CapturedFrame,
     VisionPipeline,
     VisionResult,
@@ -29,10 +30,13 @@ from .provider import (
     VisualExpression,
 )
 from .smoother import ExpressionSmoother
+from .nanodet import (NanoDetDetector, NanoDetDetection, NanoDetError,
+                      NanoDetInferenceError, NanoDetInvalidFrame, NanoDetModelUnavailable)
 
 __all__ = [
     "CameraProvider",
     "CameraSnapshot",
+    "LatestFrame",
     "CapturedFrame",
     "ExpressionObservation",
     "ObservedExpression",
@@ -56,4 +60,6 @@ __all__ = [
     "crop_face",
     "face_position",
     "vision_observation",
+    "NanoDetDetector", "NanoDetDetection", "NanoDetError", "NanoDetInferenceError",
+    "NanoDetInvalidFrame", "NanoDetModelUnavailable",
 ]

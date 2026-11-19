@@ -55,6 +55,10 @@ class ApplicationSpy:
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
+    async def visible_objects(self):
+        self._call("visible_objects")
+        return {"captured_at": "2026-01-02T03:04:05Z", "age_ms": 25, "freshness": "fresh",
+                "objects": [{"label": "car", "confidence": .9}], "truncated": False}
     def query_measurements(self, metric, start=None, end=None, limit=360): return self._call("query_measurements", metric, start, end, limit)
     def list_physical_transitions(self, event_type=None, limit=100): return self._call("list_physical_transitions", event_type, limit)
     def get_camera_snapshot(self):
@@ -97,7 +101,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == MCP_TOOL_NAMES
-    assert len(MCP_TOOL_NAMES) == 14
+    assert len(MCP_TOOL_NAMES) == 15
     source = inspect.getsource(__import__("robot.mcp.server", fromlist=["server"]))
     assert all(forbidden not in source for forbidden in (
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
@@ -107,6 +111,27 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
         "neutral", "happy", "curious", "surprised", "sad", "angry", "focused", "tired", "confused",
         "scared", "skeptical",
     ]
+    visible = next(tool for tool in tools if tool.name == "phos_get_visible_objects")
+    assert visible.input_schema["properties"] == {}
+
+
+def test_visible_objects_tool_uses_permission_checked_agent_result_without_image_content():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+    result = asyncio.run(server.call_tool("phos_get_visible_objects", {})).structured_content
+    assert result == {"captured_at": "2026-01-02T03:04:05Z", "age_ms": 25, "freshness": "fresh",
+                      "objects": [{"label": "car", "confidence": .9}], "truncated": False}
+    assert application.calls == [("visible_objects",)]
+    assert "frame" not in result and set(result["objects"][0]) == {"label", "confidence"}
+
+
+def test_visible_objects_denial_happens_before_application_work():
+    adapter, application = _adapter(profile=AgentProfile.OBSERVER)
+    # Observer has READ_PERCEPTION, so use snapshot-only explicit access instead.
+    snapshot_only = McpSemanticAdapter(AgentApplicationService(application, AgentAccess({"read_camera_snapshot"})))
+    with pytest.raises(McpToolError, match="read_perception"):
+        asyncio.run(snapshot_only.visible_objects())
+    assert application.calls == []
 
 
 def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():

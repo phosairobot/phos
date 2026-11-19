@@ -5,6 +5,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 from robot.core import EventBus
 from robot.core.presence import PERSON_LEFT, PresenceInterpreter, PresenceKind
@@ -102,6 +103,31 @@ def make_pipeline(camera, detector, expressions, *, events=None, smoother=None):
 class SnapshotFrame(FakeFrame):
     def copy(self):
         return self
+
+
+def test_latest_frame_returns_independent_bgr_copy_with_snapshot_freshness():
+    class Camera(FakeCamera):
+        async def capture_frame(self):
+            return np.array([[[1, 2, 3]]], dtype=np.uint8)
+    async def exercise():
+        clock = [10.0]
+        pipeline = VisionPipeline(Camera(), FakeFaceDetector([]), None, None,
+                                  clock=lambda: clock[0], utc_clock=lambda: datetime(2025, 1, 1, tzinfo=timezone.utc))
+        with pytest.raises(RuntimeError, match="no_frame"):
+            pipeline.latest_frame()
+        await pipeline.process_once(timestamp=10.0)
+        first = pipeline.latest_frame(); first.frame[0, 0, 0] = 99
+        clock[0] = 12.1
+        stale = pipeline.latest_frame()
+        await pipeline.stop()
+        with pytest.raises(RuntimeError, match="no_frame"):
+            pipeline.latest_frame()
+        return first, stale
+    first, stale = asyncio.run(exercise())
+    assert first.frame.shape == (1, 1, 3)
+    assert first.captured_at_utc == datetime(2025, 1, 1, tzinfo=timezone.utc)
+    assert first.freshness == "fresh" and stale.freshness == "stale" and stale.age_ms == 2100
+    assert stale.frame[0, 0, 0] == 1
 
 
 def _install_snapshot_encoder(monkeypatch):

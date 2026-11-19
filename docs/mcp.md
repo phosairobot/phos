@@ -346,6 +346,24 @@ transport-independent.
 PHOS exposes read-only MCP Resources through the same permission-checked
 application-service boundary as its tools:
 
+### Object awareness
+
+`phos_get_visible_objects` takes no arguments and requires `read_perception` (not
+`read_camera_snapshot`). It performs one on-demand NanoDet observation from the
+already-running VisionPipeline's latest in-memory frame. It returns no image,
+box, identity, or tracking data:
+
+```json
+{"captured_at":"2026-01-02T03:04:05Z","age_ms":25,"freshness":"fresh","objects":[{"label":"car","confidence":0.9}],"truncated":false}
+```
+
+Object awareness is disabled by default. Enabling it requires a locally installed
+NanoDet-m-plus-1.5x_416 FP32 ONNX model path; verify SHA-256
+`4b82da9944b88577175ee23a459dce2e26e6e4be573def65b1055dc2d9720186`.
+The OpenCV Zoo asset is Apache-2.0. Requests may report unavailable for no/stale
+frame or disabled Vision, busy for an active inference, and timeout when the
+bounded on-demand request expires. No frames or detections are persisted.
+
 | Resource | MIME type | Purpose |
 | --- | --- | --- |
 | `phos://status` | `application/json` | Compact semantic robot status. |
