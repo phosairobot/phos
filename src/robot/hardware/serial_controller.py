@@ -373,7 +373,12 @@ class ControllerService(Behavior):
     async def _read_connected(self, decoder: JsonLinesDecoder, next_heartbeat: float,
                               *, reader_ready: asyncio.Event | None = None,
                               initial_handshake_sent: asyncio.Event | None = None) -> None:
-        peer_seen = False
+        # A live controller can keep sending heartbeat or telemetry belonging
+        # to its previous host session.  That proves the wire is alive, but it
+        # does not prove that it received this process's session-start request.
+        # Keep requesting capabilities until a capabilities report confirms
+        # discovery for this serial session.
+        capabilities_seen = False
         retry_interval = min(2.0, max(.25, self._heartbeat_timeout / 5))
         next_handshake_retry = self._clock() + retry_interval if initial_handshake_sent is None else None
         while True:
@@ -382,7 +387,7 @@ class ControllerService(Behavior):
                 raise OSError("controller heartbeat timed out")
             if initial_handshake_sent is not None and initial_handshake_sent.is_set() and next_handshake_retry is None:
                 next_handshake_retry = now + retry_interval
-            if not peer_seen and next_handshake_retry is not None and now >= next_handshake_retry:
+            if not capabilities_seen and next_handshake_retry is not None and now >= next_handshake_retry:
                 logger.debug("PHOS CONTROLLER: retrying capabilities request generation=%s", self._session_generation)
                 await self._request_capabilities()
                 next_handshake_retry = now + retry_interval
@@ -406,12 +411,12 @@ class ControllerService(Behavior):
                                error.code, error.message_type or "unparseable", self._safe_error_message(error))
                 for message in getattr(error, "recovered_messages", ()):
                     self._last_peer_activity = self._clock()
-                    peer_seen = True
+                    capabilities_seen = capabilities_seen or message.type == "capabilities"
                     await self._message(message)
                 continue
             for message in messages:
                 self._last_peer_activity = self._clock()
-                peer_seen = True
+                capabilities_seen = capabilities_seen or message.type == "capabilities"
                 await self._message(message)
 
     async def _request_capabilities(self) -> None:

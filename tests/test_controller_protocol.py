@@ -516,7 +516,7 @@ def test_serial_transport_returns_a_short_jsonl_frame_without_waiting_for_the_re
     assert serial.read_sizes == [1, len(b'{"type":"heartbeat"}\n') - 1]
 
 
-def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
+def test_controller_retries_capabilities_request_until_capabilities_acknowledges_the_session():
     class Transport:
         device = "/dev/ttyUSB0"
         def __init__(self): self.writes = []
@@ -537,6 +537,66 @@ def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
         assert len(requests) >= 2
         assert all(b'"id":"phos-1-cap-' in raw for raw in requests)
         assert len(set(requests)) == len(requests)
+
+    asyncio.run(exercise())
+
+
+def test_controller_retries_session_handshake_when_stale_telemetry_is_still_arriving():
+    class Transport:
+        device = "/dev/ttyUSB0"
+        def __init__(self): self.writes, self.reads = [], 0
+        def read(self):
+            self.reads += 1
+            time.sleep(.02)
+            return (b'{"protocol":"phos-hw","version":1,"type":"heartbeat","payload":{}}\n'
+                    if self.reads == 1 else b"")
+        async def write(self, raw): self.writes.append(raw); return len(raw)
+
+    async def exercise():
+        transport = Transport()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=10,
+                                    heartbeat_timeout_seconds=.8, touch_sink=lambda _event: None)
+        service._transport, service._state = transport, ControllerConnection.CONNECTED
+        _decoder, next_heartbeat = service._new_session()
+        await service._request_capabilities()
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(service._read_connected(JsonLinesDecoder(), next_heartbeat), timeout=.58)
+        requests = [raw for raw in transport.writes if b'"type":"request_capabilities"' in raw]
+        assert len(requests) >= 2
+        assert service.status()["last_heartbeat"] is not None
+
+    asyncio.run(exercise())
+
+
+def test_controller_stops_retrying_session_handshake_after_capabilities_ack():
+    class Transport:
+        device = "/dev/ttyUSB0"
+        def __init__(self): self.writes, self.reads = [], 0
+        def read(self):
+            self.reads += 1
+            time.sleep(.02)
+            return (b'{"protocol":"phos-hw","version":1,"type":"capabilities","payload":{"sensors":["temperature"]}}\n'
+                    if self.reads == 1 else b"")
+        async def write(self, raw): self.writes.append(raw); return len(raw)
+
+    async def exercise():
+        transport = Transport()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=10,
+                                    heartbeat_timeout_seconds=.8, touch_sink=lambda _event: None)
+        service._transport, service._state = transport, ControllerConnection.CONNECTED
+        _decoder, next_heartbeat = service._new_session()
+        await service._request_capabilities()
+        reader = asyncio.create_task(service._read_connected(JsonLinesDecoder(), next_heartbeat))
+        try:
+            await asyncio.sleep(.55)
+            requests = [raw for raw in transport.writes if b'"type":"request_capabilities"' in raw]
+            assert len(requests) == 1
+            assert service.status()["active_capabilities"] == {"sensors": ["temperature"]}
+        finally:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
 
     asyncio.run(exercise())
 
