@@ -42,8 +42,8 @@ for configuration and Web Admin behavior.
 `phos-hw` v1 uses UTF-8 JSON Lines: one bounded JSON object per newline. Every
 message has `protocol: "phos-hw"`, `version: 1`, `type`, and object `payload`;
 `id`, `reply_to`, and `timestamp_ms` are optional correlation fields. PHOS
-starts a reader before capability discovery, retries discovery until a valid
-peer frame arrives, sends `ping` as its heartbeat, and reconnects after a
+starts a reader before capability discovery, retries discovery until a
+`capabilities` report arrives, sends `ping` as its heartbeat, and reconnects after a
 transport failure using the configured delay. A controller `heartbeat` updates
 the recorded heartbeat status. On disconnect, PHOS retains bounded diagnostics
 but disables active controller LED output.
@@ -101,7 +101,7 @@ as “currently emitted by PHOS”: the current serial adapter transmits only
 
 | Protocol name | Direction | Purpose / data | Response or unavailable behavior |
 | --- | --- | --- | --- |
-| `request_capabilities` | Pi → controller | Starts discovery; empty payload may carry an `id`. | Controller supplies `capabilities`; PHOS retries while connected until a valid peer frame. |
+| `request_capabilities` | Pi → controller | Starts (and resynchronizes) discovery; empty payload may carry an `id`. | Controller supplies `capabilities` for **every** request and resumes/reaffirms telemetry for the current host session. PHOS retries until a `capabilities` report arrives, even if stale telemetry or heartbeats are already arriving. |
 | `capabilities` | controller → Pi | Controller-defined feature metadata, including optional sensor/LED support. | Activates session capabilities; LEDs require advertised support. |
 | `ping` | Pi → controller | PHOS heartbeat; empty payload. | Peer activity keeps the session healthy; v1 requires no separate `pong`. |
 | `heartbeat` | controller → Pi | Controller liveness cue. | Updates PHOS's recorded heartbeat time. |
