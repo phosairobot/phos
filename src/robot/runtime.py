@@ -27,6 +27,7 @@ from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalS
                         SemanticOverlayService)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
 from robot.core.semantic_led import SemanticLedService
+from robot.core.agent_visual_state import AgentVisualStateLeaseManager
 from robot.core.touch import TOUCH_EVENT, TOUCH_EVENT_NAMES, TouchStatus
 from robot.core.expression_reaction import ExpressionReactionPolicy
 from robot.core.startup import StartupReadiness, StartupState
@@ -84,6 +85,7 @@ class PhosRuntime:
         interaction_coordinator: Optional[InteractionCoordinator] = None,
         controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
         semantic_overlay: Optional[SemanticOverlayService] = None,
+        agent_visual_state: Optional[AgentVisualStateLeaseManager] = None,
         tts_provider=None, audio_output=None, tts_status=None,
         object_awareness: Optional[ObjectAwarenessCoordinator] = None,
     ) -> None:
@@ -112,6 +114,7 @@ class PhosRuntime:
         self._pending_semantic_led_palette = None
         self._semantic_led_palette_metadata = {"state": "global", "skin_id": None, "colors": {}}
         self._semantic_overlay = semantic_overlay
+        self._agent_visual_state = agent_visual_state
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._object_awareness = object_awareness
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
@@ -293,6 +296,10 @@ class PhosRuntime:
     def apply_state_effects(self, config: RuntimeConfig) -> None:
         self._state_effects = StateEffectResolver(config)
         self._eye_render_loop.request_state_effects(self._state_effects)
+
+    def visual_configuration_barrier(self):
+        """Acknowledge queued display appearance changes without polling."""
+        return self._eye_render_loop.visual_configuration_barrier()
 
     def apply_eye_safe_layer(self, config: RuntimeConfig) -> None:
         self._eye_safe = EyeSafeResolver(config)
@@ -900,6 +907,11 @@ class PhosRuntime:
             except Exception:
                 logger.exception("PHOS core shutdown failed")
             logger.info("PHOS core, renderer, and behavior engine stopped")
+        # The render loop reads the lease manager at frame cadence.  Close it
+        # only after Core has stopped that loop, so shutdown cannot turn a
+        # final frame into a presentation exception.
+        if self._agent_visual_state is not None:
+            self._agent_visual_state.shutdown()
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers = []
@@ -932,6 +944,7 @@ def build_runtime(
     imu_provider_factory: Optional[Callable[[], IMUSensorProvider]] = None,
     led_ring_provider_factory: Optional[Callable[[LEDRingSettings], LEDRingProvider]] = None,
     secrets_service: Optional[SecretsService] = None,
+    agent_visual_state: Optional[AgentVisualStateLeaseManager] = None,
 ) -> PhosRuntime:
     """Compose a runtime; tests may inject Vision, display and sensor providers."""
     if vision_pipeline is not None and vision_factory is not None:
@@ -940,6 +953,7 @@ def build_runtime(
     config.validate()
     config.validate_paths()
     core = RobotCore()
+    agent_visual_state = agent_visual_state or AgentVisualStateLeaseManager()
     temporal_history = TemporalHistoryService()
     def record_history(metric, value, unit, source):
         try:
@@ -962,6 +976,7 @@ def build_runtime(
         presence_led_left_duration_seconds=config.presence_led_left_duration_ms / 1000,
         presence_led_entered_direction=config.presence_led_entered_direction,
         presence_led_left_direction=config.presence_led_left_direction,
+        visual_state_supplier=lambda: agent_visual_state.resolve(core.state),
     )
     behavior_engine.configure_base_visual_source(config.base_visual_source)
     behavior_engine.configure_environment_overlays(config.environment_overlays_enabled)
@@ -1139,10 +1154,12 @@ def build_runtime(
         touch_handler=publish_touch,
         touch_settings={"tap_max_duration_ms": config.touch_tap_max_duration_ms, "tap_max_movement_px": config.touch_tap_max_movement_px, "long_press_min_duration_ms": config.touch_long_press_min_duration_ms, "long_press_max_movement_px": config.touch_long_press_max_movement_px, "swipe_min_distance_px": config.touch_swipe_min_distance_px, "swipe_max_vertical_drift_px": config.touch_swipe_max_vertical_drift_px, "swipe_max_duration_ms": config.touch_swipe_max_duration_ms},
         background_resolver=background_resolver,
-        robot_state_supplier=lambda: behavior_engine.robot_state,
+        robot_state_supplier=lambda: behavior_engine.visual_state,
         state_effect_resolver=state_effect_resolver,
         eye_safe_resolver=eye_safe_resolver,
         transient_overlay_supplier=semantic_overlay.view_state,
+        frame_state_supplier=behavior_engine.visual_frame,
+        actual_robot_state_supplier=lambda: behavior_engine.robot_state,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)
@@ -1235,6 +1252,7 @@ def build_runtime(
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
                        interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        semantic_overlay=semantic_overlay,
+                       agent_visual_state=agent_visual_state,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status,
                        object_awareness=object_awareness)
     runtime._temporal_history = temporal_history

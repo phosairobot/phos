@@ -74,6 +74,7 @@ class BehaviorEngine(Behavior):
         presence_led_reactions_enabled: bool = False, presence_led_entered_duration_seconds: Optional[float] = None,
         presence_led_left_duration_seconds: Optional[float] = None, presence_led_entered_direction: Optional[str] = None,
         presence_led_left_direction: Optional[str] = None,
+        visual_state_supplier: Optional[Callable[[], RobotState]] = None,
         clock: Callable[[], float] = time.monotonic,
         rng: random.Random | None = None,
     ) -> None:
@@ -105,6 +106,7 @@ class BehaviorEngine(Behavior):
         self._clock = clock
         self._state = FaceState()
         self._robot_state = RobotState.IDLE
+        self._visual_state_supplier = visual_state_supplier or (lambda: self._robot_state)
         self._blink_phase = BlinkPhase.OPEN
         self._blink_started_at = 0.0
         self._next_blink_at = 0.0
@@ -140,16 +142,35 @@ class BehaviorEngine(Behavior):
 
     @property
     def face_state(self) -> FaceState:
+        visual_state = self.visual_state
+        return self._face_state_for_visual_state(visual_state)
+
+    def visual_frame(self) -> tuple[FaceState, RobotState]:
+        """Atomically derive the semantic state and face for one render frame.
+
+        A presentation lease may expire on its deadline thread between render
+        loop reads.  Callers which need multiple visual surfaces must use this
+        pair rather than resolving the state again after obtaining the face.
+        """
+        visual_state = self.visual_state
+        return self._face_state_for_visual_state(visual_state), visual_state
+
+    def _face_state_for_visual_state(self, visual_state: RobotState) -> FaceState:
+        base_state = (self._state if visual_state is self._robot_state
+                      else _face_state_for_robot_state(visual_state))
         state = replace(
-            self._state,
+            base_state,
             blink_phase=self._blink_phase,
             blink_progress=self._blink_progress(self._clock()),
         )
         overlay = self._overlay_arbiter.resolved() if self._environment_overlays_enabled else AmbientOverlayState()
-        resolved = self._with_motion_reaction(state, self._clock())
+        # Agent visual leases are deliberately above idle-only personality,
+        # Vision and IMU reactions, but below real Core states.  Manual
+        # expression intent remains independently applicable as documented.
+        resolved = self._with_motion_reaction(state, self._clock()) if visual_state is RobotState.IDLE else state
         manual = self.manual_expression_state()
-        reaction = self._active_expression_reaction()
-        if self._touch_reaction_until is not None and self._clock() < self._touch_reaction_until and self._robot_state is RobotState.IDLE and self._motion_transient is None:
+        reaction = self._active_expression_reaction() if visual_state is RobotState.IDLE else None
+        if self._touch_reaction_until is not None and self._clock() < self._touch_reaction_until and visual_state is RobotState.IDLE and self._motion_transient is None:
             resolved = replace(resolved, expression=FaceExpression.CURIOUS, accent=VisualAccent.CURIOUS, reaction_strength=0.72, eye_open=1.12)
         if reaction is not None:
             expression = FaceExpression(reaction["reaction"])
@@ -165,8 +186,16 @@ class BehaviorEngine(Behavior):
 
     @property
     def robot_state(self) -> RobotState:
-        """Return the semantic state that selected the current face intent."""
+        """Return actual Core state; never expose a presentation lease as lifecycle."""
         return self._robot_state
+
+    @property
+    def visual_state(self) -> RobotState:
+        """Return the resolved presentation state used by every UI surface."""
+        try:
+            return RobotState(self._visual_state_supplier())
+        except (TypeError, ValueError) as error:
+            raise ValueError("visual_state_supplier must return a RobotState.") from error
 
     def overlay_state(self):
         """Read semantic overlay arbitration state; no renderer is involved."""

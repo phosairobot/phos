@@ -266,7 +266,7 @@ class LifecycleService:
 
     def _appearance_arbitration_changed(self, result) -> None:
         """Apply a new automatic intent; the tracker calls this after its lock."""
-        self.reconcile_effective_appearance(arbitration=result)
+        self.reconcile_effective_appearance(arbitration=result, reason="agent_activity_arbitration")
 
     def appearance_arbitration_status(self) -> dict:
         if self._appearance_activity_tracker is None:
@@ -274,7 +274,7 @@ class LifecycleService:
                     "selection_reason": "activity_tracker_unavailable", "agents": []}
         return self._appearance_activity_tracker.status()
 
-    def reconcile_effective_appearance(self, *, arbitration=None) -> dict:
+    def reconcile_effective_appearance(self, *, arbitration=None, reason="unspecified") -> dict:
         """Apply mode-authoritative appearance without saving display config."""
         with self._lock:
             if self._agent_management_service is None:
@@ -295,7 +295,13 @@ class LifecycleService:
                    resolved.get("effective_personality"), repr(candidate.to_dict().get("display")), repr(palette))
             if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
                     "global_active", "agent_skin_active", "fallback_active"}:
+                logger.debug("PHOS VISUAL CONFIG reconcile reason=%s action=preserve mode=%s selected_agent=%s skin=%s",
+                             reason, resolved.get("mode"), resolved.get("selected_agent_id"),
+                             resolved.get("effective_skin_id"))
                 return {"ok": True, "applied": [], "resolved": resolved}
+            logger.debug("PHOS VISUAL CONFIG reconcile reason=%s action=apply mode=%s selected_agent=%s skin=%s",
+                         reason, resolved.get("mode"), resolved.get("selected_agent_id"),
+                         resolved.get("effective_skin_id"))
             self._presentation_activation = {"state": "applying", "message": "Applying resolved appearance.",
                                              "mode": resolved.get("mode"), "arbitration": arbitration}
             result = self.apply_temporary_appearance(candidate)

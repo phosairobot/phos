@@ -70,3 +70,8 @@ class StateEffectResolver:
             speed, motion, pulse = min(speed * .08, .02), 0.0, min(pulse * .2, .03)
         return StateEffectParams(name, intensity * multiplier, speed * multiplier, glow * multiplier,
                                  pulse * multiplier, motion * multiplier, mode, self.palette)
+
+    @property
+    def configuration_key(self) -> tuple[bool, str, StateEffectPalette, bool]:
+        """Stable identity for live updates; independent of current state."""
+        return self.enabled, self.preset, self.palette, self.reduce_motion

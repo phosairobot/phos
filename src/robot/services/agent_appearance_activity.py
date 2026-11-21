@@ -6,9 +6,13 @@ MCP/lifecycle process, where a resolved canonical agent identity is available.
 from __future__ import annotations
 
 from threading import RLock, Timer
+import logging
 import time
 
 from .agent_identity import AgentIdentity, AgentRegistryProvider
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentAppearanceActivityTracker:
@@ -53,7 +57,7 @@ class AgentAppearanceActivityTracker:
             return False
         with self._lock:
             self._leases[identity.id] = self._clock()
-        self.recompute()
+        self.recompute(reason="agent_request")
         return True
 
     def record_anonymous_mcp(self) -> bool:
@@ -66,7 +70,7 @@ class AgentAppearanceActivityTracker:
         """
         with self._lock:
             self._leases["anonymous-mcp"] = self._clock()
-        self.recompute()
+        self.recompute(reason="anonymous_mcp_request")
         return True
 
     def forget(self, agent_id: str) -> None:
@@ -74,7 +78,7 @@ class AgentAppearanceActivityTracker:
             self._leases.pop(agent_id, None)
             if self._previous_winner == agent_id:
                 self._previous_winner = None
-        self.recompute()
+        self.recompute(reason="agent_forgotten")
 
     def _cancel_timer_locked(self) -> None:
         if self._timer is not None:
@@ -92,7 +96,7 @@ class AgentAppearanceActivityTracker:
         timer.start()
 
     def _on_expiry(self) -> None:
-        self.recompute()
+        self.recompute(reason="lease_expiry")
 
     def _compute_locked(self) -> dict:
         supplied = self._candidate_supplier()
@@ -142,12 +146,15 @@ class AgentAppearanceActivityTracker:
                 "remaining_lease_seconds": max(0.0, expiry - now),
                 "next_expiry_monotonic": next_expiry, "agents": agents}
 
-    def recompute(self, *, notify=True) -> dict:
+    def recompute(self, *, notify=True, reason="unspecified") -> dict:
         with self._lock:
             self._result = self._compute_locked()
             self._schedule_locked(self._result["next_expiry_monotonic"])
             result, callback = dict(self._result), self._on_change if notify else None
         if callback is not None:
+            logger.debug("PHOS APPEARANCE activity reason=%s mode=%s selected_agent=%s next_expiry=%.6f",
+                         reason, result["mode"], result["selected_agent_id"],
+                         result["next_expiry_monotonic"] if result["next_expiry_monotonic"] is not None else -1.0)
             callback(result)
         return result
 

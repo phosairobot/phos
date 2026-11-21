@@ -20,6 +20,7 @@ class AgentPermission(str, Enum):
     READ_PERCEPTION = "read_perception"
     READ_CAMERA_SNAPSHOT = "read_camera_snapshot"
     CONTROL_EXPRESSION = "control_expression"
+    CONTROL_VISUAL_STATE = "control_visual_state"
     CONTROL_VOICE = "control_voice"
     CONTROL_SLEEP = "control_sleep"
     SIGNAL_USER = "signal_user"
@@ -37,6 +38,7 @@ class AgentOperation(str, Enum):
     VISIBLE_OBJECTS = "visible_objects"
     CAMERA_SNAPSHOT = "camera_snapshot"
     SET_EXPRESSION = "set_expression"
+    SET_VISUAL_STATE = "set_visual_state"
     SPEAK = "speak"
     SLEEP = "sleep"
     WAKE = "wake"
@@ -53,6 +55,7 @@ OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyTy
     AgentOperation.VISIBLE_OBJECTS: AgentPermission.READ_PERCEPTION,
     AgentOperation.CAMERA_SNAPSHOT: AgentPermission.READ_CAMERA_SNAPSHOT,
     AgentOperation.SET_EXPRESSION: AgentPermission.CONTROL_EXPRESSION,
+    AgentOperation.SET_VISUAL_STATE: AgentPermission.CONTROL_VISUAL_STATE,
     AgentOperation.SPEAK: AgentPermission.CONTROL_VOICE,
     AgentOperation.SLEEP: AgentPermission.CONTROL_SLEEP,
     AgentOperation.WAKE: AgentPermission.CONTROL_SLEEP,
@@ -272,6 +275,19 @@ class AgentApplicationService:
         self._require(AgentOperation.SET_EXPRESSION)
         value = self._application.set_expression(expression)
         return {"expression": value.get("expression", expression), "applied": True}
+
+    def request_visual_state(self, state: str, duration_ms: int | None = None) -> dict[str, Any]:
+        """Request only this authenticated identity's temporary visual lease."""
+        self._require(AgentOperation.SET_VISUAL_STATE)
+        if self._identity is None:
+            raise RuntimeError("Visual-state requests require an authenticated agent identity.")
+        return self._application.request_agent_visual_state(self._identity.id, state, duration_ms)
+
+    async def _wait_for_visual_appearance(self) -> None:
+        self._require(AgentOperation.SET_VISUAL_STATE)
+        if self._identity is None:
+            raise RuntimeError("Visual-state requests require an authenticated agent identity.")
+        await self._application.wait_for_agent_visual_appearance()
 
     def speak(self, text: str) -> dict[str, Any]:
         self._require(AgentOperation.SPEAK)

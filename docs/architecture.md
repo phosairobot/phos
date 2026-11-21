@@ -157,9 +157,15 @@ canonical operation mapping is `status` → `READ_STATUS`,
 `get_physical_context` → `READ_PHYSICAL_CONTEXT`, and `presence`, `attention`,
 and `observed_expression` → `READ_PERCEPTION`.  Semantic actions map as
 `set_expression` → `CONTROL_EXPRESSION`, `speak` → `CONTROL_VOICE`, `sleep` /
-`wake` → `CONTROL_SLEEP`, and `signal_user` → `SIGNAL_USER`.  Sleep and wake
+`wake` → `CONTROL_SLEEP`, `signal_user` → `SIGNAL_USER`, and
+`set_visual_state` → `CONTROL_VISUAL_STATE`. Sleep and wake
 remain normal state transitions; a signal remains subject to existing semantic
 LED arbitration.
+
+An agent visual-state request is an identity-scoped, expiring presentation lease,
+not a lifecycle transition: only `thinking` may be acquired and `idle` releases
+the caller's lease. The effective visual state preserves Core priority for error,
+sleeping, speaking, and listening, and never mutates `RobotCore.state`.
 
 The in-code `standard` profile contains that explicit complete v1 set; the
 `observer` profile contains only the three read permissions.  No profile is
@@ -197,12 +203,12 @@ PHOS runtime/services
 Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
 Streamable HTTP. PHOS owns the listener lifecycle: normal runtime startup
 creates one listener over the existing application services, and normal runtime
-shutdown closes it. It exposes fifteen request/response tools: `phos_get_status`,
+shutdown closes it. It exposes sixteen request/response tools: `phos_get_status`,
 `phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`,
 `phos_get_observed_expression`, `phos_get_camera_snapshot`,
-`phos_capture_camera_snapshot`, `phos_set_expression`, `phos_speak`,
-`phos_sleep`, `phos_wake`, `phos_signal_user`, `phos_query_measurements`, and
-`phos_list_physical_transitions`. Every one delegates through
+`phos_capture_camera_snapshot`, `phos_get_visible_objects`, `phos_set_expression`, `phos_speak`,
+`phos_sleep`, `phos_wake`, `phos_signal_user`, `phos_query_measurements`,
+`phos_list_physical_transitions`, and `phos_set_state`. Every one delegates through
 `AgentApplicationService`; MCP owns no permissions, runtime state, provider,
 or hardware logic.
 

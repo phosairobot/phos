@@ -35,6 +35,7 @@ class ApplicationSpy:
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
     def set_expression(self, value): return self._call("set_expression", value)
+    def request_agent_visual_state(self, agent_id, state, duration_ms=None): return self._call("request_agent_visual_state", agent_id, state, duration_ms)
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
     def signal_user(self, signal): return self._call("signal_user", signal)
@@ -224,6 +225,6 @@ def test_agent_surface_has_no_raw_hardware_renderer_or_admin_operations():
         "attention", "get_physical_context", "observed_expression", "presence", "set_expression",
         "signal_user", "sleep", "speak", "status", "wake", "sleep_async", "speak_async",
         "signal_user_async", "wake_async", "camera_snapshot", "camera_snapshot_with_metadata", "capture_camera_snapshot_with_metadata",
-            "query_measurements", "list_physical_transitions", "visible_objects",
+            "query_measurements", "list_physical_transitions", "visible_objects", "request_visual_state",
     }
     assert set(OPERATION_PERMISSIONS) == set(AgentOperation)
