@@ -1,5 +1,6 @@
 import asyncio
 import base64
+from dataclasses import asdict
 from datetime import datetime, timezone
 import inspect
 import json
@@ -21,6 +22,7 @@ from robot.mcp.server import (
     create_mcp_server,
 )
 from robot.core.behavior_engine import BehaviorEngine
+from robot.core.agent_visual_state import AgentVisualStateLeaseManager
 from robot.core.runtime import RobotCore
 from robot.vision.pipeline import CameraSnapshot
 from robot.config import ConfigRepository, RuntimeConfig, load_document
@@ -73,6 +75,8 @@ class ApplicationSpy:
         return CameraSnapshot(b"\xff\xd8fresh-jpeg\xff\xd9", datetime(2026, 1, 2, 3, 4, 6, tzinfo=timezone.utc),
                               0, "fresh")
     def set_expression(self, expression): return self._call("set_expression", expression)
+    def request_agent_visual_state(self, agent_id, state, duration_ms=None): return self._call("request_agent_visual_state", agent_id, state, duration_ms)
+    async def wait_for_agent_visual_appearance(self): return None
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
     def signal_user(self, signal): return self._call("signal_user", signal)
@@ -84,6 +88,12 @@ class ApplicationSpy:
 def _adapter(application=None, profile=AgentProfile.STANDARD):
     application = application or ApplicationSpy()
     return McpSemanticAdapter(AgentApplicationService(application, AgentAccess.for_profile(profile))), application
+
+
+def _identity_adapter(application=None, profile=AgentProfile.STANDARD, agent_id="agent-a"):
+    application = application or ApplicationSpy()
+    identity = AgentIdentity(agent_id, profile, agent_id)
+    return McpSemanticAdapter(AgentApplicationService(application, identity)), application
 
 
 def test_history_tools_use_agent_permission_and_preserve_bounded_arguments():
@@ -101,7 +111,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == MCP_TOOL_NAMES
-    assert len(MCP_TOOL_NAMES) == 15
+    assert len(MCP_TOOL_NAMES) == 16
     source = inspect.getsource(__import__("robot.mcp.server", fromlist=["server"]))
     assert all(forbidden not in source for forbidden in (
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
@@ -113,6 +123,106 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     ]
     visible = next(tool for tool in tools if tool.name == "phos_get_visible_objects")
     assert visible.input_schema["properties"] == {}
+    visual_state = next(tool for tool in tools if tool.name == "phos_set_state")
+    assert visual_state.input_schema["required"] == ["state"]
+    assert visual_state.input_schema["properties"]["state"]["enum"] == ["thinking", "idle"]
+    duration = visual_state.input_schema["properties"]["duration_ms"]
+    assert duration["anyOf"][0]["type"] == "integer"
+    assert visual_state.input_schema["additionalProperties"] is False
+
+
+def test_visual_state_tool_validates_arguments_and_forwards_only_authenticated_identity():
+    adapter, application = _identity_adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    async def exercise():
+        thinking = await server.call_tool("phos_set_state", {"state": "thinking", "duration_ms": 1000})
+        idle = await server.call_tool("phos_set_state", {"state": "idle"})
+        idle_with_duration = await server.call_tool("phos_set_state", {"state": "idle", "duration_ms": 10_000})
+        idle_with_zero = await server.call_tool("phos_set_state", {"state": "idle", "duration_ms": 0})
+        idle_with_out_of_range = await server.call_tool("phos_set_state", {"state": "idle", "duration_ms": 60_001})
+        invalid = (
+            {"state": "speaking", "duration_ms": 1000},
+            {"state": "thinking"},
+            {"state": "thinking", "duration_ms": 249}, {"state": "thinking", "duration_ms": 60_001},
+            {"state": "thinking", "duration_ms": True}, {"state": "thinking", "duration_ms": "1000"},
+            {"state": "idle", "duration_ms": True}, {"state": "idle", "duration_ms": "1000"},
+            {"state": "thinking", "duration_ms": 1000, "agent_id": "agent-b"},
+        )
+        for arguments in invalid:
+            with pytest.raises(Exception):
+                await server.call_tool("phos_set_state", arguments)
+        return thinking, idle, idle_with_duration, idle_with_zero, idle_with_out_of_range
+
+    thinking, idle, idle_with_duration, idle_with_zero, idle_with_out_of_range = asyncio.run(exercise())
+    assert thinking.structured_content == {"operation": "request_agent_visual_state",
+                                           "arguments": ["agent-a", "thinking", 1000]}
+    assert idle.structured_content == {"operation": "request_agent_visual_state",
+                                       "arguments": ["agent-a", "idle", None]}
+    assert idle_with_duration.structured_content == idle.structured_content
+    assert idle_with_zero.structured_content == idle.structured_content
+    assert idle_with_out_of_range.structured_content == idle.structured_content
+    assert application.calls == [
+        ("request_agent_visual_state", "agent-a", "thinking", 1000),
+        ("request_agent_visual_state", "agent-a", "idle", None),
+        ("request_agent_visual_state", "agent-a", "idle", None),
+        ("request_agent_visual_state", "agent-a", "idle", None),
+        ("request_agent_visual_state", "agent-a", "idle", None),
+    ]
+
+
+def test_visual_state_adapter_enforces_permission_and_maps_application_errors():
+    observer, application = _identity_adapter(profile=AgentProfile.OBSERVER)
+    with pytest.raises(McpToolError, match="permission_denied: operation=set_visual_state required_permission=control_visual_state"):
+        observer.set_visual_state("thinking", 1000)
+    assert application.calls == []
+
+    class Unavailable(ApplicationSpy):
+        def request_agent_visual_state(self, *_args):
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+
+    adapter, _application = _identity_adapter(Unavailable())
+    with pytest.raises(McpToolError, match="service_unavailable: PHOS runtime is not running"):
+        adapter.set_visual_state("thinking", 1000)
+
+
+def test_visual_state_mcp_leases_are_identity_scoped_without_leaking_other_leases():
+    class LeaseApplication:
+        def __init__(self):
+            self.leases = AgentVisualStateLeaseManager()
+
+        async def wait_for_agent_visual_appearance(self):
+            return None
+
+        def request_agent_visual_state(self, agent_id, state, duration_ms=None):
+            return asdict(self.leases.request(agent_id, state, duration_ms=duration_ms, actual_state="idle"))
+
+    application = LeaseApplication()
+    agent_a, _ = _identity_adapter(application, agent_id="agent-a")
+    agent_b, _ = _identity_adapter(application, agent_id="agent-b")
+    server_a = create_mcp_server(agent_a._agent_service)
+    server_b = create_mcp_server(agent_b._agent_service)
+
+    async def exercise():
+        first = await server_a.call_tool("phos_set_state", {"state": "thinking", "duration_ms": 1000})
+        second = await server_b.call_tool("phos_set_state", {"state": "thinking", "duration_ms": 1000})
+        release_a = await server_a.call_tool("phos_set_state", {"state": "idle"})
+        release_b = await server_b.call_tool("phos_set_state", {"state": "idle"})
+        return first, second, release_a, release_b
+
+    first, second, release_a, release_b = asyncio.run(exercise())
+    assert first.structured_content["effective_state"] == "thinking"
+    assert second.structured_content["effective_state"] == "thinking"
+    # Agent A can release only its own lease, so B's newer lease remains active.
+    assert release_a.structured_content == {
+        "accepted": True, "requested_state": "idle", "effective_state": "thinking",
+        "lease_active": False, "remaining_expiry_ms": None, "suppressed_by": None,
+    }
+    assert release_b.structured_content == {
+        "accepted": True, "requested_state": "idle", "effective_state": "idle",
+        "lease_active": False, "remaining_expiry_ms": None, "suppressed_by": None,
+    }
+    application.leases.shutdown()
 
 
 def test_visible_objects_tool_uses_permission_checked_agent_result_without_image_content():
@@ -300,13 +410,46 @@ def test_mcp_activity_is_recorded_after_authorization_not_authentication_or_keep
         # semantic adapter call and therefore does not renew a lease.
         await Authenticator().authenticate(context("Bearer standard"))
         await middleware(context("Bearer standard"), lambda _: server.call_tool("phos_get_status", {}))
+        # A state-only visual lease remains accepted Agent activity so a
+        # follow-agent installation can activate this Agent's assigned skin.
+        await middleware(context("Bearer standard"), lambda _: server.call_tool(
+            "phos_set_state", {"state": "thinking", "duration_ms": 1000}))
         with pytest.raises(Exception, match="permission_denied"):
             await middleware(context("Bearer observer"), lambda _: server.call_tool("phos_sleep", {}))
         with pytest.raises(PermissionError, match="authentication_failed"):
             await middleware(context("Bearer invalid"), lambda _: server.call_tool("phos_get_status", {}))
 
     asyncio.run(exercise())
-    assert tracker.identities == [standard]
+    assert tracker.identities == [standard, standard]
+
+
+def test_visual_state_tool_records_anonymous_activity_through_existing_fallback_policy():
+    anonymous = AgentIdentity("anonymous-mcp", "standard", "Anonymous MCP")
+
+    class Authenticator:
+        async def authenticate(self, _context): return anonymous
+        def is_anonymous_identity(self, identity): return identity is anonymous
+
+    class Tracker:
+        def __init__(self): self.anonymous = 0
+        def record_anonymous_mcp(self): self.anonymous += 1; return True
+
+    tracker = Tracker()
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service, authenticator=Authenticator(), activity_tracker=tracker)
+    middleware = server.middleware[-1]
+    context = type("Context", (), {"request": type("Request", (), {"headers": {}})()})()
+
+    async def exercise():
+        await middleware(context, lambda _: server.call_tool(
+            "phos_set_state", {"state": "thinking", "duration_ms": 1000}))
+        await middleware(context, lambda _: server.call_tool("phos_get_status", {}))
+
+    asyncio.run(exercise())
+    # State-only and generic accepted anonymous work share the existing
+    # low-priority fallback policy; eligibility is decided by configuration,
+    # never by MCP arguments.
+    assert tracker.anonymous == 2
 
 
 def test_revoked_bearer_cannot_renew_mcp_activity(tmp_path):

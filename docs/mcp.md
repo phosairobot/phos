@@ -333,13 +333,28 @@ MCP exposes the existing `AgentApplicationService`, never hardware, renderers,
 camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`,
 `phos_get_attention`, `phos_get_observed_expression`, `phos_get_camera_snapshot`,
-`phos_capture_camera_snapshot`,
+`phos_capture_camera_snapshot`, `phos_get_visible_objects`,
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
 `phos_wake`, `phos_signal_user(signal)`,
 `phos_query_measurements(metric, start?, end?, limit?)`, and
-`phos_list_physical_transitions(event_type?, limit?)`. Input bounds, permission
+`phos_list_physical_transitions(event_type?, limit?)`, and
+`phos_set_state(state, duration_ms?)`. Input bounds, permission
 checks, semantic result documents, and sanitized error mapping are
 transport-independent.
+
+`phos_set_state` owns only a temporary, identity-scoped visual lease. It accepts
+`thinking` with a required integer `duration_ms` from 250 through 60000, or
+`idle` to release the caller's lease. `duration_ms` is optional for `idle` and
+is ignored when supplied. It requires `control_visual_state`; a
+lease expires automatically and never changes `RobotCore.state`. Core error,
+sleeping, speaking, and listening visuals retain priority. Its response uses
+the application result fields `accepted`, `requested_state`, `effective_state`,
+`lease_active`, `remaining_expiry_ms`, and `suppressed_by`; it exposes no other
+agent identity or lease data. This is distinct from the persistent REST state
+command. As an accepted MCP request, it participates in existing `follow_agent`
+arbitration: authenticated Agents may activate their assigned skin, while an
+anonymous request can use only the configured low-priority default-agent
+fallback.
 
 ## MCP Resources
 

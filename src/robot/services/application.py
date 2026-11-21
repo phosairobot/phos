@@ -1588,6 +1588,43 @@ class PhosApplicationService:
         self._emit("expression_changed", payload)
         return payload
 
+    def request_agent_visual_state(self, agent_id: str, state: str, duration_ms: int | None = None) -> dict:
+        """Apply one authenticated agent's temporary presentation lease.
+
+        This deliberately bypasses neither the Agent facade nor the actual
+        RobotCore state machine: it addresses only the manager composed by the
+        runtime for bounded visual requests.
+        """
+        manager = getattr(self._runtime, "_agent_visual_state", None)
+        if not self._core.is_running or manager is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        # ``idle`` is always a release.  Discard an adapter's optional duration
+        # before the manager evaluates thinking-specific duration constraints.
+        if state == RobotState.IDLE.value:
+            duration_ms = None
+        try:
+            result = manager.request(agent_id, state, duration_ms=duration_ms,
+                                     actual_state=self._core.state)
+        except ValueError as error:
+            raise ApplicationError("invalid_visual_state_request", str(error), status=400) from error
+        except RuntimeError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS visual-state service is unavailable.", status=503) from error
+        return asdict(result)
+
+    async def wait_for_agent_visual_appearance(self) -> None:
+        """Wait for already-requested appearance work at the display boundary."""
+        barrier = getattr(self._runtime, "visual_configuration_barrier", None)
+        if not self._core.is_running or not callable(barrier):
+            raise ApplicationError("runtime_unavailable", "PHOS visual-state service is unavailable.", status=503)
+        try:
+            await asyncio.wait_for(asyncio.wrap_future(barrier()), timeout=STATE_COMMAND_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS appearance update timed out.", status=503) from error
+        except RuntimeError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS appearance update is unavailable.", status=503) from error
+        except Exception as error:
+            raise ApplicationError("runtime_unavailable", "PHOS appearance update failed.", status=503) from error
+
     async def _accept_state_command(self, target: RobotState, submitted_at: float):
         """Run on the runtime loop and acknowledge immediately after commit."""
         dequeued_at = time.monotonic()
