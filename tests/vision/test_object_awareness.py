@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 import pytest
 from robot.vision.object_awareness import (ObjectAwarenessCoordinator, ObjectAwarenessBusy,
-    ObjectAwarenessTimeout, ObjectAwarenessUnavailable)
+    ObjectAwarenessFailure, ObjectAwarenessTimeout, ObjectAwarenessUnavailable)
 
 class Pipe:
     def __init__(self, freshness="fresh"): self.value=SimpleNamespace(frame=object(),captured_at_utc=datetime(2025,1,1,tzinfo=timezone.utc),age_ms=20,freshness=freshness)
@@ -37,4 +37,34 @@ def test_timeout_keeps_slot_until_native_finishes():
         gate.set(); await asyncio.sleep(0)
         await asyncio.sleep(.01); assert (await c.observe()).objects
         await c.close()
+    asyncio.run(run())
+
+def test_status_is_non_invasive_and_sanitizes_failure_details():
+    async def run():
+        def failed(_): raise RuntimeError("/private/model-path must not leak")
+        detector = Detector(); detector.detect = failed
+        coordinator = ObjectAwarenessCoordinator(Pipe(), lambda: detector)
+        assert coordinator.status() == {"closed": False, "busy": False, "detector_initialized": False, "last_error": None}
+        with pytest.raises(Exception): await coordinator.observe()
+        status = coordinator.status()
+        assert status["detector_initialized"] and status["last_error"] == "Model inference failed."
+        await coordinator.close()
+        assert coordinator.status()["closed"]
+    asyncio.run(run())
+
+
+def test_prepare_initializes_once_and_invalid_factory_is_sanitized():
+    class Loadable(Detector):
+        def __init__(self): super().__init__(); self.loaded = 0
+        def load(self): self.loaded += 1; return self
+    async def run():
+        detector = Loadable()
+        coordinator = ObjectAwarenessCoordinator(Pipe(), lambda: detector)
+        await coordinator.prepare(); await coordinator.prepare()
+        assert detector.loaded == 1 and coordinator.status()["detector_initialized"]
+        await coordinator.close()
+        invalid = ObjectAwarenessCoordinator(Pipe(), lambda: (_ for _ in ()).throw(RuntimeError("/secret/model")))
+        with pytest.raises(ObjectAwarenessFailure): await invalid.prepare()
+        assert invalid.status()["last_error"] == "Model initialization failed."
+        await invalid.close()
     asyncio.run(run())

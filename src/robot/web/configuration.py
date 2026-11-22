@@ -143,6 +143,7 @@ HELP = {
     "led_ring": "WS2812B semantic feedback. Left/right begin at their physical quarter-ring positions and fill in mirrored directions; back grows in two fronts from bottom_led_index, while forward grows in two fronts from forward_led_index (the physical top). Clockwise means increasing indices rotate clockwise. Fill speed, strengths and mapping apply after Save → Reload configuration. Pin and LED count require Restart PHOS. The ring remains optional and cannot affect PHOS eyes.",
     "behavior": "Timing pairs are minimum, maximum in seconds. IMU reaction strength controls persistent moving/tilt emphasis; tilt gaze uses normalized safe pupil range. Tilt eye asymmetry splits horizontal tilt eye openness equally and mirrors left/right. Shake and impact have separate strengths (impact must be stronger), each with hold then smooth decay. These IMU behavior settings apply after Save → Reload configuration; they do not reopen I2C.",
     "vision": "Tracking uses the local camera. Resolution is width, height in pixels. Preview is local to the PHOS display and disabled by default. Preview controls apply when Runtime settings are saved; camera and tracking changes require Restart PHOS.",
+    "object_awareness": "NanoDet object recognition runs locally and only when an authorized observation is requested; it does not create another camera pipeline. The model path is relative to the configuration file unless absolute. All Object Recognition changes require Restart PHOS.",
     "vision.camera_preview": "Preview frames stay in memory and appear only on the PHOS display. Scale is a fraction of display width; maximum FPS is capped at 10. All preview controls apply immediately when Runtime settings are saved and do not recreate PHOS or the Vision pipeline.",
     "vision.detector": "Leave cascade path blank for platform discovery. Minimum size is width, height in pixels.",
     "expression": "Local runs ONNX on the Pi. AWS sends selected face crops to AWS when expressions are enabled. There is no automatic fallback.",
@@ -168,7 +169,7 @@ def editor_sections(document, prefix=""):
                     else "array" if isinstance(value, list) else "text")
             direct.append({"name": field_name, "label": key.replace("_", " ").capitalize(),
                            "kind": kind, "value": ", ".join(map(str, value)) if isinstance(value, list) else value,
-                           "nullable": value is None or field_name in {"expression.local.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path", "tts.elevenlabs.voice_id", "tts.cartesia.voice_id"},
+                           "nullable": value is None or field_name in {"expression.local.model_path", "object_awareness.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path", "tts.elevenlabs.voice_id", "tts.cartesia.voice_id"},
                            "choices": CHOICES.get(field_name)})
         sections.append({"name": route, "title": route.replace(".", " / ").replace("_", " ").title(),
                          "help": HELP.get(route, ""), "fields": direct})

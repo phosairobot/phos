@@ -117,6 +117,8 @@ class PhosRuntime:
         self._agent_visual_state = agent_visual_state
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._object_awareness = object_awareness
+        self._object_awareness_lock = asyncio.Lock()
+        self._object_awareness_tasks = set()
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
         self._tts_status = tts_status or {"enabled": False, "configured_provider": None,
@@ -448,6 +450,7 @@ class PhosRuntime:
                 return {key: plain(item) for key, item in value.items()}
             return value
         sensors = self.sensor_status()
+        object_awareness = self.object_awareness_status()
         return {
             "robot": {"state": self.core.state.value, "running": self.core.is_running},
             "visual": plain(self._behavior_engine.face_state),
@@ -477,7 +480,98 @@ class PhosRuntime:
                                  "active_device": getattr(self._audio_output, "device", None),
                                  "available": self._audio_output is not None, "last_activation_error": None},
             },
+            "object_awareness": object_awareness,
         }
+
+    def object_awareness_status(self) -> dict:
+        """Return a non-invasive, sanitized object-recognition health view."""
+        configured = bool(self._config and self._config.object_awareness_enabled)
+        coordinator = self._object_awareness
+        if not configured:
+            return {"state": "disabled", "enabled": False, "model": "not_configured",
+                    "backend": None, "reason": None}
+        if coordinator is None:
+            return {"state": "unavailable", "enabled": False, "model": "unavailable",
+                    "backend": None, "reason": "Vision is unavailable."}
+        detail = coordinator.status()
+        if detail["closed"]:
+            return {"state": "unavailable", "enabled": False, "model": "unavailable",
+                    "backend": "OpenCV DNN / NanoDet", "reason": "Object Recognition is stopping."}
+        return {"state": "busy" if detail["busy"] else "ready", "enabled": True,
+                "model": "initialized" if detail["detector_initialized"] else "configured",
+                "backend": "OpenCV DNN / NanoDet", "reason": detail["last_error"]}
+
+    def apply_object_awareness(self, config: RuntimeConfig) -> None:
+        """Apply only Object Recognition enablement from the lifecycle thread."""
+        loop = self._loop
+        if loop is None or not self._started or self._stopping:
+            raise RuntimeError("PHOS runtime is not ready for Object Recognition changes")
+        try:
+            caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            caller_loop = None
+        if caller_loop is loop:
+            raise RuntimeError("Object Recognition changes must use the lifecycle thread")
+        asyncio.run_coroutine_threadsafe(self._apply_object_awareness(config), loop).result()
+
+    def _new_object_awareness(self, config: RuntimeConfig) -> ObjectAwarenessCoordinator:
+        if self._vision_pipeline is None:
+            raise RuntimeError("Vision is unavailable")
+        model_path = config.resolve_path(config.object_awareness_model_path)
+        return ObjectAwarenessCoordinator(
+            self._vision_pipeline,
+            lambda: NanoDetDetector(model_path, confidence=config.object_awareness_confidence,
+                                    max_detections=config.object_awareness_max_detections),
+            timeout_seconds=config.object_awareness_timeout_seconds,
+        )
+
+    def _updated_object_awareness_config(self, config: RuntimeConfig, *, enabled_only: bool) -> RuntimeConfig:
+        """Update the in-memory config without invoking RuntimeConfig.__init__.
+
+        RuntimeConfig has a compatibility constructor that loads the default
+        repository.  ``dataclasses.replace`` therefore is not safe for live
+        runtime updates: it can resolve a deployment-default path rather than
+        the active configuration already owned by this runtime.
+        """
+        names = ("object_awareness_enabled",) if enabled_only else (
+            "object_awareness_enabled", "object_awareness_model_path",
+            "object_awareness_confidence", "object_awareness_max_detections",
+            "object_awareness_timeout_seconds",
+        )
+        return RuntimeConfig.from_dict(
+            self._config.to_dict(), base_dir=self._config._base_dir,
+            overrides={name: getattr(config, name) for name in names},
+        )
+
+    async def _apply_object_awareness(self, config: RuntimeConfig) -> None:
+        task = asyncio.current_task()
+        self._object_awareness_tasks.add(task)
+        try:
+            async with self._object_awareness_lock:
+                if self._stopping or not self._started:
+                    raise RuntimeError("PHOS runtime is stopping")
+                if config.object_awareness_enabled:
+                    if self._object_awareness is None:
+                        candidate = self._new_object_awareness(config)
+                        try:
+                            await candidate.prepare()
+                        except BaseException:
+                            await candidate.close()
+                            raise
+                        if self._stopping:
+                            await candidate.close()
+                            raise RuntimeError("PHOS runtime is stopping")
+                        self._object_awareness = candidate
+                    self._config = self._updated_object_awareness_config(config, enabled_only=False)
+                    return
+                previous = self._object_awareness
+                # Withdraw first so concurrent MCP calls cannot begin new work.
+                self._object_awareness = None
+                self._config = self._updated_object_awareness_config(config, enabled_only=True)
+                if previous is not None:
+                    await previous.close()
+        finally:
+            self._object_awareness_tasks.discard(task)
 
     def touch_status(self) -> dict:
         """Read-only completed-gesture state for application adapters."""
@@ -880,6 +974,10 @@ class PhosRuntime:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        object_tasks = tuple(task for task in self._object_awareness_tasks if task is not asyncio.current_task())
+        for task in object_tasks:
+            task.cancel()
+        await asyncio.gather(*object_tasks, return_exceptions=True)
         self._loop = None
         if self._led_ring_controller is not None:
             self._led_ring_controller.stop()
@@ -894,6 +992,7 @@ class PhosRuntime:
                 await self._object_awareness.close()
             except Exception:
                 logger.exception("PHOS object-awareness shutdown failed")
+            self._object_awareness = None
         if self._vision_started and self._vision_pipeline is not None:
             try:
                 await self._vision_pipeline.stop()
