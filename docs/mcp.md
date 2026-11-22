@@ -357,6 +357,37 @@ arbitration: authenticated Agents may activate their assigned skin, while an
 anonymous request can use only the configured low-priority default-agent
 fallback.
 
+### Tool discovery and selection
+
+`tools/list` describes all 17 MCP tools, their input vocabulary, and their
+side-effect annotations. These metadata guide an Agent but do not guarantee
+that every client will select the appropriate tool. Permission checks and
+runtime availability remain authoritative.
+
+For current room conditions, use `phos_get_physical_context`; it reports what
+PHOS currently perceives but does not establish continuity. Before interpreting
+an interval after a sensor interruption, use
+`phos_get_physical_assessment`; it reports evidence quality and recovery state,
+not a current measurement or a trend. For a particular numeric time window,
+combine that assessment with `phos_query_measurements`. PHOS returns sample
+facts and a bounded arithmetic summary, not rising/falling/stable
+interpretation or a physical-accuracy guarantee.
+
+`phos_query_measurements` accepts an open metric identifier, so an unknown
+identifier remains a valid query and returns no samples. The runtime currently
+produces `temperature_c`, `pressure_hpa`, `humidity_percent`, `eco2_ppm`,
+`tvoc_ppb`, and `aqi_uba`. `start` and `end` are optional timezone-aware RFC
+3339 timestamps; their requested interval can be at most six hours. `limit`
+is 1–360 and defaults to 360. Retained values are RAM-only PHOS receipt-time
+observations and are lost on restart.
+
+`phos_list_physical_transitions` optionally takes an open-string exact
+`event_type` filter, such as `presence_changed`, `attention_changed`,
+`robot_state_changed`, `environment_availability_changed`, or
+`air_quality_availability_changed`. It retains up to six hours of transitions;
+`limit` is 1–360 and defaults to 100. An unmatched filter returns no retained
+transitions and does not prove that no transition occurred.
+
 ## MCP Resources
 
 PHOS exposes read-only MCP Resources through the same permission-checked

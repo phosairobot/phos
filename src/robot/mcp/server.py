@@ -47,18 +47,34 @@ _EVENT_RESOURCE_URIS = {
     "motion_availability_changed": frozenset({"phos://physical-context"}),
 }
 
-Expression = Annotated[str, Field(min_length=1, json_schema_extra={
+Expression = Annotated[str, Field(min_length=1, description="Supported semantic expression to display; use phos_set_state for a temporary agent thinking visual.", json_schema_extra={
     "enum": COMMANDS["set_expression"].allowed_values,
 })]
-SpeechText = Annotated[str, Field(min_length=1, max_length=500)]
-SignalIntent = Annotated[str, Field(min_length=1, json_schema_extra={
+SpeechText = Annotated[str, Field(min_length=1, max_length=500,
+                                  description="Text for one PHOS speech request (1–500 characters).")]
+SignalIntent = Annotated[str, Field(min_length=1,
+                                    description="Transient user signal; it does not change robot lifecycle state.", json_schema_extra={
     "enum": sorted(USER_SIGNAL_INTENTS),
 })]
-VisualState = Annotated[str, Field(json_schema_extra={"enum": ["thinking", "idle"]})]
+VisualState = Annotated[str, Field(description="thinking creates a temporary caller-owned visual lease; idle releases that caller's lease.",
+                                   json_schema_extra={"enum": ["thinking", "idle"]})]
 # Bounds are state-dependent: MCP validates an integer here, while the shared
 # manager applies 250..60000 only when the request is ``thinking``.  For
 # ``idle``, any supplied integer is compatibility input and is discarded.
-VisualStateDuration = Annotated[StrictInt, Field()]
+VisualStateDuration = Annotated[StrictInt, Field(description="Required for thinking: 250–60000 ms. Optional and ignored for idle releases.")]
+HistoryMetric = Annotated[str, Field(description=(
+    "Open metric identifier. PHOS currently produces temperature_c, pressure_hpa, humidity_percent, "
+    "eco2_ppm, tvoc_ppb, and aqi_uba; unknown identifiers return no samples."))]
+HistoryTimestamp = Annotated[str, Field(description=(
+    "Optional timezone-aware RFC 3339 timestamp. The start/end window must not exceed six hours; "
+    "history is RAM-only and uses PHOS receipt-time observations."))]
+HistoryLimit = Annotated[int, Field(description="Maximum returned records, from 1 through 360 (default 360).",
+                                    json_schema_extra={"minimum": 1, "maximum": 360})]
+TransitionEventType = Annotated[str, Field(description=(
+    "Optional open-string exact event-type filter, for example presence_changed, attention_changed, "
+    "robot_state_changed, environment_availability_changed, or air_quality_availability_changed."))]
+TransitionLimit = Annotated[int, Field(description="Maximum returned transitions, from 1 through 360 (default 100).",
+                                       json_schema_extra={"minimum": 1, "maximum": 360})]
 
 
 class McpToolError(Exception):
@@ -349,6 +365,15 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
                        subscriptions=subscriptions, middleware=[authenticate_request])
 
+    passive_read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True,
+                                   openWorldHint=False)
+    on_demand_read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=False,
+                                     openWorldHint=False)
+    idempotent_control = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True,
+                                         openWorldHint=False)
+    transient_control = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False,
+                                        openWorldHint=False)
+
     def tool(name: str, description: str, *, annotations=None):
         return server.tool(name=name, description=description, annotations=annotations, structured_output=True)
 
@@ -379,37 +404,43 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     def vision_snapshot_resource() -> bytes:
         return _resource_bytes_result(adapter.camera_snapshot)
 
-    @tool("phos_get_status", "Return provider-independent PHOS semantic status.")
+    @tool("phos_get_status", "Get compact PHOS runtime status and capabilities. Use phos_get_physical_context for current sensed conditions; fields can be unavailable when a subsystem is disabled or unhealthy.",
+          annotations=passive_read)
     def get_status() -> dict[str, Any]:
         return _tool_result(adapter.get_status, ToolError)
 
-    @tool("phos_get_physical_context", PHYSICAL_CONTEXT_TOOL_DESCRIPTION)
+    @tool("phos_get_physical_context", PHYSICAL_CONTEXT_TOOL_DESCRIPTION, annotations=passive_read)
     def get_physical_context() -> dict[str, Any]:
         return _tool_result(adapter.get_physical_context, ToolError)
 
     @tool("phos_get_physical_assessment", PHYSICAL_ASSESSMENT_TOOL_DESCRIPTION,
-          annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
+          annotations=passive_read)
     def get_physical_assessment() -> dict[str, Any]:
         return _tool_result(adapter.get_physical_assessment, ToolError)
 
-    @tool("phos_get_presence", "Return semantic presence state without identity.")
+    @tool("phos_get_presence", "Get PHOS's current semantic presence state without identity. Use phos_get_attention for attention direction or phos_list_physical_transitions for retained presence changes; the result may be unavailable.",
+          annotations=passive_read)
     def get_presence() -> dict[str, Any]:
         return _tool_result(adapter.get_presence, ToolError)
 
-    @tool("phos_get_attention", "Return semantic attention state.")
+    @tool("phos_get_attention", "Get PHOS's current semantic attention state. Use phos_get_presence for occupancy or phos_list_physical_transitions for retained changes; it can be unavailable when perception is inactive.",
+          annotations=passive_read)
     def get_attention() -> dict[str, Any]:
         return _tool_result(adapter.get_attention, ToolError)
 
-    @tool("phos_get_observed_expression", "Return observed-expression semantics, not emotion claims.")
+    @tool("phos_get_observed_expression", "Get the latest observed facial-expression label and confidence, not an emotion claim. Use phos_get_visible_objects for object labels or phos_get_camera_snapshot for an image; vision data may be unavailable or stale.",
+          annotations=passive_read)
     def get_observed_expression() -> dict[str, Any]:
         return _tool_result(adapter.get_observed_expression, ToolError)
 
-    @tool("phos_get_visible_objects", "Return bounded on-demand visible-object semantics without image content.")
+    @tool("phos_get_visible_objects", "Run one bounded on-demand object observation from PHOS's existing Vision frame and return labels only. Use phos_get_camera_snapshot for an image; this can be busy, time out, or be unavailable and does not track objects.",
+          annotations=on_demand_read)
     async def get_visible_objects() -> dict[str, Any]:
         return await _async_tool_result(adapter.visible_objects, ToolError)
 
     @server.tool(name="phos_get_camera_snapshot",
-                 description="Return a JPEG from PHOS's latest cached camera frame without interpreting it.",
+                 description="Return PHOS's latest cached JPEG camera frame without interpretation. Use phos_capture_camera_snapshot when a post-request frame is needed; cached frames can be stale or unavailable and requests are limited to one per second per identity.",
+                 annotations=passive_read,
                  structured_output=False)
     def get_camera_snapshot():
         """Return the existing JPEG as an MCP image block, never as JSON text."""
@@ -417,18 +448,21 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
         return _snapshot_tool_result(adapter.camera_snapshot_with_metadata, ToolError, source="cached")
 
     @server.tool(name="phos_capture_camera_snapshot",
-                 description="Wait for PHOS's next Vision frame without interpreting it.",
+                 description="Wait for PHOS's next camera frame and return it as JPEG without interpretation. Use phos_get_camera_snapshot for the latest cached frame; capture can be busy, time out, or be unavailable and requests are limited to one per second per identity.",
+                 annotations=on_demand_read,
                  structured_output=False)
     async def capture_camera_snapshot():
         snapshot_limiter.require_allowed(_snapshot_request_identity(adapter._agent_service))
         return await _async_snapshot_tool_result(adapter.capture_camera_snapshot_with_metadata, ToolError,
                                                  source="on_demand")
 
-    @tool("phos_set_expression", "Set a supported semantic expression.")
+    @tool("phos_set_expression", "Set PHOS's supported semantic expression. Use phos_set_state for temporary agent thinking visuals; this changes displayed expression but not robot lifecycle state.",
+          annotations=idempotent_control)
     def set_expression(expression: Expression) -> dict[str, Any]:
         return _tool_result(lambda: adapter.set_expression(expression), ToolError)
 
-    @tool("phos_set_state", "Request a bounded agent-owned thinking visual state, or release it with idle.")
+    @tool("phos_set_state", "Request a temporary caller-owned thinking visual lease, or release it with idle. Use phos_set_expression for expression control; thinking requires duration_ms and may be visually suppressed by safety, sleep, speech, or listening states.",
+          annotations=transient_control)
     async def set_state(state: VisualState, duration_ms: VisualStateDuration | None = None) -> dict[str, Any]:
         if state not in {"thinking", "idle"}:
             raise ToolError("invalid_argument: state must be thinking or idle.")
@@ -449,28 +483,36 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     argument_model.model_rebuild(force=True)
     visual_state_tool.parameters = argument_model.model_json_schema(by_alias=True)
 
-    @tool("phos_speak", "Request bounded semantic speech text.")
+    @tool("phos_speak", "Request PHOS to speak one bounded text message. Use phos_signal_user for a transient non-speech cue; speech may be unavailable or interrupted by normal runtime policy.",
+          annotations=transient_control)
     async def speak(text: SpeechText) -> dict[str, Any]:
         return await _async_tool_result(lambda: adapter.speak_async(text), ToolError)
 
-    @tool("phos_sleep", "Request semantic sleep through normal state transitions.")
+    @tool("phos_sleep", "Request PHOS to enter sleep through normal lifecycle transitions. Use phos_wake to request wake; the request follows runtime transition and availability rules.",
+          annotations=idempotent_control)
     async def sleep() -> dict[str, Any]:
         return await _async_tool_result(adapter.sleep_async, ToolError)
 
-    @tool("phos_wake", "Request semantic wake through normal state transitions.")
+    @tool("phos_wake", "Request PHOS to wake through normal lifecycle transitions. Use phos_sleep to request sleep; the request follows runtime transition and availability rules.",
+          annotations=idempotent_control)
     async def wake() -> dict[str, Any]:
         return await _async_tool_result(adapter.wake_async, ToolError)
 
-    @tool("phos_signal_user", "Request a canonical transient semantic user signal.")
+    @tool("phos_signal_user", "Request one transient canonical user signal. Use phos_speak for spoken output; this may trigger configured visual or hardware feedback and does not change robot lifecycle state.",
+          annotations=transient_control)
     async def signal_user(signal: SignalIntent) -> dict[str, Any]:
         return await _async_tool_result(lambda: adapter.signal_user_async(signal), ToolError)
 
-    @tool("phos_query_measurements", "Return bounded RAM-only physical measurement history.")
-    def query_measurements(metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
+    @tool("phos_query_measurements", "Get one bounded RAM-only measurement series for a selected metric and time window. Use phos_get_physical_context for current conditions and phos_get_physical_assessment before longitudinal interpretation; unknown metrics return no samples and no trend conclusion is made.",
+          annotations=passive_read)
+    def query_measurements(metric: HistoryMetric, start: HistoryTimestamp | None = None,
+                           end: HistoryTimestamp | None = None, limit: HistoryLimit = 360) -> dict[str, Any]:
         return _tool_result(lambda: adapter.query_measurements(metric, start, end, limit), ToolError)
 
-    @tool("phos_list_physical_transitions", "Return bounded confirmed physical transition history.")
-    def list_physical_transitions(event_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+    @tool("phos_list_physical_transitions", "Get bounded retained semantic physical transitions, optionally filtered by an exact open-string event type. Use phos_query_measurements for numeric samples and phos_get_physical_assessment for evidence quality; absence of a retained transition does not prove it never occurred.",
+          annotations=passive_read)
+    def list_physical_transitions(event_type: TransitionEventType | None = None,
+                                  limit: TransitionLimit = 100) -> dict[str, Any]:
         return _tool_result(lambda: adapter.list_physical_transitions(event_type, limit), ToolError)
 
     return server

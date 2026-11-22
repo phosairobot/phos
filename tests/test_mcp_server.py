@@ -147,6 +147,80 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     assert visual_state.input_schema["additionalProperties"] is False
 
 
+def test_tool_discovery_metadata_describes_open_history_contracts_and_real_side_effects():
+    """Keep tools/list useful without narrowing any established input contract."""
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+
+    assert set(tools) == MCP_TOOL_NAMES
+    assert all(tool.description and len(tool.description) > 40 for tool in tools.values())
+    expected_annotations = {
+        "phos_get_status": (True, True),
+        "phos_get_physical_context": (True, True),
+        "phos_get_physical_assessment": (True, True),
+        "phos_get_presence": (True, True),
+        "phos_get_attention": (True, True),
+        "phos_get_observed_expression": (True, True),
+        "phos_get_visible_objects": (True, False),
+        "phos_get_camera_snapshot": (True, True),
+        "phos_capture_camera_snapshot": (True, False),
+        "phos_set_expression": (False, True),
+        "phos_set_state": (False, False),
+        "phos_speak": (False, False),
+        "phos_sleep": (False, True),
+        "phos_wake": (False, True),
+        "phos_signal_user": (False, False),
+        "phos_query_measurements": (True, True),
+        "phos_list_physical_transitions": (True, True),
+    }
+    for name, (read_only, idempotent) in expected_annotations.items():
+        annotation = tools[name].annotations
+        assert annotation.read_only_hint is read_only
+        assert annotation.destructive_hint is False
+        assert annotation.idempotent_hint is idempotent
+        assert annotation.open_world_hint is False
+
+    history = tools["phos_query_measurements"].input_schema["properties"]
+    assert "enum" not in history["metric"]
+    assert all(metric in history["metric"]["description"] for metric in (
+        "temperature_c", "pressure_hpa", "humidity_percent", "eco2_ppm", "tvoc_ppb", "aqi_uba",
+    ))
+    assert "RFC 3339" in history["start"]["anyOf"][0]["description"]
+    assert history["limit"]["default"] == 360
+    assert history["limit"]["minimum"] == 1
+    assert history["limit"]["maximum"] == 360
+    transitions = tools["phos_list_physical_transitions"].input_schema["properties"]
+    assert "enum" not in transitions["event_type"]["anyOf"][0]
+    assert transitions["limit"]["default"] == 100
+    assert transitions["limit"]["minimum"] == 1
+    assert transitions["limit"]["maximum"] == 360
+    state_duration = tools["phos_set_state"].input_schema["properties"]["duration_ms"]
+    assert "thinking" in state_duration["anyOf"][0]["description"]
+    assert "idle" in state_duration["anyOf"][0]["description"]
+
+
+def test_tool_discovery_metadata_preserves_open_history_and_existing_control_calls():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    async def exercise():
+        unknown_metric = await server.call_tool("phos_query_measurements", {"metric": "future_metric"})
+        transition = await server.call_tool("phos_list_physical_transitions", {"event_type": "future_event"})
+        expression = await server.call_tool("phos_set_expression", {"expression": "happy"})
+        signal = await server.call_tool("phos_signal_user", {"signal": "success"})
+        return unknown_metric, transition, expression, signal
+
+    results = asyncio.run(exercise())
+    assert all(not result.is_error for result in results)
+    assert application.calls == [
+        ("query_measurements", "future_metric", None, None, 360),
+        ("list_physical_transitions", "future_event", 100),
+        ("set_expression", "happy"),
+        ("signal_user", "success"),
+    ]
+
+
 def test_physical_tool_discovery_and_calls_distinguish_current_and_temporal_questions():
     adapter, application = _adapter()
     server = create_mcp_server(adapter._agent_service)
