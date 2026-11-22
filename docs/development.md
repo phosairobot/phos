@@ -17,8 +17,8 @@ PYTHONPATH=src python3 -m robot.main --config config/phos.yaml
 ```
 
 No separate example/provider files or hidden overlays are loaded. With no
-argument, startup discovers `phos.yaml`, then `phos.yml`, then legacy `phos.json`
-relative to the source checkout, not its working directory. A custom `--config`
+argument, startup uses `phos.yaml` relative to the source checkout, not its
+working directory. A custom `--config`
 selects one complete file instead.
 To keep a separate deployment copy, copy the full canonical file, edit it and
 pass its path explicitly. Keep deployment changes out of commits if inappropriate.
@@ -235,7 +235,7 @@ strict validation still rejects all other missing or unknown fields.
 startup screen until the runtime reaches `ready` or acceptable `degraded` state.
 `startup.splash.image`, `title`, and `subtitle` configure the deep-navy branded
 screen. A null image/file selects PHOS's installed `robot.assets` PNG/WAV;
-non-null overrides are resolved relative to the loaded `phos.json`, never the
+non-null overrides are resolved relative to the loaded `phos.yaml`, never the
 process working directory. The screen is deliberately unlike normal eyes and is
 flushed once before synchronous subsystem startup continues.
 `failed` remains on that screen. `startup.ready_sound` is an optional local WAV
@@ -338,8 +338,8 @@ configuration persistence and an isolated local WSGI worker without hardware.
 
 `robot.__version__` in `src/robot/__init__.py` is authoritative. Setuptools derives
 metadata from that literal; do not add another independently maintained version.
-Source checkouts use `config/phos.yaml`; wheels install it with the legacy JSON
-asset under the environment's `share/phos/config/` data directory. Explicit `--config`
+Source checkouts use `config/phos.yaml`; wheels install the same YAML asset
+under the environment's `share/phos/config/` data directory. Explicit `--config`
 remains the supported deployment boundary; no alternate schema is introduced.
 The pinned Python 3.11+ web snapshot is `requirements-web.txt`; platform camera
 dependencies remain managed by Raspberry Pi OS. See the release record.

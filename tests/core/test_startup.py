@@ -1,4 +1,5 @@
 from robot.core.startup import StartupReadiness, StartupState
+import yaml
 from robot.config import RuntimeConfig, load_document
 
 
@@ -26,9 +27,9 @@ def test_required_failure_remains_failed():
 def test_startup_section_is_injected_for_existing_complete_documents(tmp_path):
     document = load_document()
     document.pop("startup")
-    path = tmp_path / "phos.json"
+    path = tmp_path / "phos.yaml"
     import json
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     config = RuntimeConfig.from_file(path)
     assert config.startup_splash_enabled is True
     assert config.startup_ready_sound_enabled is False

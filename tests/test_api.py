@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import yaml
 from types import SimpleNamespace
 
 from flask import Flask
@@ -370,7 +371,7 @@ def test_local_openapi_and_documentation_routes():
     from pathlib import Path
     from robot.web.app import create_app
     runtime = Runtime()
-    app = create_app(Path("config/phos.json"), application_service=PhosApplicationService(runtime))
+    app = create_app(Path("config/phos.yaml"), application_service=PhosApplicationService(runtime))
     # Documentation is still protected by the same local-admin authentication
     # boundary in a complete app; route registration is verified directly.
     routes = {rule.rule for rule in app.url_map.iter_rules()}

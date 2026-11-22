@@ -1,6 +1,7 @@
 """MPU-6050 adapter, worker, runtime and configuration checks without hardware."""
 import asyncio
 import json
+import yaml
 import sys
 from types import SimpleNamespace
 
@@ -134,24 +135,24 @@ def test_invalid_motion_configuration_is_rejected(field, value, tmp_path):
 
 
 def test_imu_restart_policy(tmp_path):
-    path = tmp_path / "phos.json"; RuntimeConfig(log_file=None).save(path)
+    path = tmp_path / "phos.yaml"; RuntimeConfig(log_file=None).save(path)
     lifecycle = LifecycleService(path, RuntimeConfig.from_file(path))
     document = load_document(path)
     document["sensors"]["imu"].update(enabled=True, i2c_address="0x69", poll_interval_seconds=10, stale_after_seconds=60)
-    path.write_text(json.dumps(document)); result = lifecycle.execute("reload")
+    path.write_text(yaml.safe_dump(document, sort_keys=False)); result = lifecycle.execute("reload")
     assert result["ok"] and result["applied"] == []
     assert result["restart_required"] == ["sensors.imu.enabled", "sensors.imu.i2c_address",
                                            "sensors.imu.poll_interval_seconds", "sensors.imu.stale_after_seconds"]
 
 
 def test_motion_thresholds_reload_without_reopening_imu(tmp_path):
-    path = tmp_path / "phos.json"; RuntimeConfig(log_file=None).save(path)
+    path = tmp_path / "phos.yaml"; RuntimeConfig(log_file=None).save(path)
     config = RuntimeConfig.from_file(path)
     lifecycle = LifecycleService(path, config)
     calls = []
     lifecycle.register_imu_motion_applier(lambda candidate: calls.append(candidate.imu_motion_impact_threshold_m_s2))
     document = load_document(path); document["sensors"]["imu"]["motion"]["impact_threshold_m_s2"] = 30
-    path.write_text(json.dumps(document)); result = lifecycle.execute("reload")
+    path.write_text(yaml.safe_dump(document, sort_keys=False)); result = lifecycle.execute("reload")
     assert result["ok"] and result["applied"] == ["sensors.imu.motion.impact_threshold_m_s2"]
     assert not result["restart_required"] and calls == [30]
 
@@ -278,7 +279,7 @@ def test_tilt_configuration_validation(changes, tmp_path):
 
 
 def test_new_tilt_settings_reload_and_reset_pending_evidence(tmp_path):
-    path = tmp_path / "phos.json"
+    path = tmp_path / "phos.yaml"
     RuntimeConfig(log_file=None).save(path)
     interpreter = MotionInterpreter(motion_settings())
     calls = []
@@ -292,7 +293,7 @@ def test_new_tilt_settings_reload_and_reset_pending_evidence(tmp_path):
     document = load_document(path)
     document["sensors"]["imu"]["motion"].update(tilt_exit_threshold_m_s2=2.5, confirmation_seconds=.2,
                                                 lateral_axis="-y", forward_axis="x")
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     result = lifecycle.execute("reload")
     assert result["ok"] and not result["restart_required"] and len(result["applied"]) == 4
     assert calls and interpreter._candidate is None

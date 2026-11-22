@@ -32,8 +32,8 @@ def runtime(tmp_path):
     # catalog; absence remains a supported configuration.
     document.pop("appearance", None)
     document["logging"]["file"] = None
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     applied = []
     now = [0.0]
     service = LifecycleService(path, RuntimeConfig.from_file(path), restart_supported=True,
@@ -44,7 +44,7 @@ def runtime(tmp_path):
 def update(path, edit):
     document = load_document(path)
     edit(document)
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
 
 
 def test_object_recognition_enable_disable_applies_live_and_persists(runtime):
