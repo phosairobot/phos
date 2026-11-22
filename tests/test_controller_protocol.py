@@ -480,6 +480,25 @@ def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder()
     assert first_deadline > 0
 
 
+def test_pyserial_control_lines_are_configured_before_open(monkeypatch):
+    import sys
+    calls = []
+    class Serial:
+        def __init__(self, *, port, baudrate, timeout, write_timeout):
+            assert port is None and baudrate == 115200 and timeout == .25 and write_timeout == 1
+            self.dtr, self.rts, self.port = None, None, None
+        def open(self): calls.append((self.dtr, self.rts, self.port))
+        @property
+        def in_waiting(self): return 0
+        def reset_input_buffer(self): pass
+        def close(self): pass
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=Serial))
+    transport = SerialControllerTransport("/dev/ttyUSB0", 115200, dtr=False, rts=False)
+    transport.open()
+    assert calls == [(False, False, "/dev/ttyUSB0")]
+    assert transport._serial.dtr is False and transport._serial.rts is False
+
+
 def test_serial_transport_reports_pyserial_write_result_after_flush():
     class Serial:
         def __init__(self): self.writes, self.flushed = [], False
@@ -717,16 +736,25 @@ def test_controller_reconfigure_replaces_only_connection_level_transport_and_res
                                              heartbeat_timeout_seconds=7)
         assert not reopened and len(transports) == 2
         assert service._reconnect_delay == .4 and service._heartbeat_interval == 5 and service._heartbeat_timeout == 7
-        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=57600,
+        # Control-line configuration is a transport property, so either
+        # change replaces the session while timing-only changes above do not.
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=115200,
                                              reconnect_delay_seconds=.4, heartbeat_interval_seconds=5,
-                                             heartbeat_timeout_seconds=7)
+                                             heartbeat_timeout_seconds=7, serial_dtr=True, serial_rts=True)
         assert reopened and transports[1].closed
         await asyncio.sleep(.03)
-        assert len(transports) == 3 and transports[2].baud_rate == 57600
+        assert len(transports) == 3
+        assert service._serial_dtr is True and service._serial_rts is True
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=57600,
+                                             reconnect_delay_seconds=.4, heartbeat_interval_seconds=5,
+                                             heartbeat_timeout_seconds=7, serial_dtr=True, serial_rts=True)
+        assert reopened and transports[2].closed
+        await asyncio.sleep(.03)
+        assert len(transports) == 4 and transports[3].baud_rate == 57600
         await service.stop()
 
     asyncio.run(exercise())
-    assert disconnected == [True, True]
+    assert disconnected == [True, True, True]
 
 
 def test_controller_reconfigure_keeps_saved_failed_device_and_retries():
@@ -851,14 +879,14 @@ def test_controller_read_boundary_propagates_controlled_failure_without_wall_clo
         reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
         touch_sink=lambda _event: None, clock=lambda: now[0], read_operation=failing_read)
     service._transport = SimpleNamespace()
-    _decoder, deadline = service._new_session()
+    _decoder, _deadline = service._new_session()
     async def exercise():
         with pytest.raises(OSError, match="controlled read failure"):
-            await service._read_connected(JsonLinesDecoder(), deadline)
+            await service._read_connected(JsonLinesDecoder(), 100.0)
     asyncio.run(exercise())
 
 
-def test_controller_heartbeat_timeout_uses_injected_clock_before_read():
+def test_controller_heartbeat_timeout_uses_injected_clock_after_empty_read():
     now = [0.0]
     called = []
     async def read_never(_transport, _started):
@@ -872,9 +900,50 @@ def test_controller_heartbeat_timeout_uses_injected_clock_before_read():
     now[0] = 4.0
     async def exercise():
         with pytest.raises(OSError, match="heartbeat timed out"):
-            await service._read_connected(JsonLinesDecoder(), deadline)
+            await service._read_connected(JsonLinesDecoder(), 100.0)
     asyncio.run(exercise())
-    assert called == []
+    assert called == [True]
+
+
+def test_buffered_valid_sensor_telemetry_refreshes_liveness_before_timeout():
+    now = [0.0]
+    received, reads = [], []
+    async def queued_read(_transport, _started):
+        reads.append(True)
+        if len(reads) == 1:
+            return b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"eco2","value":400,"unit":"ppm"}}\n'
+        now[0] = 8.0
+        return b""
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, sensor_update_sink=lambda name, value: received.append((name, value)),
+        clock=lambda: now[0], read_operation=queued_read)
+    service._transport = SimpleNamespace()
+    _decoder, _deadline = service._new_session()
+    now[0] = 4.0  # The watchdog deadline has elapsed before the queued read runs.
+    async def exercise():
+        with pytest.raises(OSError, match="heartbeat timed out"):
+            await service._read_connected(JsonLinesDecoder(), 100.0)
+    asyncio.run(exercise())
+    assert received == [("eco2", 400)]
+    assert service._last_peer_activity == 4.0
+
+
+def test_buffered_invalid_json_does_not_refresh_liveness_or_prevent_timeout():
+    now = [4.0]
+    async def invalid_read(_transport, _started):
+        return b"{not-json}\n"
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, clock=lambda: now[0], read_operation=invalid_read)
+    service._transport = SimpleNamespace()
+    service._new_session()
+    service._last_peer_activity = 0.0
+    async def exercise():
+        with pytest.raises(OSError, match="heartbeat timed out"):
+            await service._read_connected(JsonLinesDecoder(), 100.0)
+    asyncio.run(exercise())
+    assert service._last_peer_activity == 0.0
 
 
 def test_controller_run_retires_failed_session_before_reconnect():

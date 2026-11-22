@@ -52,6 +52,7 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
 HARDWARE_CONTROLLER_RELOADABLE = frozenset({
     "hardware_controller.enabled", "hardware_controller.transport",
     "hardware_controller.serial.device", "hardware_controller.serial.baud_rate",
+    "hardware_controller.serial.dtr", "hardware_controller.serial.rts",
     "hardware_controller.reconnect.delay_seconds", "hardware_controller.heartbeat.interval_seconds",
     "hardware_controller.heartbeat.timeout_seconds",
 })

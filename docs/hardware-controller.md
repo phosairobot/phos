@@ -23,6 +23,14 @@ after transport failure using the configured delay, and exposes bounded
 connection status/recent diagnostics in Web Admin. Controller transport failure
 does not give Web clients direct serial access.
 
+`hardware_controller.serial.dtr` and `.rts` default to `false`. PHOS configures
+these values before opening pySerial so ESP32 USB-UART auto-reset circuitry is
+not unintentionally driven by the host's default asserted control lines. Boards
+with a documented different requirement may opt in through the same Hardware
+Controller configuration; changing either setting reconnects the controller and
+may briefly interrupt sensor readings and controller-backed LED output. Verify
+the selected levels on the target controller board.
+
 ## Protocol
 
 Messages are framed JSON objects with `protocol: "phos-hw"`, `version: 1`, a

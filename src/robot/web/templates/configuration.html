@@ -213,7 +213,7 @@ Your edits on this page have not been saved.</p>
 {% if error and related_area == area and error_group == section.name %}<p class="error" role="alert">{{ error }}</p>{% endif %}<div class="fields{% if area == 'mcp' %} mcp-configuration-fields{% endif %}">
 {% for field in section.fields %}
 {% set value = submitted.get(field.name, '') if submitted is not none else field.value %}
-<div class="field{% if field.name.startswith('mcp.authentication.') %} mcp-authentication-field{% endif %}"{% if field.name == 'mcp.authentication.mode' %} data-mcp-authentication-mode{% elif field.name == 'mcp.authentication.anonymous_permission_profile' %} data-mcp-anonymous-profile{% endif %}><label for="{{ field.name }}">{{ 'MCP Authentication Mode' if field.name == 'mcp.authentication.mode' else 'Anonymous Client Permissions' if field.name == 'mcp.authentication.anonymous_permission_profile' else field.label }}</label>{% if area == 'mcp' and field.name.startswith('mcp.authentication.') %}<small>Applies immediately</small>{% elif field.name == 'object_awareness.enabled' %}<small>Applies immediately</small>{% elif area == 'runtime_camera_preview' or (area == 'runtime_logging' and field.name == 'logging.level') %}<small>Applies immediately</small>{% elif area in ('runtime_vision', 'runtime_expression', 'runtime_logging') %}<small>Requires Restart PHOS</small>{% endif %}
+<div class="field{% if field.name.startswith('mcp.authentication.') %} mcp-authentication-field{% endif %}"{% if field.name == 'mcp.authentication.mode' %} data-mcp-authentication-mode{% elif field.name == 'mcp.authentication.anonymous_permission_profile' %} data-mcp-anonymous-profile{% endif %}><label for="{{ field.name }}">{{ 'MCP Authentication Mode' if field.name == 'mcp.authentication.mode' else 'Anonymous Client Permissions' if field.name == 'mcp.authentication.anonymous_permission_profile' else field.label }}</label>{% if field.help %}<small>{{ field.help }}</small>{% endif %}{% if area == 'mcp' and field.name.startswith('mcp.authentication.') %}<small>Applies immediately</small>{% elif field.name == 'object_awareness.enabled' %}<small>Applies immediately</small>{% elif area == 'runtime_camera_preview' or (area == 'runtime_logging' and field.name == 'logging.level') %}<small>Applies immediately</small>{% elif area in ('runtime_vision', 'runtime_expression', 'runtime_logging') %}<small>Requires Restart PHOS</small>{% endif %}
 {% if field.name == 'display.iris_color' %}
 {% set preset = iris_resolver.preset_for(value) %}
 <div class="iris-color-controls" data-iris-color-controls>
@@ -237,6 +237,7 @@ Your edits on this page have not been saved.</p>
 {% endif %}
 {% endif %}</div>
 {% endfor %}</div></fieldset>
+{% if area == 'controller' and section.name == 'controller' %}<p class="notice">Changing DTR or RTS reconnects the hardware controller and may briefly interrupt sensor readings and LED output.</p>{% endif %}
 {% endfor %}
 {% if area == 'voice' %}</section>{% endif %}
 <button class="save">{{ 'Save & Apply' if area == 'eyes' else 'Save ' ~ page.title }}</button>{% if area != 'eyes' %}<p>Configuration is validated before atomic replacement. Keep a separate backup before editing; no automatic backup is created.</p>{% endif %}

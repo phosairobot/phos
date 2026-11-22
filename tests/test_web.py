@@ -2491,6 +2491,12 @@ def test_hardware_controller_page_uses_application_read_models_and_persists_conf
     assert "sensor_update" in page and ">heartbeat</td>" not in page and "&lt;script&gt;" in page
     assert 'class="controller-message-scroll"' in page and 'data-controller-message-scroll' in page
     assert '<select id="hardware_controller.transport"' in page and '<option value="serial"' in page
+    assert 'label for="hardware_controller.serial.dtr">DTR (Data Terminal Ready)</label>' in page
+    assert 'label for="hardware_controller.serial.rts">RTS (Request to Send)</label>' in page
+    assert page.count('this signal affects reset or boot behavior.') == 2
+    assert 'Changing DTR or RTS reconnects the hardware controller' in page
+    assert 'name="hardware_controller.serial.dtr" type="checkbox" checked' not in page
+    assert 'name="hardware_controller.serial.rts" type="checkbox" checked' not in page
     diagnostics = client.get("/controller/diagnostics")
     assert diagnostics.status_code == 200
     assert diagnostics.get_json()["messages"][0]["type"] == "sensor_update"
@@ -2498,10 +2504,16 @@ def test_hardware_controller_page_uses_application_read_models_and_persists_conf
     data = form(client, "controller")
     data.update({"hardware_controller.enabled": "on", "hardware_controller.serial.device": "/dev/ttyUSB0",
                  "hardware_controller.serial.baud_rate": "115200", "hardware_controller.reconnect.delay_seconds": "2",
-                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10"})
+                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10",
+                 "hardware_controller.serial.dtr": "on"})
     assert client.post("/configuration/controller", data=data).status_code == 302
     assert load_document(path)["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
     assert service.updated["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    assert service.updated["hardware_controller"]["serial"]["dtr"] is True
+    assert service.updated["hardware_controller"]["serial"]["rts"] is False
+    reloaded = client.get("/configuration/controller").get_data(as_text=True)
+    assert 'name="hardware_controller.serial.dtr" type="checkbox" checked' in reloaded
+    assert 'name="hardware_controller.serial.rts" type="checkbox" checked' not in reloaded
     assert 'renderStatus(data.status);' in Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
     token = csrf(client.get("/configuration/controller"))
     assert client.post("/controller/diagnostics/clear", data={"csrf_token": token}).status_code == 302
