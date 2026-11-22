@@ -821,6 +821,69 @@ def test_controller_air_quality_notification_uses_canonical_reading_type():
     assert received[-1] == AirQualityReading(400, 0)
 
 
+@pytest.mark.parametrize("validity,status", [(1, "warming_up"), (2, "starting"), (3, "invalid")])
+def test_explicit_non_normal_ens160_status_survives_gas_updates(validity, status):
+    received = []
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True,
+                                  reading_sink=lambda reading, _now: received.append(reading))
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": validity, "compensation_active": False}, generation=1)
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 12, generation=1)
+
+    snapshot = air.snapshot()
+    assert snapshot["status"] == status
+    assert not snapshot["available"]
+    assert snapshot["measurements"]["eco2_ppm"] == 400
+    assert snapshot["measurements"]["tvoc_ppb"] == 12
+    assert not snapshot["measurement_usable"]["eco2_ppm"]
+    assert not snapshot["measurement_usable"]["tvoc_ppb"]
+    assert received == []
+
+
+def test_normal_ens160_status_requires_subsequent_fresh_gas_evidence():
+    received = []
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True,
+                                  reading_sink=lambda reading, _now: received.append(reading))
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": 2, "compensation_active": False}, generation=1)
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 12, generation=1)
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+
+    assert air.snapshot()["status"] == "starting"
+    assert not air.snapshot()["available"]
+    assert not air.snapshot()["measurement_usable"]["eco2_ppm"]
+    assert received == []
+    air.accept_controller_update("eco2", 401, generation=1)
+    assert not air.snapshot()["measurement_usable"]["tvoc_ppb"]
+    air.accept_controller_update("tvoc", 13, generation=1)
+
+    snapshot = air.snapshot()
+    assert snapshot["available"]
+    assert snapshot["measurement_usable"]["eco2_ppm"]
+    assert snapshot["measurement_usable"]["tvoc_ppb"]
+    assert received == [AirQualityReading(401, 13)]
+
+
+def test_repeated_normal_ens160_status_does_not_reset_available_state():
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True)
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 12, generation=1)
+    assert air.snapshot()["available"]
+
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+    snapshot = air.snapshot()
+    assert snapshot["available"]
+    assert snapshot["status"] == "available"
+    assert snapshot["measurement_usable"]["eco2_ppm"]
+
+
 def test_air_quality_generation_activation_retirement_and_rejection_are_deterministic():
     now = [0.0]
     air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,

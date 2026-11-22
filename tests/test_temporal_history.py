@@ -95,3 +95,28 @@ def test_controller_sensor_services_only_record_completed_valid_recoveries():
     assert history.query_measurements("eco2_ppm")["count"] == 0
     air.accept_controller_update("tvoc", 20, generation=1)
     assert history.query_measurements("eco2_ppm")["count"] == 1
+
+
+def test_non_normal_ens160_telemetry_is_diagnostic_not_temporal_evidence():
+    now = [0.0]
+    history = TemporalHistoryService(clock=lambda: now[0], utc_now=lambda: "2026-01-01T00:00:00+00:00")
+    air = AirQualitySensorService(
+        lambda: None, enabled=True, externally_managed=True, poll_interval_seconds=1, stale_after_seconds=30,
+        clock=lambda: now[0],
+        reading_sink=lambda value, _: (
+            history.record_measurement("eco2_ppm", value.eco2_ppm, "ppm", source="air_quality"),
+            history.record_measurement("tvoc_ppb", value.tvoc_ppb, "ppb", source="air_quality"),
+        ),
+    )
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": 2, "compensation_active": False}, generation=1)
+    air.accept_controller_update("eco2", 500, generation=1)
+    air.accept_controller_update("tvoc", 20, generation=1)
+    assert history.query_measurements("eco2_ppm")["count"] == 0
+    assert air.snapshot()["measurements"]["eco2_ppm"] == 500
+    assert air.snapshot()["measurements"]["tvoc_ppb"] == 20
+
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+    air.accept_controller_update("eco2", 501, generation=1)
+    air.accept_controller_update("tvoc", 21, generation=1)
+    assert history.query_measurements("eco2_ppm")["count"] == 1
