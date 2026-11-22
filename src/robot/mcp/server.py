@@ -8,9 +8,10 @@ import ipaddress
 import logging
 from threading import RLock
 import time
-from typing import Annotated, Any, Callable
+from typing import Annotated, Any, Callable, Literal
 
 from pydantic import ConfigDict, Field, StrictInt
+from typing_extensions import TypedDict
 
 from robot.services import (AgentApplicationService, AgentPermissionDenied, ApplicationError, SemanticEvent,
                             USER_SIGNAL_INTENTS, AgentIdentity, AgentOperation, LocalAgentAuthenticator)
@@ -75,6 +76,274 @@ TransitionEventType = Annotated[str, Field(description=(
     "robot_state_changed, environment_availability_changed, or air_quality_availability_changed."))]
 TransitionLimit = Annotated[int, Field(description="Maximum returned transitions, from 1 through 360 (default 100).",
                                        json_schema_extra={"minimum": 1, "maximum": 360})]
+
+
+# These three TypedDicts describe the compact, permission-projected documents
+# returned by AgentApplicationService.  They deliberately do not describe the
+# broader Web Admin status model or expose identity/provider diagnostics.
+class McpStatusAvailability(TypedDict):
+    physical_context: Annotated[bool, Field(description="Whether the semantic physical-context reader is available.")]
+    environment: Annotated[bool, Field(description="Whether current environmental semantics are available.")]
+    air_quality: Annotated[bool, Field(description="Whether current air-quality semantics are available.")]
+    motion: Annotated[bool, Field(description="Whether current motion semantics are available.")]
+    vision: Annotated[bool, Field(description="Whether observed-expression semantics are available.")]
+    voice: Annotated[bool, Field(description="Whether voice capture is ready for an interaction.")]
+    speech: Annotated[bool, Field(description="Whether semantic speech output is available.")]
+    signals: Annotated[bool, Field(description="Whether semantic user signals are available.")]
+
+
+class McpStatusOutput(TypedDict):
+    running: Annotated[bool, Field(description="Whether the PHOS runtime reports itself running.")]
+    state: Annotated[str, Field(description="Actual RobotCore lifecycle state, not a temporary agent visual-state lease.")]
+    availability: McpStatusAvailability
+    degraded: Annotated[bool, Field(description="True when runtime or required sensor availability is degraded.")]
+    degraded_reasons: Annotated[list[str], Field(description="Stable semantic reasons for the current degraded state; empty when not degraded.")]
+
+
+class McpPresenceOutput(TypedDict):
+    state: Annotated[Literal["no_one", "person_present", "person_engaged"] | None, Field(
+        description="Anonymous semantic presence state; it never identifies a person. Null means the backing semantic reader did not provide a state.")]
+    people_count: Annotated[int | None, Field(description="Current semantic count estimate; it is not a guaranteed physical count. Null means the backing semantic reader did not provide a count.")]
+    confidence: Annotated[float | None, Field(description="Optional detector confidence. When present, Vision normalizes it to 0 through 1.",
+                                               json_schema_extra={"minimum": 0, "maximum": 1})]
+
+
+class McpAttentionTarget(TypedDict):
+    x: Annotated[float | None, Field(description="Optional camera-frame horizontal target center, normalized to -1 through 1.",
+                                     json_schema_extra={"minimum": -1, "maximum": 1})]
+    y: Annotated[float | None, Field(description="Optional camera-frame vertical target center, normalized to -1 through 1.",
+                                     json_schema_extra={"minimum": -1, "maximum": 1})]
+    confidence: Annotated[float | None, Field(description="Optional target detector confidence, normalized to 0 through 1 when present.",
+                                               json_schema_extra={"minimum": 0, "maximum": 1})]
+
+
+class McpAttentionOutput(TypedDict):
+    state: Annotated[Literal["idle", "acquiring", "tracking", "lost"], Field(
+        description="Semantic attention-tracking state, not identity or inferred intent.")]
+    target: McpAttentionTarget
+    acquired_at: Annotated[float | None, Field(description=(
+        "Optional monotonic-clock seconds when tracking was acquired; not an RFC 3339 wall-clock timestamp "
+        "and not comparable across runtime restarts."))]
+    last_seen: Annotated[float | None, Field(description=(
+        "Optional monotonic-clock seconds of the latest target observation; not an RFC 3339 wall-clock timestamp "
+        "and not comparable across runtime restarts."))]
+
+
+class McpPhysicalEnvironment(TypedDict):
+    status: str
+    available: bool
+    temperature_c: float | None
+    pressure_hpa: float | None
+    humidity_percent: float | None
+    last_update: str | None
+    age_seconds: float | None
+    condition: str | None
+    reason: str | None
+
+
+class McpPhysicalAirQuality(TypedDict):
+    status: str
+    available: bool
+    eco2_ppm: float | None
+    tvoc_ppb: float | None
+    aqi_uba: float | None
+    aqi_scale: str
+    humidity_percent: float | None
+    aht21_temperature_c: float | None
+    temperature_provenance: str
+    last_update: str | None
+    age_seconds: float | None
+    condition: str | None
+
+
+class McpPhysicalMotion(TypedDict):
+    status: str
+    available: bool
+    motion_state: str | None
+    motion_intensity: str | None
+    tilt_direction: str | None
+    last_motion_event: dict[str, Any] | None
+    last_update: str | None
+    age_seconds: float | None
+
+
+class McpPhysicalAttention(TypedDict):
+    state: str
+    target: McpAttentionTarget
+
+
+class McpPhysicalObservedExpression(TypedDict):
+    available: bool
+    label: str | None
+    confidence: float | None
+    unavailable_reason: str | None
+
+
+class McpPhysicalContextOutput(TypedDict):
+    robot: Annotated[dict[str, str], Field(description="Current RobotCore lifecycle state only; temporary visual leases are excluded.")]
+    environment: Annotated[McpPhysicalEnvironment, Field(description="Current environmental semantic snapshot; values can be null when unavailable or stale.")]
+    air_quality: Annotated[McpPhysicalAirQuality, Field(description="Current air-quality semantic snapshot; values can be null when unavailable or non-usable.")]
+    motion: Annotated[McpPhysicalMotion, Field(description="Current motion semantic snapshot; availability is independent of environmental sources.")]
+    presence: Annotated[McpPresenceOutput, Field(description="Anonymous current semantic presence observation.")]
+    attention: Annotated[McpPhysicalAttention, Field(description="Current semantic attention tracking without target identity.")]
+    observed_expression: Annotated[McpPhysicalObservedExpression, Field(description="Current observed-expression semantics, not an emotion claim.")]
+
+
+class McpMeasurement(TypedDict):
+    metric: Annotated[str, Field(description="Open metric identifier recorded by PHOS.")]
+    value: Annotated[float, Field(description="Retained numeric measurement value.")]
+    unit: Annotated[str, Field(description="Unit supplied with the retained measurement.")]
+    observed_at: Annotated[str, Field(description="PHOS receipt-time RFC 3339 timestamp, not a sensor-origin timestamp.")]
+    source: Annotated[str, Field(description="Semantic source that supplied the retained measurement.")]
+    quality: Annotated[str, Field(description="Recorded quality marker; current retained measurements use valid.")]
+
+
+class McpMeasurementSummary(TypedDict):
+    minimum: float
+    maximum: float
+    average: float
+    delta: float | None
+    coverage: Literal["sufficient", "insufficient"]
+    start: McpMeasurement
+    end: McpMeasurement
+
+
+class McpMeasurementHistoryOutput(TypedDict):
+    metric: Annotated[str, Field(description="Requested open metric identifier; an unknown identifier returns an empty result.")]
+    samples: Annotated[list[McpMeasurement], Field(description="Bounded retained receipt-time samples, oldest to newest.")]
+    count: Annotated[int, Field(description="Number of returned samples.")]
+    summary: Annotated[McpMeasurementSummary | None, Field(description="Numeric summary, or null when no samples match.")]
+
+
+class McpPhysicalTransition(TypedDict):
+    type: Annotated[str, Field(description="Open semantic event type.")]
+    current: Annotated[Any, Field(description="Current semantic value; its shape depends on the event type.")]
+    previous: Annotated[Any, Field(description="Previous semantic value; its shape depends on the event type.")]
+    observed_at: Annotated[str, Field(description="PHOS receipt-time RFC 3339 transition timestamp.")]
+    source: Annotated[str, Field(description="Semantic component that emitted the transition.")]
+
+
+class McpPhysicalTransitionsOutput(TypedDict):
+    transitions: Annotated[list[McpPhysicalTransition], Field(description="Bounded retained transitions matching the optional filter.")]
+    count: Annotated[int, Field(description="Number of returned transitions; zero does not prove no event occurred.")]
+
+
+class McpRequestedWindow(TypedDict):
+    start: str
+    end: str
+    retention_seconds: int
+
+
+class McpCurrentSource(TypedDict):
+    key: str | None
+    status: str
+    available: bool
+    last_update: str | None
+    age_seconds: float | None
+
+
+class McpEvidence(TypedDict):
+    sample_count: int
+    first_observed_at: str | None
+    last_observed_at: str | None
+    coverage_seconds: float | None
+    largest_gap_seconds: float | None
+    continuity: str
+    availability_discontinuity: bool
+
+
+class McpRecoveryBoundary(TypedDict):
+    observed_at: str
+
+
+class McpRecentContinuousSegment(TypedDict):
+    start: str | None
+    end: str | None
+    recovery_boundary: McpRecoveryBoundary | None
+    sample_count: int
+    coverage_seconds: float | None
+    largest_gap_seconds: float | None
+    continuity: str
+    current_source: McpCurrentSource | None
+    outcome: str
+    reason: str
+
+
+class McpMetricAssessment(TypedDict):
+    metric: Annotated[str, Field(description="Supported PCI-01a metric identifier.")]
+    unit: Annotated[str | None, Field(description="Observed unit, or null when no retained sample establishes one.")]
+    source: Annotated[str | None, Field(description="Observed source, or null when no retained sample establishes one.")]
+    requested_window: Annotated[McpRequestedWindow | None, Field(description="Six-hour retention window used for this metric, or null for an unsupported metric.")]
+    current_source: Annotated[McpCurrentSource, Field(description="Current source availability and freshness snapshot.")]
+    evidence: Annotated[McpEvidence, Field(description="Historical-window evidence; it is distinct from post-recovery evidence.")]
+    recent_continuous_segment: Annotated[McpRecentContinuousSegment, Field(description="Latest safely ordered post-recovery segment assessment.")]
+    outcome: Annotated[str, Field(description="Evidence readiness outcome; valid means sufficient retained evidence, not sensor accuracy.")]
+    reason: Annotated[str, Field(description="Machine-readable explanation for the outcome.")]
+
+
+class McpPhysicalAssessmentMetrics(TypedDict):
+    temperature_c: McpMetricAssessment
+    pressure_hpa: McpMetricAssessment
+    humidity_percent: McpMetricAssessment
+    eco2_ppm: McpMetricAssessment
+    tvoc_ppb: McpMetricAssessment
+    aqi_uba: McpMetricAssessment
+
+
+class McpPhysicalAssessmentOutput(TypedDict):
+    assessment_version: Annotated[str, Field(description="Assessment contract version.")]
+    timestamp_semantics: Annotated[str, Field(description="Timestamp meaning; pci-01a uses PHOS receipt time.")]
+    metrics: Annotated[McpPhysicalAssessmentMetrics, Field(description="Assessment of all six supported retained metrics; this is not trend classification.")]
+
+
+class McpObservedExpressionOutput(TypedDict):
+    available: Annotated[bool | None, Field(description="Whether a current expression observation is available; null means a compatible reader did not provide availability.")]
+    label: Annotated[str | None, Field(description="Optional model-produced expression label; it is not proof of a person's internal emotion.")]
+    confidence: Annotated[float | None, Field(description="Optional model confidence, normalized to 0 through 1 when supplied.",
+                                               json_schema_extra={"minimum": 0, "maximum": 1})]
+    observed_at: Annotated[float | None, Field(description="Optional process monotonic-clock observation time; not RFC 3339 and not comparable across restarts.")]
+    unavailable_reason: Annotated[str | None, Field(description="Reason no current observation is available, when reported.")]
+
+
+class McpVisibleObject(TypedDict):
+    label: Annotated[str, Field(description="Detector label only; no identity, bounding box, or tracking attributes are returned.")]
+    confidence: Annotated[float, Field(description="Detector confidence for this label.")]
+
+
+class McpVisibleObjectsOutput(TypedDict):
+    captured_at: Annotated[str, Field(description="RFC 3339 UTC timestamp of the Vision frame used for this on-demand observation.")]
+    age_ms: Annotated[int, Field(description="Age of the Vision frame in milliseconds when inference used it.")]
+    freshness: Annotated[Literal["fresh", "stale"], Field(description="Frame freshness classification. Successful object observations currently require fresh input.")]
+    objects: Annotated[list[McpVisibleObject], Field(description="Bounded detected-object labels, limited by the runtime to five entries.")]
+    truncated: Annotated[bool, Field(description="True when the detector produced more objects than the returned bounded list.")]
+
+
+class McpExpressionControlOutput(TypedDict):
+    expression: Annotated[str, Field(description="Accepted semantic display-expression identifier.")]
+    applied: Annotated[bool, Field(description="Command acknowledgment only; it does not prove a frame was rendered or observed.")]
+
+
+class McpVisualStateControlOutput(TypedDict):
+    accepted: Annotated[bool, Field(description="Whether the caller-owned visual lease request was accepted.")]
+    requested_state: Annotated[str, Field(description="Requested temporary visual state or idle release.")]
+    effective_state: Annotated[str, Field(description="Current resolved visual state, not RobotCore lifecycle state and not a display-presentation guarantee.")]
+    lease_active: Annotated[bool, Field(description="Whether this caller currently owns an active temporary lease.")]
+    remaining_expiry_ms: Annotated[int | None, Field(description="Remaining caller-lease duration in milliseconds, or null when no caller lease is active.")]
+    suppressed_by: Annotated[str | None, Field(description="Higher-priority actual Core state currently suppressing this lease, if any.")]
+
+
+class McpSpeechControlOutput(TypedDict):
+    accepted: Annotated[bool, Field(description="Speech request accepted for runtime handling; this does not report playback completion.")]
+
+
+class McpLifecycleControlOutput(TypedDict):
+    state: Annotated[str, Field(description="Acknowledged RobotCore lifecycle state after the requested transition.")]
+    applied: Annotated[bool, Field(description="Transition acknowledgment only; it does not report unrelated hardware readiness.")]
+
+
+class McpSignalControlOutput(TypedDict):
+    intent: Annotated[str, Field(description="Accepted transient semantic signal intent.")]
+    applied: Annotated[bool, Field(description="Transient signal acknowledgment; it does not create a persistent robot state.")]
 
 
 class McpToolError(Exception):
@@ -406,36 +675,36 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
 
     @tool("phos_get_status", "Get compact PHOS runtime status and capabilities. Use phos_get_physical_context for current sensed conditions; fields can be unavailable when a subsystem is disabled or unhealthy.",
           annotations=passive_read)
-    def get_status() -> dict[str, Any]:
+    def get_status() -> McpStatusOutput:
         return _tool_result(adapter.get_status, ToolError)
 
     @tool("phos_get_physical_context", PHYSICAL_CONTEXT_TOOL_DESCRIPTION, annotations=passive_read)
-    def get_physical_context() -> dict[str, Any]:
+    def get_physical_context() -> McpPhysicalContextOutput:
         return _tool_result(adapter.get_physical_context, ToolError)
 
     @tool("phos_get_physical_assessment", PHYSICAL_ASSESSMENT_TOOL_DESCRIPTION,
           annotations=passive_read)
-    def get_physical_assessment() -> dict[str, Any]:
+    def get_physical_assessment() -> McpPhysicalAssessmentOutput:
         return _tool_result(adapter.get_physical_assessment, ToolError)
 
     @tool("phos_get_presence", "Get PHOS's current semantic presence state without identity. Use phos_get_attention for attention direction or phos_list_physical_transitions for retained presence changes; the result may be unavailable.",
           annotations=passive_read)
-    def get_presence() -> dict[str, Any]:
+    def get_presence() -> McpPresenceOutput:
         return _tool_result(adapter.get_presence, ToolError)
 
     @tool("phos_get_attention", "Get PHOS's current semantic attention state. Use phos_get_presence for occupancy or phos_list_physical_transitions for retained changes; it can be unavailable when perception is inactive.",
           annotations=passive_read)
-    def get_attention() -> dict[str, Any]:
+    def get_attention() -> McpAttentionOutput:
         return _tool_result(adapter.get_attention, ToolError)
 
     @tool("phos_get_observed_expression", "Get the latest observed facial-expression label and confidence, not an emotion claim. Use phos_get_visible_objects for object labels or phos_get_camera_snapshot for an image; vision data may be unavailable or stale.",
           annotations=passive_read)
-    def get_observed_expression() -> dict[str, Any]:
+    def get_observed_expression() -> McpObservedExpressionOutput:
         return _tool_result(adapter.get_observed_expression, ToolError)
 
     @tool("phos_get_visible_objects", "Run one bounded on-demand object observation from PHOS's existing Vision frame and return labels only. Use phos_get_camera_snapshot for an image; this can be busy, time out, or be unavailable and does not track objects.",
           annotations=on_demand_read)
-    async def get_visible_objects() -> dict[str, Any]:
+    async def get_visible_objects() -> McpVisibleObjectsOutput:
         return await _async_tool_result(adapter.visible_objects, ToolError)
 
     @server.tool(name="phos_get_camera_snapshot",
@@ -458,12 +727,12 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
 
     @tool("phos_set_expression", "Set PHOS's supported semantic expression. Use phos_set_state for temporary agent thinking visuals; this changes displayed expression but not robot lifecycle state.",
           annotations=idempotent_control)
-    def set_expression(expression: Expression) -> dict[str, Any]:
+    def set_expression(expression: Expression) -> McpExpressionControlOutput:
         return _tool_result(lambda: adapter.set_expression(expression), ToolError)
 
     @tool("phos_set_state", "Request a temporary caller-owned thinking visual lease, or release it with idle. Use phos_set_expression for expression control; thinking requires duration_ms and may be visually suppressed by safety, sleep, speech, or listening states.",
           annotations=transient_control)
-    async def set_state(state: VisualState, duration_ms: VisualStateDuration | None = None) -> dict[str, Any]:
+    async def set_state(state: VisualState, duration_ms: VisualStateDuration | None = None) -> McpVisualStateControlOutput:
         if state not in {"thinking", "idle"}:
             raise ToolError("invalid_argument: state must be thinking or idle.")
         if state == "thinking" and duration_ms is None:
@@ -485,34 +754,34 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
 
     @tool("phos_speak", "Request PHOS to speak one bounded text message. Use phos_signal_user for a transient non-speech cue; speech may be unavailable or interrupted by normal runtime policy.",
           annotations=transient_control)
-    async def speak(text: SpeechText) -> dict[str, Any]:
+    async def speak(text: SpeechText) -> McpSpeechControlOutput:
         return await _async_tool_result(lambda: adapter.speak_async(text), ToolError)
 
     @tool("phos_sleep", "Request PHOS to enter sleep through normal lifecycle transitions. Use phos_wake to request wake; the request follows runtime transition and availability rules.",
           annotations=idempotent_control)
-    async def sleep() -> dict[str, Any]:
+    async def sleep() -> McpLifecycleControlOutput:
         return await _async_tool_result(adapter.sleep_async, ToolError)
 
     @tool("phos_wake", "Request PHOS to wake through normal lifecycle transitions. Use phos_sleep to request sleep; the request follows runtime transition and availability rules.",
           annotations=idempotent_control)
-    async def wake() -> dict[str, Any]:
+    async def wake() -> McpLifecycleControlOutput:
         return await _async_tool_result(adapter.wake_async, ToolError)
 
     @tool("phos_signal_user", "Request one transient canonical user signal. Use phos_speak for spoken output; this may trigger configured visual or hardware feedback and does not change robot lifecycle state.",
           annotations=transient_control)
-    async def signal_user(signal: SignalIntent) -> dict[str, Any]:
+    async def signal_user(signal: SignalIntent) -> McpSignalControlOutput:
         return await _async_tool_result(lambda: adapter.signal_user_async(signal), ToolError)
 
     @tool("phos_query_measurements", "Get one bounded RAM-only measurement series for a selected metric and time window. Use phos_get_physical_context for current conditions and phos_get_physical_assessment before longitudinal interpretation; unknown metrics return no samples and no trend conclusion is made.",
           annotations=passive_read)
     def query_measurements(metric: HistoryMetric, start: HistoryTimestamp | None = None,
-                           end: HistoryTimestamp | None = None, limit: HistoryLimit = 360) -> dict[str, Any]:
+                           end: HistoryTimestamp | None = None, limit: HistoryLimit = 360) -> McpMeasurementHistoryOutput:
         return _tool_result(lambda: adapter.query_measurements(metric, start, end, limit), ToolError)
 
     @tool("phos_list_physical_transitions", "Get bounded retained semantic physical transitions, optionally filtered by an exact open-string event type. Use phos_query_measurements for numeric samples and phos_get_physical_assessment for evidence quality; absence of a retained transition does not prove it never occurred.",
           annotations=passive_read)
     def list_physical_transitions(event_type: TransitionEventType | None = None,
-                                  limit: TransitionLimit = 100) -> dict[str, Any]:
+                                  limit: TransitionLimit = 100) -> McpPhysicalTransitionsOutput:
         return _tool_result(lambda: adapter.list_physical_transitions(event_type, limit), ToolError)
 
     return server

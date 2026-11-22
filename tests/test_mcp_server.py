@@ -54,9 +54,11 @@ class ApplicationSpy:
                 "voice": {"enabled": True, "listening": False, "stt_available": False, "last_error": None},
                 "speech": {"tts": {"available": True}}, "semantic_led": {"available": True}}
     def get_physical_context(self):
-        result = self._call("get_physical_context")
-        return {**result, "environment": {"operation": "get_physical_context"}}
-    def get_physical_assessment(self): return self._call("get_physical_assessment")
+        self._call("get_physical_context")
+        return _physical_context_document()
+    def get_physical_assessment(self):
+        self._call("get_physical_assessment")
+        return _physical_assessment_document()
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
@@ -64,8 +66,12 @@ class ApplicationSpy:
         self._call("visible_objects")
         return {"captured_at": "2026-01-02T03:04:05Z", "age_ms": 25, "freshness": "fresh",
                 "objects": [{"label": "car", "confidence": .9}], "truncated": False}
-    def query_measurements(self, metric, start=None, end=None, limit=360): return self._call("query_measurements", metric, start, end, limit)
-    def list_physical_transitions(self, event_type=None, limit=100): return self._call("list_physical_transitions", event_type, limit)
+    def query_measurements(self, metric, start=None, end=None, limit=360):
+        self._call("query_measurements", metric, start, end, limit)
+        return {"metric": metric, "samples": [], "count": 0, "summary": None}
+    def list_physical_transitions(self, event_type=None, limit=100):
+        self._call("list_physical_transitions", event_type, limit)
+        return {"transitions": [], "count": 0}
     def get_camera_snapshot(self):
         self._call("get_camera_snapshot")
         return b"\xff\xd8fake-jpeg\xff\xd9"
@@ -78,7 +84,13 @@ class ApplicationSpy:
         return CameraSnapshot(b"\xff\xd8fresh-jpeg\xff\xd9", datetime(2026, 1, 2, 3, 4, 6, tzinfo=timezone.utc),
                               0, "fresh")
     def set_expression(self, expression): return self._call("set_expression", expression)
-    def request_agent_visual_state(self, agent_id, state, duration_ms=None): return self._call("request_agent_visual_state", agent_id, state, duration_ms)
+    def request_agent_visual_state(self, agent_id, state, duration_ms=None):
+        self._call("request_agent_visual_state", agent_id, state, duration_ms)
+        return {"accepted": True, "requested_state": state,
+                "effective_state": "thinking" if state == "thinking" else "idle",
+                "lease_active": state == "thinking",
+                "remaining_expiry_ms": duration_ms if state == "thinking" else None,
+                "suppressed_by": None}
     async def wait_for_agent_visual_appearance(self): return None
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
@@ -86,6 +98,48 @@ class ApplicationSpy:
     async def speak_async(self, text): return self.speak(text)
     async def set_state_async(self, state): return self.set_state(state)
     async def signal_user_async(self, signal): return self.signal_user(signal)
+
+
+def _physical_context_document():
+    return {
+        "robot": {"state": "idle"},
+        "environment": {"status": "available", "available": True, "temperature_c": 21.5,
+                        "pressure_hpa": 1012.0, "humidity_percent": 45.0,
+                        "last_update": "2026-01-02T03:04:05Z", "age_seconds": 1.0,
+                        "condition": "normal", "reason": None},
+        "air_quality": {"status": "available", "available": True, "eco2_ppm": 500.0,
+                        "tvoc_ppb": 12.0, "aqi_uba": 2.0, "aqi_scale": "uba_1_to_5",
+                        "humidity_percent": None, "aht21_temperature_c": None,
+                        "temperature_provenance": "aht21", "last_update": "2026-01-02T03:04:05Z",
+                        "age_seconds": 1.0, "condition": "normal"},
+        "motion": {"status": "available", "available": True, "motion_state": "still",
+                   "motion_intensity": None, "tilt_direction": None, "last_motion_event": None,
+                   "last_update": "2026-01-02T03:04:05Z", "age_seconds": 1.0},
+        "presence": {"state": "no_one", "people_count": 0, "confidence": None},
+        "attention": {"state": "idle", "target": {"x": None, "y": None, "confidence": None}},
+        "observed_expression": {"available": False, "label": None, "confidence": None,
+                                "unavailable_reason": "unavailable"},
+    }
+
+
+def _physical_assessment_document():
+    def metric(name):
+        current = {"key": "environmental", "status": "available", "available": True,
+                   "last_update": "2026-01-02T03:04:05Z", "age_seconds": 1.0}
+        return {"metric": name, "unit": None, "source": "environment",
+                "requested_window": {"start": "2026-01-01T21:04:05Z", "end": "2026-01-02T03:04:05Z",
+                                     "retention_seconds": 21600}, "current_source": current,
+                "evidence": {"sample_count": 0, "first_observed_at": None, "last_observed_at": None,
+                             "coverage_seconds": None, "largest_gap_seconds": None, "continuity": "no_observed_discontinuity",
+                             "availability_discontinuity": False},
+                "recent_continuous_segment": {"start": None, "end": None, "recovery_boundary": None,
+                                              "sample_count": 0, "coverage_seconds": None, "largest_gap_seconds": None,
+                                              "continuity": "no_observed_discontinuity", "current_source": current,
+                                              "outcome": "insufficient_data", "reason": "no_post_recovery_samples"},
+                "outcome": "unknown", "reason": "no_retained_samples"}
+    return {"assessment_version": "pci-01a", "timestamp_semantics": "phos_receipt_time",
+            "metrics": {name: metric(name) for name in ("temperature_c", "pressure_hpa", "humidity_percent",
+                                                           "eco2_ppm", "tvoc_ppb", "aqi_uba")}}
 
 
 def _adapter(application=None, profile=AgentProfile.STANDARD):
@@ -101,9 +155,9 @@ def _identity_adapter(application=None, profile=AgentProfile.STANDARD, agent_id=
 
 def test_history_tools_use_agent_permission_and_preserve_bounded_arguments():
     adapter, application = _adapter()
-    assert adapter.query_measurements("temperature_c", "2026-01-01T00:00:00Z", None, 10)["operation"] == "query_measurements"
-    assert adapter.list_physical_transitions("presence_changed", 10)["operation"] == "list_physical_transitions"
-    assert adapter.physical_assessment()["operation"] == "get_physical_assessment"
+    assert adapter.query_measurements("temperature_c", "2026-01-01T00:00:00Z", None, 10)["metric"] == "temperature_c"
+    assert adapter.list_physical_transitions("presence_changed", 10)["transitions"] == []
+    assert adapter.physical_assessment()["assessment_version"] == "pci-01a"
     denied, _ = _adapter(profile=AgentProfile.OBSERVER)
     with pytest.raises(McpToolError, match="read_physical_history"):
         denied.query_measurements("temperature_c")
@@ -221,6 +275,212 @@ def test_tool_discovery_metadata_preserves_open_history_and_existing_control_cal
     ]
 
 
+def test_selected_read_tools_publish_typed_output_contracts_only_for_their_existing_documents():
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+
+    status = tools["phos_get_status"].output_schema
+    assert status["type"] == "object"
+    assert status["required"] == ["running", "state", "availability", "degraded", "degraded_reasons"]
+    availability = status["$defs"]["McpStatusAvailability"]
+    assert availability["required"] == [
+        "physical_context", "environment", "air_quality", "motion", "vision", "voice", "speech", "signals",
+    ]
+    assert status["properties"]["state"]["type"] == "string"
+
+    presence = tools["phos_get_presence"].output_schema
+    assert presence["required"] == ["state", "people_count", "confidence"]
+    assert presence["properties"]["state"]["anyOf"][0]["enum"] == [
+        "no_one", "person_present", "person_engaged",
+    ]
+    assert presence["properties"]["people_count"]["anyOf"][1]["type"] == "null"
+    assert presence["properties"]["confidence"]["maximum"] == 1
+
+    attention = tools["phos_get_attention"].output_schema
+    assert attention["required"] == ["state", "target", "acquired_at", "last_seen"]
+    assert attention["properties"]["state"]["enum"] == ["idle", "acquiring", "tracking", "lost"]
+    target = attention["$defs"]["McpAttentionTarget"]
+    assert target["required"] == ["x", "y", "confidence"]
+    assert target["properties"]["x"]["minimum"] == -1
+    assert target["properties"]["x"]["maximum"] == 1
+    assert "monotonic-clock" in attention["properties"]["acquired_at"]["description"]
+
+    for name, tool in tools.items():
+        if name in {"phos_get_status", "phos_get_presence", "phos_get_attention",
+                    "phos_get_physical_context", "phos_get_physical_assessment",
+                    "phos_query_measurements", "phos_list_physical_transitions",
+                    "phos_get_observed_expression", "phos_get_visible_objects",
+                    "phos_set_expression", "phos_set_state", "phos_speak",
+                    "phos_sleep", "phos_wake", "phos_signal_user"}:
+            continue
+        if name in {"phos_get_camera_snapshot", "phos_capture_camera_snapshot"}:
+            assert tool.output_schema is None
+        else:
+            assert tool.output_schema["type"] == "object"
+            assert tool.output_schema["additionalProperties"] is True
+
+
+def test_physical_tools_publish_typed_output_contracts_and_validate_empty_retained_data():
+    adapter, _ = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+
+    context = tools["phos_get_physical_context"].output_schema
+    assert context["required"] == ["robot", "environment", "air_quality", "motion", "presence", "attention", "observed_expression"]
+    assert "Current environmental semantic snapshot" in context["properties"]["environment"]["description"]
+    assessment = tools["phos_get_physical_assessment"].output_schema
+    assert assessment["required"] == ["assessment_version", "timestamp_semantics", "metrics"]
+    assert set(assessment["$defs"]["McpPhysicalAssessmentMetrics"]["required"]) == {
+        "temperature_c", "pressure_hpa", "humidity_percent", "eco2_ppm", "tvoc_ppb", "aqi_uba",
+    }
+    history = tools["phos_query_measurements"].output_schema
+    assert history["required"] == ["metric", "samples", "count", "summary"]
+    assert history["properties"]["summary"]["anyOf"][1]["type"] == "null"
+    transitions = tools["phos_list_physical_transitions"].output_schema
+    assert transitions["required"] == ["transitions", "count"]
+    assert transitions["$defs"]["McpPhysicalTransition"]["properties"]["type"]["type"] == "string"
+
+    async def call():
+        results = []
+        for name, arguments in (("phos_get_physical_context", {}), ("phos_get_physical_assessment", {}),
+                                ("phos_query_measurements", {"metric": "unknown_metric"}),
+                                ("phos_list_physical_transitions", {"event_type": "unknown_event"})):
+            results.append((await server.call_tool(name, arguments)).structured_content)
+        return tuple(results)
+
+    context_result, assessment_result, history_result, transitions_result = asyncio.run(call())
+    assert context_result == _physical_context_document()
+    assert assessment_result == _physical_assessment_document()
+    assert history_result == {"metric": "unknown_metric", "samples": [], "count": 0, "summary": None}
+    assert transitions_result == {"transitions": [], "count": 0}
+
+
+def test_perception_tools_publish_typed_output_contracts_without_changing_errors_or_camera_tools():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+
+    expression = tools["phos_get_observed_expression"].output_schema
+    assert expression["required"] == ["available", "label", "confidence", "observed_at", "unavailable_reason"]
+    assert expression["properties"]["available"]["anyOf"][1]["type"] == "null"
+    assert expression["properties"]["confidence"]["maximum"] == 1
+    assert "not proof" in expression["properties"]["label"]["description"]
+    objects = tools["phos_get_visible_objects"].output_schema
+    assert objects["required"] == ["captured_at", "age_ms", "freshness", "objects", "truncated"]
+    assert objects["properties"]["freshness"]["enum"] == ["fresh", "stale"]
+    object_item = objects["$defs"]["McpVisibleObject"]
+    assert object_item["required"] == ["label", "confidence"]
+    assert tools["phos_get_camera_snapshot"].output_schema is None
+    assert tools["phos_capture_camera_snapshot"].output_schema is None
+
+    async def call():
+        expression_result = await server.call_tool("phos_get_observed_expression", {})
+        objects_result = await server.call_tool("phos_get_visible_objects", {})
+        return expression_result.structured_content, objects_result.structured_content
+
+    expression_result, objects_result = asyncio.run(call())
+    assert expression_result == {"available": None, "label": None, "confidence": None,
+                                 "observed_at": None, "unavailable_reason": None}
+    assert objects_result == {"captured_at": "2026-01-02T03:04:05Z", "age_ms": 25,
+                              "freshness": "fresh", "objects": [{"label": "car", "confidence": .9}],
+                              "truncated": False}
+    assert application.calls == [("observed_expression",), ("visible_objects",)]
+
+
+def test_embodiment_controls_publish_typed_acknowledgements_without_new_side_effects():
+    adapter, _ = _identity_adapter()
+    server = create_mcp_server(adapter._agent_service)
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+
+    assert tools["phos_set_expression"].output_schema["required"] == ["expression", "applied"]
+    state_schema = tools["phos_set_state"].output_schema
+    assert state_schema["required"] == ["accepted", "requested_state", "effective_state", "lease_active",
+                                        "remaining_expiry_ms", "suppressed_by"]
+    assert state_schema["properties"]["remaining_expiry_ms"]["anyOf"][1]["type"] == "null"
+    assert tools["phos_speak"].output_schema["required"] == ["accepted"]
+    assert tools["phos_sleep"].output_schema["required"] == ["state", "applied"]
+    assert tools["phos_wake"].output_schema == tools["phos_sleep"].output_schema
+    assert tools["phos_signal_user"].output_schema["required"] == ["intent", "applied"]
+    assert tools["phos_get_camera_snapshot"].output_schema is None
+    assert tools["phos_capture_camera_snapshot"].output_schema is None
+
+    async def call():
+        return (
+            (await server.call_tool("phos_set_expression", {"expression": "happy"})).structured_content,
+            (await server.call_tool("phos_set_state", {"state": "thinking", "duration_ms": 1000})).structured_content,
+            (await server.call_tool("phos_speak", {"text": "Hello"})).structured_content,
+            (await server.call_tool("phos_sleep", {})).structured_content,
+            (await server.call_tool("phos_wake", {})).structured_content,
+            (await server.call_tool("phos_signal_user", {"signal": "warning"})).structured_content,
+        )
+
+    expression, state, speech, sleep, wake, signal = asyncio.run(call())
+    assert expression == {"expression": "happy", "applied": True}
+    assert state["accepted"] is True and state["effective_state"] == "thinking"
+    assert speech == {"accepted": True}
+    assert sleep == {"state": "sleeping", "applied": True}
+    assert wake == {"state": "idle", "applied": True}
+    assert signal == {"intent": "warning", "applied": True}
+
+
+def test_selected_read_tool_contracts_validate_normal_degraded_startup_and_empty_documents():
+    class ContractApplication(ApplicationSpy):
+        def __init__(self, *, status, presence, attention):
+            super().__init__()
+            self._status, self._presence, self._attention = status, presence, attention
+
+        def status(self):
+            self._call("status")
+            return self._status
+
+        def presence(self):
+            self._call("presence")
+            return self._presence
+
+        def attention(self):
+            self._call("attention")
+            return self._attention
+
+    normal_status = ApplicationSpy().status()
+    degraded_status = {
+        **normal_status,
+        "robot": {"running": False, "state": "sleeping"},
+        "environment": {"available": False, "status": "unavailable"},
+        "motion": {"available": False, "status": "stale"},
+        "sensors": {"ens160": {"available": False, "status": "starting"}},
+    }
+    variants = (
+        (normal_status, {"state": "person_present", "people_count": 1, "confidence": .8},
+         {"state": "tracking", "target": {"x": .25, "y": -.1, "confidence": .9},
+          "acquired_at": 12.5, "last_seen": 13.0}),
+        (degraded_status, {"state": "no_one", "people_count": 0, "confidence": None},
+         {"state": "idle", "target": None, "acquired_at": None, "last_seen": None}),
+        (normal_status, {}, {"state": "acquiring", "target": {"x": .1}, "acquired_at": None, "last_seen": 5.0}),
+    )
+
+    async def call(application):
+        adapter, _ = _adapter(application)
+        server = create_mcp_server(adapter._agent_service)
+        results = []
+        for name in ("phos_get_status", "phos_get_presence", "phos_get_attention"):
+            results.append((await server.call_tool(name, {})).structured_content)
+        return tuple(results)
+
+    normal, degraded, startup = (asyncio.run(call(ContractApplication(status=status, presence=presence,
+                                                                        attention=attention)))
+                                 for status, presence, attention in variants)
+    assert normal[1] == {"state": "person_present", "people_count": 1, "confidence": .8}
+    assert normal[2]["target"] == {"x": .25, "y": -.1, "confidence": .9}
+    assert degraded[0]["degraded"] is True and degraded[0]["state"] == "sleeping"
+    assert degraded[1] == {"state": "no_one", "people_count": 0, "confidence": None}
+    assert degraded[2] == {"state": "idle", "target": {"x": None, "y": None, "confidence": None},
+                           "acquired_at": None, "last_seen": None}
+    assert startup[1] == {"state": None, "people_count": None, "confidence": None}
+    assert startup[2] == {"state": "acquiring", "target": {"x": .1, "y": None, "confidence": None},
+                          "acquired_at": None, "last_seen": 5.0}
+
+
 def test_physical_tool_discovery_and_calls_distinguish_current_and_temporal_questions():
     adapter, application = _adapter()
     server = create_mcp_server(adapter._agent_service)
@@ -270,10 +530,12 @@ def test_visual_state_tool_validates_arguments_and_forwards_only_authenticated_i
         return thinking, idle, idle_with_duration, idle_with_zero, idle_with_out_of_range
 
     thinking, idle, idle_with_duration, idle_with_zero, idle_with_out_of_range = asyncio.run(exercise())
-    assert thinking.structured_content == {"operation": "request_agent_visual_state",
-                                           "arguments": ["agent-a", "thinking", 1000]}
-    assert idle.structured_content == {"operation": "request_agent_visual_state",
-                                       "arguments": ["agent-a", "idle", None]}
+    assert thinking.structured_content == {"accepted": True, "requested_state": "thinking",
+                                           "effective_state": "thinking", "lease_active": True,
+                                           "remaining_expiry_ms": 1000, "suppressed_by": None}
+    assert idle.structured_content == {"accepted": True, "requested_state": "idle",
+                                       "effective_state": "idle", "lease_active": False,
+                                       "remaining_expiry_ms": None, "suppressed_by": None}
     assert idle_with_duration.structured_content == idle.structured_content
     assert idle_with_zero.structured_content == idle.structured_content
     assert idle_with_out_of_range.structured_content == idle.structured_content
@@ -359,6 +621,22 @@ def test_visible_objects_denial_happens_before_application_work():
     assert application.calls == []
 
 
+@pytest.mark.parametrize(("code", "message", "status", "category"), [
+    ("object_awareness_disabled", "Object awareness is unavailable.", 503, "service_unavailable"),
+    ("object_awareness_unavailable", "Object awareness is unavailable.", 503, "service_unavailable"),
+    ("object_awareness_busy", "Object awareness is busy.", 429, "semantic_error"),
+    ("object_awareness_timeout", "Object awareness timed out.", 504, "runtime_failure"),
+])
+def test_visible_object_runtime_errors_remain_tool_errors_not_success_documents(code, message, status, category):
+    class Unavailable(ApplicationSpy):
+        async def visible_objects(self):
+            raise ApplicationError(code, message, status=status)
+
+    adapter, _ = _adapter(Unavailable())
+    with pytest.raises(McpToolError, match=f"{category}: {message}"):
+        asyncio.run(adapter.visible_objects())
+
+
 def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():
     adapter, _ = _adapter()
     server = create_mcp_server(adapter._agent_service)
@@ -377,9 +655,9 @@ def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():
     assert next(resource for resource in resources if resource.uri == "phos://vision/snapshot").mime_type == "image/jpeg"
     assert all(resource.mime_type == "application/json" for resource in resources if resource.uri != "phos://vision/snapshot")
     assert json.loads(status[0].content)["running"] is True
-    assert json.loads(physical_context[0].content)["operation"] == "get_physical_context"
-    assert json.loads(assessment[0].content)["operation"] == "get_physical_assessment"
-    assert json.loads(environment[0].content)["operation"] == "get_physical_context"
+    assert json.loads(physical_context[0].content)["robot"]["state"] == "idle"
+    assert json.loads(assessment[0].content)["assessment_version"] == "pci-01a"
+    assert json.loads(environment[0].content)["status"] == "available"
     assert snapshot[0].content == b"\xff\xd8fake-jpeg\xff\xd9"
     assert snapshot[0].mime_type == "image/jpeg"
 
@@ -938,6 +1216,8 @@ def test_read_tools_preserve_agent_results(method, expected):
     result = getattr(adapter, method)()
     if method in {"get_status", "get_attention"}:
         assert result["state"] == "idle"
+    elif method == "get_physical_context":
+        assert result["robot"]["state"] == "idle"
     elif method == "get_observed_expression":
         assert result["available"] is None
     elif method == "get_presence":
@@ -970,7 +1250,7 @@ def test_action_tools_delegate_only_through_agent_service(method, arguments, exp
 ])
 def test_observer_reads_but_denied_actions_never_reach_the_application(method, arguments, operation, permission):
     adapter, application = _adapter(profile=AgentProfile.OBSERVER)
-    assert adapter.get_physical_context()["operation"] == "get_physical_context"
+    assert adapter.get_physical_context()["robot"]["state"] == "idle"
 
     with pytest.raises(McpToolError, match=f"permission_denied: operation={operation} required_permission={permission}"):
         getattr(adapter, method)(*arguments)
@@ -1016,7 +1296,7 @@ def test_mcp_server_returns_structured_results_and_schema_rejects_bad_speech_inp
             await server.call_tool("phos_speak", {"text": ""})
         return result
 
-    assert asyncio.run(call()).structured_content["operation"] == "get_physical_context"
+    assert asyncio.run(call()).structured_content["robot"]["state"] == "idle"
 
 
 def test_streamable_http_server_configuration_is_kept_outside_the_semantic_surface():

@@ -388,6 +388,98 @@ observations and are lost on restart.
 `limit` is 1–360 and defaults to 100. An unmatched filter returns no retained
 transitions and does not prove that no transition occurred.
 
+### Typed read-tool outputs
+
+MCP `tools/list` publishes typed output schemas for `phos_get_status`,
+`phos_get_presence`, and `phos_get_attention`. The schemas describe the
+existing compact Agent-facing documents; they do not expose the broader Web
+Administration status model, provider diagnostics, identities, or new runtime
+work.
+
+`phos_get_status` always returns `running`, the actual RobotCore lifecycle
+`state`, `availability`, `degraded`, and `degraded_reasons`. `availability`
+has boolean `physical_context`, `environment`, `air_quality`, `motion`,
+`vision`, `voice`, `speech`, and `signals` members. A temporary Agent visual
+lease, such as `thinking`, is not a RobotCore lifecycle state and is therefore
+not reported as `state`. Runtime readiness is distinct from current physical
+conditions: use `phos_get_physical_context` for the latter.
+
+`phos_get_presence` always includes `state`, `people_count`, and `confidence`.
+The known non-null states are `no_one`, `person_present`, and
+`person_engaged`. It is an anonymous semantic observation, never person
+identification; the count is an estimate rather than a guaranteed physical
+count. Any of these fields may be null when an underlying compatible semantic
+reader did not provide a value. When present, Vision confidence is normalized
+to 0 through 1.
+
+`phos_get_attention` always includes `state`, `target`, `acquired_at`, and
+`last_seen`. Its states are `idle`, `acquiring`, `tracking`, and `lost`.
+`target` is always an object with nullable `x`, `y`, and `confidence` fields;
+it contains no target identity. When present, `x` and `y` are detected face
+center coordinates in camera space normalized to -1 through 1, and confidence
+is normalized to 0 through 1. `acquired_at` and `last_seen` are nullable
+monotonic-clock seconds used by the running process, not RFC 3339 timestamps;
+they are not comparable across restarts. Attention is semantic tracking, not
+person identification or an inference of intent.
+
+`tools/list` also publishes typed output contracts for the four physical-data
+tools. `phos_get_physical_context` is a current semantic snapshot containing
+robot lifecycle, environmental, air-quality, motion, anonymous presence,
+attention, and observed-expression sections. Source `status` and `available`
+must be checked before treating nullable measurements as current. Its
+`last_update` values are source snapshots and `age_seconds` reports their age;
+this document is not a historical assessment.
+
+`phos_get_physical_assessment` returns `assessment_version`,
+`timestamp_semantics`, and all six supported metrics. Each metric separates
+the historical `evidence` window from `recent_continuous_segment`, including a
+nullable recovery boundary and current-source availability. An outcome of
+`valid` means the retained timing/sample evidence meets PCI-01a criteria; it
+does not guarantee physical sensor accuracy and does not classify a trend.
+
+`phos_query_measurements` returns the requested open `metric`, retained
+receipt-time `samples`, `count`, and nullable numeric `summary`. Samples carry
+their value, unit, source, quality, and RFC 3339 `observed_at` receipt time.
+An unknown metric or a window with no matches returns an empty sample array and
+`summary: null`. `phos_list_physical_transitions` similarly returns bounded
+receipt-time semantic transitions and a count; transition value shapes depend
+on the open event type, and an empty result does not prove no event occurred.
+
+`phos_get_observed_expression` has a typed output contract for `available`,
+`label`, `confidence`, `observed_at`, and `unavailable_reason`. The label and
+confidence are an uncertain model observation, never proof of a person's
+internal emotion or identity. Fields are nullable when vision is unavailable,
+the model has no current result, or a compatible reader lacks a value.
+`observed_at` is a process monotonic-clock value when present, not an RFC 3339
+wall-clock timestamp.
+
+`phos_get_visible_objects` has a typed successful-result contract for the
+frame `captured_at`, `age_ms`, `freshness`, bounded label/confidence `objects`,
+and `truncated`. It returns no image, bounding boxes, tracking, or identity.
+The runtime returns at most five objects and marks `truncated` if more were
+detected. Disabled, unavailable, busy, timeout, and inference-failure cases
+retain the existing MCP tool-error contract rather than returning a fabricated
+success document; successful observations currently require a fresh frame.
+
+The six embodiment-control tools also publish typed acknowledgment contracts.
+`phos_set_expression` returns `expression` and `applied`; this acknowledges a
+semantic visual-expression command, not that a particular display frame was
+rendered or that PHOS observed a human emotion. `phos_set_state` returns
+`accepted`, `requested_state`, `effective_state`, `lease_active`, nullable
+`remaining_expiry_ms`, and nullable `suppressed_by`. It describes only the
+authenticated caller's temporary visual lease; it never changes RobotCore
+lifecycle state, and acceptance does not guarantee immediate on-screen
+presentation because normal visual priority can suppress it.
+
+`phos_speak` returns `accepted: true` when the request enters existing runtime
+handling; it does not report playback completion. `phos_sleep` and `phos_wake`
+return lifecycle `state` and `applied`, acknowledging only the requested Core
+transition rather than unrelated hardware readiness. `phos_signal_user`
+returns the accepted transient `intent` and `applied`; it does not create a
+persistent robot state. Existing permission, validation, busy, unavailable,
+and rejected-transition errors remain MCP tool errors rather than success
+acknowledgments.
+
 ## MCP Resources
 
 PHOS exposes read-only MCP Resources through the same permission-checked
