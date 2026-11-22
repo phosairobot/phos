@@ -1,7 +1,6 @@
 """Canonical, secret-free PHOS settings. No hardware, SDK or CLI dependencies."""
 from __future__ import annotations
 
-import json
 import ipaddress
 import logging
 import math
@@ -22,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Source checkouts use the one canonical document. Wheels install that same
 # source file as data; no independent defaults are maintained in the package.
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "phos.json"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "phos.yaml"
 if not DEFAULT_CONFIG_PATH.is_file():
-    DEFAULT_CONFIG_PATH = Path(sys.prefix) / "share" / "phos" / "config" / "phos.json"
+    DEFAULT_CONFIG_PATH = Path(sys.prefix) / "share" / "phos" / "config" / "phos.yaml"
 
 
 # Logical RGB values sent by PHOS.  The WS2812B adapter owns conversion to its
@@ -71,38 +70,45 @@ def atomic_write_text(path: Path, content: str) -> None:
             temporary.unlink()
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects ambiguous duplicate mapping keys."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ConfigurationError(f"Duplicate configuration key: {key}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+                                 _construct_unique_mapping)
+
+
 class ConfigRepository:
-    """One active configuration source and its validation/persistence boundary."""
-    _legacy_json_warning_emitted = False
+    """One active YAML configuration source and its validation/persistence boundary."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
         self._active_path = (self.discover_active_path() if path is None else Path(path).resolve())
         self._format = self._format_for_path(self._active_path)
-        if self._format == "json" and not self._legacy_json_warning_emitted:
-            logger.warning("PHOS CONFIG: legacy JSON configuration loaded from %s; YAML is preferred",
-                           self._active_path)
-            type(self)._legacy_json_warning_emitted = True
 
     @staticmethod
     def discover_active_path() -> Path:
         """Choose one default source, without merging or later rediscovery."""
-        candidates = (
-            DEFAULT_CONFIG_PATH.with_suffix(".yaml"),
-            DEFAULT_CONFIG_PATH.with_suffix(".yml"),
-            DEFAULT_CONFIG_PATH,
-        )
-        return next((path.resolve() for path in candidates if path.is_file()),
-                    DEFAULT_CONFIG_PATH.resolve())
+        return DEFAULT_CONFIG_PATH.resolve()
 
     @staticmethod
     def _format_for_path(path: Path) -> str:
-        formats = {".json": "json", ".yaml": "yaml", ".yml": "yaml"}
+        formats = {".yaml": "yaml", ".yml": "yaml"}
         try:
             return formats[path.suffix.lower()]
         except KeyError as error:
             raise ConfigurationError(
                 f"Unsupported configuration file extension: {path.suffix or '<none>'}; "
-                "expected .json, .yaml, or .yml"
+                "expected a YAML file (.yaml or .yml); JSON configuration is no longer supported"
             ) from error
 
     @property
@@ -112,32 +118,17 @@ class ConfigRepository:
     def format(self) -> str: return self._format
 
     def document(self) -> dict:
-        if self.format == "json":
-            return load_document(self._active_path)
-        try:
-            document = yaml.safe_load(self._active_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as error:
-            raise ConfigurationError(f"{self._active_path}: invalid YAML") from error
-        except (OSError, UnicodeError) as error:
-            raise ConfigurationError(
-                f"Cannot read configuration file: {self._active_path} ({type(error).__name__})"
-            ) from error
-        if not isinstance(document, dict):
-            raise ConfigurationError(f"{self._active_path}: YAML root must be an object")
-        return document
+        return load_document(self._active_path)
 
     def load(self, document=None, *, overrides=None) -> "RuntimeConfig":
         return RuntimeConfig.from_dict(self.document() if document is None else document,
                                        base_dir=self._active_path.parent, overrides=overrides)
 
     def save(self, config: "RuntimeConfig") -> None:
-        if self.format == "json":
-            content = config.serialized_json(self._active_path)
-        else:
-            content = yaml.safe_dump(config.persistence_document(self._active_path),
-                                     default_flow_style=False, allow_unicode=True, sort_keys=False)
-            if not content.endswith("\n"):
-                content += "\n"
+        content = yaml.safe_dump(config.persistence_document(self._active_path),
+                                 default_flow_style=False, allow_unicode=True, sort_keys=False)
+        if not content.endswith("\n"):
+            content += "\n"
         atomic_write_text(self._active_path, content)
 
 
@@ -152,22 +143,23 @@ def _keys(value, expected, location):
 
 
 def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    """Read a legacy JSON document; ConfigRepository owns format dispatch."""
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ConfigurationError(f"Duplicate configuration key: {key}")
-            result[key] = value
-        return result
+    """Read a YAML configuration document and apply explicit schema evolution."""
     try:
-        document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+        path = Path(path).resolve()
+        if path.suffix.lower() not in {".yaml", ".yml"}:
+            raise ConfigurationError(
+                f"Unsupported configuration file extension: {path.suffix or '<none>'}; "
+                "expected a YAML file (.yaml or .yml); JSON configuration is no longer supported"
+            )
+        document = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+        if not isinstance(document, dict):
+            raise ConfigurationError(f"{path}: YAML root must be an object")
         if isinstance(document, dict):
             document.setdefault("object_awareness", {"enabled": False, "model_path": None,
                                                        "confidence": .35, "max_detections": 5,
                                                        "timeout_seconds": 2.0})
         # Explicit schema evolution only: no general missing-key permissiveness.
-        if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
+        if path != DEFAULT_CONFIG_PATH.resolve():
             evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice", "tts")
             missing_sections = tuple(section for section in evolving_sections if section not in document)
             voice_document = document.get("voice")
@@ -203,7 +195,7 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                                              or "volume" not in tts_document.get("cartesia", {})))
             # A complete explicit config is self-contained; do not consult a
             # separate default document merely to validate it.
-            default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+            default = (load_document(DEFAULT_CONFIG_PATH)
                        if missing_sections or needs_voice_defaults or needs_tts_audio_defaults else None)
             for section in missing_sections:
                 if section not in document:
@@ -251,8 +243,8 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                         for key, default_value in default_startup[section].items():
                             value.setdefault(key, copy.deepcopy(default_value))
         return document
-    except json.JSONDecodeError as error:
-        raise ConfigurationError(f"{path}: invalid JSON at line {error.lineno}, column {error.colno}") from error
+    except yaml.YAMLError as error:
+        raise ConfigurationError(f"{path}: invalid YAML") from error
     except (OSError, UnicodeError) as error:
         raise ConfigurationError(f"Cannot read configuration file: {path} ({type(error).__name__})") from error
 
@@ -313,7 +305,7 @@ class CloudExpressionConfig:
 
 
 # The section structure maps to the existing typed RuntimeConfig surface. Values
-# live only in phos.json; this mapping is schema, not a second set of defaults.
+# Values live only in phos.yaml; this mapping is schema, not a second set of defaults.
 _SCHEMA = {
     "web": {"enabled": "web_enabled", "host": "web_host", "port": "web_port"},
     "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
@@ -819,7 +811,7 @@ class RuntimeConfig:
         return result
 
     def to_dict(self) -> dict:
-        """Return the complete secret-free JSON structure for editing/persistence."""
+        """Return the complete secret-free dictionary used for editing/persistence."""
         def encode(schema):
             result = {}
             for key, target in schema.items():
@@ -857,13 +849,9 @@ class RuntimeConfig:
         validated = self.from_dict(document, base_dir=path.parent)
         return validated.to_dict()
 
-    def serialized_json(self, path: Path) -> str:
-        """Return validated JSON persistence content, rebased for *path*."""
-        return json.dumps(self.persistence_document(path), indent=2, allow_nan=False) + "\n"
-
     def save(self, path: Path) -> None:
         """Atomically persist validated settings, rebasing paths if relocated."""
-        atomic_write_text(path, self.serialized_json(path))
+        ConfigRepository(path).save(self)
 
     def resolve_path(self, path: Optional[Path]) -> Optional[Path]:
         return None if path is None else (self._base_dir / path).resolve()

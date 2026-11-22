@@ -199,7 +199,7 @@ page is highlighted. No frontend framework is needed.
 | Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
 | Sensors | Environmental type (BME280/BMP280), controller-backed ENS160/AHT21 status, environmental behavior and GY-521/MPU-6050 motion. `sensors.ens160` and `sensors.aht21` are read-only public status records; ENS160 values require validity and usability, while AHT21 freshness is independent. No direct-Pi AHT21 provider is configured. |
 | Runtime → Logging | Supported log level, output file and expression diagnostics. Log level applies immediately; output file and diagnostics require Restart PHOS. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
-| Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
+| Advanced Configuration | Complete YAML editor for advanced users. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
 | Diagnostics | Read-only runtime health and saved-versus-active configuration diagnostics. |
 | System Actions | Reload configuration and, when managed by the documented systemd service, review/confirm Restart PHOS. Restart is visually marked as disruptive; reboot and shutdown are not supported. |
@@ -225,9 +225,8 @@ see [the field reference](development.md#field-reference).
 ### Advanced Configuration YAML editor
 
 Open **Settings → Configuration** for the complete advanced editor. It always
-displays YAML, including when the active file is legacy JSON. The page identifies
-the active path and storage format; saving YAML input back to a JSON source keeps
-that source JSON and never creates or switches to a YAML file.
+displays and saves the active YAML configuration. The page identifies the active
+path; saving never switches to another configuration file.
 
 Use **Validate** to parse YAML and run full `RuntimeConfig` validation without
 writing. Syntax errors include a line/column when available; invalid roots and
@@ -265,7 +264,7 @@ API Key. It reports only **Configured** or **Not configured**. Values are never
 shown back, masked, included in responses, or logged. A blank password field is
 always a new value; use the explicit confirmation checkbox to remove one.
 
-The store is separate from `phos.yaml`/legacy JSON: a local `.phos-secrets/`
+The store is separate from `phos.yaml`: a local `.phos-secrets/`
 directory beside the active configuration contains an authenticated encrypted
 `secrets.enc` file and a separate `secret.key`. PHOS creates the key only for a
 new empty store. If an existing encrypted store has no key, or cannot be

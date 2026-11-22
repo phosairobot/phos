@@ -162,7 +162,7 @@ VAD and bounded pre-roll. Default local Vosk and optional Cartesia Ink batch STT
 implement the provider-neutral transcription boundary. Local Piper, Cartesia and
 ElevenLabs TTS adapters feed `AudioOutputProvider` and the
 `SPEAKING` state through `/api/v1/speak`. YAML is the canonical editable
-configuration; legacy JSON remains a supported fallback.
+configuration; YAML is the only supported runtime configuration file format.
 
 Transcript-to-intent/command interpretation, wake words, continuous listening,
 conversational LLM, Home Assistant and MCP events/subscriptions remain deferred.
@@ -362,14 +362,14 @@ outstanding. No automatic provider fallback is implemented.
 ## Canonical configuration
 
 `ConfigRepository` and `robot.config` own `RuntimeConfig`, strict full-file schema validation,
-configuration-relative paths and reusable atomic save. YAML is the canonical
-editable configuration format; existing legacy JSON configuration remains a
-supported source fallback. Runtime composition passes typed values for display,
+configuration-relative paths and reusable atomic save. YAML is the sole
+editable configuration format; legacy JSON configuration requires explicit
+one-time migration. Runtime composition passes typed values for display,
 behavior, Vision, voice/audio providers, sensors and logging. The default file
 enables only eyes. No secrets are part of the model. `run_pi.sh` seeds configuration
 without overwriting existing Pi settings. The web interface reuses the model for
 structured settings and an advanced YAML editor that saves back to the active
-source format; see below. Startup flags remain deprecated overrides pending a
+YAML source; see below. Startup flags remain deprecated overrides pending a
 separately announced removal after consumers migrate.
 
 `SecretsService` is the separate encrypted, runtime-only local secret boundary.

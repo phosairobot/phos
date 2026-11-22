@@ -1,5 +1,6 @@
 import asyncio
 import json
+import yaml
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -26,7 +27,7 @@ def _skin_management(tmp_path, skin=None):
     tmp_path.mkdir(parents=True, exist_ok=True)
     document = load_document(); document.pop("appearance", None); document["logging"]["file"] = None
     if skin is not None: document["agents"]["entries"][0]["skin"] = skin
-    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"; path.write_text(yaml.safe_dump(document, sort_keys=False))
     repository = ConfigRepository(path); config = repository.load()
     provider = AgentRegistryProvider(config.agent_registry)
     return AgentManagementService(repository, provider, AgentCredentialService(provider, SecretsService(tmp_path / ".secrets"))), path
@@ -433,7 +434,7 @@ def test_default_agent_change_persists_publishes_and_releases_previous_default(t
         {"id": "standard", "display_name": "Standard", "permission_profile": "standard"},
         {"id": "observer", "display_name": "Observer", "permission_profile": "observer"},
     ]}
-    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"; path.write_text(yaml.safe_dump(document, sort_keys=False))
     repository = ConfigRepository(path)
     provider = AgentRegistryProvider(repository.load().agent_registry)
     management = AgentManagementService(repository, provider,

@@ -296,7 +296,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Start the PHOS robot runtime.",
                                      argument_default=argparse.SUPPRESS,
                                      epilog="All individual setting flags are deprecated overrides; edit the active configuration file instead.")
-    parser.add_argument("--config", type=Path, help="explicit PHOS configuration file; otherwise discover phos.yaml, phos.yml, then phos.json")
+    parser.add_argument("--config", type=Path, help="explicit PHOS YAML configuration file; otherwise use phos.yaml")
     parser.add_argument("--expression-provider", choices=("local", "aws"), help="deprecated: override expression.provider and enable expressions")
     parser.add_argument("--aws-region", help="deprecated: override expression.aws.region")
     parser.add_argument(
@@ -348,7 +348,7 @@ def main() -> None:
     arguments = vars(parser.parse_args())
     config_path = arguments.pop("config", None)
     try:
-        # Compatibility flags become typed overrides of the one JSON model.
+            # Compatibility flags become typed overrides of the one YAML model.
         # No flag supplies a separate default or persists its override.
         aliases = {"face_tracking": "face_tracking_enabled", "expression_model": "expression_model_path",
                    "expression_debug": "expression_diagnostics"}

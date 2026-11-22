@@ -133,8 +133,8 @@ Use `config/phos.yaml` for all current non-secret application settings. Required
 sections map to the existing typed RuntimeConfig surface in `robot.config`;
 CloudExpressionConfig remains a typed provider subset. Validate types, ranges,
 relationships and active paths before building subsystems. CLI defaults and
-provider-specific JSON files are replaced by this file. Legacy `phos.json` is
-supported as a fallback or explicit path. Existing setting flags
+provider-specific JSON files are replaced by this file. Runtime configuration
+is YAML-only; existing setting flags
 remain deprecated explicit overrides for a separately announced migration.
 
 The committed file safely starts only eyes; camera/expression processing is
@@ -383,19 +383,18 @@ restart-only; enabled state and visual settings reload through the shared
 lifecycle service. The ring is disabled and count-unconfigured by default until
 physical wiring is accepted.
 
-## ADR-026 — YAML-first configuration with legacy JSON compatibility
+## ADR-026 — YAML-only runtime configuration
 
 **Status:** Accepted.
 
-YAML is the canonical format for new PHOS installations because it is easier to
+YAML is the sole runtime configuration format because it is easier to
 edit by hand while retaining the complete, strictly validated RuntimeConfig
 schema. `ConfigRepository` owns discovery, parsing, serialization and atomic
-persistence so every adapter uses one fixed active source for its process:
-`phos.yaml`, then `phos.yml`, then legacy `phos.json`.
+persistence so every adapter uses the fixed active `phos.yaml` source for its
+process.
 
-Saving to the active source avoids surprise format conversion and preserves a
-user's chosen deployment boundary. Automatic JSON-to-YAML conversion is
-rejected because configuration changes must remain deliberate, reviewable and
-recoverable. JSON remains supported for backward compatibility, with a concise
-one-process warning when it is active. YAML is preferred for new installations;
-removal of JSON support is not currently scheduled.
+Saving to the active source avoids surprise format conversion. Automatic
+conversion at startup remains rejected because configuration changes must be
+deliberate, reviewable and recoverable; an explicit one-time migration tool
+handles older JSON files. This decision affects configuration files only, not
+PHOS JSON APIs, MCP payloads, or the `phos-hw` JSON Lines protocol.

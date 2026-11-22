@@ -126,9 +126,9 @@ air-quality physical validation is claimed.
   Raspberry Pi 3 physical validation.
 - [x] Provider-neutral TTS/audio output with local Piper, Cartesia and ElevenLabs adapters; live Voice & Speech provider/output activation through the application boundary.
 - [ ] Future voice work: command and intent interpretation, LLM integration, wake word, continuous listening, and Home Assistant.
-- [x] Configuration evolution: YAML is the canonical editable configuration;
-  ConfigRepository owns validation and atomic persistence, with legacy JSON
-  retained as a supported fallback. Supported Voice & Speech changes use the
+- [x] Configuration evolution: YAML is the sole editable configuration;
+  ConfigRepository owns validation and atomic YAML persistence. Legacy JSON
+  requires explicit one-time migration. Supported Voice & Speech changes use the
   runtime-aware live configuration path.
 
 ## PHOS 1.3.0 — Presence, Attention & Expression Awareness

@@ -17,8 +17,8 @@ def document():
 
 
 def write_config(tmp_path, document):
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     return path
 
 
@@ -133,18 +133,16 @@ def test_legacy_voice_stt_without_provider_defaults_to_local_vosk(tmp_path, docu
     assert "_base_dir" not in repr(config)
 
 
-@pytest.mark.parametrize("suffix", [".yaml", ".yml", ".json"])
-def test_runtime_config_from_file_uses_format_aware_repository(document, tmp_path, suffix):
-    path = (write_yaml_config(tmp_path, document, suffix) if suffix != ".json"
-            else write_config(tmp_path, document))
+@pytest.mark.parametrize("suffix", [".yaml", ".yml"])
+def test_runtime_config_from_file_uses_yaml_repository(document, tmp_path, suffix):
+    path = write_yaml_config(tmp_path, document, suffix)
     assert RuntimeConfig.from_file(path).to_dict() == document
 
 
 def test_runtime_config_default_uses_repository_discovery(document, tmp_path, monkeypatch):
     import robot.config as module
-    canonical = tmp_path / "phos.json"
-    canonical.write_text(json.dumps(document))
-    write_yaml_config(tmp_path, document, ".yml")
+    canonical = tmp_path / "phos.yaml"
+    canonical.write_text(yaml.safe_dump(document, sort_keys=False))
     yaml_document = json.loads(json.dumps(document)); yaml_document["display"]["fps"] = 17
     write_yaml_config(tmp_path, yaml_document, ".yaml")
     monkeypatch.setattr(module, "DEFAULT_CONFIG_PATH", canonical)
@@ -156,6 +154,14 @@ def test_runtime_config_yaml_errors_remain_yaml_errors(tmp_path):
     path = tmp_path / "bad.yaml"; path.write_text("display: [")
     with pytest.raises(ConfigurationError, match="invalid YAML"):
         RuntimeConfig.from_file(path)
+
+
+def test_runtime_config_rejects_duplicate_yaml_keys(tmp_path):
+    path = tmp_path / "duplicate.yaml"
+    path.write_text("display: {}\ndisplay: {}\n")
+
+    with pytest.raises(ConfigurationError, match="Duplicate configuration key: display"):
+        ConfigRepository(path).document()
 
 
 def test_loaded_values_reach_subsystems(document, tmp_path):
@@ -303,7 +309,7 @@ def test_reusable_edit_validate_save_rebases_paths(document, tmp_path):
     original = RuntimeConfig.from_dict(document, base_dir=tmp_path)
     destination = tmp_path / "subdirectory"
     destination.mkdir()
-    path = destination / "settings.json"
+    path = destination / "settings.yaml"
     original.save(path)
     reloaded = RuntimeConfig.from_file(path)
     assert reloaded.resolve_path(reloaded.expression_model_path) == model
@@ -351,14 +357,14 @@ def test_atomic_write_text_failure_preserves_target_and_cleans_temporary(tmp_pat
     assert not list(tmp_path.glob(".settings.json.*"))
 
 
-def test_config_repository_json_save_preserves_json_serialization(document, tmp_path):
+def test_config_repository_yaml_save_preserves_yaml_serialization(document, tmp_path):
     path = write_config(tmp_path, document)
     repository = ConfigRepository(path)
     config = repository.load()
 
     repository.save(config)
 
-    assert path.read_text() == json.dumps(config.to_dict(), indent=2, allow_nan=False) + "\n"
+    assert yaml.safe_load(path.read_text()) == config.persistence_document(path)
     assert RuntimeConfig.from_file(path) == config
 
 
@@ -370,18 +376,28 @@ def test_config_repository_loads_explicit_yaml_paths(document, tmp_path, suffix)
     assert repository.load().to_dict() == RuntimeConfig.from_dict(document, base_dir=tmp_path).to_dict()
 
 
-def test_config_repository_explicit_json_path_still_works(document, tmp_path):
-    repository = ConfigRepository(write_config(tmp_path, document))
+def test_config_repository_rejects_explicit_json_path(document, tmp_path):
+    path = tmp_path / "phos.json"
+    path.write_text(json.dumps(document))
 
-    assert repository.format == "json"
-    assert repository.load().to_dict() == document
+    with pytest.raises(ConfigurationError, match="JSON configuration is no longer supported"):
+        ConfigRepository(path)
 
 
-def test_equivalent_explicit_json_and_yaml_configs_produce_equivalent_runtime_config(document, tmp_path):
-    json_repository = ConfigRepository(write_config(tmp_path, document))
-    yaml_repository = ConfigRepository(write_yaml_config(tmp_path, document))
+def test_explicit_json_to_yaml_migration_preserves_settings_and_source(document, tmp_path):
+    import importlib.util
+    source, destination = tmp_path / "phos.json", tmp_path / "phos.yaml"
+    source.write_text(json.dumps(document))
+    spec = importlib.util.spec_from_file_location("phos_json_migration", Path("tools/migrate_phos_json_to_yaml.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
-    assert json_repository.load() == yaml_repository.load()
+    module.migrate(source, destination)
+
+    assert source.exists()
+    assert RuntimeConfig.from_file(destination).to_dict() == RuntimeConfig.from_dict(document, base_dir=tmp_path).to_dict()
+    with pytest.raises(ConfigurationError, match="Refusing to overwrite"):
+        module.migrate(source, destination)
 
 
 @pytest.mark.parametrize("content", ["[", "null\n", "- value\n", "plain value\n"])
@@ -449,85 +465,46 @@ def test_config_repository_rejects_unsupported_explicit_path_extensions(tmp_path
         ConfigRepository(tmp_path / f"phos{suffix}")
 
 
-@pytest.mark.parametrize(("existing", "selected"), [
-    (("phos.yaml",), "phos.yaml"),
-    (("phos.yml",), "phos.yml"),
-    (("phos.json",), "phos.json"),
-    (("phos.yaml", "phos.json"), "phos.yaml"),
-    (("phos.yml", "phos.json"), "phos.yml"),
-    (("phos.yaml", "phos.yml", "phos.json"), "phos.yaml"),
-])
-def test_config_repository_discovers_one_default_source_in_precedence_order(document, tmp_path, monkeypatch,
-                                                                              existing, selected):
-    default_path = tmp_path / "phos.json"
+def test_config_repository_discovers_only_the_canonical_default_yaml(document, tmp_path, monkeypatch):
+    default_path = tmp_path / "phos.yaml"
     monkeypatch.setattr("robot.config.DEFAULT_CONFIG_PATH", default_path)
-    for name in existing:
-        path = tmp_path / name
-        if path.suffix == ".json":
-            path.write_text(json.dumps(document))
-        else:
-            path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    default_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
 
     repository = ConfigRepository()
 
-    assert repository.active_path == (tmp_path / selected).resolve()
+    assert repository.active_path == default_path.resolve()
     assert repository.load().to_dict() == document
 
 
 def test_config_repository_explicit_path_overrides_discovered_yaml(document, tmp_path, monkeypatch):
-    default_path = tmp_path / "phos.json"
+    default_path = tmp_path / "phos.yaml"
     monkeypatch.setattr("robot.config.DEFAULT_CONFIG_PATH", default_path)
-    default_path.write_text(json.dumps(document))
+    default_path.write_text(yaml.safe_dump(document, sort_keys=False))
     (tmp_path / "phos.yaml").write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
 
     repository = ConfigRepository(default_path)
 
     assert repository.active_path == default_path.resolve()
-    assert repository.format == "json"
-
-
-def test_legacy_json_warning_is_emitted_once_per_process(document, tmp_path, monkeypatch, caplog):
-    path = write_config(tmp_path, document)
-    monkeypatch.setattr(ConfigRepository, "_legacy_json_warning_emitted", False)
-    caplog.set_level("WARNING", logger="robot.config")
-
-    repository = ConfigRepository(path)
-    repository.save(repository.load())
-    ConfigRepository(path)
-
-    assert caplog.text.count("PHOS CONFIG: legacy JSON configuration loaded from") == 1
-
-
-def test_legacy_json_warning_is_not_emitted_for_yaml(document, tmp_path, monkeypatch, caplog):
-    path = write_yaml_config(tmp_path, document)
-    monkeypatch.setattr(ConfigRepository, "_legacy_json_warning_emitted", False)
-    caplog.set_level("WARNING", logger="robot.config")
-
-    repository = ConfigRepository(path)
-    repository.save(repository.load())
-
-    assert "PHOS CONFIG: legacy JSON configuration loaded from" not in caplog.text
+    assert repository.format == "yaml"
 
 
 def test_discovered_active_path_is_fixed_and_save_preserves_selected_format(document, tmp_path, monkeypatch):
-    default_path = tmp_path / "phos.json"
-    selected_path = tmp_path / "phos.yml"
+    default_path = tmp_path / "phos.yaml"
+    selected_path = default_path
     monkeypatch.setattr("robot.config.DEFAULT_CONFIG_PATH", default_path)
-    default_path.write_text(json.dumps(document))
-    selected_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    default_path.write_text(yaml.safe_dump(document, sort_keys=False))
     repository = ConfigRepository()
     active_path = repository.active_path
-    (tmp_path / "phos.yaml").write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
+    default_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
 
     repository.save(repository.load())
 
     assert repository.active_path == active_path == selected_path.resolve()
-    assert selected_path.read_text().lstrip()[0] != "{"
-    assert json.loads(default_path.read_text()) == document
+    assert yaml.safe_load(selected_path.read_text()) == document
 
 
-def test_config_repository_missing_default_preserves_json_missing_file_behavior(tmp_path, monkeypatch):
-    default_path = tmp_path / "phos.json"
+def test_config_repository_missing_default_reports_missing_yaml_file(tmp_path, monkeypatch):
+    default_path = tmp_path / "phos.yaml"
     monkeypatch.setattr("robot.config.DEFAULT_CONFIG_PATH", default_path)
     repository = ConfigRepository()
 
@@ -536,7 +513,7 @@ def test_config_repository_missing_default_preserves_json_missing_file_behavior(
         repository.document()
 
 
-def test_shipped_canonical_yaml_is_selected_over_legacy_json():
+def test_shipped_canonical_yaml_is_selected():
     repository = ConfigRepository()
 
     assert repository.active_path.name == "phos.yaml"
@@ -549,9 +526,9 @@ def test_startup_without_explicit_config_uses_discovered_yaml(document, tmp_path
     from robot import main
 
     document["logging"]["file"] = None
-    default_path = tmp_path / "phos.json"
+    default_path = tmp_path / "phos.yaml"
     yaml_path = tmp_path / "phos.yaml"
-    default_path.write_text(json.dumps(document))
+    default_path.write_text(yaml.safe_dump(document, sort_keys=False))
     yaml_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
     monkeypatch.setattr("robot.config.DEFAULT_CONFIG_PATH", default_path)
     seen = []
@@ -618,13 +595,13 @@ def test_cli_config_only_and_overrides_use_same_validation(document, tmp_path, m
     assert seen[-1][0].expression_enabled and seen[-1][0].expression_provider == "aws"
     assert seen[-1][0].expression_diagnostics and seen[-1][0].display_fps == 19
     assert "deprecated" in caplog.text
-    assert json.loads(path.read_text()) == document
+    assert yaml.safe_load(path.read_text()) == document
 
 
 def test_explicit_file_loading_does_not_consult_another_default_file(document, tmp_path, monkeypatch):
     import robot.config as module
     path = write_config(tmp_path, document)
-    monkeypatch.setattr(module, "DEFAULT_CONFIG_PATH", tmp_path / "missing-default.json")
+    monkeypatch.setattr(module, "DEFAULT_CONFIG_PATH", tmp_path / "missing-default.yaml")
     assert RuntimeConfig.from_file(path).display_fps == document["display"]["fps"]
 
 

@@ -1,4 +1,5 @@
 import json
+import yaml
 from types import SimpleNamespace
 
 import pytest
@@ -80,8 +81,8 @@ def test_graphical_session_log_reports_only_local_seat0_source(monkeypatch, capl
 def test_main_configures_display_power_once_per_startup(tmp_path, monkeypatch):
     document = json.loads(json.dumps(main.ConfigRepository().document()))
     document["logging"]["file"] = None
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     calls = []
 
     class Worker:

@@ -52,7 +52,7 @@ controller-backed ENS160/AHT21; consult the current [hardware documentation](doc
 | `src/robot/hardware/` | Pi I2C/GPIO adapters and controller protocol/serial integration |
 | `src/robot/mcp/` | MCP semantic server and transport lifecycle |
 | `src/robot/web/` | Web Admin and Remote API implementation |
-| `config/` | Canonical YAML configuration and compatibility JSON examples |
+| `config/` | Canonical YAML configuration |
 | `scripts/` | Pi installer, diagnostics, and standalone benchmark utilities |
 | `tests/` | Hardware-free automated tests |
 | `docs/` | MkDocs source documentation |

@@ -131,7 +131,8 @@ all required sections (`web`, `display`, `led_ring`, `presence`, `attention`,
 are required, including inactive provider fields and `vision.camera_preview`.
 Paths inside the active configuration resolve relative to its directory. YAML uses
 spaces for indentation; scalar values must retain their intended types. YAML is
-the canonical editable format; existing legacy JSON remains a supported fallback.
+the sole supported editable format. Migrate a legacy configuration explicitly
+before startup; PHOS does not read JSON configuration files.
 
 For trusted-LAN administration set `web.enabled` to `true` and `web.host` to the
 Pi's LAN address or `0.0.0.0`; default port is 8080. No provider or password
@@ -658,7 +659,7 @@ PHOS with the new configuration:
 systemctl --user restart phos.service
 ```
 
-After LED count or GPIO changes, update both the helper unit and `phos.json`,
+After LED count or GPIO changes, update both the helper unit and `phos.yaml`,
 then restart `phos-led.service` followed by `phos.service`. Brightness, base
 color, semantic following and update rate may instead use Web Admin → Display &
 Appearance → WS2812B LED ring → Save → **Reload configuration**.

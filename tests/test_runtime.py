@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import yaml
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -436,8 +437,8 @@ def test_reloading_iris_appearance_updates_running_renderer_without_restarting_r
         document = load_document()
         document["display"]["iris_color"] = "cyan"
         document["startup"]["ready_sound"]["enabled"] = False
-        path = tmp_path / "phos.json"
-        path.write_text(json.dumps(document))
+        path = tmp_path / "phos.yaml"
+        path.write_text(yaml.safe_dump(document, sort_keys=False))
         config = RuntimeConfig.from_file(path)
         display, vision = MemoryEyeDisplay(), StableVision()
         runtime = build_runtime(config=config, eye_display=display, vision_pipeline=vision)
@@ -449,7 +450,7 @@ def test_reloading_iris_appearance_updates_running_renderer_without_restarting_r
         service.register_camera_preview_applier(runtime.apply_camera_preview)
         document["display"]["iris_color"] = "violet"
         document["vision"]["camera_preview"]["position"] = "top_left"
-        path.write_text(json.dumps(document))
+        path.write_text(yaml.safe_dump(document, sort_keys=False))
         result = await asyncio.to_thread(service.execute, "reload")
         await asyncio.sleep(.25)
         applied = display.frames[-1].iris_color
