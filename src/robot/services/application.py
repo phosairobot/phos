@@ -632,6 +632,14 @@ class PhosApplicationService:
                 "objects": [{"label": item.label, "confidence": item.confidence} for item in observation.objects],
                 "truncated": observation.truncated}
 
+    def object_awareness_status(self) -> dict:
+        """Read the runtime-owned, non-invasive Object Recognition status."""
+        reader = getattr(self._runtime, "object_awareness_status", None)
+        if callable(reader):
+            return self._plain(reader())
+        return {"state": "unavailable", "enabled": False, "model": "unknown",
+                "backend": None, "reason": "Runtime status is unavailable."}
+
     def get_camera_snapshot(self) -> bytes:
         """Return one bounded JPEG from the latest cached Vision frame."""
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
@@ -731,7 +739,8 @@ class PhosApplicationService:
             },
             "features": {"vision": getattr(self._runtime, "_vision_pipeline", None) is not None,
                          "presence": getattr(self._runtime, "_presence_interpreter", None) is not None,
-                         "attention": getattr(self._runtime, "_attention_manager", None) is not None},
+                         "attention": getattr(self._runtime, "_attention_manager", None) is not None,
+                         "object_awareness": getattr(self._runtime, "_object_awareness", None) is not None},
         }
 
     def overlay(self) -> dict:

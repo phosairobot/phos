@@ -2154,6 +2154,71 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
     assert "secret-never-rendered" not in page + status + security + logging
 
 
+def test_object_recognition_controls_persist_and_mark_only_enablement_live(setup):
+    app, path, _ = setup
+    model = path.parent / "nanodet.onnx"
+    model.write_bytes(b"placeholder")
+    client = authorize(app)
+    page = client.get("/configuration/runtime/vision").get_data(as_text=True)
+    assert "Object Recognition" in page
+    for name in ("object_awareness.enabled", "object_awareness.model_path",
+                 "object_awareness.confidence", "object_awareness.max_detections",
+                 "object_awareness.timeout_seconds"):
+        assert f'name="{name}"' in page
+    assert "Object Recognition enable or disable applies immediately" in page
+    assert 'name="object_awareness.enabled" type="checkbox"' in page
+    assert "Applies immediately" in page
+    form_data = form(client, "runtime/vision")
+    form_data.update({"object_awareness.enabled": "on", "object_awareness.model_path": "nanodet.onnx",
+                      "object_awareness.confidence": "0.5", "object_awareness.max_detections": "3",
+                      "object_awareness.timeout_seconds": "4"})
+    assert client.post("/configuration/runtime/vision", data=form_data).status_code == 302
+    saved = load_document(path)["object_awareness"]
+    assert saved == {"enabled": True, "model_path": "nanodet.onnx", "confidence": 0.5,
+                     "max_detections": 3, "timeout_seconds": 4}
+    form_data = form(client, "runtime/vision")
+    form_data.pop("object_awareness.enabled")
+    form_data["object_awareness.model_path"] = ""
+    assert client.post("/configuration/runtime/vision", data=form_data).status_code == 302
+    assert load_document(path)["object_awareness"]["enabled"] is False
+    assert load_document(path)["object_awareness"]["model_path"] is None
+
+
+def test_object_recognition_rejects_missing_model_without_persisting(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    before = path.read_bytes()
+    form_data = form(client, "runtime/vision")
+    form_data.update({"object_awareness.enabled": "on", "object_awareness.model_path": "missing.onnx"})
+    response = client.post("/configuration/runtime/vision", data=form_data)
+    assert response.status_code == 400
+    assert b"object_awareness.model_path" in response.data
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("field, value", (("object_awareness.confidence", "1.1"),
+                                           ("object_awareness.max_detections", "6"),
+                                           ("object_awareness.timeout_seconds", "31")))
+def test_object_recognition_rejects_invalid_limits_without_persisting(setup, field, value):
+    app, path, _ = setup
+    model = path.parent / "nanodet.onnx"
+    model.write_bytes(b"placeholder")
+    client = authorize(app)
+    before = path.read_bytes()
+    form_data = form(client, "runtime/vision")
+    form_data.update({"object_awareness.enabled": "on", "object_awareness.model_path": "nanodet.onnx",
+                      field: value})
+    assert client.post("/configuration/runtime/vision", data=form_data).status_code == 400
+    assert path.read_bytes() == before
+
+
+def test_object_recognition_page_omits_redundant_runtime_status(setup):
+    _app, path, _ = setup
+    page = authorize(_app).get("/configuration/runtime/vision").get_data(as_text=True)
+    assert "Effective state" not in page and "Inference backend" not in page
+    assert str(path.parent) not in page
+
+
 def test_domain_error_hints_match_fields_without_matching_unrelated_words():
     from robot.web.domains import error_domain
     document = load_document()

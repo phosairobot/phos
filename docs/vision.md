@@ -67,6 +67,16 @@ lazily only after an authorized on-demand request. Results are semantic labels
 and confidences only: PHOS retains no object history, image, bounding box,
 identity, or tracking data.
 
+Configure it in Web Admin → Runtime → Vision → Object Recognition. Enablement
+and disablement take effect live: PHOS prepares or closes the existing
+coordinator while preserving the one VisionPipeline camera owner. Model path,
+confidence, maximum detections, and request timeout remain restart-required
+when changed independently. When those settings are saved together with an
+enable action, that newly prepared coordinator uses them immediately.
+Live updates retain the configuration selected at PHOS startup; the documented
+user service passes `~/phos/config/phos.yaml` explicitly. They never rediscover
+or write a package-default configuration under the Python virtual environment.
+
 `phos://vision/snapshot` is a synchronous, read-only, on-demand `image/jpeg`
 MCP Resource. `VisionPipeline` remains the single camera owner: the Resource
 uses its latest captured frame, copies it before bounded encoding, and neither

@@ -247,6 +247,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             preview_applier = getattr(runtime, "apply_camera_preview", None)
             if preview_applier is not None:
                 lifecycle.register_camera_preview_applier(preview_applier)
+            object_awareness_applier = getattr(runtime, "apply_object_awareness", None)
+            if object_awareness_applier is not None:
+                lifecycle.register_object_awareness_applier(object_awareness_applier)
             motion_applier = getattr(runtime, "apply_imu_motion", None)
             if motion_applier is not None:
                 lifecycle.register_imu_motion_applier(motion_applier)

@@ -47,6 +47,45 @@ def update(path, edit):
     path.write_text(json.dumps(document))
 
 
+def test_object_recognition_enable_disable_applies_live_and_persists(runtime):
+    path, service, _, _ = runtime
+    (path.parent / "nanodet.onnx").write_bytes(b"model")
+    received = []
+    service.register_object_awareness_applier(
+        lambda config: received.append((config.object_awareness_enabled, config.object_awareness_confidence)))
+    document = service.config_repository.load().to_dict()
+    document["object_awareness"].update(enabled=True, model_path="nanodet.onnx", confidence=.5)
+    enabled = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+    assert received == [(True, .5)]
+    assert "object_awareness.enabled" in enabled["applied"]
+    assert service.active["object_awareness"]["enabled"] is True
+    assert RuntimeConfig.from_file(path).object_awareness_enabled is True
+
+    document["object_awareness"]["enabled"] = False
+    disabled = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+    assert received[-1] == (False, .5)
+    assert disabled["applied"] == ["object_awareness.enabled"]
+    assert service.active["object_awareness"]["enabled"] is False
+
+
+def test_object_recognition_activation_failure_preserves_saved_and_active_config(runtime):
+    path, service, _, _ = runtime
+    (path.parent / "nanodet.onnx").write_bytes(b"model")
+    calls = []
+    def apply(config):
+        calls.append(config.object_awareness_enabled)
+        if config.object_awareness_enabled:
+            raise RuntimeError("invalid model")
+    service.register_object_awareness_applier(apply)
+    before = path.read_bytes()
+    document = service.config_repository.load().to_dict()
+    document["object_awareness"].update(enabled=True, model_path="nanodet.onnx")
+    result = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+    assert result["ok"] is False and calls == [True, False]
+    assert path.read_bytes() == before
+    assert service.active["object_awareness"]["enabled"] is False
+
+
 def test_presentation_owner_operations_use_the_lifecycle_agent_service(runtime):
     path, lifecycle, _, _ = runtime
     config = lifecycle.config_repository.load()
