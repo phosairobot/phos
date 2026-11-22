@@ -48,6 +48,7 @@ from robot.config import ConfigurationError, RuntimeConfig
 from robot.lifecycle import changed_fields
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
+from robot.services.physical_assessment import PhysicalContextAssessmentService
 from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
 from robot.services.temporal_history import TemporalHistoryService
 from robot.services.agent_permissions import AgentApplicationService
@@ -324,6 +325,7 @@ class PhosApplicationService:
             history = TemporalHistoryService()
             setattr(runtime, "_temporal_history", history)
         self._temporal_history = history
+        self._physical_assessment = PhysicalContextAssessmentService(history)
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -385,6 +387,10 @@ class PhosApplicationService:
 
     def list_physical_transitions(self, *, event_type: str | None = None, limit: int = 100) -> dict:
         return self._temporal_history.list_transitions(event_type=event_type, limit=limit)
+
+    def get_physical_assessment(self) -> dict:
+        """Read-only temporal evidence assessment; does not poll or retain data."""
+        return self._physical_assessment.assess(self.sensors())
 
     def subscribe(self, listener: Callable[[dict], None]) -> Callable[[], None]:
         with self._lock:

@@ -337,7 +337,8 @@ camera/provider objects, controllers, or raw runtime state. Available tools are
 `phos_set_expression(expression)`, `phos_speak(text)`, `phos_sleep`,
 `phos_wake`, `phos_signal_user(signal)`,
 `phos_query_measurements(metric, start?, end?, limit?)`, and
-`phos_list_physical_transitions(event_type?, limit?)`, and
+`phos_list_physical_transitions(event_type?, limit?)`,
+`phos_get_physical_assessment()`, and
 `phos_set_state(state, duration_ms?)`. Input bounds, permission
 checks, semantic result documents, and sanitized error mapping are
 transport-independent.
@@ -383,11 +384,13 @@ bounded on-demand request expires. No frames or detections are persisted.
 | --- | --- | --- |
 | `phos://status` | `application/json` | Compact semantic robot status. |
 | `phos://physical-context` | `application/json` | Current Semantic Physical Context. |
+| `phos://physical-context/assessment` | `application/json` | Read-only bounded temporal evidence and source availability. |
 | `phos://environment` | `application/json` | Current environmental semantic context. |
 | `phos://vision/snapshot` | `image/jpeg` | Current on-demand camera snapshot. |
 
 - `phos://status` — compact agent-facing semantic status.
 - `phos://physical-context` — provider-independent semantic physical context.
+- `phos://physical-context/assessment` — bounded retained-measurement evidence for supported environmental and air-quality metrics.
 - `phos://environment` — the environmental section of that physical context.
 - `phos://vision/snapshot` — one current `image/jpeg` camera snapshot.
 
@@ -425,6 +428,44 @@ contain people physically visible to the camera. It contains no camera device,
 provider/backend, filesystem, identity, candidate-ID, debug, or EXIF/location
 metadata.
 
+### Physical assessment evidence
+
+`phos://physical-context/assessment` requires `read_physical_history`. It is a
+read-only assessment of the existing six-hour RAM-only measurement history and
+the current sensor snapshot; it neither polls a provider nor changes retained
+history. Each supported metric includes its retained sample count, first/last
+PHOS receipt timestamps, actual coverage, largest observed retained-sample gap,
+source provenance, and current source availability/age.
+
+The assessment outcome is one of `valid`, `stale`, `unavailable`,
+`insufficient_data`, or `unknown`, with a stable machine-readable reason.
+`insufficient_data` is an expected evidence result, not a transport error: it
+means PHOS cannot safely establish enough retained coverage or continuity.
+Historical `valid` samples do not prove that a source is currently fresh.
+
+PCI-01a intentionally provides no rising/falling/stable classification. The
+retained timestamp is PHOS receipt/recording time, not an asserted hardware
+acquisition time; metric-specific noise/deadband policy is required before
+numerical trend classification can be added. eCO2 remains an estimated
+air-quality measure, not direct CO2 concentration.
+
+The metric-level `evidence` section always describes the full requested
+historical window. Its `observed_discontinuity` result is never silently
+removed after a sensor recovers. When a recorded unavailable-to-available
+transition has a reliably ordered timestamp, the additive
+`recent_continuous_segment` section separately describes only retained samples
+strictly after that recovery boundary. It may become `valid` after at least
+three samples, two minutes of coverage, no excessive retained gap, and no
+later recorded availability break, while the full historical outcome remains
+`insufficient_data / availability_discontinuity`.
+
+Successful reconnect does not prove uninterrupted hardware acquisition. Equal
+or unordered PHOS receipt timestamps, missing recovery transitions, source
+changes, stale current data, or insufficient post-recovery samples keep the
+recent segment `unknown` or `insufficient_data`. The recovery boundary is a
+PHOS semantic-event receipt time, not an ESP32 acquisition timestamp or a
+hardware generation identifier.
+
 ### Discovery and snapshot read
 
 The `phos-mcp-bridge` dynamically forwards MCP Resources, so no bridge-specific
@@ -456,8 +497,8 @@ output; PHOS itself does not use a JSON/base64 snapshot contract.
 ## Async resource-change subscriptions
 
 Modern MCP clients negotiating protocol revision `2026-07-28` can use
-`subscriptions/listen` for `phos://status`, `phos://physical-context`, and
-`phos://environment`:
+`subscriptions/listen` for `phos://status`, `phos://physical-context`,
+`phos://physical-context/assessment`, and `phos://environment`:
 
 ```text
 listen -> notifications/resources/updated -> resources/read
@@ -473,10 +514,13 @@ not a video stream.
 Numeric sensor samples remain read-only Resource data and do not cause push
 notifications. Confirmed environmental/motion conditions and meaningful sensor
 availability or freshness status transitions do cause Resource update cues.
-`environment_availability_changed` updates both `phos://environment` and
-`phos://physical-context`; `air_quality_availability_changed` and
-`motion_availability_changed` update physical context only. Camera snapshots
-remain excluded from continuous notifications.
+`environment_availability_changed` updates `phos://environment`,
+`phos://physical-context`, and the assessment Resource;
+`air_quality_availability_changed` also updates the assessment Resource.
+Environmental and air-quality condition transitions do the same. Numeric sensor
+samples still do not create push notifications, so clients use notifications as
+cues and reread the current Resource when appropriate. Camera snapshots remain
+excluded from continuous notifications.
 
 The SDK owns listen-stream filtering, disconnect cleanup, and bounded
 per-client delivery. PHOS owns one bounded bridge subscription for its MCP
@@ -566,8 +610,9 @@ History excludes camera/audio data, transcripts, and identity.
 PHOS supplies factual physical observations and bounded summaries. An external
 Agent combines those facts with its own task context and is solely responsible
 for interpretation and decisions. This is an on-demand composition pattern, not
-a PHOS runtime subsystem: it starts no worker, polls no sensor, persists no
-additional data, and adds no MCP tool or Resource.
+a PHOS runtime subsystem: it starts no worker, polls no sensor, or persists
+additional data. It exposes one read-only assessment tool and Resource over the
+existing bounded history.
 
 Use `phos_get_physical_context` first to obtain the current semantic context.
 Its `environment` section reports `status`, `available`, `temperature_c`,
@@ -578,10 +623,24 @@ includes current `robot`, `presence`, and `attention` sections. The current
 context establishes whether a reading is currently available or stale; history
 does not turn an unavailable sensor into a current one.
 
+Use `phos_get_physical_assessment` before treating retained measurements as
+continuous evidence, especially after an interruption. It reports current
+source availability/freshness, historical-window evidence validity, and—when a
+recovery boundary is safely ordered—the validity of the recent post-recovery
+segment. It does not make current environmental conditions its primary answer,
+guarantee physical measurement accuracy, or detect rising/falling/stable
+trends. Use `phos_get_physical_context` for current perceived conditions, and
+combine `phos_get_physical_assessment` with `phos_query_measurements` for a
+time-window question.
+
+Tool descriptions and read-only annotations guide MCP clients and Agents, but
+cannot guarantee that every Agent selects the appropriate tool.
+
 For a selected time window, call the history tools with their actual signatures:
 
 ```text
 phos_get_physical_context()
+phos_get_physical_assessment()
 phos_query_measurements(metric, start?, end?, limit?)
 phos_list_physical_transitions(event_type?, limit?)
 ```
@@ -647,7 +706,8 @@ The following examples show the boundary deliberately:
 - All history is RAM-only, limited to the last six hours, and discarded on
   runtime restart.
 
-This composition requires `read_physical_history` for both history tools.
+This composition requires `read_physical_history` for both history tools and
+the physical-assessment Resource.
 `phos_get_physical_context` remains governed by `read_physical_context`; an
 Agent without history permission must not derive history from the current
 context.
