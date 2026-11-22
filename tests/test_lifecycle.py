@@ -379,16 +379,21 @@ def test_hardware_controller_connection_settings_hot_apply_without_restart(runti
     applied = []
     service.register_hardware_controller_applier(
         lambda config: applied.append((config.hardware_controller_serial_device,
-                                       config.hardware_controller_serial_baud_rate)))
-    update(path, lambda d: d["hardware_controller"]["serial"].update(device="/dev/ttyUSB1", baud_rate=57600))
+                                       config.hardware_controller_serial_baud_rate,
+                                       config.hardware_controller_serial_dtr,
+                                       config.hardware_controller_serial_rts)))
+    update(path, lambda d: d["hardware_controller"]["serial"].update(
+        device="/dev/ttyUSB1", baud_rate=57600, dtr=True, rts=True))
 
     result = service.execute("reload")
 
     assert result["ok"]
-    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate"]
+    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate",
+                                 "hardware_controller.serial.dtr", "hardware_controller.serial.rts"]
     assert result["restart_required"] == []
-    assert applied == [("/dev/ttyUSB1", 57600)]
-    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600}
+    assert applied == [("/dev/ttyUSB1", 57600, True, True)]
+    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600,
+                                                                    "dtr": True, "rts": True}
 
 
 @pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])

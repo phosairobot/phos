@@ -154,6 +154,17 @@ HELP = {
     "logging": "Blank file means console only. Paths are relative to the configuration file. Enable diagnostics temporarily.",
 }
 
+# Presentation labels and short field guidance supplement the canonical schema;
+# they do not introduce configuration defaults or validation rules here.
+FIELD_LABELS = {
+    "hardware_controller.serial.dtr": "DTR (Data Terminal Ready)",
+    "hardware_controller.serial.rts": "RTS (Request to Send)",
+}
+FIELD_HELP = {
+    "hardware_controller.serial.dtr": "Controls the serial DTR signal. On some ESP32 boards, this signal affects reset or boot behavior.",
+    "hardware_controller.serial.rts": "Controls the serial RTS signal. On some ESP32 boards, this signal affects reset or boot behavior.",
+}
+
 
 def editor_sections(document, prefix=""):
     sections = []
@@ -167,10 +178,10 @@ def editor_sections(document, prefix=""):
             field_name = f"{route}.{key}"
             kind = ("checkbox" if isinstance(value, bool) else "number" if isinstance(value, (float, int))
                     else "array" if isinstance(value, list) else "text")
-            direct.append({"name": field_name, "label": key.replace("_", " ").capitalize(),
+            direct.append({"name": field_name, "label": FIELD_LABELS.get(field_name, key.replace("_", " ").capitalize()),
                            "kind": kind, "value": ", ".join(map(str, value)) if isinstance(value, list) else value,
                            "nullable": value is None or field_name in {"expression.local.model_path", "object_awareness.model_path", "vision.detector.cascade_path", "logging.file", "expression.aws.region", "tts.local.model_path", "tts.elevenlabs.voice_id", "tts.cartesia.voice_id"},
-                           "choices": CHOICES.get(field_name)})
+                           "choices": CHOICES.get(field_name), "help": FIELD_HELP.get(field_name)})
         sections.append({"name": route, "title": route.replace(".", " / ").replace("_", " ").title(),
                          "help": HELP.get(route, ""), "fields": direct})
         sections.extend(editor_sections(nested, route))

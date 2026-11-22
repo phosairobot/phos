@@ -354,7 +354,7 @@ _SCHEMA = {
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
     "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
-    "hardware_controller": {"enabled": "hardware_controller_enabled", "transport": "hardware_controller_transport", "serial": {"device": "hardware_controller_serial_device", "baud_rate": "hardware_controller_serial_baud_rate"}, "reconnect": {"delay_seconds": "hardware_controller_reconnect_delay_seconds"}, "heartbeat": {"interval_seconds": "hardware_controller_heartbeat_interval_seconds", "timeout_seconds": "hardware_controller_heartbeat_timeout_seconds"}},
+    "hardware_controller": {"enabled": "hardware_controller_enabled", "transport": "hardware_controller_transport", "serial": {"device": "hardware_controller_serial_device", "baud_rate": "hardware_controller_serial_baud_rate", "dtr": "hardware_controller_serial_dtr", "rts": "hardware_controller_serial_rts"}, "reconnect": {"delay_seconds": "hardware_controller_reconnect_delay_seconds"}, "heartbeat": {"interval_seconds": "hardware_controller_heartbeat_interval_seconds", "timeout_seconds": "hardware_controller_heartbeat_timeout_seconds"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
     "behavior": {"blink_interval_seconds": "blink_interval_seconds", "gaze_interval_seconds": "gaze_interval_seconds",
@@ -554,6 +554,8 @@ class RuntimeConfig:
     hardware_controller_transport: str
     hardware_controller_serial_device: str
     hardware_controller_serial_baud_rate: int
+    hardware_controller_serial_dtr: bool
+    hardware_controller_serial_rts: bool
     hardware_controller_reconnect_delay_seconds: float
     hardware_controller_heartbeat_interval_seconds: float
     hardware_controller_heartbeat_timeout_seconds: float
@@ -798,9 +800,13 @@ class RuntimeConfig:
                 document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
             document.setdefault("agents", {"default_agent": "local-agent", "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]})
             document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
-                "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
+                "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200, "dtr": False, "rts": False},
                 "reconnect": {"delay_seconds": 2},
                 "heartbeat": {"interval_seconds": 5, "timeout_seconds": 15}})
+            controller = document.get("hardware_controller")
+            if isinstance(controller, dict) and isinstance(controller.get("serial"), dict):
+                controller["serial"].setdefault("dtr", False)
+                controller["serial"].setdefault("rts", False)
             sensors = document.get("sensors")
             if isinstance(sensors, dict):
                 for name in ("environmental", "ens160", "imu"):
@@ -898,6 +904,8 @@ class RuntimeConfig:
         if not isinstance(self.hardware_controller_serial_device, str) or not self.hardware_controller_serial_device.strip():
             raise ConfigurationError("hardware_controller.serial.device must be a nonempty path")
         number("hardware_controller_serial_baud_rate", minimum=1200, inclusive=True, maximum=3000000, integer=True)
+        if type(self.hardware_controller_serial_dtr) is not bool or type(self.hardware_controller_serial_rts) is not bool:
+            raise ConfigurationError("hardware_controller.serial.dtr and rts must be booleans")
         for name in ("hardware_controller_reconnect_delay_seconds", "hardware_controller_heartbeat_interval_seconds", "hardware_controller_heartbeat_timeout_seconds"):
             number(name, minimum=.1, inclusive=True, maximum=3600)
         if self.hardware_controller_heartbeat_timeout_seconds <= self.hardware_controller_heartbeat_interval_seconds:

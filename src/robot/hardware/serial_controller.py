@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 imu_logger = logging.getLogger(f"{__name__}.imu")
 
 OPEN_SETTLE_SECONDS = .5
+DIAGNOSTIC_INTERVAL_SECONDS = 5.0
 
 
 class ControllerConnection(str, Enum):
@@ -40,8 +41,10 @@ class SerialTransportError(OSError):
 
 class SerialControllerTransport:
     """Small blocking-pyserial adapter; callers own its asyncio lifecycle."""
-    def __init__(self, device: str, baud_rate: int, *, serial_factory=None) -> None:
+    def __init__(self, device: str, baud_rate: int, *, dtr: bool = False, rts: bool = False,
+                 serial_factory=None) -> None:
         self.device, self.baud_rate = device, baud_rate
+        self._dtr, self._rts = dtr, rts
         self._serial_factory = serial_factory
         self._serial = None
         self._write_lock = asyncio.Lock()
@@ -52,16 +55,38 @@ class SerialControllerTransport:
                 import serial
             except ImportError as error:
                 raise RuntimeError("pyserial is not installed") from error
-            self._serial_factory = serial.Serial
+            # Construct closed so DTR/RTS are established before pySerial
+            # opens the ESP32 USB-UART device and its auto-reset circuit sees
+            # line transitions.
+            try:
+                serial_port = serial.Serial(port=None, baudrate=self.baud_rate,
+                                            timeout=.25, write_timeout=1)
+                serial_port.dtr, serial_port.rts = self._dtr, self._rts
+                serial_port.port = self.device
+                serial_port.open()
+                self._serial = serial_port
+            except OSError as error:
+                self._serial = None
+                raise SerialTransportError("open", self.device, error) from error
         try:
-            self._serial = self._serial_factory(self.device, self.baud_rate, timeout=.25, write_timeout=1)
+            if self._serial is None:
+                # Test/custom factories retain their historic construction
+                # contract. Production pySerial uses the closed-port path
+                # above, so control lines are set before opening.
+                self._serial = self._serial_factory(self.device, self.baud_rate, timeout=.25, write_timeout=1)
+                self._serial.dtr, self._serial.rts = self._dtr, self._rts
             # A new PHOS process can inherit incomplete bytes already queued by
             # the USB adapter.  Discard input only once at the session boundary,
             # not while a session is running; valid frames are never discarded.
             # A newly opened transport has no PHOS output to discard.
             reset_input = getattr(self._serial, "reset_input_buffer", None)
+            queued = getattr(self._serial, "in_waiting", None)
             if callable(reset_input):
                 reset_input()
+            logger.debug("PHOS CONTROLLER DIAG: transport_open device=%s baud=%s read_timeout_s=0.25 "
+                         "write_timeout_s=1 dtr=%s rts=%s queued_input_bytes=%s reset_input=%s",
+                         self.device, self.baud_rate, getattr(self._serial, "dtr", None),
+                         getattr(self._serial, "rts", None), queued, callable(reset_input))
         except OSError as error:
             self._serial = None
             raise SerialTransportError("open", self.device, error) from error
@@ -108,6 +133,7 @@ class ControllerService(Behavior):
     def __init__(self, core, *, enabled: bool, device: str, baud_rate: int,
                  reconnect_delay_seconds: float, heartbeat_interval_seconds: float,
                  heartbeat_timeout_seconds: float, touch_sink: Callable[[TouchEvent], None],
+                 serial_dtr: bool = False, serial_rts: bool = False,
                  sensor_update_sink: Callable[[str, int | float], None] = lambda _name, _value: None,
                  sensor_status_sink: Callable[[dict], None] = lambda _payload: None,
                  session_activated_sink: Callable[[int], None] = lambda _generation: None,
@@ -118,6 +144,7 @@ class ControllerService(Behavior):
                  transport_factory=SerialControllerTransport, clock=time.monotonic, read_operation=None) -> None:
         self._core, self._enabled = core, enabled
         self._device, self._baud_rate = device, baud_rate
+        self._serial_dtr, self._serial_rts = serial_dtr, serial_rts
         self._reconnect_delay, self._heartbeat_interval, self._heartbeat_timeout = reconnect_delay_seconds, heartbeat_interval_seconds, heartbeat_timeout_seconds
         self._touch_sink = touch_sink
         self._sensor_update_sink = sensor_update_sink if len(inspect.signature(sensor_update_sink).parameters) >= 3 else lambda name, value, _generation: sensor_update_sink(name, value)
@@ -151,6 +178,13 @@ class ControllerService(Behavior):
         self._read_operation = read_operation or (lambda transport, started: asyncio.to_thread(self._read_once, started))
         self._messages = deque(maxlen=100)
         self._reconfigure_lock = None
+        self._diagnostic_started_at = 0.0
+        self._diagnostic_last_at = 0.0
+        self._diagnostic_read_bytes = 0
+        self._diagnostic_read_count = 0
+        self._diagnostic_decoded_count = 0
+        self._diagnostic_rejected_count = 0
+        self._diagnostic_types = {}
 
     @property
     def state(self) -> ControllerConnection: return self._state
@@ -242,9 +276,35 @@ class ControllerService(Behavior):
         summary = (f"category={category} length={len(frame)} prefix_hex={prefix or '-'} "
                    f"generation={self._session_generation}")
         self._record("RX", "rejected_frame", summary)
+        self._diagnostic_rejected_count += 1
         # Debug logging is opt-in through the existing logging-level setting;
         # never emit complete untrusted frames at warning level.
         logger.debug("PHOS CONTROLLER: rejected frame diagnostics %s", summary)
+
+    def _diagnostic(self, reason: str, *, force: bool = False) -> None:
+        """Emit bounded transition evidence only while debug logging is enabled."""
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        now = self._clock()
+        if not force and now - self._diagnostic_last_at < DIAGNOSTIC_INTERVAL_SECONDS:
+            return
+        activity_age = max(0.0, now - self._last_peer_activity)
+        session_age = max(0.0, now - self._diagnostic_started_at)
+        types = ",".join(f"{name}:{count}" for name, count in sorted(self._diagnostic_types.items())) or "-"
+        logger.debug("PHOS CONTROLLER DIAG: reason=%s generation=%s session_age_s=%.3f "
+                     "peer_activity_age_s=%.3f reads=%s bytes=%s decoded=%s rejected=%s types=%s "
+                     "capabilities_active=%s",
+                     reason, self._session_generation, session_age, activity_age,
+                     self._diagnostic_read_count, self._diagnostic_read_bytes,
+                     self._diagnostic_decoded_count, self._diagnostic_rejected_count,
+                     types, self._active_capabilities is not None)
+        self._diagnostic_last_at = now
+
+    def _accept_peer_message(self, message: ControllerMessage) -> None:
+        """Record liveness only after JSON Lines and protocol validation succeed."""
+        self._last_peer_activity = self._clock()
+        self._diagnostic_decoded_count += 1
+        self._diagnostic_types[message.type] = self._diagnostic_types.get(message.type, 0) + 1
 
     async def start(self) -> None:
         if self._enabled and (self._task is None or self._task.done()):
@@ -263,7 +323,8 @@ class ControllerService(Behavior):
 
     async def reconfigure(self, *, enabled: bool, device: str, baud_rate: int,
                           reconnect_delay_seconds: float, heartbeat_interval_seconds: float,
-                          heartbeat_timeout_seconds: float) -> bool:
+                          heartbeat_timeout_seconds: float, serial_dtr: bool = False,
+                          serial_rts: bool = False) -> bool:
         """Apply controller settings without ever running two serial sessions.
 
         Device, baud rate, and enabled state define a transport session.  A
@@ -274,8 +335,10 @@ class ControllerService(Behavior):
         if self._reconfigure_lock is None:
             self._reconfigure_lock = asyncio.Lock()
         async with self._reconfigure_lock:
-            reopen = ((self._enabled != enabled) or self._device != device or self._baud_rate != baud_rate)
+            reopen = ((self._enabled != enabled) or self._device != device or self._baud_rate != baud_rate
+                      or self._serial_dtr != serial_dtr or self._serial_rts != serial_rts)
             self._enabled, self._device, self._baud_rate = enabled, device, baud_rate
+            self._serial_dtr, self._serial_rts = serial_dtr, serial_rts
             self._reconnect_delay = reconnect_delay_seconds
             self._heartbeat_interval, self._heartbeat_timeout = heartbeat_interval_seconds, heartbeat_timeout_seconds
             if not reopen:
@@ -308,7 +371,8 @@ class ControllerService(Behavior):
     async def _run(self) -> None:
         while True:
             self._state = ControllerConnection.CONNECTING
-            transport = self._factory(self._device, self._baud_rate)
+            transport = (self._factory(self._device, self._baud_rate, dtr=self._serial_dtr, rts=self._serial_rts)
+                         if self._factory is SerialControllerTransport else self._factory(self._device, self._baud_rate))
             try:
                 await asyncio.to_thread(transport.open)
                 self._transport, self._state = transport, ControllerConnection.CONNECTED
@@ -355,6 +419,11 @@ class ControllerService(Behavior):
         self._capabilities_request_attempt = 0
         self._log_led_availability("session_opened")
         self._last_peer_activity = self._clock()
+        self._diagnostic_started_at = self._last_peer_activity
+        self._diagnostic_last_at = self._last_peer_activity
+        self._diagnostic_read_bytes = self._diagnostic_read_count = 0
+        self._diagnostic_decoded_count = self._diagnostic_rejected_count = 0
+        self._diagnostic_types = {}
         logger.debug("PHOS CONTROLLER: serial session opened generation=%s", self._session_generation)
         return JsonLinesDecoder(), self._last_peer_activity + self._heartbeat_interval
 
@@ -383,8 +452,6 @@ class ControllerService(Behavior):
         next_handshake_retry = self._clock() + retry_interval if initial_handshake_sent is None else None
         while True:
             now = self._clock()
-            if now - self._last_peer_activity > self._heartbeat_timeout:
-                raise OSError("controller heartbeat timed out")
             if initial_handshake_sent is not None and initial_handshake_sent.is_set() and next_handshake_retry is None:
                 next_handshake_retry = now + retry_interval
             if not capabilities_seen and next_handshake_retry is not None and now >= next_handshake_retry:
@@ -402,7 +469,16 @@ class ControllerService(Behavior):
                 logger.debug("PHOS CONTROLLER: reader started generation=%s", self._session_generation)
             data = await read_task
             if not data:
+                # Give queued complete protocol frames a chance to establish
+                # liveness before declaring a peer dead.  This matters after
+                # event-loop scheduling delays or a PHOS process restart: the
+                # serial driver may already hold valid telemetry.
+                if self._clock() - self._last_peer_activity > self._heartbeat_timeout:
+                    self._diagnostic("heartbeat_timeout_empty_read", force=True)
+                    raise OSError("controller heartbeat timed out")
                 continue
+            self._diagnostic_read_count += 1
+            self._diagnostic_read_bytes += len(data)
             try:
                 messages = decoder.feed(data)
             except ProtocolError as error:
@@ -410,14 +486,24 @@ class ControllerService(Behavior):
                 logger.warning("PHOS CONTROLLER: rejected input code=%s type=%s reason=%s",
                                error.code, error.message_type or "unparseable", self._safe_error_message(error))
                 for message in getattr(error, "recovered_messages", ()):
-                    self._last_peer_activity = self._clock()
+                    self._accept_peer_message(message)
                     capabilities_seen = capabilities_seen or message.type == "capabilities"
                     await self._message(message)
+                if self._clock() - self._last_peer_activity > self._heartbeat_timeout:
+                    self._diagnostic("heartbeat_timeout_rejected_input", force=True)
+                    raise OSError("controller heartbeat timed out")
+                self._diagnostic("rejected_input")
                 continue
             for message in messages:
-                self._last_peer_activity = self._clock()
+                self._accept_peer_message(message)
                 capabilities_seen = capabilities_seen or message.type == "capabilities"
                 await self._message(message)
+            # Invalid/blank complete frames must not keep a dead peer alive.
+            # Valid frames above refresh the monotonic activity timestamp.
+            if self._clock() - self._last_peer_activity > self._heartbeat_timeout:
+                self._diagnostic("heartbeat_timeout_after_input", force=True)
+                raise OSError("controller heartbeat timed out")
+            self._diagnostic("valid_input")
 
     async def _request_capabilities(self) -> None:
         """Use the v1 optional ID, matching the known-working test client."""
@@ -429,6 +515,8 @@ class ControllerService(Behavior):
         message = ControllerMessage(kind, payload, message_id=message_id).document()
         raw = json.dumps(message, separators=(",", ":")).encode("utf-8") + b"\n"
         self._record("TX", kind, kind.replace("_", " "), raw)
+        if kind == "ping":
+            logger.debug("PHOS CONTROLLER DIAG: heartbeat_requested generation=%s", self._session_generation)
         await self._transport.write(raw)
 
     async def _message(self, message: ControllerMessage) -> None:
@@ -436,6 +524,8 @@ class ControllerService(Behavior):
         received_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self._protocol, self._last_activity = "phos-hw v1", received_at
         if message.type == "heartbeat": self._last_heartbeat = received_at
+        if message.type == "heartbeat":
+            logger.debug("PHOS CONTROLLER DIAG: heartbeat_received generation=%s", self._session_generation)
         if message.type == "capabilities":
             self._capabilities = payload
             self._active_capabilities = payload
@@ -443,6 +533,7 @@ class ControllerService(Behavior):
             self._log_led_availability("capabilities_accepted")
             logger.debug("PHOS CONTROLLER: capabilities received generation=%s led_available=%s",
                          self._session_generation, led_available)
+            self._diagnostic("capabilities_received", force=True)
             if led_available:
                 try:
                     logger.debug("PHOS CONTROLLER: scheduling semantic LED reapply generation=%s",
