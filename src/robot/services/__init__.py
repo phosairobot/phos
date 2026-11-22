@@ -11,11 +11,12 @@ from .agent_credentials import AgentCredentialError, AgentCredentialService, Age
 from .agent_management import AgentManagementError, AgentManagementService
 from .agent_appearance_activity import AgentAppearanceActivityTracker
 from .physical_context import SemanticPhysicalContext, SemanticPhysicalContextService
+from .physical_assessment import PhysicalContextAssessmentService
 from .semantic_events import SEMANTIC_EVENT_TYPES, SemanticEvent, SemanticEventPublisher, SemanticSubscription
 from .temporal_history import TemporalHistoryService
 
 __all__ = ("AGENT_ACCESS_PROFILES", "DEFAULT_AGENT_PROFILE", "OPERATION_PERMISSIONS", "AgentAccess",
            "AgentApplicationService", "AgentAuthenticator", "AgentAppearanceActivityTracker", "AgentCredentialError", "AgentCredentialService", "AgentCredentialStatus", "AgentIdentity", "AgentManagementError", "AgentManagementService", "AgentRegistry", "AgentRegistryProvider", "BearerAgentAuthenticator", "ConfiguredAgentAuthenticator", "McpAuthenticationModeAuthenticator", "anonymous_mcp_identity", "COMPATIBILITY_AGENT_REGISTRY", "IssuedAgentCredential", "LOCAL_AGENT_IDENTITY", "LocalAgentAuthenticator", "AgentPermission", "AgentPermissionDenied", "AgentPermissionService",
            "AgentOperation", "AgentProfile", "ApplicationError", "PhosApplicationService", "RemoteApplicationService",
-           "SEMANTIC_EVENT_TYPES", "SemanticEvent", "SemanticEventPublisher", "SemanticSubscription", "SemanticPhysicalContext", "SemanticPhysicalContextService",
+           "SEMANTIC_EVENT_TYPES", "SemanticEvent", "SemanticEventPublisher", "SemanticSubscription", "SemanticPhysicalContext", "SemanticPhysicalContextService", "PhysicalContextAssessmentService",
            "USER_SIGNAL_INTENTS", "TemporalHistoryService")

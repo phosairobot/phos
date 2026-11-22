@@ -15,6 +15,8 @@ pytest.importorskip("mcp")
 from robot.mcp.server import (
     MCP_RESOURCE_URIS,
     MCP_TOOL_NAMES,
+    PHYSICAL_ASSESSMENT_TOOL_DESCRIPTION,
+    PHYSICAL_CONTEXT_TOOL_DESCRIPTION,
     McpSemanticAdapter,
     McpSemanticEventBridge,
     McpToolError,
@@ -54,6 +56,7 @@ class ApplicationSpy:
     def get_physical_context(self):
         result = self._call("get_physical_context")
         return {**result, "environment": {"operation": "get_physical_context"}}
+    def get_physical_assessment(self): return self._call("get_physical_assessment")
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
@@ -100,9 +103,12 @@ def test_history_tools_use_agent_permission_and_preserve_bounded_arguments():
     adapter, application = _adapter()
     assert adapter.query_measurements("temperature_c", "2026-01-01T00:00:00Z", None, 10)["operation"] == "query_measurements"
     assert adapter.list_physical_transitions("presence_changed", 10)["operation"] == "list_physical_transitions"
+    assert adapter.physical_assessment()["operation"] == "get_physical_assessment"
     denied, _ = _adapter(profile=AgentProfile.OBSERVER)
     with pytest.raises(McpToolError, match="read_physical_history"):
         denied.query_measurements("temperature_c")
+    with pytest.raises(McpToolError, match="read_physical_history"):
+        denied.physical_assessment()
 
 
 def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_creation():
@@ -111,7 +117,7 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == MCP_TOOL_NAMES
-    assert len(MCP_TOOL_NAMES) == 16
+    assert len(MCP_TOOL_NAMES) == 17
     source = inspect.getsource(__import__("robot.mcp.server", fromlist=["server"]))
     assert all(forbidden not in source for forbidden in (
         "robot.hardware", "serial_controller", "LEDRingController", "robot.ui.renderer", "robot.vision.provider",
@@ -123,12 +129,47 @@ def test_server_registers_exactly_the_stage_one_semantic_tools_without_runtime_c
     ]
     visible = next(tool for tool in tools if tool.name == "phos_get_visible_objects")
     assert visible.input_schema["properties"] == {}
+    context = next(tool for tool in tools if tool.name == "phos_get_physical_context")
+    assessment = next(tool for tool in tools if tool.name == "phos_get_physical_assessment")
+    assert context.description == PHYSICAL_CONTEXT_TOOL_DESCRIPTION
+    assert assessment.description == PHYSICAL_ASSESSMENT_TOOL_DESCRIPTION
+    assert context.input_schema["properties"] == assessment.input_schema["properties"] == {}
+    assert context.output_schema["type"] == assessment.output_schema["type"] == "object"
+    assert assessment.annotations.read_only_hint is True
+    assert assessment.annotations.destructive_hint is False
+    assert assessment.annotations.idempotent_hint is True
+    assert assessment.annotations.open_world_hint is False
     visual_state = next(tool for tool in tools if tool.name == "phos_set_state")
     assert visual_state.input_schema["required"] == ["state"]
     assert visual_state.input_schema["properties"]["state"]["enum"] == ["thinking", "idle"]
     duration = visual_state.input_schema["properties"]["duration_ms"]
     assert duration["anyOf"][0]["type"] == "integer"
     assert visual_state.input_schema["additionalProperties"] is False
+
+
+def test_physical_tool_discovery_and_calls_distinguish_current_and_temporal_questions():
+    adapter, application = _adapter()
+    server = create_mcp_server(adapter._agent_service)
+
+    async def exercise():
+        tools = {tool.name: tool for tool in await server.list_tools()}
+        current = await server.call_tool("phos_get_physical_context", {})
+        assessment = await server.call_tool("phos_get_physical_assessment", {})
+        history = await server.call_tool("phos_query_measurements", {"metric": "temperature_c", "limit": 3})
+        return tools, current, assessment, history
+
+    tools, current, assessment, history = asyncio.run(exercise())
+    # Current room conditions use context; interrupted-evidence questions use
+    # assessment; change-over-time questions combine assessment and history.
+    assert "currently perceives" in tools["phos_get_physical_context"].description
+    assert "before interpreting changes over time" in tools["phos_get_physical_assessment"].description
+    assert not current.is_error and not assessment.is_error and not history.is_error
+    assert [call[0] for call in application.calls] == [
+        "get_physical_context", "get_physical_assessment", "query_measurements",
+    ]
+    denied, _ = _adapter(profile=AgentProfile.OBSERVER)
+    with pytest.raises(McpToolError, match="read_physical_history"):
+        denied.get_physical_assessment()
 
 
 def test_visual_state_tool_validates_arguments_and_forwards_only_authenticated_identity():
@@ -252,16 +293,18 @@ def test_server_lists_semantic_resources_and_reads_a_binary_camera_snapshot():
         resources = await server.list_resources()
         status = await server.read_resource("phos://status")
         physical_context = await server.read_resource("phos://physical-context")
+        assessment = await server.read_resource("phos://physical-context/assessment")
         environment = await server.read_resource("phos://environment")
         snapshot = await server.read_resource("phos://vision/snapshot")
-        return resources, status, physical_context, environment, snapshot
+        return resources, status, physical_context, assessment, environment, snapshot
 
-    resources, status, physical_context, environment, snapshot = asyncio.run(read())
+    resources, status, physical_context, assessment, environment, snapshot = asyncio.run(read())
     assert {resource.uri for resource in resources} == MCP_RESOURCE_URIS
     assert next(resource for resource in resources if resource.uri == "phos://vision/snapshot").mime_type == "image/jpeg"
     assert all(resource.mime_type == "application/json" for resource in resources if resource.uri != "phos://vision/snapshot")
     assert json.loads(status[0].content)["running"] is True
     assert json.loads(physical_context[0].content)["operation"] == "get_physical_context"
+    assert json.loads(assessment[0].content)["operation"] == "get_physical_assessment"
     assert json.loads(environment[0].content)["operation"] == "get_physical_context"
     assert snapshot[0].content == b"\xff\xd8fake-jpeg\xff\xd9"
     assert snapshot[0].mime_type == "image/jpeg"
@@ -968,9 +1011,9 @@ def test_semantic_events_publish_only_mapped_resource_update_cues_and_close_clea
         await asyncio.sleep(.05)
 
         assert {event.uri for event in received} == {
-            "phos://status", "phos://physical-context", "phos://environment",
+            "phos://status", "phos://physical-context", "phos://physical-context/assessment", "phos://environment",
         }
-        assert len(received) == 3
+        assert len(received) == 4
         assert "phos://vision/snapshot" not in {event.uri for event in received}
         bridge.close()
         assert application.events.active_subscription_count == 0

@@ -31,6 +31,7 @@ class AgentOperation(str, Enum):
 
     STATUS = "status"
     GET_PHYSICAL_CONTEXT = "get_physical_context"
+    GET_PHYSICAL_ASSESSMENT = "get_physical_assessment"
     QUERY_PHYSICAL_HISTORY = "query_physical_history"
     PRESENCE = "presence"
     ATTENTION = "attention"
@@ -48,6 +49,7 @@ class AgentOperation(str, Enum):
 OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyType({
     AgentOperation.STATUS: AgentPermission.READ_STATUS,
     AgentOperation.GET_PHYSICAL_CONTEXT: AgentPermission.READ_PHYSICAL_CONTEXT,
+    AgentOperation.GET_PHYSICAL_ASSESSMENT: AgentPermission.READ_PHYSICAL_HISTORY,
     AgentOperation.QUERY_PHYSICAL_HISTORY: AgentPermission.READ_PHYSICAL_HISTORY,
     AgentOperation.PRESENCE: AgentPermission.READ_PERCEPTION,
     AgentOperation.ATTENTION: AgentPermission.READ_PERCEPTION,
@@ -217,6 +219,10 @@ class AgentApplicationService:
     def get_physical_context(self) -> dict[str, Any]:
         self._require(AgentOperation.GET_PHYSICAL_CONTEXT)
         return self._application.get_physical_context()
+
+    def get_physical_assessment(self) -> dict[str, Any]:
+        self._require(AgentOperation.GET_PHYSICAL_ASSESSMENT)
+        return self._application.get_physical_assessment()
 
     def query_measurements(self, metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
         self._require(AgentOperation.QUERY_PHYSICAL_HISTORY)
