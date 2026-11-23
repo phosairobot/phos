@@ -2,7 +2,7 @@
 
 > **Current air-quality installation:** ENS160 and AHT21 are wired to the ESP32 I2C bus, not Raspberry Pi I2C. ENS160 uses `0x53` or `0x52`; AHT21 uses `0x38`. Verify supply, logic levels, common ground and serial JSONL telemetry. The controller publishes estimated eCO2, TVOC, AQI-UBA 1–5, ENS160 validity/compensation and AHT21 temperature/humidity. After reconnect, the Pi requires fresh usable telemetry; historic readings are not revived.
 
-## PHOS 1.8.0 reproducible installation
+## Reproducible installation from this checkout
 
 Use Raspberry Pi OS **with a graphical desktop**, Python 3.11+ and an 800×600
 HDMI display on the Pi 3. Tk needs an active X display (XWayland on a Wayland
@@ -10,8 +10,10 @@ desktop). Raspberry Pi OS Lite alone is insufficient. The recommended production
 launch is the user systemd service below; terminal launch is for diagnostics.
 These instructions use the desktop user's `~/phos` (`/home/pi/phos` for user `pi`).
 
-This is a reproducible source/dependency procedure for the current 1.8.0 source,
-not a frozen OS image. Record
+This is a reproducible source/dependency procedure for the checked-out source,
+not a frozen OS image. The checkout is tagged `1.9.0`, but its package source
+currently reports `1.8.0`; record both until maintainers resolve that release
+metadata discrepancy. Also record
 `cat /etc/os-release`, `uname -m`, `python3 --version` and apt package versions
 with the release acceptance results. Actual fresh-Pi acceptance remains
 component-specific; see [current state](current-state.md) and the
@@ -177,6 +179,16 @@ is not established; read [model evaluation](vision-model-evaluation.md).
 Keep neutral reactions disabled until calibrated. Revalidate the active
 configuration source.
 
+## Optional NanoDet object-awareness model
+
+Object awareness is disabled by default and does not download a model. To enable
+it, install the OpenCV Zoo NanoDet-m-plus-1.5x_416 FP32 ONNX asset locally,
+verify SHA-256 `4b82da9944b88577175ee23a459dce2e26e6e4be573def65b1055dc2d9720186`,
+and set `object_awareness.model_path` to that readable file. Set
+`object_awareness.enabled: true` only when VisionPipeline is otherwise active;
+requests require `read_perception`. See [MCP](mcp.md#object-awareness) for the
+model license, on-demand behavior, and error contract.
+
 ## Start PHOS
 
 For a first foreground check from the desktop:
@@ -186,9 +198,11 @@ cd ~/phos
 PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
-Check the startup version is **1.8.0** and the logged configuration path is the
-file you edited. Escape leaves fullscreen; Ctrl+C stops PHOS. Stop this process
-before installing/starting the production service below.
+Check that the startup version matches `robot.__version__` in this checkout
+(currently `1.8.0`) and that the logged configuration path is the file you
+edited. The checked-out commit is tagged `1.9.0`; do not treat that mismatch as
+resolved release metadata. Escape leaves fullscreen; Ctrl+C stops PHOS. Stop
+this process before installing/starting the production service below.
 
 When web is enabled, open `http://<PI-LAN-IP>:8080/`, enter `phos`, set a different
 12–256 character password, then log in again. There is no username. Password

@@ -1,5 +1,18 @@
 # Releases
 
+## PHOS 1.9.0
+
+**Physical Context & Object Awareness.** The checked-out commit is tagged
+**1.9.0**, but `robot.__version__` and its release test still report **1.8.0**.
+This must be resolved before treating 1.9.0 as the authoritative package
+release. The source includes bounded RAM-only temporal physical history, a
+documented agent composition pattern for physical context, and optional
+on-demand NanoDet object awareness through MCP. Object awareness remains
+disabled by default and requires an operator-supplied local model; no images,
+identities, boxes, or object history are retained.
+
+[Read the 1.9.0 release record](release-1.9.0.md){ .md-button .md-button--primary }
+
 ## PHOS 1.8.0
 
 **MCP & Runtime Administration Stabilization.** The authoritative source
