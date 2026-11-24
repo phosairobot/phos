@@ -739,6 +739,8 @@ left eye and TILT_RIGHT opens the right. Forward/back and transient IMU alerts
 keep equal eye sizes. The renderer receives only signed FaceState intent and
 smoothly interpolates left/right openings independently.
 
-The optional WS2812B ring is now implemented as a separate `FaceState` semantic
-consumer. Its provider is lazy-loaded and disabled by default; it never receives
-raw IMU, Vision or sensor input.
+The earlier `FaceState` LED consumer remains implemented and disabled by
+`led_ring.enabled` by default. It is a legacy path, not the hardware wiring for
+the current robot. The WS2812B ring connects to the ESP32; enable
+`hardware_controller` and require session LED capability for semantic output.
+See [controller setup](hardware-controller.md#ws2812b-ring-connection).

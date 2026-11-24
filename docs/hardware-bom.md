@@ -76,8 +76,7 @@ ENS160/AHT21 use the controller's I2C bus.
 | Bosch BME280 **or** BMP280 breakout | 1 optional | Pi I2C bus 1, `0x76` or `0x77`; 3.3 V-compatible logic | Both: temperature and pressure. BME280 also measures humidity; BMP280 has no humidity output. Select the matching type in configuration. |
 | ENS160 + AHT21 combo module | 1 optional | ESP32 I2C: ENS160 `0x53` or `0x52`, AHT21 `0x38` | ENS160: estimated eCO2, TVOC, AQI-UBA 1–5, validity and compensation status. AHT21: temperature and humidity. No direct Pi I2C provider. |
 | MPU6050 / GY-521 breakout | 1 optional | Pi I2C bus 1, `0x68` or `0x69` | Six-axis acceleration and angular velocity, interpreted motion and tilt. Configure mounting axes. |
-| Addressable LED ring/strip | 1 optional | ESP32 output controlled by firmware advertising LED capability | Semantic colors and bounded animations; choose LED type/count, voltage and power to match the firmware. |
-| WS2812B RGB ring for direct Pi output | 1 optional alternative | Local provider/helper path; default configured GPIO 18 | Semantic feedback from `FaceState`. Set the actual LED count, power budget, level shifting, and helper configuration. |
+| WS2812B addressable RGB LED ring | 1 optional | ESP32 firmware-selected output; `phos-hw` v1 semantic LED commands over Pi-to-ESP32 USB/serial | Firmware drives the ring. Set LED count, pin, channel ordering, and power to match the fitted hardware; an active controller connection and advertised LED capability are required. |
 | Jumper wires, connectors and mounting hardware | As needed | Match the breakout pinout and enclosure | Secure connections and consistent sensor orientation. |
 
 ENS160 eCO2 is an estimated CO2 equivalent, not a direct NDIR CO2 measurement.
@@ -96,8 +95,7 @@ flowchart LR
   sensors[BME280 or BMP280 / MPU6050] <-->|Pi I2C bus 1| pi
   pi <-->|USB serial / phos-hw v1 JSONL| esp[ESP32 controller]
   air[ENS160 and AHT21] <-->|Controller I2C| esp
-  esp -->|Firmware LED output| leds[Addressable LED ring / strip]
-  pi -->|GPIO / local helper alternative| ring[WS2812B ring]
+  esp -->|Firmware LED output| leds[WS2812B addressable RGB LED ring]
   style pi fill:#2e1065,stroke:#a855f7,color:#fff
   style esp fill:#2e1065,stroke:#a855f7,color:#fff
   style sensors fill:#1e293b,stroke:#8b5cf6,color:#fff
@@ -114,8 +112,9 @@ flowchart LR
    the local graphical desktop.
 4. For ESP32, use a USB **data** cable, the correct serial device and permissions,
    matching baud rate, and firmware implementing the documented v1 messages.
-5. Set actual LED count and power requirements. Use a suitable external LED
-   supply and level shifting where required; do not power a ring from a GPIO pin.
+5. Set the ESP32 firmware's actual LED pin/count and power requirements. Use a
+   suitable external LED supply and level shifting where required; do not power
+   a ring from a GPIO pin.
 6. Enable the selected provider, restart or reload as documented, then inspect
    availability, freshness and readings in Web Admin before adding another module.
 
@@ -124,6 +123,8 @@ flowchart LR
     Edit the canonical [`config/phos.yaml`](https://github.com/phosairobot/phos/blob/dev/config/phos.yaml)
     after wiring. Optional sensors, the controller, LED ring, camera processing,
     voice and TTS start disabled. Configure `sensors.environmental`,
-    `sensors.ens160`, `sensors.imu`, `hardware_controller`, and `led_ring` for
-    the selected path. Controller-backed sensors use `provider: controller`
+    `sensors.ens160`, `sensors.imu`, and `hardware_controller` for
+    the selected path. The ESP32 ring requires `hardware_controller.enabled: true`
+    and controller-advertised LED capability; keep legacy `led_ring.enabled: false`.
+    Controller-backed sensors use `provider: controller`
     and an enabled controller. Keep credentials outside runtime configuration.

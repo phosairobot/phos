@@ -38,13 +38,14 @@ SURPRISED's yellow eye-body accents are intentional exceptions rather than a
 generic emotion-color mapping: eye geometry carries the expression. FURIOUS and
 expression intensity are not implemented.
 
-## One intent, three outputs
+## Visual output paths
 
 - **Eyes:** `EyeRenderer` applies `FaceState` expression, gaze, blink, semantic
   accent and the named base iris theme.
-- **LED ring:** the optional low-rate controller consumes the same
-  provider-neutral semantic intent, including environmental colors and motion
-  fills, without accessing vision or sensor objects.
+- **LED ring:** the ESP32 drives the optional WS2812B ring from `phos-hw` v1
+  semantic commands. `SemanticLedService` resolves robot-state, environmental,
+  and temporary user signals; LED output requires an active serial controller
+  session with advertised LED capability.
 - **Overlays:** independently confirmed environmental markers—sweat, snow/ice
   and haze—decorate a safe band without changing eye geometry or pupils.
 

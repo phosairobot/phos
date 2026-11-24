@@ -101,7 +101,7 @@ duration and timestamp. Raw pointer input is neither retained nor streamed.
 | Operation | Effect |
 | --- | --- |
 | **Save** | Validates and atomically persists the complete active configuration file; it does not change the running process. |
-| **Reload configuration** | Can apply logging level, iris appearance, LED-ring visual settings and camera-preview settings. Other valid changes remain explicitly restart-required. |
+| **Reload configuration** | Can apply logging level, iris appearance, legacy LED-ring visual settings and camera-preview settings. Configure the ESP32 ring through [Hardware Controller](hardware-controller.md#ws2812b-ring-connection). Other valid changes remain explicitly restart-required. |
 | **Restart PHOS** | Available only through the managed user systemd service, with confirmation. It never reboots the Pi. |
 
 ## Next steps

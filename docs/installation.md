@@ -102,8 +102,8 @@ script remains the recommended path because it performs those steps consistently
 ```
 
 Alternative source transfer: review the destination in `run_pi.sh` and run it
-from your development checkout. It copies release scripts, including the WS2812B
-helper, seeds a missing configuration and preserves existing Pi
+from your development checkout. It copies release scripts,
+seeds a missing configuration and preserves existing Pi
 settings/models/administrator data; it neither installs dependencies nor restarts
 PHOS. Upgrades must merge new required fields from the complete
 canonical schema. The script has a site-specific destination, not auto-discovery.
@@ -582,128 +582,65 @@ I2C sensor. Record the board revision and wiring.
 
 ## Optional WS2812B RGB LED ring
 
-PHOS uses the optional `rpi-ws281x` provider for a WS2812B ring. Decide the
-actual ring count, data GPIO and power arrangement before following the enable
-sequence below.
+Connect the WS2812B addressable RGB LED ring to the **ESP32 controller**.
+The Pi sends semantic LED commands over `phos-hw` v1 USB/serial JSONL.
+ESP32 firmware drives the data line, pixel ordering, LED count, and timing.
 
-The default `led_ring` block is disabled and uses `led_count: 0` as an explicit
-unconfigured value. Set the exact count, supported data GPIO and `enabled: true`
-only after the helper starts successfully. GPIO pin and LED count require a
-restart; enabled state, brightness, base color, semantic following and update
-rate can later use Web Admin → Display & Appearance → WS2812B LED ring → Save →
-**Reload configuration**. The status snapshot reports disabled, starting,
-available or unavailable plus the current semantic state/effect.
+### Enable the serial controller
 
-`rpi-ws281x` requires privileged mailbox and physical-memory access. PHOS keeps
-the desktop/camera service unprivileged and uses the separate root-owned
-`deploy/phos-led.service` helper instead.
+Edit these fields in the complete canonical `config/phos.yaml`; retain the
+other configuration sections:
 
-### Enable the ring on a deployed Pi
-
-From the development checkout, first run the deployment script. It transfers
-`scripts/phos_ws2812b_helper.py`, the standalone smoke test and the service-unit
-template to `~/phos`; it does not install or restart the root service:
-
-```bash
-./run_pi.sh
+```yaml
+hardware_controller:
+  enabled: true
+  transport: serial
+  serial:
+    device: /dev/ttyACM0
+    baud_rate: 115200
+    dtr: false
+    rts: false
+  reconnect:
+    delay_seconds: 2
+  heartbeat:
+    interval_seconds: 5
+    timeout_seconds: 15
 ```
 
-On the Pi, install the driver into the same virtual environment used by the
-helper. In `~/phos/deploy/phos-led.service`, set `--count` and `--pin` to the
-physical ring's exact LED count and BCM data GPIO. Its Python path and working
-directory must also match the PHOS installation. Then install or update the
-unit and start it:
+Use the actual serial device and firmware baud rate. Ensure the PHOS user has
+serial-device access and that the cable carries USB data. The installer includes
+pySerial through the hardware-controller extra.
 
-```bash
-cd ~/phos
-.venv/bin/python -m pip install 'rpi-ws281x>=5.0,<6'
-sudo cp deploy/phos-led.service /etc/systemd/system/phos-led.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now phos-led.service
-sudo systemctl restart phos-led.service
-sudo systemctl status phos-led.service --no-pager
-ls -l /run/phos-led.sock
-```
+Keep `led_ring.enabled: false`. That separate legacy configuration block does
+not enable or configure the ESP32 semantic LED path. Do not install a local LED
+helper or use its pin/count settings for this build.
 
-The helper owns only `/run/phos-led.sock`, which is writable by the `gpio` group.
-The normal PHOS user service sends bounded RGB frames to that socket and never
-opens `/dev/vcio` or `/dev/mem`. The service must report `active (running)` and
-the socket must exist before enabling PHOS LED output.
-
-The available LED base colors are green `#00FF40`, red `#FF1A1A`, yellow
-`#FFD400`, blue `#007BFF`, violet `#A020F0`, white `#FFFFFF`, cyan `#00E5FF`,
-turquoise `#00FFC8`, orange `#FF7A00`, and magenta `#FF00C8`. PHOS sends these
-as logical RGB and uniformly scales them for `brightness`; it does not apply
-gamma correction. The helper explicitly configures standard WS2812B `GRB` wire
-order, so do not reorder the configured palette values.
-
-Next update the deployed canonical `~/phos/config/phos.yaml` so its count and
-GPIO exactly match the helper. Replace its `led_ring` object with values for the
-actual ring; for a 12-pixel ring on BCM GPIO 18:
+Start PHOS using the documented foreground or managed-service launch. In
+Web Admin's Hardware Controller view, confirm a connected session and a fresh
+`capabilities` report advertising LED support. The adapter recognizes
+`led_count`, `led.count`, or `"led"` in a `capabilities` list; for example,
+the controller may report:
 
 ```json
-"led_ring": {
-  "enabled": true,
-  "led_count": 12,
-  "gpio_pin": 18,
-  "brightness": 0.30,
-  "base_color": "cyan",
-  "follow_visual_state": true,
-  "update_rate_hz": 10.0,
-  "imu_reactions_enabled": true,
-  "directional_strength": 0.65,
-  "directional_sector_size": 3,
-  "shake_strength": 0.85,
-  "impact_strength": 1.0,
-  "imu_animation_color": "yellow",
-  "directional_animation_speed": 12.0,
-  "bottom_led_index": 0,
-  "forward_led_index": 0,
-  "clockwise": true
-}
+{"protocol":"phos-hw","version":1,"type":"capabilities","payload":{"led":{"count":12}}}
 ```
 
-Keep the surrounding JSON valid. `run_pi.sh` deliberately preserves an existing
-Pi configuration, so it does not make this configuration change for you. Start
-PHOS with the new configuration:
+The example count describes the ring fitted to the controller; configure its
+actual pin, count, and channel ordering in firmware. PHOS suppresses LED commands
+until both connection and advertised capability are available.
 
-```bash
-systemctl --user restart phos.service
-```
+### Check semantic output
 
-After LED count or GPIO changes, update both the helper unit and `phos.yaml`,
-then restart `phos-led.service` followed by `phos.service`. Brightness, base
-color, semantic following and update rate may instead use Web Admin → Display &
-Appearance → WS2812B LED ring → Save → **Reload configuration**.
+Use a permitted MCP `phos_signal_user` request or the semantic Remote API signal
+action. PHOS arbitrates the request and sends a bounded `set_led_animation`
+command; the ESP32 executes it. Check that temporary signals expire and the
+persistent intent returns, then reconnect the controller and confirm intent
+reapplication after capability discovery.
 
-To isolate wiring and driver setup from PHOS, stop the PHOS service and run the
-standalone color smoke test. It requires the exact LED count and leaves the ring
-off when it finishes:
-
-```bash
-systemctl --user stop phos.service
-cd ~/phos
-sudo .venv/bin/python scripts/test_ws2812b.py --count 12 --pin 18
-```
-
-Replace `12` and `18` with the actual count and BCM GPIO. It shows red, green,
-blue and white at low brightness. This temporary root invocation is diagnostic;
-do not run the normal PHOS service as root.
-
-Power the ring from a correctly sized 5 V supply as determined from the actual
-ring's documentation and LED count. Do not draw LED power from a GPIO pin. Tie
-the Pi and LED-supply grounds together. WS2812B data reliability may require a
-3.3 V-to-5 V logic-level shifter; use the ring maker's recommended data-line
-protection and supply decoupling. Verify wiring without PHOS first, then start
-with low brightness. A driver, permission or write failure only disables ring
-output; PHOS eyes and other services continue.
-
-The ring is steady in its configured base color when neutral. Warm/curious use a
-gentle pulse, alert uses a short yellow pulse, sleepy a dim violet fade and error
-a steady red. Existing transient alert strength drives the alert pulse, so shake
-and impact require no direct IMU-to-LED coupling. After an alert or directional
-fill, confirm the currently resolved persistent state returns: environmental
-color when active, otherwise the configured base color.
+Power the ring from an appropriately sized supply, share ground between ESP32
+and LED supply, and use data-level shifting where the ring requires it. Refer to
+the [hardware wiring notes](hardware.md#ws2812b-rgb-led-ring) and the
+[controller protocol](hardware-controller.md) for message and direction semantics.
 
 ## Controller-backed ENS160 and AHT21
 

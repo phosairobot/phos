@@ -31,7 +31,7 @@ add-ons, and optional sensors or an ESP32 controller.
 | BME280 / BMP280        | Temperature and pressure; BME280 also supplies humidity for environmental context. |
 | ENS160 + AHT21         | Controller-backed eCO2/TVOC/AQI-UBA plus temperature/humidity; eCO2 is not direct CO2. |
 | GY-521 / MPU-6050      | Acceleration and angular velocity for interpreted motion/tilt events.              |
-| WS2812B RGB LED ring   | Optional semantic visual feedback and temporary directional animations.            |
+| WS2812B RGB LED ring   | Connected to the ESP32; driven via `phos-hw` v1 semantic LED commands.            |
 
 <div class="phos-callout" markdown>
 

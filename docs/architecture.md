@@ -343,17 +343,19 @@ a sustained pose, and needs confirmed alternative evidence plus a cooldown
 to rearm. UNKNOWN allows normal decay. Face tracking and blink timing
 remain independent from expression inference.
 
-`VisualAccent` is deliberately provider-neutral. The optional WS2812B LED-ring
-controller consumes the same `FaceState` semantic accent and strength through a
-separate low-rate worker. It does not receive Vision, IMU or sensor objects and
-does not alter `BehaviorEngine` decisions or eye rendering.
+`VisualAccent` is provider-neutral visual intent for the face. The WS2812B
+ring in the PHOS hardware build connects to the ESP32; its output uses the
+semantic controller path below rather than a per-pixel renderer feed.
 
 ```mermaid
 flowchart LR
   behavior[BehaviorEngine] --> face[FaceState] --> eyes[EyeRenderer] --> display[Display]
-  face --> leds[LEDRingController] --> socket[Local socket] --> helper[Root LED helper]
-  helper --> provider[WS2812BProvider] --> ring[Ring]
-  style face fill:#2e1065,stroke:#a855f7,color:#fff
+  intent[Robot state / environment / user signal] --> arbiter[SemanticLedService]
+  arbiter --> controller[ControllerService]
+  controller -->|phos-hw v1 serial JSONL| esp[ESP32 controller]
+  esp --> ring[WS2812B ring]
+  style arbiter fill:#2e1065,stroke:#a855f7,color:#fff
+  style esp fill:#1e293b,stroke:#8b5cf6,color:#fff
 ```
 
 ### External-controller semantic LED arbitration
@@ -378,8 +380,9 @@ flowchart LR
   n0["RobotState / environment / signal_user"]
   n1["SemanticLedService"]
   n2["ControllerService"]
-  n3["External controller LED executor"]
-  n0 --> n1 --> n2 --> n3
+  n3["ESP32 controller LED executor"]
+  n4["WS2812B ring"]
+  n0 --> n1 --> n2 --> n3 --> n4
   style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 

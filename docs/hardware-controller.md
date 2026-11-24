@@ -33,6 +33,27 @@ the selected levels on the target controller board.
 
 ## Protocol
 
+### WS2812B ring connection
+
+The WS2812B addressable RGB LED ring connects to and is driven by the **ESP32
+controller**. The Raspberry Pi sends resolved `phos-hw` v1 semantic
+`set_led_animation` commands over USB/serial; firmware owns the data pin,
+pixel count, channel ordering, and animation timing.
+
+Enable `hardware_controller.enabled` in `config/phos.yaml` and configure
+`hardware_controller.serial.device` and `hardware_controller.serial.baud_rate`
+for the attached ESP32. PHOS emits LED commands only when that serial session
+is connected and advertises LED support: a nonzero `led_count`, a nonzero
+`led.count`, or `"led"` in the payload's `capabilities` list.
+
+Keep the separate legacy `led_ring.enabled` setting false. Its pin/count
+settings do not configure ESP32 firmware. On disconnect, controller output
+becomes unavailable; after a new LED capability report, PHOS reapplies the
+resolved intent. See the [installation steps](installation.md#optional-ws2812b-rgb-led-ring)
+and [electrical guidance](hardware.md#ws2812b-rgb-led-ring).
+
+### Message envelope
+
 Messages are framed JSON objects with `protocol: "phos-hw"`, `version: 1`, a
 `type`, optional correlation fields, and an object `payload`. Capability reports
 describe controller-supported features. Controller `sensor_update` and

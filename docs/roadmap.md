@@ -209,7 +209,7 @@ Environmental behavior and overlays are included in 1.1.0.
 - [x] Canonical configuration, Web Admin editor/status and hardware-free adapter/runtime tests.
 - [x] Provider-neutral, debounced motion interpretation with live-reloadable thresholds.
 - [x] Motion-state behavior mapping to FaceState with live-reloadable visual intensity and timing.
-- [x] Optional WS2812B semantic LED-ring provider/controller, canonical configuration and hardware-free tests.
+- [x] Historical LED consumer/configuration and hardware-free tests. Current WS2812B builds use the ESP32 `phos-hw` v1 semantic LED path documented in the controller guide.
 - [ ] Verify board wiring, address, stable readings and coexistence on Raspberry Pi 3.
 
 ## PHOS 1.2 — remote application-service boundary

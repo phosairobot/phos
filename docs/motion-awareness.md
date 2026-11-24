@@ -9,7 +9,7 @@ GPIO command.
 flowchart TD
   sensor[MPU-6050] --> interpreter[MotionInterpreter]
   interpreter --> motion[MotionState / MotionEvent] --> behavior[BehaviorEngine]
-  behavior --> output[Eyes / optional LED ring]
+  behavior --> output[Eyes]
   style behavior fill:#2e1065,stroke:#a855f7,color:#fff
   style interpreter fill:#1e293b,stroke:#8b5cf6,color:#fff
   style output fill:#1e293b,stroke:#8b5cf6,color:#fff
@@ -35,7 +35,9 @@ fresh samples into confirmed semantic states: **STILL**, **MOVING**,
 
     ---
 
-    The optional WS2812B ring can show progressive directional fill animations.
+    The optional WS2812B ring is driven by the ESP32 through `phos-hw` v1
+    semantic LED commands. Its controller path is separate from eye-motion
+    intent; it requires an active serial connection and advertised LED capability.
 
 -   :material-alert-outline: **Shake & impact**
 

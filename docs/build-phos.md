@@ -21,7 +21,7 @@ for the graphical eye renderer.
 | USB microphone and audio output | Optional | Enables configured voice capture and speech playback. |
 | BME280/BMP280, MPU-6050 | Optional | Adds Pi I²C environmental or motion observations. |
 | ESP32 with ENS160/AHT21 | Optional | Adds controller-backed air-quality and temperature/humidity telemetry. |
-| WS2812B ring | Optional | Adds semantic LED feedback. |
+| WS2812B ring | Optional | Connects to the ESP32 for `phos-hw` v1 semantic LED feedback. |
 
 Plan your parts with the [Hardware BOM](hardware-bom.md). Exact wiring,
 voltage limits, and I²C addresses are maintained in the [hardware reference](hardware.md).

@@ -371,15 +371,17 @@ setting remains architecture-neutral and preserves robot-state priority.
 
 ### ADR-025 — Optional semantic WS2812B output
 
-Add a lazy `rpi-ws281x` hardware provider behind a root-owned helper and a
-separate low-rate unprivileged LED controller.
-The controller reads only the existing immutable `FaceState` semantic accent and
-reaction strength, mapping it to a small uniform steady/pulse/fade vocabulary.
-It must not receive raw Vision, IMU or sensor input, and provider failures must
-not affect Core or eye rendering. Canonical `led_ring` settings keep pin/count
-restart-only; enabled state and visual settings reload through the shared
-lifecycle service. The ring is disabled and count-unconfigured by default until
-physical wiring is accepted.
+**Current hardware deployment:** the WS2812B ring connects to and is driven by
+the ESP32 controller. PHOS owns semantic arbitration through
+`SemanticLedService`; `ControllerService` sends `phos-hw` v1
+`set_led_animation` messages after connection and LED capability discovery.
+Firmware owns the ring's physical pin/count, mapping, and animation timing.
+
+The earlier low-rate `FaceState` consumer and local helper/provider remain in
+the checked-out source as legacy implementation. Their `led_ring` settings
+are not the ESP32 configuration surface; leave `led_ring.enabled` false for
+the current hardware build. This documentation update does not remove that
+code or migrate the configuration schema.
 
 ## ADR-026 — YAML-only runtime configuration
 

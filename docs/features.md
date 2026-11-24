@@ -95,8 +95,9 @@ are never exposed.
 <article class="phos-card" markdown>
 <span class="phos-status phos-status--optional">OPTIONAL HARDWARE</span>
 ### WS2812B visual feedback
-An optional LED ring consumes provider-neutral `FaceState` intent through a
-low-rate controller, including semantic colors and directional motion fills.
+An optional WS2812B ring connects to the ESP32 controller. PHOS sends resolved
+`phos-hw` v1 semantic LED commands over an active serial connection; firmware
+drives the ring after advertising LED capability.
 </article>
 
 <article class="phos-card" markdown>
