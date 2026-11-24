@@ -1050,3 +1050,35 @@
     justify-content: center;
   }
 }
+
+/* Shared link interactions; buttons retain their existing contrast and effects. */
+[data-md-color-scheme='default'] {
+  --phos-link-hover: #9333ea;
+  --phos-link-glow: rgba(147, 51, 234, 0.16);
+}
+
+[data-md-color-scheme='slate'] {
+  --phos-link-hover: #c084fc;
+  --phos-link-glow: rgba(192, 132, 252, 0.22);
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button),
+[data-md-color-scheme] .md-nav__link,
+[data-md-color-scheme] .md-footer__link,
+[data-md-color-scheme] .md-tabs__link {
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button):is(:hover, :focus-visible),
+[data-md-color-scheme] .md-nav__link:is(:hover, :focus-visible),
+[data-md-color-scheme] .md-footer__link:is(:hover, :focus-visible),
+[data-md-color-scheme] .md-tabs__link:is(:hover, :focus-visible) {
+  color: var(--phos-link-hover);
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button):is(:hover, :focus-visible) {
+  text-shadow: 0 0 0.65rem var(--phos-link-glow);
+  text-decoration: underline;
+  text-decoration-color: var(--phos-link-hover);
+  text-underline-offset: 0.18em;
+}
