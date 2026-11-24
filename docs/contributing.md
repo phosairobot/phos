@@ -1,10 +1,10 @@
 # Contributing and project status
 
 PHOS welcomes issue reports, documentation improvements, hardware evidence, and
-code contributions. The repository currently has **no CONTRIBUTING guide and no
-repository license file**. This is an important adoption and legal gap: do not
-assume the code is licensed for reuse or redistribution until maintainers publish
-an explicit license.
+code contributions. The repository contribution process is in the root
+[CONTRIBUTING.md](https://github.com/phosairobot/phos/blob/main/CONTRIBUTING.md),
+and PHOS is licensed under the
+[Apache License, Version 2.0](https://github.com/phosairobot/phos/blob/main/LICENSE).
 
 ## Report or discuss work
 
@@ -32,7 +32,6 @@ status, not as universal product guarantees.
 
 ## Maintainer decisions still needed
 
-- Select and publish a license.
 - Publish a contribution process and preferred discussion channel, if desired.
 - Supply authentic reference-build photos, a demonstration video, and any
   approved enclosure files before they are presented as project assets.

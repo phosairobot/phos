@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Validate the checked-in OpenAPI contract without a runtime dependency."""
 from __future__ import annotations
 import json

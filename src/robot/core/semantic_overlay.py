@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded, source-owned transient presentation overlays."""
 from __future__ import annotations
 

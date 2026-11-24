@@ -122,6 +122,7 @@ nav:
       - API contract notes: api.md
       - Architecture decisions: decisions.md
       - Current implementation state: current-state.md
+      - License audit: LICENSE_AUDIT.md
 
   - Community:
       - Contributing & project status: contributing.md

@@ -1,5 +1,7 @@
 # PHOS
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 **An open-source Raspberry Pi robot that gives AI agents safe, structured physical context.**
 
 PHOS combines an expressive display, camera perception, sensors, and controlled
@@ -103,11 +105,20 @@ model assets.
 - [MCP](docs/mcp.md)
 - [Installation](docs/installation.md) · [development and testing](docs/development.md)
 
-## Contributing and license
+## Contributing
 
 Contributions from developers, makers, documentation contributors, and hardware
 vendors are welcome. Start with [architecture](docs/architecture.md),
 [accepted decisions](docs/decisions.md), and [repository guidance](AGENTS.md).
 
-No repository license file or contribution guide is currently included. Contact
-the maintainers before redistributing or reusing the code.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for issue, pull-request, testing, and
+contribution-licensing guidance.
+
+## License
+
+PHOS is licensed under the [Apache License, Version 2.0](LICENSE). The license
+permits personal and commercial use, modification, and redistribution subject to
+its conditions, including preservation of required notices. Third-party
+components retain their respective licenses; see [the license audit](docs/LICENSE_AUDIT.md).
+This license does not imply endorsement of PHOS by Raspberry Pi, ESP32, or any
+other hardware manufacturer.

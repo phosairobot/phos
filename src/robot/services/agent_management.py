@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Application boundary for live MCP agent-directory administration."""
 from __future__ import annotations
 

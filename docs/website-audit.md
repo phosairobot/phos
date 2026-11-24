@@ -26,7 +26,7 @@ the source URL remains unchanged, so no redirect is needed.
 | `web-administration.md`, `web-admin-overview.md`, `hardware-controller.md`, `api.md`, `configuration-migration.md` | MOVE | Retain operational and compatibility references. |
 | `appearance/creating-skins.md` | MOVE | Retain as optional customization, not primary product positioning. |
 | `current-state.md`, `roadmap.md`, `releases.md`, `release-1.0.0.md`, `release-1.1.0.md`, `release-1.2.0.md`, `release-1.3.0.md`, `release-1.4.0.md`, `release-1.7.0.md`, `release-1.8.0.md`, `release-1.9.0.md` | KEEP / UPDATE | Preserve technical history and publish the observed version discrepancy. |
-| `contributing.md` | CREATE | Surface issue reporting, maturity, and missing license/contribution-process decisions. |
+| `contributing.md` | CREATE | Surface issue reporting, maturity, and contribution-process decisions. |
 | `website-audit.md` | CREATE | Preserve the evidence, gap analysis, and URL/disposition decisions. |
 | Existing source URLs | KEEP | No source file moves were made; redirects are not required. |
 
@@ -40,8 +40,8 @@ the source URL remains unchanged, so no redirect is needed.
 | Required/optional hardware | Hardware/install docs and providers | PARTIALLY IMPLEMENTED | Pi 4/5, BOM alternatives, prices, enclosure specs are unverified. | State only the Pi 3/display baseline; obtain physical evidence before expanding. | High |
 | MCP tool discovery | MCP server and MCP reference | IMPLEMENTED | Client-specific setup is external to this repository. | Keep the 17-tool/5-Resource reference canonical. | High |
 | Authentic product media | `docs/assets/images/phos.png` | NOT IMPLEMENTED | No verified reference-build photo/video is tracked. | Obtain approved media with provenance and alt text. | High |
-| License | Repository root | NOT IMPLEMENTED | No project license file exists. | Maintainers must choose and publish a license. | High |
-| Contribution workflow / discussion venue | GitHub issues; no contributor file | PARTIALLY IMPLEMENTED | No documented Discussion venue or contribution process. | Add only after maintainer decision. | Medium |
+| License | Repository root | IMPLEMENTED | Apache License 2.0, NOTICE, and a dependency audit are present. | Confirm the copyright holder and complete release-specific third-party review before publication. | High |
+| Contribution workflow / discussion venue | GitHub issues and root `CONTRIBUTING.md` | PARTIALLY IMPLEMENTED | No documented Discussion venue. | Add a preferred discussion channel only after maintainer decision. | Medium |
 | GitHub Pages deployment | `.github/workflows/deploy-pages.yml` | IMPLEMENTED | Deployment uses a write token and third-party action; no issue for this content change. | Retain GitHub Pages-compatible MkDocs build. | Medium |
 | Social metadata / share image | MkDocs URL/description and logo | PARTIALLY IMPLEMENTED | No approved social-preview photo/metadata asset. | Add explicit social image once authentic media exists. | Medium |
 | Simulator without hardware | Tests use fakes/mocks | UNKNOWN / NOT VERIFIED | No end-user simulator is documented or verified. | Do not promise one. | Medium |
@@ -65,8 +65,9 @@ remain at their original URLs and are not removed.
   implementation. External clients vary in Streamable HTTP and subscription
   support, so the site documents a compatible bridge pattern rather than
   promising support for every client.
-- No project license was found. This must not be described as legally reusable
-  open-source code until maintainers add one.
+- The project license is Apache-2.0. The root `NOTICE` retains a
+  `[COPYRIGHT HOLDER]` placeholder pending maintainer confirmation; this and
+  the release-specific third-party audit remain publication prerequisites.
 
 ## Validation approach
 

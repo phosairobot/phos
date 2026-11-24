@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Face-state rendering and display adapters for PHOS."""
 
 from .display import CameraPreviewSettings, CameraPreviewView, EyeDisplay, MemoryEyeDisplay, TkEyeDisplay

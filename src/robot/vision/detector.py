@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OpenCV-backed, provider-neutral face detection."""
 
 from __future__ import annotations

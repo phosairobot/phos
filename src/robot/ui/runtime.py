@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Fixed-rate UI runtime, independent from behavior and Vision timing."""
 
 from __future__ import annotations

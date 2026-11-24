@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Local, cached eye-readability protection independent of semantic effects."""
 from __future__ import annotations
 

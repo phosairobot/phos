@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Optional Rekognition adapter: one bounded background request, memory-only cache."""
 from __future__ import annotations
 

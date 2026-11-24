@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Runtime-local target continuity, separate from human presence semantics."""
 from __future__ import annotations
 from dataclasses import dataclass

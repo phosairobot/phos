@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Reconnectable USB/serial transport for the controller-neutral phos-hw v1 protocol."""
 from __future__ import annotations
 

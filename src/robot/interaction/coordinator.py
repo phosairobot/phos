@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Observational transcript-to-intent coordination owned by the main runtime."""
 from __future__ import annotations
 

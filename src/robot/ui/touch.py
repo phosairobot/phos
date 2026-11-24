@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral recognition of one-pointer face-display interactions."""
 from __future__ import annotations
 

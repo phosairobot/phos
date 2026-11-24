@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded local process channel for application lifecycle operations."""
 import logging
 from threading import Lock

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small dependency-free semantic vocabulary shared across PHOS boundaries."""
 from enum import Enum
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Editor conversion and persistence through the canonical configuration model."""
 from __future__ import annotations
 

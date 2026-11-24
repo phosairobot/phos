@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Resolved, cached state-background presentation independent of display backend."""
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Semantic, lightweight state effects independent from backgrounds and eyes."""
 from __future__ import annotations
 

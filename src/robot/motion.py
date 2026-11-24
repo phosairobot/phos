@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Lightweight, provider-neutral interpretation of IMU samples."""
 from __future__ import annotations
 

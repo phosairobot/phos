@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Semantic LED arbitration for optional external controller output."""
 from __future__ import annotations
 

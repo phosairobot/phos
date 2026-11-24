@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Streamable HTTP MCP adapter over the permission-checked semantic boundary."""
 from __future__ import annotations
 

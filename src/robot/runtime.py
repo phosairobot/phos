@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Thin application coordinator for Core, Vision, behavior, and display."""
 
 from __future__ import annotations

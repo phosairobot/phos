@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Semantic PHOS commands and read models.
 
 This module deliberately knows only Core, BehaviorEngine, lifecycle and the

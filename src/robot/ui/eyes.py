@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure, interpolated eye geometry for the PHOS face."""
 
 from __future__ import annotations

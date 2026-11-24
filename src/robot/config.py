@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Canonical, secret-free PHOS settings. No hardware, SDK or CLI dependencies."""
 from __future__ import annotations
 

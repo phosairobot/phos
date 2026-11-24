@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral read model for completed face-display gestures."""
 from __future__ import annotations
 

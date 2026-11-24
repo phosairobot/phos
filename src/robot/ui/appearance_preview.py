@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Static, backend-generated appearance preview using runtime visual primitives."""
 from __future__ import annotations
 

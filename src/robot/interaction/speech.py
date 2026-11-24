@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Application-boundary speech for rendered interaction responses."""
 from __future__ import annotations
 

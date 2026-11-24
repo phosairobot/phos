@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Start the PHOS robot runtime.
 
 The default renderer opens the face fullscreen on the Pi's HDMI desktop.

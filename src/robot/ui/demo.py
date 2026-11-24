@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Manual development preview for PHOS eye expressions.
 
 Run from the repository root with ``python3 src/robot/ui/demo.py``.

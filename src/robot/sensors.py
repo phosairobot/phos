@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral measurements and the shared bounded sensor worker.
 
 One worker per enabled sensor owns its provider. No driver work runs on the asyncio/render thread,

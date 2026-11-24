@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral speech-to-text contracts and optional lightweight adapters."""
 from __future__ import annotations
 

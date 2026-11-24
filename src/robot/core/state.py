@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Explicit, testable robot interaction states."""
 
 from __future__ import annotations
