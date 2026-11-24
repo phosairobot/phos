@@ -12,11 +12,14 @@ PHOS keeps physical devices, observations, behavior decisions and rendering
 separate. This makes reactions understandable, testable without a Raspberry Pi
 and practical on Pi 3 hardware.
 
-<div class="phos-pipeline" markdown>
-
-<span>Camera / sensors / IMU</span> → <span>Providers &amp; interpreters</span> → <span><strong>BehaviorEngine</strong></span> → <span>FaceState</span> → <span>Eyes · LEDs · overlays</span>
-
-</div>
+```mermaid
+flowchart LR
+  inputs["Camera / sensors / IMU"] --> providers["Providers and interpreters"]
+  providers --> behavior[BehaviorEngine] --> face[FaceState]
+  face --> outputs["Eyes, LEDs and overlays"]
+  style behavior fill:#2e1065,stroke:#a855f7,color:#fff
+  style face fill:#1e293b,stroke:#8b5cf6,color:#fff
+```
 
 Camera and sensor services publish typed observations. Interpreters add
 confirmation, freshness and semantic meaning. `BehaviorEngine` then decides

@@ -67,8 +67,12 @@ Use `resources/read` with the URI. Camera images are separate from notification 
 
 MCP resource subscriptions provide asynchronous *change cues*, not long-running tool jobs and not unsolicited chat messages. A subscribing client decides what to do after it is notified.
 
-```text
-Subscribe → PHOS state changes → resource update notification → agent refreshes Resource
+```mermaid
+flowchart LR
+  subscribe[Subscribe] --> change[PHOS state changes]
+  change --> cue[Resource update notification]
+  cue --> refresh[Agent refreshes Resource]
+  style cue fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 The verified subscribable update targets are:

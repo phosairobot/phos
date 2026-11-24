@@ -5,18 +5,18 @@ classes:
   - phos-home
 ---
 
-<div class="phos-landing-hero" markdown>
+<div class="phos-landing-hero phos-purple-hero phos-entrance" markdown>
 
 ![PHOS logo](assets/images/phos.png){ .phos-landing-logo width="128" height="128" }
 
-# Build a physical presence for your AI.
+# Build a <span class="phos-gradient-accent">physical presence</span> for your AI.
 
 <p class="phos-hero-lede">PHOS is an open-source Raspberry Pi robot with expressive eyes, optional vision, voice, and sensors. Build a local companion or give an external AI agent permission-controlled physical context through MCP.</p>
 
 <div class="phos-actions" markdown>
 
 [Get Started](build-phos.md){ .md-button .md-button--primary }
-[Developer Architecture](architecture.md){ .md-button }
+[Explore Architecture](architecture.md){ .md-button }
 
 </div>
 
@@ -27,7 +27,30 @@ Start with the Raspberry Pi 3 and 5-inch 800×600 display baseline. Follow the
 the capabilities you need. Camera, voice, sensors, external controllers, and
 Web Admin are opt-in; each guide explains its prerequisites.
 
-## Standalone or connected to an AI agent
+## How PHOS works
+
+```mermaid
+flowchart TD
+    standalone["Standalone runtime<br/>Local touch and configured behaviors"]
+    agent["AI agent or remote client"]
+    mcp["MCP<br/>Identity and permission profiles"]
+    rest["REST API<br/>Authenticated semantic requests"]
+    services["PHOS application services<br/>Validation and bounded actions"]
+    runtime["Local runtime<br/>State and behavior"]
+    hardware["Display, voice, vision and sensors<br/>Optional ESP32 controller"]
+    standalone --> runtime
+    agent <-->|Structured context and requests| mcp
+    agent <-->|Telemetry and controls| rest
+    mcp <--> services
+    rest <--> services
+    services <--> runtime
+    runtime <--> hardware
+    style standalone fill:#2e1065,stroke:#a855f7,color:#fff
+    style agent fill:#2e1065,stroke:#a855f7,color:#fff
+    style services fill:#2e1065,stroke:#a855f7,color:#fff
+    style runtime fill:#1e293b,stroke:#8b5cf6,color:#fff
+    style hardware fill:#1e293b,stroke:#8b5cf6,color:#fff
+```
 
 **Standalone:** run the animated face, supported local touch reactions, and
 configured sensor behaviors on the Pi. Add voice capture, speech output, or
@@ -44,9 +67,9 @@ and [connect an agent later](developer-quickstart.md).
 
 ## Core capabilities
 
-<div class="grid cards" markdown>
+<div class="grid cards phos-purple-cards phos-entrance" markdown>
 
--   :material-connection: **MCP for AI agents**
+-   :material-connection: **MCP integration**
 
     ---
 
@@ -66,12 +89,13 @@ and [connect an agent later](developer-quickstart.md).
 
     [Use the REST API](remote-api.md)
 
--   :material-cog-outline: **Web Admin**
+-   :material-cog-outline: **Web administration**
 
     ---
 
-    Configure PHOS in the browser, inspect runtime status, manage agent access,
-    and apply supported changes through validated reload or restart paths.
+    Inspect the live status dashboard, configure skins and settings, and manage
+    agent access. Apply supported changes through validated live activation,
+    reload, or restart paths.
 
     [Set up Web Admin](web-admin-overview.md)
 
@@ -91,7 +115,8 @@ and [connect an agent later](developer-quickstart.md).
 
     Capture bounded speech sessions with Vosk or Cartesia STT. Speak through
     Piper, Cartesia, or ElevenLabs TTS and the separate audio playback path.
-    Audio hardware, models, and provider setup are required.
+    Configure explicit voice command sessions with the supported English/Italian
+    vocabulary. Audio hardware, models, and provider setup are required.
 
     [Configure voice and speech](voice.md)
 
@@ -109,28 +134,10 @@ and [connect an agent later](developer-quickstart.md).
 
 ## Choose your path
 
-<div class="grid cards" markdown>
-
--   **Users & makers**
-
-    ---
-
-    1. Check the [hardware requirements](hardware-overview.md).
-    2. Follow the [build guide](build-phos.md) and [installation steps](installation.md).
-    3. Configure [Web Admin](web-administration.md) and enable optional capabilities.
-    4. Try [MCP integration](mcp-overview.md) or the [REST API](remote-api.md).
-
--   **Developers & contributors**
-
-    ---
-
-    1. Understand the [architecture](architecture.md) and [accepted decisions](decisions.md).
-    2. Set up [development and testing](development.md).
-    3. Explore [MCP contracts](mcp.md), the [controller protocol](hardware-controller.md),
-       or [appearance extensions](appearance/creating-skins.md).
-    4. Read the [contribution guide](contributing.md) before proposing a change.
-
-</div>
+| Journey | Start here | Next steps |
+| --- | --- | --- |
+| **Makers & users** | [Build PHOS](build-phos.md) and [install the runtime](installation.md). | Check [hardware](hardware-overview.md), configure [Web Admin](web-administration.md), then connect through [MCP](mcp-overview.md) or [REST](remote-api.md). |
+| **Developers & contributors** | Read the [architecture](architecture.md), [decisions](decisions.md), and [testing guide](development.md). | Explore [MCP specifications](mcp.md), the [controller protocol](hardware-controller.md), [provider boundaries](architecture.md#core-principles), and [skin extensions](appearance/creating-skins.md); follow the [contribution guide](contributing.md). |
 
 ## Follow PHOS and share your build
 

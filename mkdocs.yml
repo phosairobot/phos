@@ -46,7 +46,11 @@ markdown_extensions:
   - attr_list
   - md_in_html
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
   - pymdownx.tabbed:
       alternate_style: true
@@ -80,7 +84,7 @@ extra_css:
 nav:
   - Home: index.md
 
-  - User Guide:
+  - User & Maker Guide:
       - Start here:
           - Discover PHOS: discover.md
           - Core capabilities: features.md
@@ -91,7 +95,7 @@ nav:
           - Hardware requirements: hardware-overview.md
           - Installation overview: installation-overview.md
           - Installation & setup: installation.md
-          - Hardware & wiring: hardware.md
+          - Sensors, ESP32 & wiring: hardware.md
       - Connect & configure:
           - MCP agent integration: mcp-overview.md
           - Connect your first MCP client: developer-quickstart.md
@@ -102,7 +106,7 @@ nav:
           - Expressive behaviors: vision-expressions.md
           - Environmental sensors: environmental-awareness.md
           - Motion sensors: motion-awareness.md
-          - Voice & speech: voice.md
+          - Voice (TTS & STT): voice.md
           - Voice commands: voice-commands.md
 
   - Developer & Architecture:

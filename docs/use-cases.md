@@ -8,9 +8,12 @@ configuration to be available.
 
 </div>
 
-<div class="phos-flow phos-use-case-flow" aria-label="PHOS agent integration flow">
-  <span>AI Agent or person</span><b>→</b><span>PHOS</span><b>→</b><span>Safe physical interaction</span>
-</div>
+```mermaid
+flowchart LR
+  caller[AI agent or person] --> phos[PHOS]
+  phos --> interaction[Permitted physical interaction]
+  style phos fill:#2e1065,stroke:#a855f7,color:#fff
+```
 
 <div class="phos-use-case-grid" markdown>
 

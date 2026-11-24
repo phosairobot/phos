@@ -1,4 +1,6 @@
 :root {
+  --phos-purple: #8b5cf6;
+  --phos-purple-bright: #a855f7;
   --phos-bg: #050b18;
   --phos-surface: #0b1730;
   --phos-surface-soft: #101f3e;
@@ -9,6 +11,140 @@
 
   --phos-text: #eef6ff;
   --phos-muted: #a9bbd2;
+}
+
+/* Purple accents extend the existing palette without replacing base tokens. */
+.phos-purple-hero {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+}
+
+.phos-purple-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 30%, rgba(139, 92, 246, 0.24), transparent 65%);
+  pointer-events: none;
+  animation: phos-breathe 7s ease-in-out infinite;
+}
+
+.phos-purple-hero .phos-landing-logo {
+  box-shadow: 0 0 2rem rgba(168, 85, 247, 0.3);
+}
+
+.phos-gradient-accent {
+  position: relative;
+  color: #c4b5fd;
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .phos-gradient-accent {
+    background: linear-gradient(100deg, #c4b5fd, #a5b4fc, #e9d5ff, #c4b5fd);
+    background-size: 200% auto;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: phos-shimmer 10s linear infinite;
+  }
+}
+
+.phos-gradient-accent::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -0.08em;
+  height: 0.035em;
+  background: linear-gradient(90deg, transparent, var(--phos-purple-bright), transparent);
+  transform: scaleX(0.65);
+  transition: transform 250ms ease;
+}
+
+.phos-purple-hero:hover .phos-gradient-accent::after,
+.phos-purple-hero:focus-within .phos-gradient-accent::after {
+  transform: scaleX(1);
+}
+
+.md-typeset .grid.cards > ul > li {
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ul > li:focus-within {
+  transform: translateY(-4px);
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 0.5rem 1.2rem rgba(139, 92, 246, 0.14);
+}
+
+.md-typeset .phos-purple-cards .twemoji {
+  color: var(--phos-purple-bright);
+}
+
+.phos-entrance,
+.md-typeset .mermaid {
+  animation: fadeInUp 600ms ease both;
+}
+
+.md-typeset .mermaid {
+  margin-block: 1.5rem;
+  overflow-x: auto;
+}
+
+/* Keep new surfaces and typography readable if the light scheme is selected. */
+[data-md-color-scheme='default'] .md-typeset,
+[data-md-color-scheme='default'] .md-typeset :is(p, li, td, h1, h2) {
+  color: var(--md-default-fg-color);
+}
+
+[data-md-color-scheme='default'] .md-typeset a:not(.md-button) {
+  color: #6d28d9;
+}
+
+[data-md-color-scheme='default'] .phos-purple-hero {
+  background: linear-gradient(135deg, #faf5ff, #eef2ff);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+[data-md-color-scheme='default'] .phos-purple-hero .phos-hero-lede {
+  color: #475569 !important;
+}
+
+[data-md-color-scheme='default'] .phos-gradient-accent {
+  background-image: linear-gradient(100deg, #6d28d9, #4338ca, #7e22ce, #6d28d9);
+}
+
+@keyframes phos-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+@keyframes phos-shimmer {
+  to { background-position: 200% center; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phos-entrance,
+  .md-typeset .mermaid,
+  .phos-purple-hero::before,
+  .phos-gradient-accent,
+  .phos-eye {
+    animation: none !important;
+  }
+
+  .phos-gradient-accent::after,
+  .md-typeset .grid.cards > ul > li {
+    transition: none !important;
+  }
+
+  .md-typeset .grid.cards > ul > li:hover,
+  .md-typeset .grid.cards > ul > li:focus-within {
+    transform: none;
+  }
 }
 
 /* =========================================================

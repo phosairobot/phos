@@ -10,26 +10,18 @@ and read models from this boundary; they do not access camera, GPIO, I2C
 sensors, LED providers, or renderer internals. The service delegates state
 changes to `RobotCore`/`BehaviorEngine` and configuration work to lifecycle.
 
-```text
-                +----------------------+
-                |      Robot Core      |
-                | lifecycle/state/events|
-                +----------+-----------+
-                           |
-          +----------------+----------------+
-          |                |                |
-      +---v---+        +---v---+        +---v---+
-      | Voice |        |  AI   |        |  UI   |
-      +---+---+        +---+---+        +---+---+
-          |                |                |
-      microphone       agent/tools      display/eyes
-          |                |
-      STT / TTS        LLMProvider
-                           |
-                    provider adapters
-
-Vision is an independent subsystem that publishes provider-neutral observations/events to Core.
-Hardware-specific access remains behind adapters/interfaces.
+```mermaid
+flowchart TD
+  core["Robot Core<br/>Lifecycle, state and events"]
+  core --> voice[Voice]
+  core --> ai["AI interfaces"]
+  core --> ui[UI]
+  voice --> mic[Microphone] --> speech["STT / TTS"]
+  ai --> agent["Agent / tools"] --> llm[LLMProvider] --> adapters[Provider adapters]
+  ui --> display["Display / eyes"]
+  vision[Vision] -->|Observations and events| core
+  hardware[Hardware adapters] -->|Typed observations| core
+  style core fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 ## Core principles
@@ -102,8 +94,17 @@ independent snapshot fields.
 `success`, `info`, `attention`, `warning`, `error`, and `sensor_alert`. Each
 source owns one request; replacement affects only that source. Requests are
 plain-text (maximum 120 characters), expire on monotonic time, and resolve by
-priority `error → warning → sensor_alert → attention → success → info`; equal
-priority requests resolve to the newest request. The renderer receives only an
+priority from highest to lowest as shown below. Equal-priority requests resolve
+to the newest request.
+
+```mermaid
+flowchart LR
+  error[error] --> warning[warning] --> sensor[sensor_alert]
+  sensor --> attention[attention] --> success[success] --> info[info]
+  style error fill:#2e1065,stroke:#a855f7,color:#fff
+```
+
+The renderer receives only an
 immutable visible intent/message view, never caller-supplied drawing details.
 The existing interpreted air-quality warning/bad event is the only automatic
 v1 sensor source; it requests `sensor_alert` without inspecting raw providers.
@@ -117,16 +118,15 @@ existing touch behavior, and are not dismissible by semantic requests.
 
 ### Semantic Physical Context
 
-```text
-Sensors / Vision / RobotState
-          ↓
-canonical semantic services
-          ↓
-Semantic Physical Context
-          ↓
-PhosApplicationService
-          ↓
-future Agent / MCP / REST adapters
+```mermaid
+flowchart TD
+  n0["Sensors / Vision / RobotState"]
+  n1["Canonical semantic services"]
+  n2["Semantic Physical Context"]
+  n3["PhosApplicationService"]
+  n4["Agent / MCP / REST adapters"]
+  n0 --> n1 --> n2 --> n3 --> n4
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 `SemanticPhysicalContext` is a read-only, build-on-read perception model. It
@@ -139,26 +139,34 @@ state, or controller health. It adds no REST endpoint or MCP adapter;
 
 ### Minimal Agent Permission Model
 
-```text
-External Agent
-      ↓
-Agent Permission Boundary
-      ↓
-PhosApplicationService
-      ↓
-Behavior / Voice / Physical Context / Semantic Signals
+```mermaid
+flowchart TD
+  n0["External agent"]
+  n1["Agent permission boundary"]
+  n2["PhosApplicationService"]
+  n3["Behavior / Voice / Physical Context / Semantic Signals"]
+  n0 --> n1 --> n2 --> n3
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 `AgentApplicationService` is a small, provider-independent facade for future
 trusted agent adapters.  It checks an immutable `AgentAccess` set before
 delegating to the existing `PhosApplicationService`; it never grants access to
 providers, renderers, controller transports, or configuration internals.  The
-canonical operation mapping is `status` → `READ_STATUS`,
-`get_physical_context` → `READ_PHYSICAL_CONTEXT`, and `presence`, `attention`,
-and `observed_expression` → `READ_PERCEPTION`.  Semantic actions map as
-`set_expression` → `CONTROL_EXPRESSION`, `speak` → `CONTROL_VOICE`, `sleep` /
-`wake` → `CONTROL_SLEEP`, `signal_user` → `SIGNAL_USER`, and
-`set_visual_state` → `CONTROL_VISUAL_STATE`. Sleep and wake
+canonical operation mapping is:
+
+| Operation | Permission |
+| --- | --- |
+| `status` | `READ_STATUS` |
+| `get_physical_context` | `READ_PHYSICAL_CONTEXT` |
+| `presence`, `attention`, `observed_expression` | `READ_PERCEPTION` |
+| `set_expression` | `CONTROL_EXPRESSION` |
+| `speak` | `CONTROL_VOICE` |
+| `sleep`, `wake` | `CONTROL_SLEEP` |
+| `signal_user` | `SIGNAL_USER` |
+| `set_visual_state` | `CONTROL_VISUAL_STATE` |
+
+Sleep and wake
 remain normal state transitions; a signal remains subject to existing semantic
 LED arbitration.
 
@@ -188,16 +196,15 @@ separate concerns.
 
 ### MCP Semantic Adapter — Stage 1
 
-```text
-MCP Client
-   ↓
-MCP Semantic Adapter
-   ↓
-Agent Permission Boundary
-   ↓
-PhosApplicationService
-   ↓
-PHOS runtime/services
+```mermaid
+flowchart TD
+  n0["MCP client"]
+  n1["MCP semantic adapter"]
+  n2["Agent permission boundary"]
+  n3["PhosApplicationService"]
+  n4["PHOS runtime / services"]
+  n0 --> n1 --> n2 --> n3 --> n4
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 Stage 1 uses the official Python `mcp` SDK (the bounded 2.x line) over
@@ -229,7 +236,7 @@ expression) into events with stable `type`, `timestamp`, `source`, and
 `payload` fields. It does not emit raw telemetry, provider/device details, or
 confidence jitter. Consumers may request a validated allow-list of stable event
 types; each subscription defensively suppresses only adjacent identical
-semantic events during a short internal window, so real A → B → A transitions
+semantic events during a short internal window, so a real transition from A to B and back to A
 remain visible. The model is an internal observer boundary—not the Core event
 bus and not an MCP feature. It projects canonical agent-status availability as
 one compact `capability_changed` event per changed capability, and canonical
@@ -275,16 +282,13 @@ PHOS is developed through runnable vertical milestones. Existing code may be ahe
 
 ## Visual / behavior path
 
-```text
-Camera
-  -> Vision
-  -> stable observations/events
-  -> Robot Core
-  -> BehaviorEngine
-  -> FaceState
-  -> EyeRenderer -> EyeDisplay composition
-
-Vision latest preview snapshot -> PhosRuntime -> EyeDisplay composition
+```mermaid
+flowchart TD
+  camera[Camera] --> vision[Vision] --> events[Stable observations and events]
+  events --> core[Robot Core] --> behavior[BehaviorEngine] --> face[FaceState]
+  face --> renderer[EyeRenderer] --> display[EyeDisplay composition]
+  vision --> preview[Latest preview snapshot] --> runtime[PhosRuntime] --> display
+  style behavior fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 Vision observes. Behavior interprets observations in the context of PHOS's own `RobotState`. `EyeRenderer` consumes only `FaceState` and handles rendering/animation details. The display adapter may compose an optional local diagnostic preview from a UI-neutral snapshot supplied by `PhosRuntime`; it never accesses camera or Vision providers.
@@ -344,9 +348,12 @@ controller consumes the same `FaceState` semantic accent and strength through a
 separate low-rate worker. It does not receive Vision, IMU or sensor objects and
 does not alter `BehaviorEngine` decisions or eye rendering.
 
-```text
-BehaviorEngine -> FaceState -> EyeRenderer -> display
-                         \-> LEDRingController -> local socket -> root LED helper -> WS2812BProvider -> ring
+```mermaid
+flowchart LR
+  behavior[BehaviorEngine] --> face[FaceState] --> eyes[EyeRenderer] --> display[Display]
+  face --> leds[LEDRingController] --> socket[Local socket] --> helper[Root LED helper]
+  helper --> provider[WS2812BProvider] --> ring[Ring]
+  style face fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 ### External-controller semantic LED arbitration
@@ -366,8 +373,14 @@ parameters. On a controller capability report the arbiter reapplies its current
 winner; when LED capability is absent it retains logical intent and emits no
 hardware command.
 
-```text
-RobotState / environment / signal_user -> SemanticLedService -> ControllerService -> external controller LED executor
+```mermaid
+flowchart LR
+  n0["RobotState / environment / signal_user"]
+  n1["SemanticLedService"]
+  n2["ControllerService"]
+  n3["External controller LED executor"]
+  n0 --> n1 --> n2 --> n3
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 ## Runtime
@@ -380,16 +393,13 @@ The existence of the integrated runtime does not override milestone discipline: 
 
 ## AI provider architecture
 
-```text
-RobotAgent / behaviors / tools
-          |
-          v
-     LLMProvider
-          |
-   +------+------+-------------+
-   |             |             |
-OpenAI       Anthropic      Local/LAN
- adapter       adapter       adapter
+```mermaid
+flowchart TD
+  agent["RobotAgent / behaviors / tools"] --> llm[LLMProvider]
+  llm --> openai[OpenAI adapter]
+  llm --> anthropic[Anthropic adapter]
+  llm --> local[Local / LAN adapter]
+  style llm fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 `LLMProvider` is the only model interface visible to the rest of the robot. Provider adapters translate neutral messages/tools/tool calls to and from vendor-specific formats.
@@ -398,17 +408,30 @@ The primary conversational model is not assumed to run on Raspberry Pi 3. Cloud 
 
 ## Voice architecture
 
-```text
-USB microphone
-  -> AudioCaptureProvider (native device rate)
-  -> ResamplingAudioCaptureProvider
-  -> canonical PCM16 mono, 16 kHz
-  -> VAD -> bounded pre-roll -> VoiceCaptureSession
-  -> STTProvider -> TranscriptResult
-  -> InteractionInput -> IntentResolver -> ResolvedIntent or UnresolvedIntent
-  -> CommandRouter -> semantic command route
-  -> explicit source-aware authorization -> CommandExecutor -> PhosApplicationService
-  -> InteractionOutcome -> InteractionResponseRenderer -> InteractionResponse
+```mermaid
+flowchart TD
+  n0["USB microphone"]
+  n1["AudioCaptureProvider<br/>Native device rate"]
+  n2["ResamplingAudioCaptureProvider"]
+  n3["PCM16 mono, 16 kHz"]
+  n4["VAD"]
+  n5["Bounded pre-roll"]
+  n6["VoiceCaptureSession"]
+  n7["STTProvider"]
+  n8["TranscriptResult"]
+  n9["InteractionInput"]
+  n10["IntentResolver"]
+  n11["ResolvedIntent or UnresolvedIntent"]
+  n12["CommandRouter"]
+  n13["Semantic command route"]
+  n14["Explicit source-aware authorization"]
+  n15["CommandExecutor"]
+  n16["PhosApplicationService"]
+  n17["InteractionOutcome"]
+  n18["InteractionResponseRenderer"]
+  n19["InteractionResponse"]
+  n0 --> n1 --> n2 --> n3 --> n4 --> n5 --> n6 --> n7 --> n8 --> n9 --> n10 --> n11 --> n12 --> n13 --> n14 --> n15 --> n16 --> n17 --> n18 --> n19
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 Capture rate and processing rate are deliberately separate. Raspberry Pi 3
@@ -416,8 +439,16 @@ validation uses a USB microphone at 44.1 kHz, followed by the one canonical
 resampling boundary to the 16 kHz stream consumed by VAD and STT; microphones
 need not support 16 kHz natively.
 
-The current explicit session is `IDLE → LISTENING → THINKING → IDLE` and stops
-at transcription. VAD confirmation takes time, so its bounded 300 ms pre-roll
+The current explicit capture session stops at transcription:
+
+```mermaid
+stateDiagram-v2
+  IDLE --> LISTENING
+  LISTENING --> THINKING
+  THINKING --> IDLE
+```
+
+VAD confirmation takes time, so its bounded 300 ms pre-roll
 preserves audio preceding speech-start confirmation. The validated baseline is
 threshold 50, speech start 120 ms, silence end 700 ms, minimum utterance 300
 ms, maximum utterance 12000 ms, and pre-roll 300 ms. These are validated
@@ -448,8 +479,15 @@ reuse that service's read models and produce an
 normal outcomes. The pure local `InteractionResponseRenderer` produces
 deterministic English or Italian user-facing text from query outcomes. With
 `interaction.response_tts_enabled` (false by default), query responses pass through
-the application speech boundary and the existing `TTSProvider -> AudioOutputProvider`
-path, including `SPEAKING`; actions and unresolved input remain silent. The current
+the application speech boundary and the existing synthesis/playback path:
+
+```mermaid
+flowchart LR
+  synthesis[TTSProvider] --> playback[AudioOutputProvider]
+  style synthesis fill:#2e1065,stroke:#a855f7,color:#fff
+```
+
+This includes `SPEAKING`; actions and unresolved input remain silent. The current
 provider-neutral TTS contract accepts text only, so response language is retained as
 interaction metadata rather than passed as a provider-specific argument. Local Piper,
 Cartesia and ElevenLabs adapters are implemented.
@@ -457,17 +495,20 @@ Phrase resolution, command routing/execution, wake words, continuous listening,
 LLM conversation, and Home Assistant remain future work.
 
 Physical validation on Raspberry Pi 3 with a USB microphone confirmed native
-capture, 44.1 kHz → 16 kHz resampling, VAD, preserved speech onset through
+capture, resampling from 44.1 kHz to 16 kHz, VAD, preserved speech onset through
 pre-roll, local Vosk transcription, and return to `IDLE`.
 
 ## Vision architecture
 
-```text
-Picamera2CameraProvider
-        -> FaceDetector
-        -> ExpressionProvider
-        -> ExpressionSmoother
-        -> provider-neutral Vision result/event
+```mermaid
+flowchart TD
+  n0["Picamera2CameraProvider"]
+  n1["FaceDetector"]
+  n2["ExpressionProvider"]
+  n3["ExpressionSmoother"]
+  n4["Provider-neutral Vision result / event"]
+  n0 --> n1 --> n2 --> n3 --> n4
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 Use lightweight processing appropriate for Raspberry Pi 3. Expression classification describes uncertain visible facial-expression patterns, not a person's true mental/emotional state. No identity recognition or frame persistence by default.
@@ -478,9 +519,18 @@ Home Assistant is an integration/tool surface, not PHOS's brain. Commands may us
 
 ### Local/cloud expression boundary
 
-Camera -> local detector/selector/square crop -> `ExpressionProvider`
-(`OpenCVExpressionProvider` or optional `AWSExpressionProvider`) -> existing
-`ExpressionSmoother` semantics -> Vision events -> `BehaviorEngine` -> `FaceState`.
+```mermaid
+flowchart LR
+  camera[Camera] --> crop[Local detector / selector / square crop]
+  crop --> provider[ExpressionProvider]
+  provider --> local[OpenCVExpressionProvider]
+  provider --> cloud[Optional AWSExpressionProvider]
+  local --> smoother[ExpressionSmoother]
+  cloud --> smoother
+  smoother --> events[Vision events] --> behavior[BehaviorEngine] --> face[FaceState]
+  style provider fill:#2e1065,stroke:#a855f7,color:#fff
+```
+
 AWS SDK objects remain in its adapter. Cloud requests use a single background
 asyncio task plus `to_thread`, independent of capture/tracking/render cadence.
 Provider lifecycle invalidation discards evidence across tracking discontinuity.
@@ -579,10 +629,17 @@ still require PHOS restart.
 
 The separately approved BME280/BMP280 addition follows:
 
-```text
-BME280 / BMP280 -> selected hardware provider -> EnvironmentalSensorService
-        -> PhosRuntime.sensor_status -> LifecycleService status snapshot
-        -> existing local process channel -> authenticated Web Admin Sensors
+```mermaid
+flowchart TD
+  n0["BME280 / BMP280"]
+  n1["Selected hardware provider"]
+  n2["EnvironmentalSensorService"]
+  n3["PhosRuntime.sensor_status"]
+  n4["LifecycleService status snapshot"]
+  n5["Existing local process channel"]
+  n6["Authenticated Web Admin Sensors"]
+  n0 --> n1 --> n2 --> n3 --> n4 --> n5 --> n6
+  style n0 fill:#2e1065,stroke:#a855f7,color:#fff
 ```
 
 `robot.sensors` owns the provider-neutral contract, immutable measurements and
@@ -618,9 +675,15 @@ IPC operation is exposed. See ADR-022, [hardware](hardware.md#bme280) and
 
 ### Controller-backed ENS160 and AHT21
 
-`ESP32 telemetry → ControllerService → runtime lifecycle callbacks →
-AirQualitySensorService → runtime/application status → WebUI/MCP` is the
-air-quality path. The controller acquires measurements and publishes phos-hw v1
+```mermaid
+flowchart LR
+  esp[ESP32 telemetry] --> controller[ControllerService]
+  controller --> callbacks[Runtime lifecycle callbacks] --> air[AirQualitySensorService]
+  air --> status[Runtime / application status] --> clients[WebUI / MCP]
+  style air fill:#2e1065,stroke:#a855f7,color:#fff
+```
+
+The controller acquires measurements and publishes phos-hw v1
 records; Pi services own freshness, validity, controller-generation isolation and
 environmental interpretation. ENS160 provides estimated eCO2, TVOC and AQI-UBA;
 AHT21 temperature and humidity are independently fresh. Retiring a session
@@ -628,8 +691,14 @@ immediately makes controller readings unusable until fresh telemetry arrives.
 
 ### MPU-6050 IMU extension
 
-`hardware.MPU6050Provider → IMUSensorService → PhosRuntime.sensor_status` uses
-the same worker, freshness, retry and authenticated status boundary as the other
+```mermaid
+flowchart LR
+  provider[hardware.MPU6050Provider] --> service[IMUSensorService]
+  service --> status[PhosRuntime.sensor_status]
+  style service fill:#2e1065,stroke:#a855f7,color:#fff
+```
+
+This path uses the same worker, freshness, retry and authenticated status boundary as the other
 sensors. `IMUReading` holds acceleration X/Y/Z in m/s² and angular velocity X/Y/Z
 in °/s. The hardware adapter alone knows MPU-6050 registers and smbus2; Web Admin
 only reads snapshots and edits canonical `sensors.imu` settings. No BehaviorEngine,
@@ -639,8 +708,13 @@ outside this capability.
 
 ### Motion interpretation extension
 
-`IMUReading → MotionInterpreter → MotionState / MotionEvent` is a pure,
-provider-neutral layer between IMU state and its semantic consumers. It never accesses
+```mermaid
+flowchart LR
+  reading[IMUReading] --> interpreter[MotionInterpreter] --> motion[MotionState / MotionEvent]
+  style interpreter fill:#2e1065,stroke:#a855f7,color:#fff
+```
+
+Motion interpretation is a pure, provider-neutral layer between IMU state and its semantic consumers. It never accesses
 the MPU-6050, GPIO, Web handlers, Vision, EyeRenderer or BehaviorEngine. The IMU
 worker supplies timestamped samples and exposes only the current interpreted
 state and last event through the existing status boundary. `STILL`, `MOVING`,
