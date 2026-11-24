@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral agent identity and transitional local authentication."""
 from __future__ import annotations
 

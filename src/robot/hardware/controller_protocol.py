@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Hardware-agnostic PHOS external-controller protocol v1.
 
 This module owns only bounded JSON Lines framing and semantic messages.  A

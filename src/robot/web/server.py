@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Separate-process WSGI lifecycle; no web dependencies when disabled."""
 from __future__ import annotations
 

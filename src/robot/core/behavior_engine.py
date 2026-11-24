@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Behavior decisions that produce FaceState without drawing UI elements."""
 
 from __future__ import annotations

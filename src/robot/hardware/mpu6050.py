@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """MPU-6050 register adapter for GY-521 boards over optional smbus2."""
 from __future__ import annotations
 

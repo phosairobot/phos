@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Robot lifecycle, state, events and orchestration."""
 
 from .behaviors import Behavior, BehaviorManager

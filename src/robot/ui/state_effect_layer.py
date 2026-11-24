@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small peripheral canvas layer for already-resolved state-effect semantics."""
 from __future__ import annotations
 

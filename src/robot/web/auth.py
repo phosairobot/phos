@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Filesystem password storage, independent of HTTP and runtime configuration."""
 from __future__ import annotations
 

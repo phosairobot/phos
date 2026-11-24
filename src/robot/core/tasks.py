@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Ownership and orderly shutdown of core background tasks."""
 
 from __future__ import annotations

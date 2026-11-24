@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral contracts for future multilingual interaction."""
 
 from .language import normalize_language_tag

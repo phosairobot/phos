@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small, conservative helpers for BCP-47-compatible language tags."""
 from __future__ import annotations
 

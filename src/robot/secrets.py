@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Encrypted local secrets, separate from normal PHOS configuration."""
 from __future__ import annotations
 

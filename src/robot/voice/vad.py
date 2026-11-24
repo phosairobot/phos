@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small deterministic PCM energy VAD suitable for Raspberry Pi 3."""
 from __future__ import annotations
 import audioop

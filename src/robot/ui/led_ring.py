@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral semantic LED ring controller."""
 from __future__ import annotations
 

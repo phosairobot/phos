@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral state consumed by the PHOS eye renderer."""
 
 from __future__ import annotations

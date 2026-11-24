@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded, on-demand object inference; intentionally not runtime-composed yet."""
 from __future__ import annotations
 import asyncio

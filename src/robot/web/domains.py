@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Navigation and presentation groups, never a configuration schema.
 
 New implemented areas can register a page and select canonical field paths here.

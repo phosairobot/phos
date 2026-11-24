@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Ephemeral local-admin recovery, LAN discovery, and QR matrix helpers."""
 from __future__ import annotations
 

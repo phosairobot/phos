@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Conservative semantic decisions and bounded temporal visual evidence."""
 
 from __future__ import annotations

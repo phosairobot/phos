@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure localized rendering of semantic interaction outcomes."""
 from __future__ import annotations
 

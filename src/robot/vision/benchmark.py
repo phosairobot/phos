@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Paired, in-memory Pi camera evaluation: python -m robot.vision.benchmark."""
 
 from __future__ import annotations

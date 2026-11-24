@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Display adapters for rendered PHOS eye geometry."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Stable, provider-neutral interpretation of environmental measurements."""
 from __future__ import annotations
 

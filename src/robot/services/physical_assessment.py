@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Read-only evidence assessment for bounded physical measurement history."""
 from __future__ import annotations
 

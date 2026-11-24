@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write-only Web-facing facade for encrypted PHOS secrets."""
 from robot.secrets import SecretsService
 

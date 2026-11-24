@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral contracts and data structures for visual perception."""
 
 from __future__ import annotations

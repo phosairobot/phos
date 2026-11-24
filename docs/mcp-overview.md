@@ -22,8 +22,12 @@ These synchronous interactions return a result to the caller. Availability depen
 | Environment | Read temperature, humidity where available, pressure, and air-quality indicators with availability/freshness context. | `phos://environment` | Observer or standard |
 | Presence and attention | Read whether people are present and the semantic attention state—never identity. | `phos_get_presence`, `phos_get_attention` | Observer or standard |
 | Observed expression | Read a bounded visible-expression classification; it is not an emotion or identity claim. | `phos_get_observed_expression` | Observer or standard |
+| Physical evidence | Assess retained measurement coverage, freshness, and recovery evidence before interpreting history. | `phos_get_physical_assessment`, `phos://physical-context/assessment` | History permission required |
+| Retained context | Query bounded RAM-only measurements or confirmed transitions. | `phos_query_measurements`, `phos_list_physical_transitions` | History permission required |
+| Object awareness | Request one on-demand, local NanoDet observation when configured. | `phos_get_visible_objects` | Perception permission required |
 | Camera observation | Retrieve a privacy-bounded JPEG from the latest cached frame, or wait for the next pipeline frame, when camera access is permitted. | `phos_get_camera_snapshot`, `phos_capture_camera_snapshot`, `phos://vision/snapshot` | Standard only |
 | Expression | Request a supported PHOS expression. | `phos_set_expression` | Standard only |
+| Thinking visual state | Request a bounded agent-owned thinking visual state, or release it. | `phos_set_state` | Standard only |
 | Voice | Ask PHOS to speak bounded text through configured TTS. | `phos_speak` | Standard only |
 | Robot state | Request normal sleep or wake transitions. | `phos_sleep`, `phos_wake` | Standard only |
 | Semantic signal | Request a supported, transient user-attention signal. | `phos_signal_user` | Standard only |
@@ -37,9 +41,14 @@ All tools return structured semantic results; tools without arguments take `{}`.
 | Tool | Arguments | Access | Purpose / limit |
 | --- | --- | --- | --- |
 | `phos_get_status`, `phos_get_physical_context`, `phos_get_presence`, `phos_get_attention`, `phos_get_observed_expression` | None | Observer, standard | Read compact semantic state. Attention never includes a target identity. |
+| `phos_get_physical_assessment` | None | `read_physical_history` | Assess bounded evidence; it does not classify trends or prove sensor accuracy. |
+| `phos_query_measurements` | required `metric`; optional time range and limit | `read_physical_history` | Read retained samples and summaries; history is RAM-only. |
+| `phos_list_physical_transitions` | optional event type and limit | `read_physical_history` | Read bounded confirmed semantic transitions. |
+| `phos_get_visible_objects` | None | `read_perception` | One on-demand NanoDet observation; labels/confidence only. |
 | `phos_get_camera_snapshot` | None | Standard | Returns the existing cached JPEG; PHOS does not interpret it. |
 | `phos_capture_camera_snapshot` | None | Standard | Waits for the next Vision frame; this is not a separate camera exposure. |
 | `phos_set_expression` | required `expression` | Standard | Requests a supported expression. |
+| `phos_set_state` | required `state`; optional `duration_ms` | Standard | `thinking` is bounded; `idle` releases the caller's lease. |
 | `phos_speak` | required `text` (1–500 characters) | Standard | Requests bounded TTS; physical side effect. |
 | `phos_sleep`, `phos_wake` | None | Standard | Request normal robot-state transitions; physical side effect. |
 | `phos_signal_user` | required `signal` | Standard | Requests a supported transient signal; physical side effect. |
@@ -48,6 +57,7 @@ All tools return structured semantic results; tools without arguments take `{}`.
 | --- | --- | --- |
 | `phos://status` | Observer/standard compact robot status. | Yes |
 | `phos://physical-context` | Observer/standard anonymous environment, motion, presence, attention, and observed expression. | Yes |
+| `phos://physical-context/assessment` | History permission required; bounded evidence and source availability. | Yes |
 | `phos://environment` | Observer/standard environmental context. | Yes |
 | `phos://vision/snapshot` | Standard-only cached JPEG for external multimodal interpretation. | No — intentionally on-demand. |
 
@@ -66,6 +76,8 @@ The verified subscribable update targets are:
 - `phos://status` for robot-state, capability, and system-health changes.
 - `phos://physical-context` for robot-state plus relevant environment, air-quality, motion, presence, attention, and observed-expression changes.
 - `phos://environment` for relevant environmental condition or availability changes.
+- `phos://physical-context/assessment` for relevant environmental or air-quality
+  condition and availability changes.
 
 PHOS coalesces repeated update cues. The client rereads the updated Resource to obtain current data. `phos://vision/snapshot` is readable by authorized clients, but PHOS does not publish subscription updates for it. The separately owned Streamable-HTTP bridge forwards the supported MCP subscription path and can reconnect upstream; client behavior after a disconnection remains the client's responsibility.
 

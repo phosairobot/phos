@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small server-rendered administration adapter."""
 from __future__ import annotations
 

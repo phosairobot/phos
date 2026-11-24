@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral boundary between interaction input and canonical intent."""
 from __future__ import annotations
 

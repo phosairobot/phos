@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared validated reload and supervisor-owned restart operations."""
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """In-memory authenticated MCP activity and appearance arbitration.
 
 This deliberately owns no renderer state.  The tracker is installed in the

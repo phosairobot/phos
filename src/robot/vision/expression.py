@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OpenCV DNN adapter for configurable ONNX expression models."""
 
 from __future__ import annotations

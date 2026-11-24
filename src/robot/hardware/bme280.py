@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Optional BME280 I2C adapter; vendor imports and bus ownership stay here."""
 import logging
 

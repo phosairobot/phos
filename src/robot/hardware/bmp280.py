@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Optional BMP280 adapter using the same worker-owned SMBus boundary."""
 from robot.sensors import EnvironmentalReading
 

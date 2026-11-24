@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral local vision pipeline for PHOS."""
 
 from .camera import Picamera2CameraProvider

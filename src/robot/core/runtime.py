@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Composition root for the hardware-independent robot core."""
 
 from __future__ import annotations

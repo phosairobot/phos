@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral policy for cautious reactions to observed expressions."""
 from __future__ import annotations
 

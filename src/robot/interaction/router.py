@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure canonical-intent validation and dry-run command routing.
 
 This module deliberately has no dependency on runtime, application, behavior, or

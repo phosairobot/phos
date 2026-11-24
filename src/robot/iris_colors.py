@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """One canonical resolver for named and custom PHOS iris colours."""
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Explicitly-authorized application-command execution.
 
 The executor accepts only a validated semantic ``CommandRoute``.  It delegates

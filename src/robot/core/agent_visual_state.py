@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded, identity-owned visual-state leases for future agent adapters.
 
 This module intentionally does not know about RobotCore events, rendering,
