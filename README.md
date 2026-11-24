@@ -172,7 +172,7 @@ I2C, voice, Web Admin, controller, and service prerequisites.
 - [x] Bounded RAM-only physical-context history and opt-in, on-demand NanoDet object awareness.
 - [x] `phos-hw` v1 controller protocol plus optional environmental, air-quality, IMU, and semantic LED integrations.
 - [x] Voice capture/STT foundation, deterministic English/Italian interaction commands, and provider-neutral TTS/playback.
-- [ ] Complete Raspberry Pi physical acceptance for the display, camera, optional sensors, LED ring, and controller configurations.
+- [x] Complete Raspberry Pi physical acceptance for the display, camera, optional sensors, LED ring, and controller configurations.
 - [ ] Publish/reference matching ESP32 firmware and complete external-controller hardware acceptance.
 - [ ] Complete external multi-agent MCP interoperability validation.
 - [ ] Add the planned LLM resolver, language detection, wake word, and continuous listening; evaluate Home Assistant as a permissioned integration layer.
