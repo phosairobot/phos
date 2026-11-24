@@ -139,12 +139,45 @@ and [connect an agent later](developer-quickstart.md).
 | **Makers & users** | Choose parts from the [Hardware BOM](hardware-bom.md), [build PHOS](build-phos.md), and [install the runtime](installation.md). | Check [hardware](hardware-overview.md), configure [Web Admin](web-administration.md), then connect through [MCP](mcp-overview.md) or [REST](remote-api.md). |
 | **Developers & contributors** | Read the [architecture](architecture.md), [decisions](decisions.md), and [testing guide](development.md). | Explore [MCP specifications](mcp.md), the [controller protocol](hardware-controller.md), [provider boundaries](architecture.md#core-principles), and [skin extensions](appearance/creating-skins.md); follow the [contribution guide](contributing.md). |
 
+## Watch PHOS in Action
+
+See PHOS working with external AI agents, real sensor history, browser controls,
+and expressive vision. These demonstrations come from the official PHOS channel.
+
+<div class="video-grid">
+  <figure class="video-card">
+    <div class="video-wrapper">
+      <iframe src="https://www.youtube-nocookie.com/embed/KMd93sneYoE?rel=0" title="Giving AI Agents Access to Real Sensor History | Raspberry Pi + ESP32 + MCP" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+    </div>
+    <figcaption>Giving AI Agents Access to Real Sensor History | Raspberry Pi + ESP32 + MCP</figcaption>
+  </figure>
+  <figure class="video-card">
+    <div class="video-wrapper">
+      <iframe src="https://www.youtube-nocookie.com/embed/29Qx_1gh-ZM?rel=0" title="What If Every AI Agent Had Its Own Physical Identity?" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+    </div>
+    <figcaption>What If Every AI Agent Had Its Own Physical Identity?</figcaption>
+  </figure>
+  <figure class="video-card">
+    <div class="video-wrapper">
+      <iframe src="https://www.youtube-nocookie.com/embed/KeopCfsvkS4?rel=0" title="PHOS admin UI" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+    </div>
+    <figcaption>PHOS admin UI</figcaption>
+  </figure>
+  <figure class="video-card">
+    <div class="video-wrapper">
+      <iframe src="https://www.youtube-nocookie.com/embed/sYE029codNQ?rel=0" title="The eyes are part of how PHOS sees, reacts and communicates: Vision, expressions and visual feedback" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+    </div>
+    <figcaption>The eyes are part of how PHOS sees, reacts and communicates: Vision, expressions and visual feedback</figcaption>
+  </figure>
+</div>
+
+[Subscribe on YouTube (@phosairobot)](https://www.youtube.com/@phosairobot){ .md-button }
+
 ## Follow PHOS and share your build
 
 Find source code, report issues, and share hardware experiences on
 [GitHub](https://github.com/phosairobot/phos). A star helps other makers discover
-the project. Visit the [PHOS YouTube channel](https://www.youtube.com/@phosairobot)
-for published demonstrations and development updates, or follow
+the project. For more development updates, follow
 [Instagram](https://www.instagram.com/phosairobot/) and
 [X](https://x.com/phosairobot).
 
