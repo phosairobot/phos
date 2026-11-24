@@ -13,8 +13,11 @@ classes:
 <span class="phos-kicker">PHYSICAL PLATFORM</span>
 
 PHOS targets a **Raspberry Pi 3** and keeps hardware-specific access behind
-providers/adapters. Optional devices are disabled by default and still need
-physical acceptance on the target robot.
+providers/adapters. Optional devices are disabled by default; enable them after
+wiring and configuration.
+
+Start with the [Hardware BOM](hardware-bom.md) to choose a core build, audio
+add-ons, and optional sensors or an ESP32 controller.
 
 </div>
 
@@ -32,8 +35,6 @@ physical acceptance on the target robot.
 
 <div class="phos-callout" markdown>
 
-Wiring, voltage, I²C addresses and physical acceptance are deliberately kept in
-the [canonical hardware guide](hardware.md). Do not assume a documented adapter
-means the physical module has been verified on every Pi build.
+Find wiring, voltage limits, and I²C addresses in the [hardware guide](hardware.md).
 
 </div>

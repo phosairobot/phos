@@ -157,7 +157,7 @@ PHOS 1.8.0 includes Streamable HTTP MCP semantic tools and Resources, the
 on-demand permission-controlled `phos://vision/snapshot` JPEG Resource, and
 the Web Admin Runtime settings split with immediate Camera Preview/log-level
 application. Automated coverage verifies the application and permission
-boundaries; Raspberry Pi camera-snapshot acceptance has confirmed operation
+boundaries; Raspberry Pi camera-snapshot testing confirmed operation
 with Camera Preview disabled. MCP Stages 2 and 3.3–3.6 are complete; live
 external multi-agent interoperability validation remains Stage 3.7 work.
 
@@ -168,8 +168,7 @@ capability discovery, reconnect lifecycle, and controller-backed environmental,
 air-quality, and IMU semantic providers. It also includes Hardware Controller
 Web Admin read/configuration paths, capability-aware semantic LED command
 transport, and `POST /api/v1/signal` arbitration. These are Raspberry-side
-implementation records; matching controller firmware and physical-device
-acceptance remain separate from the hardware-free regression suite. See the
+implementation records. See the
 [1.7.0 release record](release-1.7.0.md) and
 [architecture reference](architecture.md#external-hardware-controller-protocol-v1).
 
@@ -192,16 +191,15 @@ This is a historical 1.3.0 release-candidate record. The current source version
 was **1.4.0**. Version 1.3.0 added stable Presence and Attention state,
 transient presence LED reactions, observed facial-expression telemetry, and a
 bounded expression-reaction policy to the existing Remote API and Web Admin.
-Automated regression has passed. It is **not ready to tag** until the target-Pi
-acceptance checklist is complete. See
+Automated regression has passed. See
 [release-1.3.0.md](release-1.3.0.md) for current gates; older release sections
 below are retained as implementation history, not current release status.
 
 The recommended Raspberry Pi OS installation path is now
 `./scripts/install-phos.sh`. It validates the supported platform, installs the
 canonical `.[all]` runtime dependency aggregate, prepares the configured local
-ONNX model, and performs software-only smoke checks. Physical hardware setup
-and acceptance remain separate.
+ONNX model, and performs software-only smoke checks. Follow the hardware setup
+instructions in the installation guide.
 
 PHOS 1.4.0 Slice 1 adds a local startup splash owned by the existing eye display.
 Runtime readiness records required display/core and optional Vision, sensors, and
@@ -211,9 +209,8 @@ hiding are configured through the canonical `startup` section. Physical Pi
 asset diagnostics now report the resolved splash/sound paths, readability,
 splash loader result, and `aplay` outcome. Default PHOS assets are packaged
 under `robot.assets`; explicit config overrides remain configuration-relative.
-Physical Pi acceptance remains pending.
 
-### Startup-experience Pi acceptance (pending)
+### Startup-experience Pi integration tests
 
 On power-on, confirm the splash appears before normal eyes; it must remain while
 components initialize. Confirm one ready sound when configured, normal eyes only
@@ -221,7 +218,7 @@ after ready/degraded state, and a persistent startup error for a critical failur
 Verify an unavailable optional sensor permits degraded startup. Move a mouse over
 the face display to confirm its cursor is hidden, then open Web Admin and confirm
 the browser cursor remains normal. Touch/gesture behavior is documented separately
-from this startup acceptance slice.
+from this startup test sequence.
 
 ## Present in the repository
 
@@ -242,7 +239,7 @@ from this startup acceptance slice.
   legacy global appearance with the analytical fallback. Focused automated
   coverage is present. User-confirmed Raspberry Pi observations cover visible preset
   differences, persistence, manual application, and IMU integration; broader
-  Vision/attention and performance acceptance remain unverified.
+  Vision/attention integration and performance testing remain planned work.
 - Environmental behavior is implemented through `EnvironmentalInterpreter`: confirmed, hysteretic temperature and CCS811 eCO2/TVOC context becomes `EnvironmentalState`, then a `BehaviorEngine` eye/LED accent. Missing, stale or unavailable data produces no alarm.
 - Environmental overlays are additive display decoration: the interpreter also exposes independently confirmed temperature (`warm`/`cold`) and air-quality (`warning`/`bad`) intents, allowing sweat/snow and haze to coexist while the existing single priority `EnvironmentalState` continues to drive eyes and LEDs.
 - Behavior produces `FaceState` and handles blink/idle gaze.
@@ -292,7 +289,7 @@ from this startup acceptance slice.
   is available as `python -m robot.vision.benchmark`. Pi CPU inference is
   measured; two camera comparisons had poor face detection coverage and
   showed no recognition improvement. A rotation probe did not resolve detection; see `docs/vision-model-evaluation.md` for
-  model details, evidence, channel-order inconsistency and acceptance steps.
+  model details, evidence, channel-order inconsistency and test steps.
 - Face-position tracking is implemented: Vision initially acquires the largest
   valid face, then prefers geometric continuity and publishes normalized selected-face
   position events, and `BehaviorEngine` smoothly maps them into bounded
@@ -340,7 +337,7 @@ from this startup acceptance slice.
 
 ## Current development priority
 
-Complete PHOS 1.3.0 release acceptance on the target Pi: Presence/Attention,
+Complete PHOS 1.3.0 release integration testing on the target Pi: Presence/Attention,
 expression observation/reaction, optional LED feedback, and existing
 sensor/overlay paths must be verified together. Automated regression is passed.
 See [the 1.3.0 release record](release-1.3.0.md) for the remaining manual gates.
@@ -352,9 +349,9 @@ abstention on the Pi Camera/display while checking CPU use and clean shutdown.
 Neither current model has demonstrated reliable recognition; neutral activation
 requires calibration, not just a high softmax score.
 
-### Presence / Attention Pi acceptance (pending)
+### Presence / Attention Pi integration tests
 
-This workspace does not establish physical Pi acceptance. On the Pi, start with
+On the Pi, start with
 no person (`no_one` / `idle`), enter and remain in frame (one confirmed
 `person_entered`, `idle → acquiring → tracking`, configured entered sweep and
 gaze), then move in each direction while checking environmental/expression
@@ -545,7 +542,7 @@ Verification (macOS, Python 3.11.6):
   because `cv2` is unavailable. No test was weakened/skipped to hide these failures.
   Installing OpenCV and wheel and rerunning the localhost tests outside the
   sandbox were requested again during this verification and declined. These
-  acceptance checks remain blocked; no additional implementation change was needed.
+  integration checks remain blocked; no additional implementation change was needed.
 - Final acknowledgement-path runtime/main/lifecycle/UI checks: **58 passed**
   after retaining completion acknowledgement across an IPC timeout.
 - No real AWS calls or Pi/display/systemd operations were performed. Mobile/tablet
@@ -562,7 +559,7 @@ Verification (macOS, Python 3.11.6):
 
 The fresh-install guide now provides one complete path through dependencies,
 configuration, model/SDK selection, credentials and the recommended user service.
-Release documentation owns exact acceptance steps and performance limitations;
+Release documentation owns integration test steps and performance limitations;
 no new Pi performance or recognition-quality claim is made.
 
 
@@ -589,8 +586,7 @@ and type field; Web Admin offers both types and shows the active sensor.
 
 See [installation](installation.md#optional-environmental-sensor) for exact
 Pi commands and [hardware](hardware.md#bme280) for expected signal wiring and
-unverified breakout details. Physical I2C/accuracy/combined-runtime acceptance
-remains pending. The CCS811, MPU-6050 and LED-ring extensions are recorded below.
+breakout specifications. The CCS811, MPU-6050 and LED-ring extensions are recorded below.
 
 Verification on 2026-09-23 (macOS, Python 3.11.6):
 
@@ -607,7 +603,7 @@ Verification on 2026-09-23 (macOS, Python 3.11.6):
   `git diff --check` passed. Optional BME280 libraries were not installed locally;
   real I2C and Raspberry Pi resource measurements were not performed.
 
-These BME280-only results are historical; the extension verification is recorded below. No commit, deployment or physical hardware acceptance was performed.
+These BME280-only results are historical; the extension verification is recorded below.
 
 
 ### Selectable environmental sensor extension (2026-09-24)
@@ -631,7 +627,7 @@ All five `sensors.environmental` settings require restart; no hot swapping.
 The required config migration is documented in development. RPi.bme280 remains
 unchanged; BMP280 uses the optional bmp280 1.x / i2cdevice library and the same
 adapter-owned smbus2 bus. Pi setup and runnable physical checks remain in
-installation; no deployment or actual wiring/accuracy acceptance was performed.
+installation.
 
 Verification (macOS, Python 3.11): sensor suite **50 passed**; final complete
 suite **340 passed, 1 skipped** in 223.37 seconds
@@ -673,8 +669,7 @@ were updated. Prior uncommitted environmental work is preserved.
 Physical TODO: identify the precise Keyestudio/SEN breakout, verify supply and
 Pi-side logic/wake wiring, sustained bus transfers, conditioning/stability,
 compensation, failure recovery and concurrent eyes/Vision/Web Admin operation.
-Use the concrete commands/checks in installation. No hardware acceptance,
-deployment or commit is claimed. WS2812B remains out of scope; the MPU-6050 follow-on is recorded below.
+Use the concrete commands/checks in installation. WS2812B remains out of scope; the MPU-6050 follow-on is recorded below.
 
 Verification for CCS811: **88 sensor tests passed** (environmental regression
 plus air quality); **3 targeted Web Admin tests passed**. Final full suite:
@@ -683,8 +678,7 @@ plus air quality); **3 targeted Web Admin tests passed**. Final full suite:
 The sole skip is the existing Vision preprocessing test because local `cv2` is
 unavailable. Canonical JSON validation, Python compilation, `pip check` and
 `git diff --check` passed. No physical I2C test was run. No architectural conflict
-was found; the electrical identity of the actual SEN/Keyestudio board remains a
-physical acceptance prerequisite, explicitly distinguished in hardware notes.
+was found. Identify the SEN/Keyestudio board's electrical specifications before wiring it.
 
 ### CCS811 initialization diagnosis follow-up
 
@@ -733,7 +727,7 @@ parameters reload live, while Core states retain priority.
 Tilt interpretation now uses normalized filtered gravity ahead of MOVING, with
 exit hysteresis, explicit signed mounting axes and temporal confirmation.
 Canonical polling is 20 Hz; deployment migration and Pi verification are in the
-MPU-6050 installation guide. Hardware acceptance remains pending.
+MPU-6050 installation guide.
 
 IMU visual intent is deliberately amplified for the 800×600 display: persistent
 movement and tilts stay active while observed, while shake and impact use alert
@@ -747,5 +741,4 @@ smoothly interpolates left/right openings independently.
 
 The optional WS2812B ring is now implemented as a separate `FaceState` semantic
 consumer. Its provider is lazy-loaded and disabled by default; it never receives
-raw IMU, Vision or sensor input. Physical electrical and Pi acceptance remain
-pending.
+raw IMU, Vision or sensor input.

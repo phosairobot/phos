@@ -22,5 +22,5 @@ See the [Remote API guide](remote-api.md) and checked-in
 - Repeat target Raspberry Pi display, sensor, and LAN access verification before
   creating a release tag.
 
-PHOS 1.1.0 remains an historical release record; its acceptance details are
+PHOS 1.1.0 remains an historical release record; its test details are
 preserved in [the 1.1.0 record](release-1.1.0.md).

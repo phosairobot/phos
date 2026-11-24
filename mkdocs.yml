@@ -93,6 +93,7 @@ nav:
       - Build & install:
           - Build overview: build-phos.md
           - Hardware requirements: hardware-overview.md
+          - Hardware BOM: hardware-bom.md
           - Installation overview: installation-overview.md
           - Installation & setup: installation.md
           - Sensors, ESP32 & wiring: hardware.md

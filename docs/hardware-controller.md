@@ -162,5 +162,4 @@ the protocol boundary.
 
 The PHOS controller protocol, reconnect lifecycle, capability discovery, and
 controller-backed sensor/LED integration are implemented and automatically
-tested. Controller firmware, wiring, and physical-device acceptance remain
-deployment-specific and should be verified with the matching hardware.
+tested. Use matching controller firmware and follow the wiring and protocol setup instructions.

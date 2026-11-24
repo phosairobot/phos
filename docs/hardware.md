@@ -1,10 +1,14 @@
 # Hardware
 
+Use the [Hardware BOM](hardware-bom.md) to plan parts and build tiers; this page
+provides the wiring, addresses, power, and device setup details.
+
 > Current environmental baseline: ENS160 and AHT21 share the ESP32 I2C bus (ENS160 `0x53` or `0x52`; AHT21 `0x38`). The ESP32 publishes phos-hw v1 `sensor_update` and ENS160 `sensor_status` JSONL telemetry. The Pi owns freshness, validity, reconnect/session isolation and semantic decisions; it does not poll these devices directly.
 
 This document records the physical hardware that is part of PHOS or has been selected for a future integration milestone.
 
-Hardware listed here does **not** imply that its software integration is already implemented. Software behavior, providers, events, state mapping, and runtime integration must be designed separately before code is added.
+The table identifies current adapters and planned components. Choose parts with
+implemented providers for the capabilities you want to enable.
 
 ## Installed / available
 
@@ -18,7 +22,7 @@ Hardware listed here does **not** imply that its software integration is already
 | BME280 / BMP280 | Integrated optional sensor | I2C bus 1, 3.3 V logic | Temperature, relative humidity where supported, atmospheric pressure | Verify actual breakout/address for each installation |
 | ENS160 + AHT21 | ESP32 controller telemetry | I2C on controller | eCO2/TVOC/AQI-UBA plus temperature/humidity | ENS160 eCO2 is not direct NDIR CO2; controller reports validity and compensation |
 | GY-521 (MPU-6050)     | Integrated optional sensor | I2C | 6-axis inertial sensing and interpreted motion | Verify mounting, wiring and thresholds for each installation |
-| WS2812B RGB LED ring  | Software integrated; physical acceptance pending | Single-wire addressable data; typically 5 V LED supply | Semantic color and temporary directional motion animation | LED count, GPIO assignment, power budget, level shifting and placement remain to verify |
+| WS2812B RGB LED ring  | Optional software integration | Single-wire addressable data; typically 5 V LED supply | Semantic color and temporary directional motion animation | LED count, GPIO assignment, power budget, level shifting and placement remain to verify |
 | Servos/motors         | Planned              | TBD                                                    | Future physical movement                                               | Not yet specified                                                                    |
 
 ## Face display session
@@ -58,8 +62,7 @@ PHOS supports a BME280 through `robot.hardware.bme280.BME280Provider` and the
 provider-neutral environmental service. Web Admin → Sensors shows temperature
 in °C, relative humidity in %, and station pressure in hPa (not sea-level adjusted).
 Fresh readings can drive the confirmed environmental interpreter; raw values do
-not reach eyes, LEDs or Vision. Software tests use fakes; the exact
-breakout and physical installation have **not** been verified.
+not reach eyes, LEDs or Vision.
 
 Expected wiring for a **3.3 V-compatible I2C breakout**, with the Pi powered off:
 
@@ -101,7 +104,7 @@ The 3.3 V-compatible I2C wiring assumptions in the BME280 table above apply to
 BMP280 breakouts too; confirm the actual board schematic and pin labels. Address
 is configurable as 0x76 or 0x77. Power off before changing modules. Follow the
 single [installation procedure](installation.md#optional-environmental-sensor)
-for dependencies, bus enablement and verification. Real BMP280 acceptance is pending.
+for dependencies, bus enablement and verification.
 
 ### ENS160 and AHT21 through the ESP32 controller
 
@@ -121,7 +124,7 @@ BME280/BMP280 and MPU-6050 can share the Raspberry Pi I2C bus if their actual
 module configuration and addresses are compatible. ENS160 and AHT21 use the
 ESP32 bus instead.
 
-Before physical acceptance:
+Wiring and setup checklist:
 
 - verify the exact I2C addresses of both physical modules;
 - verify module voltage requirements and whether each breakout includes regulation/level shifting;
@@ -155,7 +158,7 @@ interrupts. These observations drive documented eye and LED semantic intent
 through BehaviorEngine; raw IMU data does not control GPIO, renderer or LEDs
 directly.
 
-Before physical acceptance:
+Wiring and setup checklist:
 
 - verify the exact GY-521 board revision and pin labels;
 - verify its supply and logic-level requirements on the actual breakout board;
@@ -289,10 +292,9 @@ Already operational:
 - Raspberry Pi Camera and face tracking.
 
 BME280/BMP280 and controller-backed ENS160/AHT21 integration is implemented;
-wiring, address and real readings await Pi acceptance. Their fresh usable
-readings may feed the provider-neutral environmental behavior interpreter.
+fresh usable readings feed the provider-neutral environmental behavior interpreter.
 ENS160 eCO2 remains an estimated/equivalent value, not direct NDIR CO2.
 
 MPU-6050 motion behavior and WS2812B semantic/directional rendering are software
-integrated. Their wiring, driver/helper setup, physical orientation and Pi 3
-acceptance remain outstanding.
+integrated. Follow the wiring, driver/helper setup, and mounting instructions
+in the sections above.

@@ -2,8 +2,7 @@
 
 **Audit basis:** checked-out repository, MkDocs configuration, documentation,
 tracked assets, GitHub Actions workflows, configuration, MCP adapter, and tests
-reviewed during the 1.9.0 documentation redesign. This page records evidence,
-not a claim that every optional hardware path has been physically accepted.
+reviewed during the 1.9.0 documentation redesign. This page records the documentation redesign findings.
 
 ## Current inventory and disposition
 

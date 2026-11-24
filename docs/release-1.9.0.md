@@ -52,9 +52,7 @@ The integrated source passed the complete automated suite (`1442 passed,
 1 skipped`) and strict MkDocs build at the integrated development tip.
 Socket-dependent MCP and Web listener tests passed when run in a
 localhost-capable test environment. No ONNX model binary or credential is
-tracked. Raspberry Pi validation evidence is feature-specific; this release
-record does not claim universal hardware compatibility or a new hardware
-acceptance result.
+tracked.
 
 Before publication, merge the approved release commit into `main` and tag the
 commit reachable from `origin/main`; the release workflow verifies that

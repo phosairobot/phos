@@ -557,7 +557,7 @@ modified by this repository.
 
 The bridge's Node 22 build and automated suite validate its standard MCP
 subscription forwarding path. Live physical interoperability remains a manual
-Raspberry Pi acceptance step.
+Raspberry Pi integration test.
 
 ## Raspberry Pi validation
 

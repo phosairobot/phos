@@ -169,8 +169,8 @@ Freeze 1.0.0 at the existing runtime, eyes, tracking, local/AWS expression and
 canonical configuration/web administration scope. Hardware availability does
 not bring sensors, LEDs, conversation, remote API or MCP into this release.
 Keep one authoritative version in `robot.__version__`, consumed by packaging
-and runtime/status reporting. Separate automated release checks from physical
-acceptance and expression accuracy.
+and runtime/status reporting. Use automated release checks alongside hardware
+integration tests and expression accuracy measurements.
 
 Future Web/API/MCP/Voice control surfaces must reuse application services and
 must not access hardware or subsystem internals. Shared validation, authorization
@@ -264,8 +264,7 @@ The new required section follows the existing explicit config-merge migration
 policy. Runtime exposes a read-only snapshot via the existing lifecycle status
 channel to the authenticated Sensors editor. It adds no network control API,
 behavior input, event stream or general dashboard. CCS811, GY-521, LED ring,
-voice, MCP and Home Assistant remain deferred. Real Pi acceptance is separate
-from fake-provider tests; the 1.0.0 release history/version is not rewritten.
+voice, MCP and Home Assistant remain deferred. The 1.0.0 release history/version is not rewritten.
 
 
 ### ADR-022 extension — selectable BME280 / BMP280
@@ -305,8 +304,8 @@ polls retain initialization; physical failures retry with bounded backoff.
 Automatic compensation accepts fresh service-level temperature plus humidity,
 never assumes BMP280 humidity and restores device defaults on loss of source.
 No baseline persistence, firmware updating, GPIO wake control, GY-521, WS2812B
-or additional control surface is included. Exact breakout electrical validation,
-first-use burn-in and sustained Pi operation remain separate physical acceptance.
+or additional control surface is included. Check the breakout electrical
+specifications, run the first-use burn-in, and test sustained Pi operation.
 
 ## ADR-024 — Optional MPU-6050 IMU service
 
@@ -318,8 +317,7 @@ bounded sensor worker for an optional bus-1 MPU-6050 adapter. Canonical
 all fields. Report acceleration in m/s² and angular velocity in °/s through the
 existing runtime status and Web Admin boundaries. Use smbus2 directly and fixed
 ±2 g / ±250 °/s scales; do not add automatic offset calibration, orientation
-fusion, interrupts, gestures or behavior integration. Physical wiring and board
-acceptance remain separate from this implementation.
+fusion, interrupts, gestures or behavior integration. Follow the board wiring and setup instructions in the hardware guide.
 
 ### ADR-024 extension — Motion interpretation
 

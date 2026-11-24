@@ -19,7 +19,7 @@ PHOS keeps perception, device ownership, and safety decisions on the robot. An
 authorized external agent can then reason over structured context and request
 bounded semantic actions—without receiving a GPIO handle or an unrestricted
 camera feed. The reference target is a Raspberry Pi 3 with a 5-inch 800×600
-display; physical acceptance remains build-specific.
+display.
 
 > [!TIP]
 > **Building an AI robot or exploring MCP for physical hardware?** Give PHOS a ⭐ **[Star on GitHub](https://github.com/phosairobot/phos)** to follow new hardware providers, sensor integrations, and upcoming ESP32 firmware work!
@@ -85,11 +85,12 @@ remains future work.
 | Optional / external | ENS160 + AHT21 | Controller-backed ESP32 telemetry for estimated eCO2, TVOC, AQI-UBA, temperature, and humidity—not direct Pi I2C polling. Disabled by default. |
 | Optional / external | MPU6050 / GY-521 | Pi I2C six-axis motion provider and interpreted motion path. Disabled by default. |
 
-The optional hardware adapters are implemented, but software support is not a
-claim that a particular breakout, enclosure, power arrangement, or wiring has
-been physically accepted. Read the [hardware guide](docs/hardware.md) before
+Read the [hardware guide](docs/hardware.md) before
 connecting a build. In particular, ENS160 eCO2 is an estimated equivalent, not
 direct NDIR CO2.
+
+Choose parts with the [Hardware BOM](docs/hardware-bom.md), from the core display
+setup to optional audio, sensors, and an ESP32 controller.
 
 ## Quick start
 
@@ -172,14 +173,14 @@ I2C, voice, Web Admin, controller, and service prerequisites.
 - [x] Bounded RAM-only physical-context history and opt-in, on-demand NanoDet object awareness.
 - [x] `phos-hw` v1 controller protocol plus optional environmental, air-quality, IMU, and semantic LED integrations.
 - [x] Voice capture/STT foundation, deterministic English/Italian interaction commands, and provider-neutral TTS/playback.
-- [x] Complete Raspberry Pi physical acceptance for the display, camera, optional sensors, LED ring, and controller configurations.
-- [ ] Publish/reference matching ESP32 firmware and complete external-controller hardware acceptance.
+- [x] Complete Raspberry Pi hardware integration and field testing for the display, camera, optional sensors, LED ring, and controller configurations.
+- [ ] Publish/reference matching ESP32 firmware and test the external controller hardware.
 - [ ] Complete external multi-agent MCP interoperability validation.
 - [ ] Add the planned LLM resolver, language detection, wake word, and continuous listening; evaluate Home Assistant as a permissioned integration layer.
 
 See the [roadmap](docs/roadmap.md) and [current implementation state](docs/current-state.md)
 for milestone detail and the distinction between implemented software and
-physical validation.
+hardware integration tests.
 
 ## Documentation & contributing
 

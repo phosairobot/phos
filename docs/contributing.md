@@ -19,16 +19,15 @@ and PHOS is licensed under the
 
 Read the [architecture](architecture.md), [accepted decisions](decisions.md),
 and repository `AGENTS.md`. Keep hardware-specific details behind existing
-interfaces, retain hardware-free tests, and do not treat physical acceptance as
-complete without recorded evidence.
+interfaces, retain hardware-free tests, and record hardware test results with
+wiring and configuration details.
 
 ## Project maturity
 
-The repository distinguishes implemented source paths from target-hardware
-acceptance. The [roadmap](roadmap.md) records planned and unverified work; the
-[release records](releases.md) record milestone scope. Optional hardware and
-external integrations should be described with their documented acceptance
-status, not as universal product guarantees.
+The [roadmap](roadmap.md) records planned and unverified work; the
+[release records](releases.md) record milestone scope. Describe optional hardware
+and external integrations with their configuration
+requirements and test results.
 
 ## Maintainer decisions still needed
 

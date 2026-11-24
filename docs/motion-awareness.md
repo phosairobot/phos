@@ -54,8 +54,8 @@ fresh samples into confirmed semantic states: **STILL**, **MOVING**,
 
 !!! warning "Check the physical installation"
 
-    The adapter and interpretation are implemented, but board wiring, mounting
-    axes and target-Pi behavior still need release acceptance.
+    Check the board wiring and mounting axes, then verify the configured tilt
+    directions and visual reactions on the Pi.
 
 Details belong in the [canonical hardware guide](hardware.md#gy-521-mpu-6050)
 and [architecture reference](architecture.md#motion-interpretation-extension).

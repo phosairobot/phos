@@ -92,8 +92,7 @@ Detailed verification evidence and environment gaps are recorded in
 [the implementation handoff](current-state.md#phos-100-finalization).
 
 The hardware record documents eyes/display and Pi Camera/tracking as operational.
-This release audit does not repeat physical Pi or paid AWS verification. Before
-deployment acceptance, run these checks on the target:
+For deployment testing, run these checks on the target:
 
 1. Confirm Python imports, camera preview and the model checksum per installation.
 2. Run eyes-only and verify 800×600 output, animation cadence and Ctrl+C cleanup.

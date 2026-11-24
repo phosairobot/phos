@@ -2,7 +2,7 @@
 
 The public overview pages explain PHOS at a glance. The documents below are the
 canonical engineering references: they contain the detailed commands, thresholds,
-configuration fields and acceptance limits that the overview intentionally does
+configuration fields and operating limits that the overview intentionally does
 not duplicate.
 
 <div class="phos-grid" markdown>

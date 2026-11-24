@@ -432,8 +432,8 @@ reports invalid release provenance but cannot prevent the initial publication.
 PASS means the automated software checks completed; FAIL means one failed;
 SKIPPED is reported by pytest; INCOMPLETE means a report was not produced.
 Every summary explicitly states that Raspberry Pi hardware validation was not
-run. GPIO, camera, display, audio, I2C wiring, and physical performance remain
-manual acceptance work.
+run. Test GPIO, camera, display, audio, I2C wiring, and physical performance
+manually on the Pi.
 
 Repository administrators must enable required pull requests, require the
 `software-tests` check, require branches to be current, and restrict direct

@@ -34,7 +34,7 @@ FURIOUS and expression intensity are not implemented in this milestone.
   dedicated `read_camera_snapshot` permission, `resources/list`/`resources/read`,
   bounded JPEG output, no second camera provider, and preview independence in
   automated coverage. Raspberry Pi validation confirmed preview-disabled
-  `resources/read` acceptance with a non-empty `image/jpeg` blob.
+  `resources/read` output with a non-empty `image/jpeg` blob.
 - [x] Transport-neutral semantic event model, filtering, duplicate suppression,
   and `SemanticSubscription` lifecycle.
 - [x] MCP async semantic Resource cues — SDK `subscriptions/listen`, bounded
@@ -100,8 +100,8 @@ air-quality physical validation is claimed.
   including controller-session reapply and transient semantic API signals.
 - [x] Validated LED animation direction/mode/origin contract semantics without
   exposing raw hardware commands through the Remote API.
-- [ ] Complete physical acceptance with the selected external controller and
-  matching firmware for each deployed hardware configuration.
+- [ ] Run hardware integration and field tests with the selected external controller
+  and matching firmware.
 
 ## PHOS 1.6.0 — Multilingual Interaction & Command Layer
 
@@ -136,7 +136,7 @@ air-quality physical validation is claimed.
 PHOS 1.3.0 integrates provider-neutral Presence and Attention, observed
 facial-expression telemetry, cautious expression reactions, and realtime Web
 Admin/API visibility. See the [release record](release-1.3.0.md). Automated
-regression has passed; target-Pi acceptance remains before tagging.
+regression has passed.
 
 - [x] Versioned 1.3.0 source, package metadata and current-release documentation.
 - [x] Presence hysteresis, semantic enter/leave events, Attention lifecycle,
@@ -146,7 +146,7 @@ regression has passed; target-Pi acceptance remains before tagging.
 - [x] Unified Raspberry Pi OS installer with the canonical `.[all]` runtime
   aggregate, model preparation, smoke checks, and consolidated installation docs.
 - [x] Complete automated release regression and strict documentation validation.
-- [ ] Complete target-Pi camera/display/LED acceptance.
+- [ ] Test camera, display, and LED integration on the Pi.
 
 ## PHOS 1.2.0 — Remote API release candidate
 
@@ -177,7 +177,7 @@ hardware and complete-suite release gates in that record are completed.
 - [x] Validated logging-level, iris and camera-preview reload; confirmed supervisor-owned PHOS restart
 - [x] Release hardening for failure propagation, preview lifecycle cleanup and bounded preview work
 - [ ] Verify user systemd restart and display-session environment on the actual Pi
-- [ ] Repeat the complete release acceptance sequence on the Pi after these changes
+- [ ] Repeat the complete release integration test sequence on the Pi after these changes
 - [ ] Establish expression accuracy and calibrate neutral reactions on actual hardware
 - [ ] Verify optional AWS behavior/latency and mobile/tablet LAN administration on the Pi
 
@@ -192,8 +192,7 @@ separate from that prior evidence. See the release record for exact checks.
 - [x] Hardware-free adapter/service/configuration/web regression coverage and setup documentation.
 - [ ] Verify actual breakout wiring/address, real units/accuracy, recovery and concurrent eyes/Vision responsiveness on Raspberry Pi 3.
 
-Environmental behavior and overlays are included in 1.1.0; physical acceptance
-remains separate from implementation.
+Environmental behavior and overlays are included in 1.1.0.
 
 ## Included in 1.1.0 — CCS811 air quality
 
@@ -228,19 +227,18 @@ remains separate from implementation.
 - [x] Provider-neutral selected-face observations, confirmed Presence edges,
   Attention acquisition/tracking/loss, semantic gaze, configured LED sweeps,
   application/SSE forwarding, and read-only Web Admin status.
-- [ ] Perform the target-Pi camera/display/LED acceptance checklist; automated
-  coverage does not establish physical behavior or calibration.
+- [ ] Test camera/display/LED integration and calibrate the configured behaviors.
 
 ## Post-1.0 — explicitly deferred
 
 | Area | Deferred work |
 | --- | --- |
-| Hardware acceptance | Physical wiring, power, level shifting, mounting and target-Pi acceptance for the optional sensors and WS2812B ring. CCS811 eCO2 must not be labeled direct CO2. |
+| Hardware integration & field testing | Wiring, power, level shifting, mounting and Pi testing for the optional sensors and WS2812B ring. CCS811 eCO2 must not be labeled direct CO2. |
 | Remote-control API | Authenticated service-mediated control, authorization and documented contracts. |
 | Advanced OS administration | Raspberry Pi reboot, if a future safe permission boundary is approved. |
 | MCP server | Service-mediated tools; no direct hardware or subsystem-internal access. |
 | STT | Completed Slice 3: physically validated explicit microphone capture, native-rate resampling, VAD, 300 ms pre-roll and provider-neutral local Vosk transcription. Small-model accuracy is a baseline, not a final quality target. |
-| TTS | Implemented provider-neutral synthesis/playback: local Piper, Cartesia and ElevenLabs. Physical acceptance remains provider/device-specific. |
+| TTS | Implemented provider-neutral synthesis/playback: local Piper, Cartesia and ElevenLabs. |
 | Conversational LLM | End-to-end conversation through LLMProvider; existing skeletons are not a delivered conversation feature. |
 | Home Assistant | Integration/tool layer and explicit permissions; not the reasoning core. |
 

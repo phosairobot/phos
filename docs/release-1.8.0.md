@@ -62,7 +62,7 @@ test follow-up.
 
 Automated tests cover MCP discovery and reads, permission enforcement, snapshot
 encoding and preview independence, application/lifecycle behavior, and Web
-Admin configuration paths. Raspberry Pi physical acceptance verified that, with
+Admin configuration paths. Raspberry Pi testing confirmed that, with
 Camera Preview disabled, `phos://vision/snapshot` remained available and
 `resources/read` returned a non-empty `image/jpeg` blob. This completes the
 previously pending MCP Stage 2 camera-snapshot gate; it does not validate image

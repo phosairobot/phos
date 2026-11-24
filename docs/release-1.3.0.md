@@ -43,7 +43,7 @@ runtime JSON.
 ## Testing and release gates
 
 The automated regression suite and strict documentation build have passed.
-Before tagging, repeat target Raspberry Pi camera/display/LED acceptance: confirm
+For camera/display/LED integration testing on Raspberry Pi, confirm
 enter/leave hysteresis, Attention loss hold and gaze, LED sweep arbitration,
 classifier availability/freshness, reaction confirmation/cooldown, and Web
 Admin/API SSE updates.

@@ -128,7 +128,7 @@ and [connect an agent later](developer-quickstart.md).
     ENS160/AHT21 telemetry. ESP32 integration uses the serial `phos-hw` v1 JSONL
     protocol and requires matching external firmware.
 
-    [Choose hardware and wiring](hardware.md)
+    [Plan your Hardware BOM](hardware-bom.md) · [Check wiring](hardware.md)
 
 </div>
 
@@ -136,7 +136,7 @@ and [connect an agent later](developer-quickstart.md).
 
 | Journey | Start here | Next steps |
 | --- | --- | --- |
-| **Makers & users** | [Build PHOS](build-phos.md) and [install the runtime](installation.md). | Check [hardware](hardware-overview.md), configure [Web Admin](web-administration.md), then connect through [MCP](mcp-overview.md) or [REST](remote-api.md). |
+| **Makers & users** | Choose parts from the [Hardware BOM](hardware-bom.md), [build PHOS](build-phos.md), and [install the runtime](installation.md). | Check [hardware](hardware-overview.md), configure [Web Admin](web-administration.md), then connect through [MCP](mcp-overview.md) or [REST](remote-api.md). |
 | **Developers & contributors** | Read the [architecture](architecture.md), [decisions](decisions.md), and [testing guide](development.md). | Explore [MCP specifications](mcp.md), the [controller protocol](hardware-controller.md), [provider boundaries](architecture.md#core-principles), and [skin extensions](appearance/creating-skins.md); follow the [contribution guide](contributing.md). |
 
 ## Follow PHOS and share your build

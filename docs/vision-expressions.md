@@ -55,9 +55,10 @@ expression inference have independent cadences.
 
 </div>
 
-!!! warning "Validate expression accuracy"
+!!! tip "Calibrate expression reactions"
 
-    Both modes require physical validation before accuracy claims can be made.
+    Test both provider modes with your camera and lighting, then calibrate
+    confidence thresholds and reaction timing using the Vision reference.
 
 ## Next steps
 

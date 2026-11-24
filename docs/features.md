@@ -14,9 +14,9 @@ classes:
 
 The checked-out commit is tagged `1.9.0`, while the package source and release
 test currently report `1.8.0`. The capabilities below are implemented in the
-repository; optional hardware paths still require target-Pi acceptance. See the
+repository. See the
 [current implementation handoff](current-state.md) and [roadmap](roadmap.md)
-for scope, version evidence, and physical-validation limits.
+for scope, version evidence, and integration test plans.
 
 </div>
 

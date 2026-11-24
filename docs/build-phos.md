@@ -1,8 +1,8 @@
 # Build PHOS
 
 PHOS is a progressive Raspberry Pi project: begin with the display and add
-hardware only when the preceding layer works. This guide intentionally avoids
-claiming that every optional module is physically accepted on every build.
+hardware only when the preceding layer works. Follow the setup and wiring
+instructions for each added capability.
 
 ## Prepare
 
@@ -23,10 +23,9 @@ for the graphical eye renderer.
 | ESP32 with ENS160/AHT21 | Optional | Adds controller-backed air-quality and temperature/humidity telemetry. |
 | WS2812B ring | Optional | Adds semantic LED feedback. |
 
-Exact wiring, voltage limits, I²C addresses, and acceptance notes are maintained
-in the [hardware reference](hardware.md). The repository contains no verified
-bill of materials, enclosure dimensions, cutting template, or current prices;
-do not buy parts based on inferred alternatives.
+Plan your parts with the [Hardware BOM](hardware-bom.md). Exact wiring,
+voltage limits, and I²C addresses are maintained in the [hardware reference](hardware.md).
+Choose an enclosure and mounts to fit your selected display and modules.
 
 ## Assemble and install
 

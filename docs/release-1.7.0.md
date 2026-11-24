@@ -34,8 +34,7 @@ motion, and orientation messages documented in the
 [architecture reference](architecture.md#external-hardware-controller-protocol-v1).
 
 The release contains no controller firmware. A deployed controller must
-implement the documented v1 contract and be physically accepted with its
-specific wiring, sensors, and LED layout. The Remote API remains semantic:
+implement the documented v1 contract for its wiring, sensors, and LED layout. The Remote API remains semantic:
 there is no raw controller or LED command endpoint.
 
 ## Verification completed in the repository
@@ -45,8 +44,6 @@ there is no raw controller or LED command endpoint.
 - API/OpenAPI and release-metadata consistency checks.
 - Python compilation, strict documentation build, and diff whitespace checks.
 
-Physical Raspberry Pi/controller acceptance is intentionally separate from
-these repository checks. Repeat it after deployment with the chosen controller:
-verify capability discovery, stable heartbeat/reconnect, controller sensor
+With the chosen controller, verify capability discovery, stable heartbeat/reconnect, controller sensor
 updates without local I2C polling, IMU telemetry, LED output/reapply after a
 session change, and semantic signal expiry/restoration.

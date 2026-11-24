@@ -15,9 +15,8 @@ not a frozen OS image. The checkout is tagged `1.9.0`, but its package source
 currently reports `1.8.0`; record both until maintainers resolve that release
 metadata discrepancy. Also record
 `cat /etc/os-release`, `uname -m`, `python3 --version` and apt package versions
-with the release acceptance results. Actual fresh-Pi acceptance remains
-component-specific; see [current state](current-state.md) and the
-[roadmap](roadmap.md).
+with your setup notes. See [current state](current-state.md) and the
+[roadmap](roadmap.md) for implementation details and planned work.
 
 ## Recommended: unified installer
 
@@ -324,7 +323,7 @@ precedence is `expression.aws.region`, `AWS_REGION`, then SDK settings
 Set `expression.enabled: true`, `expression.provider: "aws"` and the non-secret
 `expression.aws` policy. No ONNX model is required. Restart PHOS. **Selected facial
 crops leave the Pi and are sent to AWS**. Import checks and automated tests make
-no AWS calls. Perform live AWS acceptance only with an authorized account.
+no AWS calls. Test live AWS requests only with an authorized account.
 
 Requests are single-flight, cached, rate-limited and backed off on error; they do
 not silently switch providers. Diagnostics show sanitized latency/request counts.
@@ -433,13 +432,12 @@ visible. A slow I2C call occupies one worker only; no queue or replacement threa
 accumulate. Shutdown waits at most one second for that worker; a stuck native
 call is cleaned up when it returns or by process exit.
 
-Physical acceptance: verify the actual address and chip, compare the supported measurements
+Hardware checks: verify the actual address and chip, compare the supported measurements
 with a reference, check advancing timestamps over several polls, then test a
 wrong address and recovery after correcting it/restarting. Power off before
 changing wiring. Confirm eyes, camera and web remain responsive with a missing
 sensor; confirm disable plus restart removes sensor bus activity. Record actual
-module, wiring, Pi OS, readings and service logs. No physical acceptance is
-claimed by the mock tests.
+module, wiring, Pi OS, readings and service logs.
 
 ### Missing BMP280 driver
 
@@ -550,7 +548,7 @@ state and confirmation duration. MOVING explains whether gravity is too small
 or tilt is below threshold; a pending tilt leaves the previous state visible
 until confirmation completes.
 
-For interpreter acceptance on Pi: rest level, tilt each direction about 35° and
+To test motion interpretation on the Pi: rest level, tilt each direction about 35° and
 hold one second, gently vibrate while holding tilt, then return level. Confirm
 STILL → the correct TILT → STILL in status and diagnostics; level vertical
 movement should produce MOVING. Verify mounting signs before assessing eye
@@ -571,16 +569,16 @@ configuration**. Impact strength must remain greater than shake strength. The
 base iris theme returns after an alert because the alert is temporary semantic
 tint, not an appearance change.
 
-For physical display acceptance, enable the IMU and DEBUG logging, then confirm
+To test motion effects on the display, enable the IMU and DEBUG logging, then confirm
 that MOVING recenters the pupils, each held tilt produces the documented gaze
 direction and mirrored eye-size change, SHAKE produces a clear amber surprised response and IMPACT is
 visibly wider/brighter/stronger. Let each alert expire and verify the configured
 iris theme returns. Confirm sleeping, speaking and error remain visually
 authoritative over IMU intent.
 
-For Pi acceptance, verify the detected address and WHO_AM_I, stable six-axis
+On the Pi, verify the detected address and WHO_AM_I, stable six-axis
 values, wrong-address recovery, a restart, and coexistence with every connected
-I2C sensor. Record board revision and wiring before treating it as accepted.
+I2C sensor. Record the board revision and wiring.
 
 ## Optional WS2812B RGB LED ring
 

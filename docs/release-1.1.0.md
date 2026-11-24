@@ -1,7 +1,6 @@
 # PHOS 1.1.0 release record
 
-**Status: NOT READY — source release candidate; target-hardware acceptance is
-required before tagging.**
+**Status: NOT READY — source release candidate; complete integration tests before tagging.**
 
 The authoritative version is `robot.__version__` in `src/robot/__init__.py`,
 set to `1.1.0`. Packaging, startup logging and Web Admin status derive from that
