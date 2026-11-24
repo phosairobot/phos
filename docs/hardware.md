@@ -3,6 +3,12 @@
 Use the [Hardware BOM](hardware-bom.md) to plan parts and build tiers; this page
 provides the wiring, addresses, power, and device setup details.
 
+The official companion firmware is
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32). Follow its
+board-specific build and flashing instructions for ENS160 + AHT21 telemetry
+and WS2812B semantic LED control, then enable the serial connection through the
+[controller setup guide](hardware-controller.md#flash-the-companion-firmware).
+
 > Current environmental baseline: ENS160 and AHT21 share the ESP32 I2C bus (ENS160 `0x53` or `0x52`; AHT21 `0x38`). The ESP32 publishes phos-hw v1 `sensor_update` and ENS160 `sensor_status` JSONL telemetry. The Pi owns freshness, validity, reconnect/session isolation and semantic decisions; it does not poll these devices directly.
 
 This document records the physical hardware that is part of PHOS or has been selected for a future integration milestone.
@@ -183,8 +189,8 @@ pin, LED count, color-channel ordering, and logical direction/origin mapping.
 
 - Enable `hardware_controller.enabled` in `config/phos.yaml`.
 - Select the actual `hardware_controller.serial.device` and `baud_rate`.
-- Run firmware implementing `phos-hw` v1 capability discovery, heartbeats, and
-  `set_led_animation`.
+- Flash [phos-esp32](https://github.com/phosairobot/phos-esp32) for `phos-hw` v1
+  capability discovery, heartbeats, and `set_led_animation`.
 - Leave the separate legacy `led_ring.enabled` setting disabled for this build.
   Its pin/count and per-pixel settings do not configure the ESP32 ring.
 

@@ -33,7 +33,8 @@ interfaces used by the current providers.
 
     ---
 
-    Add local I2C modules or an ESP32 running matching `phos-hw` v1 firmware.
+    Add local I2C modules or an ESP32 running the official
+    [phos-esp32 firmware](https://github.com/phosairobot/phos-esp32).
     Enable one configured capability at a time.
 
 </div>
@@ -72,7 +73,7 @@ ENS160/AHT21 use the controller's I2C bus.
 
 | Component | Quantity | Interface / addresses | Measurements or function |
 | --- | --- | --- | --- |
-| ESP32 board and USB data cable | 1 for controller-backed hardware | USB/serial, `phos-hw` v1 UTF-8 JSONL; default host settings `/dev/ttyACM0`, 115200 baud | Sensor telemetry, capability discovery, heartbeat/reconnect, and semantic LED commands. Matching firmware is external to this repository. |
+| ESP32 board and USB data cable | 1 for controller-backed hardware | USB/serial, `phos-hw` v1 UTF-8 JSONL; default host settings `/dev/ttyACM0`, 115200 baud | Sensor telemetry, capability discovery, heartbeat/reconnect, and semantic LED commands. Flash the official [phos-esp32 firmware](https://github.com/phosairobot/phos-esp32). |
 | Bosch BME280 **or** BMP280 breakout | 1 optional | Pi I2C bus 1, `0x76` or `0x77`; 3.3 V-compatible logic | Both: temperature and pressure. BME280 also measures humidity; BMP280 has no humidity output. Select the matching type in configuration. |
 | ENS160 + AHT21 combo module | 1 optional | ESP32 I2C: ENS160 `0x53` or `0x52`, AHT21 `0x38` | ENS160: estimated eCO2, TVOC, AQI-UBA 1–5, validity and compensation status. AHT21: temperature and humidity. No direct Pi I2C provider. |
 | MPU6050 / GY-521 breakout | 1 optional | Pi I2C bus 1, `0x68` or `0x69` | Six-axis acceleration and angular velocity, interpreted motion and tilt. Configure mounting axes. |
@@ -84,6 +85,12 @@ See [hardware wiring](hardware.md), [motion setup](motion-awareness.md), and the
 [controller protocol](hardware-controller.md).
 
 ## Wiring map
+
+Flash the ESP32 using the build/upload instructions in
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32). Select the
+sensor wiring and LED pin/count for your board to enable ENS160 + AHT21 telemetry
+and WS2812B semantic LED control, then follow the
+[PHOS controller setup](hardware-controller.md#flash-the-companion-firmware).
 
 ```mermaid
 flowchart LR

@@ -19,6 +19,11 @@ wiring and configuration.
 Start with the [Hardware BOM](hardware-bom.md) to choose a core build, audio
 add-ons, and optional sensors or an ESP32 controller.
 
+For the controller build, flash the official
+[phos-esp32 firmware](https://github.com/phosairobot/phos-esp32) following its
+build/upload instructions. It provides ENS160 + AHT21 telemetry and WS2812B
+semantic LED control; complete the [Pi-side setup](hardware-controller.md).
+
 </div>
 
 | Component              | What PHOS uses it for                                                              |

@@ -586,6 +586,10 @@ Connect the WS2812B addressable RGB LED ring to the **ESP32 controller**.
 The Pi sends semantic LED commands over `phos-hw` v1 USB/serial JSONL.
 ESP32 firmware drives the data line, pixel ordering, LED count, and timing.
 
+Build and flash the official [phos-esp32 firmware](https://github.com/phosairobot/phos-esp32)
+using its instructions for your board and attached sensors/LED ring. Then
+configure the PHOS serial connection below.
+
 ### Enable the serial controller
 
 Edit these fields in the complete canonical `config/phos.yaml`; retain the
@@ -649,7 +653,9 @@ I2C. ENS160 uses `0x53` (or `0x52`) and AHT21 uses `0x38`. The controller
 publishes measurements and status through phos-hw v1 JSON Lines, so PHOS needs
 no Pi-side driver, I2C setup, optional package, or migration for either device.
 
-Verify ESP32 wiring, firmware and the serial controller connection. The Sensors
+Use [phos-esp32](https://github.com/phosairobot/phos-esp32) for ENS160 + AHT21
+telemetry; follow its build/flashing instructions and select the matching I2C
+wiring. Verify ESP32 wiring and the serial controller connection. The Sensors
 page reports `sensors.ens160` with estimated eCO2 (ppm), TVOC (ppb), AQI-UBA
 (1–5), validity and compensation status, and `sensors.aht21` with controller
 temperature and relative humidity. eCO2 is an estimate, not direct NDIR CO2.

@@ -126,7 +126,7 @@ and [connect an agent later](developer-quickstart.md).
 
     Add BME280/BMP280 environmental readings, MPU6050 motion, or controller-backed
     ENS160/AHT21 telemetry. ESP32 integration uses the serial `phos-hw` v1 JSONL
-    protocol and requires matching external firmware.
+    protocol with the official [phos-esp32 firmware](https://github.com/phosairobot/phos-esp32).
 
     [Plan your Hardware BOM](hardware-bom.md) · [Check wiring](hardware.md)
 

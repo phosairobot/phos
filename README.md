@@ -25,7 +25,7 @@ camera feed. The reference target is a Raspberry Pi 3 with a 5-inch 800×600
 display.
 
 > [!TIP]
-> **Building an AI robot or exploring MCP for physical hardware?** Give PHOS a ⭐ **[Star on GitHub](https://github.com/phosairobot/phos)** to follow new hardware providers, sensor integrations, and upcoming ESP32 firmware work!
+> **Building an AI robot or exploring MCP for physical hardware?** Give PHOS a ⭐ **[Star on GitHub](https://github.com/phosairobot/phos)** to follow new hardware providers, sensor integrations, and [official ESP32 firmware](https://github.com/phosairobot/phos-esp32) updates!
 
 ## Watch PHOS in Action
 
@@ -92,7 +92,7 @@ remains future work.
 | Reference / core | Raspberry Pi 3+ | Lightweight deployment baseline; automated checks remain hardware-free. |
 | Reference / core | Raspberry Pi Camera via Picamera2 | Face, presence, attention, expression, and optional on-demand object-awareness pipeline. Camera features are configured independently. |
 | Reference / core | 5-inch 800×600 display | Fullscreen animated face/eyes reference configuration. |
-| Optional / external | ESP32 serial controller | Generic `phos-hw` v1 UTF-8 JSON Lines boundary with capability discovery, heartbeat, reconnect, telemetry, and semantic LED commands. Firmware is not included in this repository. |
+| Optional / external | ESP32 serial controller | Generic `phos-hw` v1 UTF-8 JSON Lines boundary with capability discovery, heartbeat, reconnect, telemetry, and semantic LED commands. Official reference firmware available at [phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32). |
 | Optional / external | WS2812B RGB LED ring | Connected to and driven by the ESP32 via `phos-hw` v1 semantic LED commands. Requires `hardware_controller.enabled: true`, an active serial connection, and advertised LED capability. |
 | Optional / external | BME280 / BMP280 | Pi I2C environmental providers: temperature and pressure; BME280 also supplies humidity. Disabled by default. |
 | Optional / external | ENS160 + AHT21 | Controller-backed ESP32 telemetry for estimated eCO2, TVOC, AQI-UBA, temperature, and humidity—not direct Pi I2C polling. Disabled by default. |
@@ -137,7 +137,7 @@ secrets outside `config/phos.yaml`.
 NanoDet needs a compatible local ONNX model and explicit
 `object_awareness.enabled`/`model_path` configuration; the installer prepares
 the expression model only. Sensor setup requires the selected I2C interface,
-wiring, and address, or matching external-controller firmware and serial
+wiring, and address, or the [official ESP32 firmware](https://github.com/phosairobot/phos-esp32) and serial
 permissions. Voice needs audio devices and the selected local models or cloud
 credentials. Follow the [installation reference](docs/installation.md) for each
 opt-in feature.
@@ -187,7 +187,7 @@ I2C, voice, Web Admin, controller, and service prerequisites.
 - [x] `phos-hw` v1 controller protocol plus optional environmental, air-quality, IMU, and semantic LED integrations.
 - [x] Voice capture/STT foundation, deterministic English/Italian interaction commands, and provider-neutral TTS/playback.
 - [x] Complete Raspberry Pi hardware integration and field testing for the display, camera, optional sensors, LED ring, and controller configurations.
-- [ ] Publish/reference matching ESP32 firmware and test the external controller hardware.
+- [x] Publish reference ESP32 firmware at [phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32) implementing the `phos-hw v1` protocol.
 - [ ] Complete external multi-agent MCP interoperability validation.
 - [ ] Add the planned LLM resolver, language detection, wake word, and continuous listening; evaluate Home Assistant as a permissioned integration layer.
 
@@ -201,6 +201,7 @@ hardware integration tests.
 - [MCP integration](https://phosairobot.github.io/phos/mcp-overview/) · [MCP reference](https://phosairobot.github.io/phos/mcp/) · [development and testing](https://phosairobot.github.io/phos/development/)
 - [Contributing](CONTRIBUTING.md) · [trademark guidance](TRADEMARKS.md) · [NOTICE](NOTICE)
 - [YouTube Channel](https://www.youtube.com/@phosairobot) — hardware demos and build updates
+- [phos-esp32 Firmware](https://github.com/phosairobot/phos-esp32) — official companion firmware for the external controller
 
 Contributions from makers, documentation writers, hardware testers, and Python
 developers are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md),

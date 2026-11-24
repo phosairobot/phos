@@ -89,6 +89,9 @@ air-quality physical validation is claimed.
 
 ## PHOS 1.7.0 — External Hardware Controller & Semantic LED Control
 
+- [x] Publish reference ESP32 firmware at
+  [phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32), implementing
+  `phos-hw` v1 for ENS160 + AHT21 telemetry and WS2812B semantic LED control.
 - [x] Generic, bounded `phos-hw` v1 JSON Lines serial transport with capability
   discovery, heartbeats, reconnect lifecycle, and actionable protocol errors.
 - [x] Controller-backed environmental, air-quality, and IMU providers that
@@ -101,7 +104,7 @@ air-quality physical validation is claimed.
 - [x] Validated LED animation direction/mode/origin contract semantics without
   exposing raw hardware commands through the Remote API.
 - [ ] Run hardware integration and field tests with the selected external controller
-  and matching firmware.
+  and the [official firmware](https://github.com/phosairobot/phos-esp32).
 
 ## PHOS 1.6.0 — Multilingual Interaction & Command Layer
 

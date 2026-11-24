@@ -1,8 +1,23 @@
 # How PHOS Communicates with Its External Hardware Controller
 
-PHOS implements the `phos-hw` v1 external-controller boundary. It is a generic
-serial protocol that an ESP32 firmware can implement; PHOS does not embed or
-maintain that firmware in this repository.
+PHOS implements the `phos-hw` v1 external-controller boundary. The official
+companion ESP32 firmware is available at
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32), providing
+ENS160 + AHT21 telemetry and WS2812B semantic LED control over USB/serial JSONL.
+
+## Flash the companion firmware
+
+1. Open [phos-esp32](https://github.com/phosairobot/phos-esp32) and follow its
+   current build and flashing instructions for your ESP32 board.
+2. Configure the firmware's sensor wiring and WS2812B data pin/count for the
+   attached hardware, then build and upload as described there. Keep ENS160
+   and AHT21 on the ESP32 I2C bus and the LED ring on the ESP32 output.
+3. Connect the flashed ESP32 to the Pi with a USB data cable. Configure
+   `hardware_controller.enabled`, `hardware_controller.serial.device`, and
+   `hardware_controller.serial.baud_rate` in PHOS to match the connection.
+4. Confirm capability discovery, fresh sensor telemetry, and semantic LED
+   output. Use the [installation checks](installation.md#controller-backed-ens160-and-aht21)
+   for the PHOS side of the connection.
 
 ## Responsibilities
 
@@ -183,4 +198,5 @@ the protocol boundary.
 
 The PHOS controller protocol, reconnect lifecycle, capability discovery, and
 controller-backed sensor/LED integration are implemented and automatically
-tested. Use matching controller firmware and follow the wiring and protocol setup instructions.
+tested. Use the [official companion firmware](https://github.com/phosairobot/phos-esp32)
+and follow the wiring and protocol setup instructions.

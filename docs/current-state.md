@@ -10,6 +10,15 @@ This file is an implementation handoff for coding agents. It records what is pre
 - Microphone available; exact interface remains TBD.
 - Display/eyes and Pi Camera/tracking are documented as operational in `docs/hardware.md`; exact camera model remains unspecified.
 
+## Official companion ESP32 firmware
+
+The companion firmware repository is live at
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32). It implements
+the `phos-hw` v1 serial JSONL connection for ENS160 + AHT21 telemetry and WS2812B
+semantic LED control. Makers should follow that repository's build/flashing
+instructions, then use the [PHOS controller setup](hardware-controller.md#flash-the-companion-firmware)
+to enable the Pi-side serial connection and check advertised capabilities.
+
 ## Current source version
 
 `robot.__version__` and the release test report **1.8.0**. The checked-out

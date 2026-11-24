@@ -33,7 +33,8 @@ and resolved `set_led_animation` commands. It consumes the strict sensor,
 motion, and orientation messages documented in the
 [architecture reference](architecture.md#external-hardware-controller-protocol-v1).
 
-The release contains no controller firmware. A deployed controller must
+The official controller firmware is maintained at
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32). A deployed controller must
 implement the documented v1 contract for its wiring, sensors, and LED layout. The Remote API remains semantic:
 there is no raw controller or LED command endpoint.
 

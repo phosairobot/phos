@@ -46,8 +46,9 @@ version against its upstream package metadata and license file before a release.
 
 - No `package.json`, `platformio.ini`, ESP32 firmware source, or Git submodule
   was present in this checkout at audit time.
-- The ESP32 firmware is documented as external to this repository; firmware
-  license and dependency review must occur in its source repository.
+- The official ESP32 firmware is maintained at
+  [phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32); firmware
+  license and dependency review must occur in that source repository.
 - Python dependency ranges are not a release inventory. Before publishing a
   binary image, wheel, container, or installer, produce a locked inventory for
   that artifact and preserve required notices.
