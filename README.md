@@ -27,6 +27,15 @@ display.
 > [!TIP]
 > **Building an AI robot or exploring MCP for physical hardware?** Give PHOS a ⭐ **[Star on GitHub](https://github.com/phosairobot/phos)** to follow new hardware providers, sensor integrations, and upcoming ESP32 firmware work!
 
+## Watch PHOS in Action
+
+| Real-Time Physical Context via MCP | 3-Hour Environmental History Analysis |
+| :---: | :---: |
+| [![How to integrate Raspberry Pi with ChatGPT using MCP](img/video-mcp-chatgpt.jpg)](https://www.youtube.com/watch?v=FeNdXLksbAA) | [![Giving AI Agents Access to Real Sensor History](img/video-sensor-history.jpg)](https://www.youtube.com/watch?v=KMd93sneYoE) |
+| ChatGPT reads available eCO₂, TVOC, temperature, and humidity through MCP without direct hardware access. | An AI agent queries available measurements from a three-hour window of bounded RAM telemetry from ESP32 and Raspberry Pi to analyze trends. |
+
+> Explore more demos and build updates on the [PHOS YouTube Channel (@phosairobot)](https://www.youtube.com/@phosairobot).
+
 ## Why PHOS?
 
 - **Local hardware, external reasoning.** PHOS owns its camera, display,

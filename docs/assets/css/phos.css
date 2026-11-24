@@ -1136,6 +1136,13 @@
   box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25);
 }
 
+.md-typeset .video-card .video-description {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+
 @media screen and (max-width: 44.9375em) {
   .md-typeset .video-grid {
     grid-template-columns: minmax(0, 1fr);

@@ -141,37 +141,31 @@ and [connect an agent later](developer-quickstart.md).
 
 ## Watch PHOS in Action
 
-See PHOS working with external AI agents, real sensor history, browser controls,
-and expressive vision. These demonstrations come from the official PHOS channel.
+Explore two English-language demos from the official PHOS channel: live
+physical context through MCP and analysis of recent environmental history.
 
 <div class="video-grid">
   <figure class="video-card">
     <div class="video-wrapper">
+      <iframe src="https://www.youtube-nocookie.com/embed/FeNdXLksbAA?rel=0" title="How to integrate Raspberry Pi with ChatGPT using MCP" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+    </div>
+    <figcaption>
+      <strong>How to integrate Raspberry Pi with ChatGPT using MCP</strong>
+      <span class="video-description">ChatGPT reads available eCO₂, TVOC, temperature, and humidity through MCP without direct hardware access.</span>
+    </figcaption>
+  </figure>
+  <figure class="video-card">
+    <div class="video-wrapper">
       <iframe src="https://www.youtube-nocookie.com/embed/KMd93sneYoE?rel=0" title="Giving AI Agents Access to Real Sensor History | Raspberry Pi + ESP32 + MCP" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
     </div>
-    <figcaption>Giving AI Agents Access to Real Sensor History | Raspberry Pi + ESP32 + MCP</figcaption>
-  </figure>
-  <figure class="video-card">
-    <div class="video-wrapper">
-      <iframe src="https://www.youtube-nocookie.com/embed/29Qx_1gh-ZM?rel=0" title="What If Every AI Agent Had Its Own Physical Identity?" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
-    </div>
-    <figcaption>What If Every AI Agent Had Its Own Physical Identity?</figcaption>
-  </figure>
-  <figure class="video-card">
-    <div class="video-wrapper">
-      <iframe src="https://www.youtube-nocookie.com/embed/KeopCfsvkS4?rel=0" title="PHOS admin UI" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
-    </div>
-    <figcaption>PHOS admin UI</figcaption>
-  </figure>
-  <figure class="video-card">
-    <div class="video-wrapper">
-      <iframe src="https://www.youtube-nocookie.com/embed/sYE029codNQ?rel=0" title="The eyes are part of how PHOS sees, reacts and communicates: Vision, expressions and visual feedback" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
-    </div>
-    <figcaption>The eyes are part of how PHOS sees, reacts and communicates: Vision, expressions and visual feedback</figcaption>
+    <figcaption>
+      <strong>Giving AI Agents Access to Real Sensor History | Raspberry Pi + ESP32 + MCP</strong>
+      <span class="video-description">An AI agent queries available measurements from a three-hour window of bounded RAM telemetry from ESP32 and Raspberry Pi to analyze trends.</span>
+    </figcaption>
   </figure>
 </div>
 
-[Subscribe on YouTube (@phosairobot)](https://www.youtube.com/@phosairobot){ .md-button }
+[More Videos on @phosairobot](https://www.youtube.com/@phosairobot){ .md-button }
 
 ## Follow PHOS and share your build
 
