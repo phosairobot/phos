@@ -8,12 +8,15 @@
 [![Documentation](https://img.shields.io/badge/docs-MkDocs-526CFE.svg)](https://phosairobot.github.io/phos/)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.9-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
 [![Protocol](https://img.shields.io/badge/protocol-MCP%20compatible%20%7C%20phos--hw%20v1-7C3AED.svg)](https://phosairobot.github.io/phos/mcp/)
+[![YouTube](https://img.shields.io/badge/YouTube-%40phosairobot-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@phosairobot)
 
 <p align="center">
   <img src="img/phos.png" alt="PHOS logo with an illustrated robot face" width="460">
 </p>
 
 <p align="center"><em>PHOS pairs an expressive local presence with a deliberately bounded interface for external agents.</em></p>
+
+🎥 **See it in action:** Watch hardware demos and animated eye expressions on the [PHOS YouTube Channel (@phosairobot)](https://www.youtube.com/@phosairobot).
 
 PHOS keeps perception, device ownership, and safety decisions on the robot. An
 authorized external agent can then reason over structured context and request
@@ -188,6 +191,7 @@ hardware integration tests.
 - [Documentation site](https://phosairobot.github.io/phos/) · [installation](https://phosairobot.github.io/phos/installation/) · [architecture](https://phosairobot.github.io/phos/architecture/) · [hardware](https://phosairobot.github.io/phos/hardware/)
 - [MCP integration](https://phosairobot.github.io/phos/mcp-overview/) · [MCP reference](https://phosairobot.github.io/phos/mcp/) · [development and testing](https://phosairobot.github.io/phos/development/)
 - [Contributing](CONTRIBUTING.md) · [trademark guidance](TRADEMARKS.md) · [NOTICE](NOTICE)
+- [YouTube Channel](https://www.youtube.com/@phosairobot) — hardware demos and build updates
 
 Contributions from makers, documentation writers, hardware testers, and Python
 developers are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md),
