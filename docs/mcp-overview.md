@@ -11,6 +11,34 @@ flowchart LR
 
 PHOS can run on its own, but MCP lets a compatible, authenticated agent ask about the robot's current context and request supported actions. PHOS continues to own hardware, robot state, safety boundaries, and permission checks.
 
+## Connect a local stdio client
+
+Use the recommended [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge)
+transport adapter (**Node.js 20+**) when connecting Claude Desktop, Claude Code,
+Cursor, or another client through local `stdio`. It forwards requests to
+`http://<PHOS_IP>:8001/mcp`; use the Pi's actual address and configured listener
+or a tunnel to the default loopback endpoint. Clients with native Streamable
+HTTP support may connect directly.
+
+```mermaid
+flowchart LR
+  client[Local MCP client] <-->|stdio| bridge[phos-mcp-bridge]
+  bridge <-->|Streamable HTTP / bearer| phos[PHOS application services]
+  phos <-->|phos-hw v1 serial JSONL| esp[phos-esp32]
+  esp --> peripherals[ENS160 + AHT21 / WS2812B ring]
+  style bridge fill:#2e1065,stroke:#a855f7,color:#fff
+  style phos fill:#2e1065,stroke:#a855f7,color:#fff
+  style esp fill:#1e293b,stroke:#8b5cf6,color:#fff
+```
+
+Supply the PHOS-issued bearer through the bridge's `PHOS_MCP_TOKEN` environment
+variable, never CLI flags or URLs. PHOS authenticates the request and enforces
+permissions; the bridge only transports it. **The bridge never automatically
+retries `tools/call`**, because a physical action may already have happened
+before a response was lost. Check state before manually repeating a request.
+Follow the [client quickstart](developer-quickstart.md) for setup and the
+[official ESP32 firmware](https://github.com/phosairobot/phos-esp32) for hardware.
+
 ## Ask PHOS or request an action
 
 These synchronous interactions return a result to the caller. Availability depends on configured hardware and services; unavailable or degraded capabilities are reported rather than assumed to work.

@@ -261,31 +261,45 @@ snapshot. Permissions are enforced by PHOS on every authenticated request.
 
 ## Connecting a client
 
-Use Streamable HTTP directly when the client supports it. Otherwise a separate
-transport bridge may be required; `phos-mcp-bridge` is separately owned and is
-not configured or modified by this repository. For a generic compatible client,
+Use Streamable HTTP directly when the client supports it. For a local `stdio`
+connection from Claude Desktop, Claude Code, Cursor, or an IDE, the recommended
+adapter is [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge)
+(**Node.js 20+**). It is maintained separately from the PHOS runtime.
+For a generic compatible client,
 connect to the configured endpoint (default `http://127.0.0.1:8001/mcp`) and
 send an already-issued bearer through an HTTP Authorization header when
 credential mode is enabled. See [Bridge authentication](#bridge-authentication)
 for the verified boundary and keep bearer values out of command lines.
 
+For a network-accessible Pi, the bridge's upstream URL is
+`http://<PHOS_IP>:8001/mcp`, using the actual configured address. Configure the
+listener/network or a tunnel as described in [remote clients](#connecting-remote-mcp-clients);
+the committed listener still binds only to loopback.
+
+### Physical tool calls and retries
+
+The bridge **never automatically retries `tools/call`**, including when an
+upstream transport fails. PHOS may have completed the physical action before
+the connection dropped. Future requests can establish a fresh session, but
+reconnection must not replay the uncertain action. Inspect current PHOS state
+before choosing whether to issue a new call.
+
 ## Bridge authentication
 
-MCP Stage 3.6 completes authentication support in the separately owned
-`phos-mcp-bridge`. It is a transport-only stdio bridge; it does not validate a
+MCP Stage 3.6 completes authentication support in
+[phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge). It is a transport-only stdio bridge; it does not validate a
 credential or contain identity, permission, camera-permission, or
 resource-permission logic:
 
-```text
-Claude / Inspector
-→ MCP stdio
-→ phos-mcp-bridge
-→ Authorization: Bearer <credential>
-→ PHOS Streamable HTTP MCP
-→ BearerAgentAuthenticator
-→ AgentIdentity
-→ PermissionProfile
-→ AgentApplicationService
+```mermaid
+flowchart TD
+  client[Claude / IDE / Inspector] <-->|MCP stdio| bridge[phos-mcp-bridge]
+  token[PHOS_MCP_TOKEN environment] --> bridge
+  bridge <-->|Streamable HTTP / Authorization bearer| phos[PHOS MCP server]
+  phos --> auth[BearerAgentAuthenticator] --> identity[AgentIdentity]
+  identity --> profile[PermissionProfile] --> service[AgentApplicationService]
+  style bridge fill:#2e1065,stroke:#a855f7,color:#fff
+  style phos fill:#1e293b,stroke:#8b5cf6,color:#fff
 ```
 
 The bridge reads its already-issued bearer from `PHOS_MCP_TOKEN` and injects it

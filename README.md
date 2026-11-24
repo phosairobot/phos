@@ -56,19 +56,26 @@ display.
 
 ```mermaid
 flowchart LR
-    agent[External AI Agent]
-    mcp["MCP Server<br/>Streamable HTTP"]
-    auth["Authentication &<br/>permission profiles"]
-    core["PHOS Core Services<br/>semantic state and behavior"]
+    agent["Local AI client<br/>Claude Desktop / Claude Code / IDE"]
+    bridge["phos-mcp-bridge<br/>Node.js 20+"]
+    mcp["MCP Streamable HTTP<br/>:8001/mcp / auth and permissions"]
+    core["phos<br/>Raspberry Pi runtime and core services"]
     vision["Vision<br/>Picamera2 / optional NanoDet"]
-    hardware["Hardware<br/>I2C sensors / ESP32 serial JSONL / display"]
+    hardware["Pi peripherals<br/>I2C sensors / display / audio"]
+    esp["phos-esp32<br/>ENS160 + AHT21 / WS2812B LEDs"]
 
-    agent <--> mcp
-    mcp <--> auth
-    auth <--> core
+    agent <-->|stdio| bridge
+    bridge <-->|HTTP / PHOS_MCP_TOKEN bearer| mcp
+    mcp <--> core
+    core <-->|phos-hw v1 serial JSONL| esp
     core <--> vision
     core <--> hardware
 ```
+
+The bridge adapts local `stdio` clients to the remote PHOS endpoint. It receives
+bearer credentials through `PHOS_MCP_TOKEN`, never CLI flags, and never
+automatically retries `tools/call`, preventing duplicate physical actions after
+an uncertain response. Clients supporting Streamable HTTP can connect directly.
 
 The Streamable HTTP endpoint is configured at `/mcp` (default:
 `http://127.0.0.1:8001/mcp`). It exposes 17 semantic tools, including status,
@@ -78,6 +85,14 @@ are `phos://status`, `phos://physical-context`,
 `phos://physical-context/assessment`, `phos://environment`, and the
 permission-controlled JPEG `phos://vision/snapshot`. See the [MCP reference](docs/mcp.md)
 for the complete contracts, authentication modes, and limits.
+
+## PHOS Ecosystem
+
+| Repository | Responsibility |
+| --- | --- |
+| [phos](https://github.com/phosairobot/phos) | Core Raspberry Pi robot runtime, MCP Streamable HTTP server, REST API, Web Admin, Vision and Voice. |
+| [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge) | Node.js 20+ local `stdio` ↔ remote Streamable HTTP transport for Claude Desktop, Claude Code, Cursor and other MCP clients; environment-based bearer auth and no automatic `tools/call` retries. |
+| [phos-esp32](https://github.com/phosairobot/phos-esp32) | Official ESP32 firmware implementing `phos-hw` v1 serial JSONL for ENS160 + AHT21 telemetry and WS2812B RGB ring control. |
 
 ## Key features & supported hardware
 
@@ -202,6 +217,7 @@ hardware integration tests.
 - [Contributing](CONTRIBUTING.md) · [trademark guidance](TRADEMARKS.md) · [NOTICE](NOTICE)
 - [YouTube Channel](https://www.youtube.com/@phosairobot) — hardware demos and build updates
 - [phos-esp32 Firmware](https://github.com/phosairobot/phos-esp32) — official companion firmware for the external controller
+- [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge) — recommended transport adapter for local `stdio` MCP clients
 
 Contributions from makers, documentation writers, hardware testers, and Python
 developers are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md),

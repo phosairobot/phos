@@ -2,6 +2,18 @@
 
 ## High-level model
 
+### Repository ownership
+
+- [phos](https://github.com/phosairobot/phos) owns the Raspberry Pi runtime,
+  application services, MCP Streamable HTTP server, REST API, Web Admin,
+  Vision and Voice.
+- [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge) is the
+  Node.js 20+ transport adapter between local MCP `stdio` and PHOS Streamable
+  HTTP. It reads bearer auth from `PHOS_MCP_TOKEN`, performs no identity or
+  permission decisions, and never automatically retries `tools/call`.
+- [phos-esp32](https://github.com/phosairobot/phos-esp32) owns the companion
+  `phos-hw` v1 firmware: ESP32 sensor acquisition and WS2812B physical execution.
+
 ## Remote application boundary
 
 Remote control is mediated by `robot.services.PhosApplicationService`. REST,

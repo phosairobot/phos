@@ -22,10 +22,15 @@ For the full configuration and authentication matrix, use the
 
 ## A verified transport pattern
 
-The separately maintained `phos-mcp-bridge` is the documented bridge for MCP
-clients that need stdio. It reads the issued bearer from `PHOS_MCP_TOKEN`, then
+The recommended [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge)
+requires **Node.js 20+** and connects local `stdio` clients such as Claude
+Desktop, Claude Code, and Cursor to PHOS Streamable HTTP. Build it using its
+repository instructions and use an absolute path to its compiled entry point.
+It reads the issued bearer from `PHOS_MCP_TOKEN`, then
 connects upstream to PHOS; PHOS remains responsible for identity and permission
-checks.
+checks. For a remote Pi, use `http://<PHOS_IP>:8001/mcp` with your actual address
+and configured network access. The default listener remains loopback-only;
+see the [remote connection guide](mcp.md#connecting-remote-mcp-clients).
 
 ```bash
 export PHOS_MCP_TOKEN='issued-bearer-value'
@@ -37,6 +42,14 @@ Do not put a bearer in a URL or visible command-line header. The bridge is an
 integration maintained outside this repository; use its installed version's
 client-specific configuration instructions. The PHOS-side boundary and this
 environment-variable pattern are documented and tested here.
+
+!!! warning "Do not replay physical actions automatically"
+
+    The bridge never automatically retries `tools/call`, including after a
+    transport failure: PHOS may already have executed the action. Check the
+    robot's current state before deciding whether to submit another call.
+    Pass `PHOS_MCP_TOKEN` through the launcher's environment or secret manager;
+    never put the bearer in CLI flags, URLs, or committed configuration.
 
 ## First interaction
 

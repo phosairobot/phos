@@ -33,23 +33,31 @@ Web Admin are opt-in; each guide explains its prerequisites.
 flowchart TD
     standalone["Standalone runtime<br/>Local touch and configured behaviors"]
     agent["AI agent or remote client"]
+    local["Local stdio client<br/>Claude Desktop / Claude Code / Cursor"]
+    bridge["phos-mcp-bridge<br/>Node.js 20+"]
     mcp["MCP<br/>Identity and permission profiles"]
     rest["REST API<br/>Authenticated semantic requests"]
     services["PHOS application services<br/>Validation and bounded actions"]
     runtime["Local runtime<br/>State and behavior"]
-    hardware["Display, voice, vision and sensors<br/>Optional ESP32 controller"]
+    hardware["Display, voice, vision and Pi sensors"]
+    esp["phos-esp32<br/>ENS160 + AHT21 / WS2812B LEDs"]
     standalone --> runtime
+    local <-->|stdio| bridge
+    bridge <-->|HTTP / bearer| mcp
     agent <-->|Structured context and requests| mcp
     agent <-->|Telemetry and controls| rest
     mcp <--> services
     rest <--> services
     services <--> runtime
     runtime <--> hardware
+    runtime <-->|phos-hw v1 serial JSONL| esp
     style standalone fill:#2e1065,stroke:#a855f7,color:#fff
     style agent fill:#2e1065,stroke:#a855f7,color:#fff
+    style bridge fill:#2e1065,stroke:#a855f7,color:#fff
     style services fill:#2e1065,stroke:#a855f7,color:#fff
     style runtime fill:#1e293b,stroke:#8b5cf6,color:#fff
     style hardware fill:#1e293b,stroke:#8b5cf6,color:#fff
+    style esp fill:#1e293b,stroke:#8b5cf6,color:#fff
 ```
 
 **Standalone:** run the animated face, supported local touch reactions, and
@@ -64,6 +72,21 @@ external agent; end-to-end conversational LLM operation remains future work.
 
 Both modes use the same runtime and application services. You can start locally
 and [connect an agent later](developer-quickstart.md).
+
+## PHOS Ecosystem
+
+| Repository | Role in your build |
+| --- | --- |
+| [phos](https://github.com/phosairobot/phos) | Raspberry Pi runtime, Vision, Voice, Web Admin, REST API, and the MCP Streamable HTTP server. |
+| [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge) | Recommended Node.js 20+ adapter for local `stdio` clients such as Claude Desktop, Claude Code, and Cursor. |
+| [phos-esp32](https://github.com/phosairobot/phos-esp32) | Official `phos-hw` v1 firmware for ENS160 + AHT21 telemetry and ESP32-driven WS2812B LEDs. |
+
+The bridge reads its PHOS bearer from `PHOS_MCP_TOKEN` in the process
+environment, never CLI flags, and does not automatically retry `tools/call`.
+This avoids replaying a physical action when a response is lost. PHOS remains
+responsible for identity, permissions, and semantic decisions. Start with the
+[MCP client guide](developer-quickstart.md); use native Streamable HTTP directly
+when your client supports it.
 
 ## Core capabilities
 
