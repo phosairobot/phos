@@ -230,3 +230,6 @@ models/vision/*.onnx
 
 # Local PHOS encrypted secrets and encryption keys
 .phos-secrets*/
+
+# macOS Finder metadata
+.DS_Store

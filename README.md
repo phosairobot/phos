@@ -2,14 +2,15 @@
 
 **An open-source Raspberry Pi robot that gives AI agents safe, structured physical context through MCP.**
 
+[![GitHub Stars](https://img.shields.io/github/stars/phosairobot/phos?style=flat&logo=github)](https://github.com/phosairobot/phos/stargazers)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/phosairobot/phos/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/phosairobot/phos/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/phosairobot/phos/ci.yml?branch=dev&label=CI)](https://github.com/phosairobot/phos/actions/workflows/ci.yml?query=branch%3Adev)
 [![Documentation](https://img.shields.io/badge/docs-MkDocs-526CFE.svg)](https://phosairobot.github.io/phos/)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.9-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
-[![Protocol](https://img.shields.io/badge/protocol-MCP%20compatible%20%7C%20phos--hw%20v1-7C3AED.svg)](docs/mcp.md)
+[![Protocol](https://img.shields.io/badge/protocol-MCP%20compatible%20%7C%20phos--hw%20v1-7C3AED.svg)](https://phosairobot.github.io/phos/mcp/)
 
 <p align="center">
-  <img src="img/phos.png" alt="PHOS, an expressive Raspberry Pi robot" width="460">
+  <img src="img/phos.png" alt="PHOS logo with an illustrated robot face" width="460">
 </p>
 
 <p align="center"><em>PHOS pairs an expressive local presence with a deliberately bounded interface for external agents.</em></p>
@@ -19,6 +20,9 @@ authorized external agent can then reason over structured context and request
 bounded semantic actions—without receiving a GPIO handle or an unrestricted
 camera feed. The reference target is a Raspberry Pi 3 with a 5-inch 800×600
 display; physical acceptance remains build-specific.
+
+> [!TIP]
+> **Building an AI robot or exploring MCP for physical hardware?** Give PHOS a ⭐ **[Star on GitHub](https://github.com/phosairobot/phos)** to follow new hardware providers, sensor integrations, and upcoming ESP32 firmware work!
 
 ## Why PHOS?
 
@@ -41,11 +45,11 @@ display; physical acceptance remains build-specific.
 ```mermaid
 flowchart LR
     agent[External AI Agent]
-    mcp[MCP Server\nStreamable HTTP]
-    auth[Authentication &\npermission profiles]
-    core[PHOS Core Services\nsemantic state and behavior]
-    vision[Vision\nPicamera2 / optional NanoDet]
-    hardware[Hardware\nI2C sensors / ESP32 serial JSONL / display]
+    mcp["MCP Server<br/>Streamable HTTP"]
+    auth["Authentication &<br/>permission profiles"]
+    core["PHOS Core Services<br/>semantic state and behavior"]
+    vision["Vision<br/>Picamera2 / optional NanoDet"]
+    hardware["Hardware<br/>I2C sensors / ESP32 serial JSONL / display"]
 
     agent <--> mcp
     mcp <--> auth
@@ -64,6 +68,12 @@ permission-controlled JPEG `phos://vision/snapshot`. See the [MCP reference](doc
 for the complete contracts, authentication modes, and limits.
 
 ## Key features & supported hardware
+
+Animated eyes, touch reactions, semantic overlays, authenticated Web Admin,
+and a service-based REST API complement the MCP interface. Optional speech
+supports local Vosk or Cartesia STT and Piper, Cartesia, or ElevenLabs TTS,
+with synthesis and playback handled separately. End-to-end LLM conversation
+remains future work.
 
 | Tier | Hardware | PHOS support |
 | --- | --- | --- |
@@ -103,6 +113,21 @@ nano config/phos.yaml
 PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
+Run this from the Pi's local graphical desktop. Face tracking, expression
+inference, camera preview, NanoDet, sensors, the external controller, voice/TTS,
+and Web Admin are disabled in the committed configuration. MCP is enabled on
+loopback with bearer mode selected. Use the [MCP setup guide](docs/developer-quickstart.md)
+to configure agent access and credentials before connecting clients; keep all
+secrets outside `config/phos.yaml`.
+
+NanoDet needs a compatible local ONNX model and explicit
+`object_awareness.enabled`/`model_path` configuration; the installer prepares
+the expression model only. Sensor setup requires the selected I2C interface,
+wiring, and address, or matching external-controller firmware and serial
+permissions. Voice needs audio devices and the selected local models or cloud
+credentials. Follow the [installation reference](docs/installation.md) for each
+opt-in feature.
+
 That foreground command is the supported diagnostic launch. For a graphical
 Pi deployment, install the supplied user service following the
 [managed-startup instructions](docs/installation.md#managed-startup-and-browser-restart);
@@ -114,11 +139,15 @@ For hardware-free development checks, use Python directly—there are currently
 no `make test` or `make lint` targets:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[web,mcp,aws,voice]' pytest
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -e '.[web,mcp,aws,voice]' pytest numpy
 .venv/bin/python -m pytest -q
-make openapi
 ```
+
+The Makefile provides `make openapi` to regenerate the API specification; run
+it with the virtual environment activated. CI also compiles Python sources and
+builds documentation with `mkdocs build --strict` after installing
+`requirements-docs.txt`.
 
 MCP support requires Python 3.11 or newer; the base package supports Python
 3.9+. The [installation guide](docs/installation.md) covers display, camera,
@@ -152,10 +181,10 @@ See the [roadmap](docs/roadmap.md) and [current implementation state](docs/curre
 for milestone detail and the distinction between implemented software and
 physical validation.
 
-## Documentation, contributing & license
+## Documentation & contributing
 
-- [Documentation site](https://phosairobot.github.io/phos/) · [installation](docs/installation.md) · [architecture](docs/architecture.md) · [hardware](docs/hardware.md)
-- [MCP integration](docs/mcp-overview.md) · [MCP reference](docs/mcp.md) · [development and testing](docs/development.md)
+- [Documentation site](https://phosairobot.github.io/phos/) · [installation](https://phosairobot.github.io/phos/installation/) · [architecture](https://phosairobot.github.io/phos/architecture/) · [hardware](https://phosairobot.github.io/phos/hardware/)
+- [MCP integration](https://phosairobot.github.io/phos/mcp-overview/) · [MCP reference](https://phosairobot.github.io/phos/mcp/) · [development and testing](https://phosairobot.github.io/phos/development/)
 - [Contributing](CONTRIBUTING.md) · [trademark guidance](TRADEMARKS.md) · [NOTICE](NOTICE)
 
 Contributions from makers, documentation writers, hardware testers, and Python
@@ -164,5 +193,16 @@ developers are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md),
 opening a change. Keep credentials, raw camera frames, and audio recordings out
 of issues and pull requests.
 
+## Support the Project
+
+⭐ **[Star the repository](https://github.com/phosairobot/phos)** to help other
+makers and developers discover PHOS. Share your hardware build, wiring lessons,
+or a focused feature proposal in an [Issue](https://github.com/phosairobot/phos/issues).
+Hardware validation reports and documentation improvements are welcome too.
+
+## License
+
 PHOS is licensed under the [Apache License, Version 2.0](LICENSE). Third-party
 license information is tracked in the [license audit](docs/LICENSE_AUDIT.md).
+See [NOTICE](NOTICE) for notices and [TRADEMARKS.md](TRADEMARKS.md) for the draft
+name and logo guidance.
