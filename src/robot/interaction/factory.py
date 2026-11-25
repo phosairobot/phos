@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Selection of configured interaction resolvers without fallback."""
 from __future__ import annotations
 

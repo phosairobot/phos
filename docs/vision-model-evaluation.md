@@ -217,7 +217,7 @@ the candidate alone in PHOS. Pair timings exclude camera/detection from
 `classify_ms`; `inference_ms` measures forward plus output extraction. This tool
 does not measure display FPS or end-to-end reaction latency.
 
-## Physical acceptance
+## Camera and model testing
 
 1. Repeat the paired run in normal room light and dimmer/side light, with the
    same subject, position and camera settings for each pair. Repeat at normal

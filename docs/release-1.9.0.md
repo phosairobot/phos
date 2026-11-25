@@ -1,8 +1,10 @@
 # PHOS 1.9.0 release candidate
 
-PHOS 1.9.0 is the Physical Context and Object Awareness release. Its
-authoritative source version is `robot.__version__` (`1.9.0`); packaging and
-the Web Admin version display derive from that source.
+The checked-out commit is tagged `1.9.0` and contains the Physical Context and
+Object Awareness work described here. However, its authoritative package source
+(`robot.__version__`), packaging metadata, Web Admin display, and release test
+currently report `1.8.0`. This page is a release-candidate record, not evidence
+that the package-version discrepancy has been resolved.
 
 ## Added
 
@@ -50,9 +52,7 @@ The integrated source passed the complete automated suite (`1442 passed,
 1 skipped`) and strict MkDocs build at the integrated development tip.
 Socket-dependent MCP and Web listener tests passed when run in a
 localhost-capable test environment. No ONNX model binary or credential is
-tracked. Raspberry Pi validation evidence is feature-specific; this release
-record does not claim universal hardware compatibility or a new hardware
-acceptance result.
+tracked.
 
 Before publication, merge the approved release commit into `main` and tag the
 commit reachable from `origin/main`; the release workflow verifies that

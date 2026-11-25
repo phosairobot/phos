@@ -8,6 +8,11 @@ Use interfaces and fakes/mocks for hardware.
 
 ## Configuration
 
+The dedicated [Skins configuration reference](skins/configuration.md) distinguishes
+portable `skin.yaml` manifests, the local YAML catalog, and runtime skin-selection
+settings. Follow [Installing and Activating Skins](skins/installing.md) for the
+supported lifecycle paths.
+
 `config/phos.yaml` is the **canonical configuration and complete example**.
 The complete YAML structure and authoritative default values are in
 [the canonical file](https://github.com/phosairobot/phos/blob/main/config/phos.yaml); edit it directly and restart PHOS:
@@ -17,8 +22,8 @@ PYTHONPATH=src python3 -m robot.main --config config/phos.yaml
 ```
 
 No separate example/provider files or hidden overlays are loaded. With no
-argument, startup discovers `phos.yaml`, then `phos.yml`, then legacy `phos.json`
-relative to the source checkout, not its working directory. A custom `--config`
+argument, startup uses `phos.yaml` relative to the source checkout, not its
+working directory. A custom `--config`
 selects one complete file instead.
 To keep a separate deployment copy, copy the full canonical file, edit it and
 pass its path explicitly. Keep deployment changes out of commits if inappropriate.
@@ -43,7 +48,7 @@ finite; booleans must be YAML booleans, not quoted strings or numbers.
 | `sensors.ens160`         | Controller-backed ENS160 telemetry: `enabled`, `provider: controller`, I2C address `"0x52"` or `"0x53"`, poll and stale timing. ENS160 reports estimated eCO2/TVOC, AQI-UBA (1–5), validity and compensation; AHT21 temperature/humidity arrives through the same controller session. |
 | `sensors.imu`            | `enabled`: boolean; `i2c_address`: canonical lowercase `"0x68"` or `"0x69"`, bus 1; `poll_interval_seconds`: finite 0.05–3600 seconds; `stale_after_seconds`: finite, greater than poll interval and at most 86400 seconds. Freshness is evaluated independently for this sensor family and applies to either local or controller providers; set it comfortably above the controller publication interval when controller-backed. All four require PHOS restart. |
 | `sensors.imu.motion`     | `movement_threshold_m_s2`, `tilt_threshold_m_s2`, `shake_threshold_deg_s`, `impact_threshold_m_s2`, `confirmation_seconds`, `cooldown_seconds`: finite thresholds/timing. Impact must exceed movement. Also required: `tilt_exit_threshold_m_s2` (positive, below enter; both at most standard gravity), and distinct signed `lateral_axis` / `forward_axis` mounting axes. All motion fields are live-reloadable and do not reinitialize I2C. See installation for normalized threshold semantics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `led_ring`               | `enabled`: boolean; `led_count`: 0–1024 integer, positive when enabled; `gpio_pin`: GPIO 0–27; `brightness`: 0–1; `base_color` and `imu_animation_color`: named PHOS palette colors; `follow_visual_state`: boolean; `update_rate_hz`: 1–30. IMU effects add directional/shake/impact strengths (0–1; impact exceeds shake), fill speed, sector size, and physical `bottom_led_index` / `forward_led_index` / `clockwise` mapping (`forward_led_index` is the physical top). Left starts at the left quarter and fills clockwise; right mirrors it from the right quarter. Back grows in two fronts from bottom; forward grows in two fronts from top. Every fill replaces only reached underlying pixels; STILL resolves the current persistent environmental or base state rather than forcing base color. Changing animation color applies live and affects the next rendered frame. Pin/count require restart; all other fields are live-reloadable. Brightness uniformly scales logical RGB channels; WS2812B GRB ordering is handled only by the provider. |
+| `led_ring` (legacy) | Retained configuration for the older local LED consumer; it is not the ESP32 semantic LED configuration. Keep `enabled: false` for the current hardware build. Fields such as `gpio_pin`, `led_count`, brightness and per-pixel motion mapping remain validated for compatibility, but do not select the ESP32 data pin, count, or protocol behavior. Configure `hardware_controller` for the current ring connection; see the [controller guide](hardware-controller.md#ws2812b-ring-connection). |
 | `behavior` IMU fields    | `imu_reaction_strength`, `imu_tilt_gaze_strength`, `imu_shake_reaction_strength`, and `imu_impact_reaction_strength`: 0–1; impact strength must exceed shake strength. `imu_tilt_eye_asymmetry_strength`: 0–0.5 signed-eye delta. Shake/impact duration: 0.1–30 seconds; cooldown: 0–3600 seconds. These eight fields are live-reloadable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `behavior.environmental` | Optional temperature/eCO2/TVOC interpretation. Temperature enter/exit values provide hysteresis; warning/bad eCO2 and TVOC thresholds ascend. Confirmation and recovery are positive seconds. All fields are live-reloadable and never reopen sensor hardware.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `web`                    | `enabled`: start the administration worker; `host`: IPv4/IPv6 bind address; `port`: integer 1–65535. See the [web manual](web-administration.md).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -235,7 +240,7 @@ strict validation still rejects all other missing or unknown fields.
 startup screen until the runtime reaches `ready` or acceptable `degraded` state.
 `startup.splash.image`, `title`, and `subtitle` configure the deep-navy branded
 screen. A null image/file selects PHOS's installed `robot.assets` PNG/WAV;
-non-null overrides are resolved relative to the loaded `phos.json`, never the
+non-null overrides are resolved relative to the loaded `phos.yaml`, never the
 process working directory. The screen is deliberately unlike normal eyes and is
 flushed once before synchronous subsystem startup continues.
 `failed` remains on that screen. `startup.ready_sound` is an optional local WAV
@@ -254,7 +259,7 @@ audio-session environment variables. Package defaults therefore do not depend
 on either the working directory or a developer home directory; ALSA selection is
 limited to the optional `startup.ready_sound.device` value.
 The repository configuration selects the packaged
-`robot.assets/images/phos-startup-800x600.png` and `robot.assets/audio/phos-startup.wav`.
+`robot.assets/images/neon_phos_logo-startup-800x600.png` and `robot.assets/audio/phos-startup.wav`.
 `run_pi.sh` transfers them as part of `src/`, and a wheel includes them as package
 data. The helper deliberately preserves an existing Pi configuration; merge
 the `startup` block from the repository configuration into an already deployed
@@ -338,8 +343,8 @@ configuration persistence and an isolated local WSGI worker without hardware.
 
 `robot.__version__` in `src/robot/__init__.py` is authoritative. Setuptools derives
 metadata from that literal; do not add another independently maintained version.
-Source checkouts use `config/phos.yaml`; wheels install it with the legacy JSON
-asset under the environment's `share/phos/config/` data directory. Explicit `--config`
+Source checkouts use `config/phos.yaml`; wheels install the same YAML asset
+under the environment's `share/phos/config/` data directory. Explicit `--config`
 remains the supported deployment boundary; no alternate schema is introduced.
 The pinned Python 3.11+ web snapshot is `requirements-web.txt`; platform camera
 dependencies remain managed by Raspberry Pi OS. See the release record.
@@ -432,8 +437,8 @@ reports invalid release provenance but cannot prevent the initial publication.
 PASS means the automated software checks completed; FAIL means one failed;
 SKIPPED is reported by pytest; INCOMPLETE means a report was not produced.
 Every summary explicitly states that Raspberry Pi hardware validation was not
-run. GPIO, camera, display, audio, I2C wiring, and physical performance remain
-manual acceptance work.
+run. Test GPIO, camera, display, audio, I2C wiring, and physical performance
+manually on the Pi.
 
 Repository administrators must enable required pull requests, require the
 `software-tests` check, require branches to be current, and restrict direct

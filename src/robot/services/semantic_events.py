@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Transport-neutral, agent-facing semantic transition events.
 
 This is deliberately not the Core event bus and does not know about MCP,

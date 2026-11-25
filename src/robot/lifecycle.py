@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared validated reload and supervisor-owned restart operations."""
 from __future__ import annotations
 
@@ -52,6 +53,7 @@ ENVIRONMENTAL_BEHAVIOR_RELOADABLE = frozenset({
 HARDWARE_CONTROLLER_RELOADABLE = frozenset({
     "hardware_controller.enabled", "hardware_controller.transport",
     "hardware_controller.serial.device", "hardware_controller.serial.baud_rate",
+    "hardware_controller.serial.dtr", "hardware_controller.serial.rts",
     "hardware_controller.reconnect.delay_seconds", "hardware_controller.heartbeat.interval_seconds",
     "hardware_controller.heartbeat.timeout_seconds",
 })
@@ -94,6 +96,7 @@ class LifecycleService:
         self._apply_base_visual_source = None
         self._apply_environment_overlays = None
         self._apply_camera_preview = None
+        self._apply_object_awareness = None
         self._apply_imu_motion = None
         self._apply_imu_behavior = None
         self._apply_led_ring = None
@@ -131,6 +134,11 @@ class LifecycleService:
         """Register runtime service for applying validated preview settings."""
         with self._lock:
             self._apply_camera_preview = applier
+
+    def register_object_awareness_applier(self, applier):
+        """Register the runtime-owned live Object Recognition toggle."""
+        with self._lock:
+            self._apply_object_awareness = applier
 
     def register_imu_motion_applier(self, applier):
         with self._lock:
@@ -266,7 +274,7 @@ class LifecycleService:
 
     def _appearance_arbitration_changed(self, result) -> None:
         """Apply a new automatic intent; the tracker calls this after its lock."""
-        self.reconcile_effective_appearance(arbitration=result)
+        self.reconcile_effective_appearance(arbitration=result, reason="agent_activity_arbitration")
 
     def appearance_arbitration_status(self) -> dict:
         if self._appearance_activity_tracker is None:
@@ -274,7 +282,7 @@ class LifecycleService:
                     "selection_reason": "activity_tracker_unavailable", "agents": []}
         return self._appearance_activity_tracker.status()
 
-    def reconcile_effective_appearance(self, *, arbitration=None) -> dict:
+    def reconcile_effective_appearance(self, *, arbitration=None, reason="unspecified") -> dict:
         """Apply mode-authoritative appearance without saving display config."""
         with self._lock:
             if self._agent_management_service is None:
@@ -295,7 +303,13 @@ class LifecycleService:
                    resolved.get("effective_personality"), repr(candidate.to_dict().get("display")), repr(palette))
             if self._applied_appearance_key == key and self._presentation_activation.get("state") in {
                     "global_active", "agent_skin_active", "fallback_active"}:
+                logger.debug("PHOS VISUAL CONFIG reconcile reason=%s action=preserve mode=%s selected_agent=%s skin=%s",
+                             reason, resolved.get("mode"), resolved.get("selected_agent_id"),
+                             resolved.get("effective_skin_id"))
                 return {"ok": True, "applied": [], "resolved": resolved}
+            logger.debug("PHOS VISUAL CONFIG reconcile reason=%s action=apply mode=%s selected_agent=%s skin=%s",
+                         reason, resolved.get("mode"), resolved.get("selected_agent_id"),
+                         resolved.get("effective_skin_id"))
             self._presentation_activation = {"state": "applying", "message": "Applying resolved appearance.",
                                              "mode": resolved.get("mode"), "arbitration": arbitration}
             result = self.apply_temporary_appearance(candidate)
@@ -366,10 +380,23 @@ class LifecycleService:
                                            saved["vision"]["camera_preview"],
                                            "vision.camera_preview")
             level_changed = self.active["logging"]["level"] != saved["logging"]["level"]
+            object_paths = changed_fields(self.active["object_awareness"], saved["object_awareness"],
+                                          "object_awareness")
+            object_enabled_changed = "object_awareness.enabled" in object_paths
             if preview_paths and self._apply_camera_preview is None:
                 return {"ok": False, "error": "Runtime camera preview service is not ready. No settings were saved."}
+            if object_enabled_changed and self._apply_object_awareness is None:
+                return {"ok": False, "error": "Object Recognition runtime service is not ready. No settings were saved."}
             applied = []
             try:
+                if object_enabled_changed:
+                    self._apply_object_awareness(candidate)
+                    if saved["object_awareness"]["enabled"]:
+                        # Enablement constructs the coordinator from this
+                        # complete section, so those values are live together.
+                        applied.extend(object_paths)
+                    else:
+                        applied.append("object_awareness.enabled")
                 if preview_paths:
                     self._apply_camera_preview(candidate)
                     applied.extend(preview_paths)
@@ -388,7 +415,17 @@ class LifecycleService:
                         logger.exception("Runtime preview rollback failed")
                 if level_changed:
                     self._set_log_level(previous.log_level)
+                if object_enabled_changed:
+                    try:
+                        self._apply_object_awareness(previous)
+                    except Exception:
+                        logger.exception("Object Recognition rollback failed")
                 return {"ok": False, "error": "Runtime settings could not be applied and saved. No new active configuration was recorded."}
+            if object_enabled_changed:
+                if saved["object_awareness"]["enabled"]:
+                    self.active["object_awareness"] = deepcopy(saved["object_awareness"])
+                else:
+                    self.active["object_awareness"]["enabled"] = False
             if preview_paths:
                 self.active["vision"]["camera_preview"] = deepcopy(saved["vision"]["camera_preview"])
             if level_changed:

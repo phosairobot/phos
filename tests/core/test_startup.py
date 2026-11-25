@@ -1,4 +1,6 @@
 from robot.core.startup import StartupReadiness, StartupState
+import struct
+import yaml
 from robot.config import RuntimeConfig, load_document
 
 
@@ -26,9 +28,9 @@ def test_required_failure_remains_failed():
 def test_startup_section_is_injected_for_existing_complete_documents(tmp_path):
     document = load_document()
     document.pop("startup")
-    path = tmp_path / "phos.json"
+    path = tmp_path / "phos.yaml"
     import json
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     config = RuntimeConfig.from_file(path)
     assert config.startup_splash_enabled is True
     assert config.startup_ready_sound_enabled is False
@@ -36,7 +38,10 @@ def test_startup_section_is_injected_for_existing_complete_documents(tmp_path):
 
 def test_default_startup_assets_are_package_relative_and_overrides_are_config_relative(tmp_path):
     config = RuntimeConfig.from_file()
-    assert config.resolve_startup_splash_image().name == "phos-startup-800x600.png"
+    assert config.resolve_startup_splash_image().name == "neon_phos_logo-startup-800x600.png"
+    splash = config.resolve_startup_splash_image().read_bytes()
+    assert splash.startswith(b"\x89PNG\r\n\x1a\n")
+    assert struct.unpack(">II", splash[16:24]) == (800, 600)
     assert config.resolve_startup_ready_sound().name == "phos-startup.wav"
 
     document = load_document()

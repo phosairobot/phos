@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Navigation and presentation groups, never a configuration schema.
 
 New implemented areas can register a page and select canonical field paths here.
@@ -44,7 +45,8 @@ GROUPS = {
                 ("behavior", "Eye behavior", ("behavior.",), None)],
     "vision": [("vision", "Camera & tracking", ("vision.face_tracking_enabled", "vision.camera_resolution", "vision.capture_fps", "vision.detection_fps"), None),
                ("camera-preview", "Camera picture-in-picture preview", ("vision.camera_preview.",), None),
-               ("detector", "Face detection", ("vision.detector.",), None)],
+               ("detector", "Face detection", ("vision.detector.",), None),
+               ("object-recognition", "Object Recognition", ("object_awareness.",), None)],
     "expression": [
         ("provider", "Provider selection", ("expression.enabled", "expression.provider", "expression.inference_fps", "expression.crop_margin"), None),
         ("smoothing", "Observation smoothing", ("expression.smoothing.",), None),
@@ -60,7 +62,7 @@ GROUPS = {
 # it changes navigation only, not configuration meaning or validation.
 GROUPS["appearance"] = [("display", "Display", ("display.width", "display.height", "display.fps", "display.fullscreen"), None), *GROUPS["display"][1:3]]
 GROUPS["eyes"] = [("eyes", "Eye appearance", ("display.iris_color", "display.base_visual_source", "display.environment_overlays_enabled"), None)]
-GROUPS["runtime_vision"] = [GROUPS["vision"][0], GROUPS["vision"][2]]
+GROUPS["runtime_vision"] = [GROUPS["vision"][0], GROUPS["vision"][2], GROUPS["vision"][3]]
 GROUPS["runtime_camera_preview"] = [GROUPS["vision"][1]]
 GROUPS["runtime_expression"] = GROUPS["expression"]
 GROUPS["runtime_logging"] = GROUPS["logging"]

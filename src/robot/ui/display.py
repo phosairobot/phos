@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Display adapters for rendered PHOS eye geometry."""
 
 from __future__ import annotations
@@ -655,15 +656,27 @@ class TkEyeDisplay(EyeDisplay):
     def _draw_background(self, asset: Optional[BackgroundAsset], width: int, height: int) -> None:
         """Draw one prepared state image beneath the face; never decode per frame."""
         if asset is None or not asset.available or asset.path is None:
+            if self._background_key is not None:
+                logger.debug("PHOS VISUAL TK background_clear reason=unavailable state=%s path=%s",
+                             getattr(asset, "state", None), getattr(asset, "path", None))
             self._background_photo = None
             self._background_key = None
             return
         key = (asset.path, width, height)
+        uploaded = False
         if key != self._background_key:
             self._background_key = key
+            started_at = time.monotonic()
             self._background_photo = self._prepare_background(asset, width, height)
+            uploaded = True
+            logger.debug("PHOS VISUAL TK background_upload state=%s asset=%s path=%s dimensions=%sx%s available=%s prepare_ms=%.1f",
+                         asset.state, asset.name, asset.path, width, height, self._background_photo is not None,
+                         (time.monotonic() - started_at) * 1000)
         if self._background_photo is not None:
             self._canvas.create_image(0, 0, image=self._background_photo, anchor="nw")
+            if uploaded:
+                logger.debug("PHOS VISUAL TK background_queued state=%s asset=%s path=%s", asset.state, asset.name,
+                             asset.path)
 
     def _prepare_background(self, asset: BackgroundAsset, width: int, height: int):
         key = (asset.path, width, height)

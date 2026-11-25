@@ -1,5 +1,5 @@
 site_name: PHOS
-site_description: A physical companion for AI Agents, built on Raspberry Pi.
+site_description: Bringing AI agents into the physical world. Eyes, voice and senses through MCP.
 site_url: https://phosairobot.github.io/phos/
 
 repo_url: https://github.com/phosairobot/phos
@@ -16,8 +16,9 @@ theme:
   name: material
   language: en
 
-  logo: assets/images/phos.png
-  favicon: assets/images/phos.png
+  custom_dir: overrides
+  logo: assets/images/neon_phos_logo.png
+  favicon: assets/images/neon_phos_logo-favicon.png
 
   palette:
     scheme: slate
@@ -46,7 +47,11 @@ markdown_extensions:
   - attr_list
   - md_in_html
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
   - pymdownx.tabbed:
       alternate_style: true
@@ -56,6 +61,7 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 extra:
+  homepage: https://phosairobot.github.io/phos/
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/phosairobot/phos
@@ -79,43 +85,62 @@ extra_css:
 nav:
   - Home: index.md
 
-  - Discover PHOS:
-      - Overview: discover.md
-      - What PHOS can do: features.md
-      - How PHOS works: how-phos-works.md
-      - Visual personality: vision-expressions.md
-      - Environmental awareness: environmental-awareness.md
-      - Motion awareness: motion-awareness.md
-      - MCP — Connect AI Agents to PHOS: mcp-overview.md
-      - Use cases: use-cases.md
-      - Getting started: installation-overview.md
+  - User & Maker Guide:
+      - Start here:
+          - Discover PHOS: discover.md
+          - Core capabilities: features.md
+          - How PHOS works: how-phos-works.md
+          - Use cases: use-cases.md
+      - Build & install:
+          - Build overview: build-phos.md
+          - Hardware requirements: hardware-overview.md
+          - Hardware BOM: hardware-bom.md
+          - Installation overview: installation-overview.md
+          - Installation & setup: installation.md
+          - Sensors, controllers & wiring: hardware.md
+      - Connect & configure:
+          - MCP agent integration: mcp-overview.md
+          - Connect your first MCP client: developer-quickstart.md
+          - REST API: remote-api.md
+          - Web Admin overview: web-admin-overview.md
+          - Web Admin manual: web-administration.md
+      - Skins:
+          - Overview: skins/index.md
+          - Built-in Skins: skins/built-in.md
+          - Skin Architecture: skins/architecture.md
+          - Skin Structure: skins/structure.md
+          - Configuration Reference: skins/configuration.md
+          - Creating a Custom Skin: appearance/creating-skins.md
+          - Installing and Activating Skins: skins/installing.md
+          - Troubleshooting: skins/troubleshooting.md
+      - Perception & interaction:
+          - Expressive behaviors: vision-expressions.md
+          - Environmental sensors: environmental-awareness.md
+          - Motion sensors: motion-awareness.md
+          - Voice (TTS & STT): voice.md
+          - Voice commands: voice-commands.md
 
-  - Technical Documentation:
-      - Installation & setup: installation.md
-      - Configuration & migration: development.md
-      - Architecture: architecture.md
-      - Hardware & sensors: hardware-overview.md
-      - Hardware reference: hardware.md
-      - External controller / ESP32: hardware-controller.md
-      - Display & expressions: visual-system.md
-      - Vision & presence: vision.md
-      - Vision model evaluation: vision-model-evaluation.md
-      - Voice & speech: voice.md
-      - Voice commands: voice-commands.md
-      - Text to speech: tts.md
-      - MCP:
-          - MCP User Guide: mcp-overview.md
-          - MCP Reference: mcp.md
-          - Agent-connected model: ai.md
-      - REST API: remote-api.md
-      - Web Administration: web-administration.md
-      - Web Admin overview: web-admin-overview.md
-      - Appearance skins: appearance/creating-skins.md
-      - API contract notes: api.md
-      - Development & testing: documentation.md
-      - Configuration migration: configuration-migration.md
-      - Architecture decisions: decisions.md
-      - Current implementation state: current-state.md
+  - Developer & Architecture:
+      - Architecture & runtime:
+          - Architecture overview: architecture.md
+          - Accepted decisions: decisions.md
+          - Implementation state: current-state.md
+          - Development, configuration & testing: development.md
+          - Configuration migration: configuration-migration.md
+          - AI provider strategy: ai.md
+      - Protocols & subsystem references:
+          - MCP protocol reference: mcp.md
+          - API contract notes: api.md
+          - Hardware controller protocol: hardware-controller.md
+          - Display & expressions: visual-system.md
+          - Vision pipeline: vision.md
+          - Vision model evaluation: vision-model-evaluation.md
+          - TTS providers & playback: tts.md
+      - Extend & contribute:
+          - Contributing & project status: contributing.md
+          - Documentation guide: documentation.md
+          - Website audit: website-audit.md
+          - License audit: LICENSE_AUDIT.md
 
   - Roadmap: roadmap.md
 

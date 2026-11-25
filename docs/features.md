@@ -12,14 +12,26 @@ classes:
 
 <span class="phos-kicker">CAPABILITY MAP</span>
 
-PHOS 1.9.0 is the current source version. The capabilities below are implemented
-in the repository; optional hardware paths still require target-Pi acceptance.
-See the [current implementation handoff](current-state.md) and
-[roadmap](roadmap.md) for scope and physical-validation limits.
+Perceive physical context, react through compatible external clients, and
+express agent activity through a local interface. Capabilities depend on the
+hardware and providers enabled in your build. Start with
+[connecting an agent](developer-quickstart.md), then use the subsystem guides
+below for setup and limits.
 
 </div>
 
-## Implemented
+## Agent-facing capabilities
+
+| Capability | Practical value | Details |
+| --- | --- | --- |
+| Physical awareness | Read measurements and semantic context without managing device drivers. | [MCP resources and tools](mcp-overview.md#ask-phos-or-request-an-action) |
+| Event-driven interaction | Receive selected semantic-change cues, then read current context. | [Subscriptions and lifecycle](mcp-overview.md#react-to-changes) |
+| Physical expression | Request supported expressions, temporary thinking visuals, speech, and available LED signals. | [MCP tool catalog](mcp-overview.md#tool-and-resource-catalog) |
+| Hardware extensibility | Connect supported Pi peripherals or protocol-compatible controllers. | [Hardware architecture](hardware-overview.md) |
+| Agent independence and multiple identities | Give separate agents credentials and permission profiles on a shared runtime. | [Controlled access](mcp-overview.md#multiple-agents-and-controlled-access) |
+
+## Local runtime capabilities
+
 
 <div class="phos-grid" markdown>
 
@@ -94,8 +106,9 @@ are never exposed.
 <article class="phos-card" markdown>
 <span class="phos-status phos-status--optional">OPTIONAL HARDWARE</span>
 ### WS2812B visual feedback
-An optional LED ring consumes provider-neutral `FaceState` intent through a
-low-rate controller, including semantic colors and directional motion fills.
+An optional WS2812B ring connects to the ESP32 controller. PHOS sends resolved
+`phos-hw` v1 semantic LED commands over an active serial connection; firmware
+drives the ring after advertising LED capability.
 </article>
 
 <article class="phos-card" markdown>
@@ -122,8 +135,9 @@ PHOS exposes a versioned local REST API for robot status, health, environmental 
 
 <div class="phos-callout" markdown>
 
-Transcript-to-intent/command handling, conversational LLM operation, wake-word
-and continuous listening, and Home Assistant are explicitly deferred. MCP
+Conversational LLM operation, wake-word and continuous listening, and Home
+Assistant are deferred. The supported deterministic English/Italian
+[voice commands](voice-commands.md) are available. MCP
 tools, resources, and resource-change subscriptions are implemented; see
 [MCP & AI Agent Integration](mcp-overview.md) for their bounded semantics.
 Existing interfaces or scaffolding are not evidence of an end-to-end delivered

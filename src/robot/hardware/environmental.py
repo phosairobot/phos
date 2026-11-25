@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Central selection of environmental adapters and their capabilities."""
 from robot.hardware.bme280 import BME280Provider
 from robot.hardware.bmp280 import BMP280Provider

@@ -32,8 +32,8 @@ def runtime(tmp_path):
     # catalog; absence remains a supported configuration.
     document.pop("appearance", None)
     document["logging"]["file"] = None
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     applied = []
     now = [0.0]
     service = LifecycleService(path, RuntimeConfig.from_file(path), restart_supported=True,
@@ -44,7 +44,46 @@ def runtime(tmp_path):
 def update(path, edit):
     document = load_document(path)
     edit(document)
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+
+
+def test_object_recognition_enable_disable_applies_live_and_persists(runtime):
+    path, service, _, _ = runtime
+    (path.parent / "nanodet.onnx").write_bytes(b"model")
+    received = []
+    service.register_object_awareness_applier(
+        lambda config: received.append((config.object_awareness_enabled, config.object_awareness_confidence)))
+    document = service.config_repository.load().to_dict()
+    document["object_awareness"].update(enabled=True, model_path="nanodet.onnx", confidence=.5)
+    enabled = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+    assert received == [(True, .5)]
+    assert "object_awareness.enabled" in enabled["applied"]
+    assert service.active["object_awareness"]["enabled"] is True
+    assert RuntimeConfig.from_file(path).object_awareness_enabled is True
+
+    document["object_awareness"]["enabled"] = False
+    disabled = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+    assert received[-1] == (False, .5)
+    assert disabled["applied"] == ["object_awareness.enabled"]
+    assert service.active["object_awareness"]["enabled"] is False
+
+
+def test_object_recognition_activation_failure_preserves_saved_and_active_config(runtime):
+    path, service, _, _ = runtime
+    (path.parent / "nanodet.onnx").write_bytes(b"model")
+    calls = []
+    def apply(config):
+        calls.append(config.object_awareness_enabled)
+        if config.object_awareness_enabled:
+            raise RuntimeError("invalid model")
+    service.register_object_awareness_applier(apply)
+    before = path.read_bytes()
+    document = service.config_repository.load().to_dict()
+    document["object_awareness"].update(enabled=True, model_path="nanodet.onnx")
+    result = service.apply_runtime_settings(RuntimeConfig.from_dict(document, base_dir=path.parent))
+    assert result["ok"] is False and calls == [True, False]
+    assert path.read_bytes() == before
+    assert service.active["object_awareness"]["enabled"] is False
 
 
 def test_presentation_owner_operations_use_the_lifecycle_agent_service(runtime):
@@ -340,16 +379,21 @@ def test_hardware_controller_connection_settings_hot_apply_without_restart(runti
     applied = []
     service.register_hardware_controller_applier(
         lambda config: applied.append((config.hardware_controller_serial_device,
-                                       config.hardware_controller_serial_baud_rate)))
-    update(path, lambda d: d["hardware_controller"]["serial"].update(device="/dev/ttyUSB1", baud_rate=57600))
+                                       config.hardware_controller_serial_baud_rate,
+                                       config.hardware_controller_serial_dtr,
+                                       config.hardware_controller_serial_rts)))
+    update(path, lambda d: d["hardware_controller"]["serial"].update(
+        device="/dev/ttyUSB1", baud_rate=57600, dtr=True, rts=True))
 
     result = service.execute("reload")
 
     assert result["ok"]
-    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate"]
+    assert result["applied"] == ["hardware_controller.serial.device", "hardware_controller.serial.baud_rate",
+                                 "hardware_controller.serial.dtr", "hardware_controller.serial.rts"]
     assert result["restart_required"] == []
-    assert applied == [("/dev/ttyUSB1", 57600)]
-    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600}
+    assert applied == [("/dev/ttyUSB1", 57600, True, True)]
+    assert service.active["hardware_controller"]["serial"] == {"device": "/dev/ttyUSB1", "baud_rate": 57600,
+                                                                    "dtr": True, "rts": True}
 
 
 @pytest.mark.parametrize("submitted, expected", [("green", "#41CD7D"), ("#7a5cff", "#7A5CFF")])

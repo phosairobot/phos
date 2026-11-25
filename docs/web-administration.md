@@ -196,10 +196,10 @@ page is highlighted. No frontend framework is needed.
 | Runtime → Vision | Face tracking, camera resolution/cadence and face detection. These settings require Restart PHOS. |
 | Runtime → Camera Preview | Optional display-only camera picture-in-picture preview. Its settings apply immediately when saved. |
 | Runtime → Expression | Provider selection/enabling and observation cadence/crop margin; smoothing; local ONNX model, labels and preprocessing; AWS region/confidence/timeouts; a separate cloud cost/rate-limit group. These settings require Restart PHOS. |
-| Display & Appearance | Display, eye behavior, base visual source and WS2812B LED ring settings. Base visual source selects Manual, Environment, or PHOS State persistent intent; error/sleep and IMU reactions temporarily override it. The ring selector offers saturated green, red, yellow, blue, violet, white, cyan, turquoise, orange and magenta. LED pin/count require restart; enabled state, brightness, base color, visual-state following and update rate use Reload configuration. |
+| Display & Appearance | Display, eye behavior and base visual source (Manual, Environment, or PHOS State); error/sleep and IMU reactions temporarily override it. The legacy LED ring editor remains visible for compatibility; keep its enabled setting false for the ESP32 build. Configure the serial connection through Hardware Controller; firmware owns the WS2812B pin/count. See [controller ring setup](hardware-controller.md#ws2812b-ring-connection). |
 | Sensors | Environmental type (BME280/BMP280), controller-backed ENS160/AHT21 status, environmental behavior and GY-521/MPU-6050 motion. `sensors.ens160` and `sensors.aht21` are read-only public status records; ENS160 values require validity and usability, while AHT21 freshness is independent. No direct-Pi AHT21 provider is configured. |
 | Runtime → Logging | Supported log level, output file and expression diagnostics. Log level applies immediately; output file and diagnostics require Restart PHOS. No credential/payload logging switches; SDK credential/request debug output remains suppressed. |
-| Advanced Configuration | Complete YAML editor for advanced users. It preserves the active YAML/YML/JSON storage format. |
+| Advanced Configuration | Complete YAML editor for advanced users. |
 | Web Administration / Security | Enable/disable web administration (`web.enabled`) and a link to the separate password-change page. Passwords are never runtime configuration. |
 | Diagnostics | Read-only runtime health and saved-versus-active configuration diagnostics. |
 | System Actions | Reload configuration and, when managed by the documented systemd service, review/confirm Restart PHOS. Restart is visually marked as disruptive; reboot and shutdown are not supported. |
@@ -225,9 +225,8 @@ see [the field reference](development.md#field-reference).
 ### Advanced Configuration YAML editor
 
 Open **Settings → Configuration** for the complete advanced editor. It always
-displays YAML, including when the active file is legacy JSON. The page identifies
-the active path and storage format; saving YAML input back to a JSON source keeps
-that source JSON and never creates or switches to a YAML file.
+displays and saves the active YAML configuration. The page identifies the active
+path; saving never switches to another configuration file.
 
 Use **Validate** to parse YAML and run full `RuntimeConfig` validation without
 writing. Syntax errors include a line/column when available; invalid roots and
@@ -265,7 +264,7 @@ API Key. It reports only **Configured** or **Not configured**. Values are never
 shown back, masked, included in responses, or logged. A blank password field is
 always a new value; use the explicit confirmation checkbox to remove one.
 
-The store is separate from `phos.yaml`/legacy JSON: a local `.phos-secrets/`
+The store is separate from `phos.yaml`: a local `.phos-secrets/`
 directory beside the active configuration contains an authenticated encrypted
 `secrets.enc` file and a separate `secret.key`. PHOS creates the key only for a
 new empty store. If an existing encrypted store has no key, or cannot be
@@ -432,6 +431,11 @@ are exposed by this feature.
 
 ## Appearance
 
+The [Skins section](skins/index.md) covers supplied skins, package authoring,
+configuration, and troubleshooting. For mode selection, per-agent appearance,
+and the difference between live Preview and Apply, see
+[Installing and Activating Skins](skins/installing.md).
+
 The **Appearance → Eyes** page offers presets cyan, blue, green, turquoise,
 amber, violet and white, plus a Custom colour control. `display.iris_color` is
 stored canonically as `#RRGGBB` (for example `#7A5CFF`); existing named preset
@@ -465,50 +469,34 @@ the selected state and expression. It is visual simulation only: previewing
 does not change PHOS behavior, state or expression. State-effect animation is
 shown as a representative static frame.
 
-**Appearance → Skins** provides named presets for the existing eyes,
-backgrounds, Eye Safe Layer and State Effects settings. Built-in PHOS Default,
-Minimal and Ambient skins are read-only. Create a custom skin from the current
-appearance by importing a complete Skin package, then apply, preview, rename or delete it. Preview updates only the
-live appearance temporarily and does not save configuration. Apply validates,
-saves, and updates the canonical display configuration; it never changes robot
-behavior or voice settings. Custom skins live in internal `skins.json` storage beside the active
-configuration. A skin may retain a deleted background asset reference; the
-background safely falls back until that asset is available again.
+**Appearance → Skins** lists the three built-ins, configured YAML catalog
+entries, and managed custom skins. Import `.phos-skin` or `.zip` packages with
+a root `skin.yaml`; new exports use schema version 3, while legacy version-2
+packages without version-3 optional blocks remain accepted. Import creates a
+new local custom ID and does not activate the skin.
 
-PHOS can retain internal, explicit agent skin-assignment metadata for future
-administration workflows. Enabled references are validated against built-in,
-declarative YAML, or custom skins. `global`, `disabled`, `assigned`, and
-`missing` are distinct assignment states; a missing reference retains its ID
-and falls back to global appearance. Referenced custom skins cannot be deleted.
-WebUI assignment controls, Presentation Owner, runtime agent-skin switching,
-and MCP-driven assignment changes are not implemented.
+Use **Preview** for temporary live visual settings, **Apply** to save the global
+skin and request reconciliation, and **Export** to keep a portable package.
+The card UI does not provide rename, manifest, LED-palette, or Physical
+Personality editors. Supported packages can supply eye shape, semantic LED
+colours, and Physical Personality in addition to the appearance blocks.
 
-Administrators may additionally configure a read-only declarative catalog with
-`appearance.config_file` in `phos.yaml` (for example `skins.yaml`). Catalog
-skins use schema version 1, inherit from a built-in or catalog skin, and support
-only the current procedural appearance fields: iris color, state backgrounds,
-Eye Safe Layer, and State Effects. The catalog is validated when it is used;
-invalid, missing, duplicate, cyclic, or unsafe entries are rejected rather than
-partially applied. Manual catalog edits require PHOS restart before they are
-used. This does not replace `skins.json`, package import/export, or the global
-Appearance workflow. Agent-to-skin assignment is not implemented yet.
+**Settings → Agents** supports skin assignment and appearance participation,
+priority, and activity timeout. **Global Appearance** retains global selection;
+**Follow Active Agent** selects eligible active-agent skins through runtime
+arbitration. Agent assignments and active owned backgrounds can block deletion
+of a custom skin. Temporary agent appearance does not overwrite global display
+configuration or change permissions.
 
-Portable PHOS Skin packages use the `.phos-skin` ZIP-compatible archive format
-with a `skin.yaml` schema-version-`2` manifest and optional `assets/` PNG/JPEG
-backgrounds. `.zip` is accepted as a compatible upload format, but
-`.phos-skin` is the canonical format. `skin.yaml` is the package-internal
-manifest, not a standalone upload format. Imported skins always receive a new
-local custom ID.
+Catalogs use schema version 1 and `appearance.config_file`; custom metadata is
+managed in `skins.json`, with owned backgrounds under
+`backgrounds/skins/<custom-id>/` beside the active configuration. Packages do
+not fetch remote assets or carry runtime state and secrets. Missing assets,
+preview limitations, and activation failures are covered in the dedicated guide.
 
-For a complete package layout, manifest examples, image limits, and archive
-creation instructions, see [Creating a PHOS Skin](appearance/creating-skins.md).
-Imported and created custom Skin backgrounds are owned under
-`backgrounds/skins/<custom-id>/`; export bundles only those referenced images.
-Deleting a Skin removes its owned assets, but is rejected while its assets are
-used by the live appearance.
-Skin packages do not fetch remote assets, include absolute paths, or carry
-runtime state and secrets. Missing managed background references are reported
-and fall back safely during preview and apply.
+See [Installing and Activating Skins](skins/installing.md) for the full workflow,
+[Skin Configuration](skins/configuration.md) for supported fields, and
+[Creating a Custom Skin](appearance/creating-skins.md) for a validated tutorial.
 
 **State Backgrounds** accepts validated PNG and JPEG files from the managed
 `backgrounds` directory. `display.backgrounds.max_upload_bytes` sets the

@@ -29,12 +29,14 @@ class ApplicationSpy:
             "semantic_led": {"available": True},
         }
     def get_physical_context(self): return self._call("get_physical_context")
+    def get_physical_assessment(self): return self._call("get_physical_assessment")
     def query_measurements(self, metric, *, start=None, end=None, limit=360): return self._call("query_measurements", metric, start, end, limit)
     def list_physical_transitions(self, *, event_type=None, limit=100): return self._call("list_physical_transitions", event_type, limit)
     def presence(self): return self._call("presence")
     def attention(self): return self._call("attention")
     def observed_expression(self): return self._call("observed_expression")
     def set_expression(self, value): return self._call("set_expression", value)
+    def request_agent_visual_state(self, agent_id, state, duration_ms=None): return self._call("request_agent_visual_state", agent_id, state, duration_ms)
     def speak(self, text): return self._call("speak", text)
     def set_state(self, state): return self._call("set_state", state)
     def signal_user(self, signal): return self._call("signal_user", signal)
@@ -76,6 +78,10 @@ def test_history_requires_its_own_read_permission():
     assert error.value.permission is AgentPermission.READ_PHYSICAL_HISTORY
     permitted = AgentApplicationService(application, AgentAccess({AgentPermission.READ_PHYSICAL_HISTORY}))
     assert permitted.query_measurements("temperature_c")["operation"] == "query_measurements"
+    with pytest.raises(AgentPermissionDenied) as assessment_error:
+        denied.get_physical_assessment()
+    assert assessment_error.value.permission is AgentPermission.READ_PHYSICAL_HISTORY
+    assert permitted.get_physical_assessment()["operation"] == "get_physical_assessment"
 
 
 def test_observer_can_read_the_minimal_semantic_surface_but_cannot_act():
@@ -221,9 +227,9 @@ def test_agent_surface_has_no_raw_hardware_renderer_or_admin_operations():
     public_methods = {name for name in dir(AgentApplicationService) if not name.startswith("_")}
 
     assert public_methods == {
-        "attention", "get_physical_context", "observed_expression", "presence", "set_expression",
+        "attention", "get_physical_context", "get_physical_assessment", "observed_expression", "presence", "set_expression",
         "signal_user", "sleep", "speak", "status", "wake", "sleep_async", "speak_async",
         "signal_user_async", "wake_async", "camera_snapshot", "camera_snapshot_with_metadata", "capture_camera_snapshot_with_metadata",
-            "query_measurements", "list_physical_transitions", "visible_objects",
+            "query_measurements", "list_physical_transitions", "visible_objects", "request_visual_state",
     }
     assert set(OPERATION_PERMISSIONS) == set(AgentOperation)

@@ -1,7 +1,6 @@
 # PHOS 1.1.0 release record
 
-**Status: NOT READY — source release candidate; target-hardware acceptance is
-required before tagging.**
+**Status: NOT READY — source release candidate; complete integration tests before tagging.**
 
 The authoritative version is `robot.__version__` in `src/robot/__init__.py`,
 set to `1.1.0`. Packaging, startup logging and Web Admin status derive from that
@@ -17,9 +16,9 @@ authenticated Web Admin baseline, and includes these implemented optional paths:
   `STILL`, `MOVING`, directional tilt, `SHAKE` and `IMPACT` interpretation.
 - BehaviorEngine mapping of semantic IMU events to temporary eye intent and
   semantic LED intent; raw IMU readings never reach renderers or GPIO.
-- WS2812B provider behind the root-owned helper/local socket and a low-rate
-  `LEDRingController` with canonical palette, directional fills and restoration
-  of the currently resolved persistent state after an IMU effect.
+- Historical LED palette, directional-fill and persistent-state restoration
+  implementation. For the current WS2812B hardware connection and setup, use
+  the [ESP32 controller guide](hardware-controller.md#ws2812b-ring-connection).
 - BME280/BMP280 temperature/pressure service and CCS811 eCO2 (estimated
   equivalent CO2, not direct NDIR CO2)/TVOC service, each with explicit
   availability, freshness and degraded mode.
@@ -42,7 +41,7 @@ reboot remain outside this release.
 The release-path audit found the intended boundaries intact: hardware libraries
 stay in adapters/providers; sensor workers publish typed snapshots; interpreters
 publish semantic events; BehaviorEngine is the behavior/arbitration boundary;
-EyeRenderer and LEDRingController consume `FaceState` semantics; and Web Admin
+The historical visual consumers use `FaceState` semantics; and Web Admin
 uses lifecycle/configuration services rather than hardware. `STILL` means no IMU
 animation, not a base-color write, so a WARM state is restored after a tilt.
 
@@ -79,7 +78,7 @@ appearance.
   environment that permits the local worker/socket test.
 - Complete the following Raspberry Pi 3 physical checklist and record hardware,
   OS, commit, logs and observations.
-- Fresh-install and exercise the optional hardware dependencies/helper on the
+- Fresh-install and exercise the optional hardware dependencies/controller on the
   target Pi. No target performance measurement is yet release evidence.
 
 Known non-blocking limitations: eCO2 is estimated/equivalent CO2; BMP280 has no
@@ -94,8 +93,9 @@ and not an Internet-facing multi-user service.
    partial document. Validate with `RuntimeConfig.from_file` before restart.
 3. Leave optional sensors, ring and environmental behavior disabled until their
    dependencies, wiring and physical checks are complete.
-4. For a ring, configure matching helper-unit and JSON GPIO/count values, then
-   restart the helper before PHOS. For sensors, restart PHOS after hardware
+4. For the current ring build, enable the ESP32 serial controller and confirm
+   LED capability discovery; configure the ring's pin/count in firmware.
+   For sensors, restart PHOS after hardware
    configuration changes; interpretation/display controls can use Reload where
    documented.
 
@@ -117,8 +117,8 @@ and not an Internet-facing multi-user service.
   configured mounting axes, confirmation and cooldown.
 - [ ] Confirm directional pupils/asymmetry and that robot-state priority still
   overrides temporary IMU effects.
-- [ ] Verify ring base color, Web Admin color reload, all directional fills,
-  shake/impact, and return to the resolved persistent state after each effect.
+- [ ] For the ESP32-connected ring, verify LED capability discovery, semantic
+  signals, expiry, reconnect, and restoration of the resolved persistent intent.
 
 ### Environment and overlays
 
@@ -141,7 +141,7 @@ and not an Internet-facing multi-user service.
   where enabled and Web Admin must continue with a clear status.
 - [ ] Measure sustained eye responsiveness/CPU/RSS while optional paths run.
 - [ ] Restart through systemd, then stop/start during active optional services;
-  confirm camera, I2C workers, web worker and LED helper clean up as expected.
+  confirm camera, I2C workers, web worker and serial controller clean up as expected.
 
 ## Suggested commands after all gates pass
 

@@ -133,8 +133,8 @@ Use `config/phos.yaml` for all current non-secret application settings. Required
 sections map to the existing typed RuntimeConfig surface in `robot.config`;
 CloudExpressionConfig remains a typed provider subset. Validate types, ranges,
 relationships and active paths before building subsystems. CLI defaults and
-provider-specific JSON files are replaced by this file. Legacy `phos.json` is
-supported as a fallback or explicit path. Existing setting flags
+provider-specific JSON files are replaced by this file. Runtime configuration
+is YAML-only; existing setting flags
 remain deprecated explicit overrides for a separately announced migration.
 
 The committed file safely starts only eyes; camera/expression processing is
@@ -169,8 +169,8 @@ Freeze 1.0.0 at the existing runtime, eyes, tracking, local/AWS expression and
 canonical configuration/web administration scope. Hardware availability does
 not bring sensors, LEDs, conversation, remote API or MCP into this release.
 Keep one authoritative version in `robot.__version__`, consumed by packaging
-and runtime/status reporting. Separate automated release checks from physical
-acceptance and expression accuracy.
+and runtime/status reporting. Use automated release checks alongside hardware
+integration tests and expression accuracy measurements.
 
 Future Web/API/MCP/Voice control surfaces must reuse application services and
 must not access hardware or subsystem internals. Shared validation, authorization
@@ -264,8 +264,7 @@ The new required section follows the existing explicit config-merge migration
 policy. Runtime exposes a read-only snapshot via the existing lifecycle status
 channel to the authenticated Sensors editor. It adds no network control API,
 behavior input, event stream or general dashboard. CCS811, GY-521, LED ring,
-voice, MCP and Home Assistant remain deferred. Real Pi acceptance is separate
-from fake-provider tests; the 1.0.0 release history/version is not rewritten.
+voice, MCP and Home Assistant remain deferred. The 1.0.0 release history/version is not rewritten.
 
 
 ### ADR-022 extension — selectable BME280 / BMP280
@@ -305,8 +304,8 @@ polls retain initialization; physical failures retry with bounded backoff.
 Automatic compensation accepts fresh service-level temperature plus humidity,
 never assumes BMP280 humidity and restores device defaults on loss of source.
 No baseline persistence, firmware updating, GPIO wake control, GY-521, WS2812B
-or additional control surface is included. Exact breakout electrical validation,
-first-use burn-in and sustained Pi operation remain separate physical acceptance.
+or additional control surface is included. Check the breakout electrical
+specifications, run the first-use burn-in, and test sustained Pi operation.
 
 ## ADR-024 — Optional MPU-6050 IMU service
 
@@ -318,8 +317,7 @@ bounded sensor worker for an optional bus-1 MPU-6050 adapter. Canonical
 all fields. Report acceleration in m/s² and angular velocity in °/s through the
 existing runtime status and Web Admin boundaries. Use smbus2 directly and fixed
 ±2 g / ±250 °/s scales; do not add automatic offset calibration, orientation
-fusion, interrupts, gestures or behavior integration. Physical wiring and board
-acceptance remain separate from this implementation.
+fusion, interrupts, gestures or behavior integration. Follow the board wiring and setup instructions in the hardware guide.
 
 ### ADR-024 extension — Motion interpretation
 
@@ -373,29 +371,30 @@ setting remains architecture-neutral and preserves robot-state priority.
 
 ### ADR-025 — Optional semantic WS2812B output
 
-Add a lazy `rpi-ws281x` hardware provider behind a root-owned helper and a
-separate low-rate unprivileged LED controller.
-The controller reads only the existing immutable `FaceState` semantic accent and
-reaction strength, mapping it to a small uniform steady/pulse/fade vocabulary.
-It must not receive raw Vision, IMU or sensor input, and provider failures must
-not affect Core or eye rendering. Canonical `led_ring` settings keep pin/count
-restart-only; enabled state and visual settings reload through the shared
-lifecycle service. The ring is disabled and count-unconfigured by default until
-physical wiring is accepted.
+**Current hardware deployment:** the WS2812B ring connects to and is driven by
+the ESP32 controller. PHOS owns semantic arbitration through
+`SemanticLedService`; `ControllerService` sends `phos-hw` v1
+`set_led_animation` messages after connection and LED capability discovery.
+Firmware owns the ring's physical pin/count, mapping, and animation timing.
 
-## ADR-026 — YAML-first configuration with legacy JSON compatibility
+The earlier low-rate `FaceState` consumer and local helper/provider remain in
+the checked-out source as legacy implementation. Their `led_ring` settings
+are not the ESP32 configuration surface; leave `led_ring.enabled` false for
+the current hardware build. This documentation update does not remove that
+code or migrate the configuration schema.
+
+## ADR-026 — YAML-only runtime configuration
 
 **Status:** Accepted.
 
-YAML is the canonical format for new PHOS installations because it is easier to
+YAML is the sole runtime configuration format because it is easier to
 edit by hand while retaining the complete, strictly validated RuntimeConfig
 schema. `ConfigRepository` owns discovery, parsing, serialization and atomic
-persistence so every adapter uses one fixed active source for its process:
-`phos.yaml`, then `phos.yml`, then legacy `phos.json`.
+persistence so every adapter uses the fixed active `phos.yaml` source for its
+process.
 
-Saving to the active source avoids surprise format conversion and preserves a
-user's chosen deployment boundary. Automatic JSON-to-YAML conversion is
-rejected because configuration changes must remain deliberate, reviewable and
-recoverable. JSON remains supported for backward compatibility, with a concise
-one-process warning when it is active. YAML is preferred for new installations;
-removal of JSON support is not currently scheduled.
+Saving to the active source avoids surprise format conversion. Automatic
+conversion at startup remains rejected because configuration changes must be
+deliberate, reviewable and recoverable; an explicit one-time migration tool
+handles older JSON files. This decision affects configuration files only, not
+PHOS JSON APIs, MCP payloads, or the `phos-hw` JSON Lines protocol.

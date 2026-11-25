@@ -1,24 +1,25 @@
 # JSON to YAML configuration migration
 
-`config/phos.yaml` is PHOS's preferred configuration format. PHOS also supports
-`phos.yml` and legacy `phos.json`; discovery selects YAML, then YML, then JSON.
-An explicit `--config` path always wins.
+PHOS uses YAML as its only supported runtime configuration format. Normal PHOS
+startup never reads, converts, or overwrites a JSON configuration file.
 
-Existing JSON installations continue to work and do not need to migrate
-immediately. PHOS never converts a configuration file automatically.
+For an older installation that still has `phos.json`, stop PHOS and run the
+explicit one-time migration from the checkout:
 
-## Recommended migration
+```bash
+PYTHONPATH=src .venv/bin/python tools/migrate_phos_json_to_yaml.py \
+  config/phos.json config/phos.yaml
+```
 
-1. Stop PHOS.
-2. Back up `config/phos.json`.
-3. Convert the complete configuration to `config/phos.yaml`, preserving every
-   value and required section.
-4. Edit YAML with spaces, not tabs; keep booleans, numbers and null values as
-   their intended scalar types. Do not use YAML object tags.
-5. Start PHOS without `--config` and verify the startup log reports
-   `config/phos.yaml` as the active source.
-6. Save once in Web Admin and confirm it updates `phos.yaml`.
-7. Keep the JSON backup until physical and Web Admin validation are complete.
+The destination must not already exist. The tool validates the complete source
+document through `RuntimeConfig`, preserves configuration-relative paths at the
+new YAML location, writes atomically, and leaves the original JSON source in
+place as the backup. Correct any reported validation error before starting
+PHOS with the new YAML file:
 
-All formats still receive the same strict `RuntimeConfig` validation. Web Admin
-persists to the source active at startup: YAML remains YAML and JSON remains JSON.
+```bash
+PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
+```
+
+JSON remains in PHOS API, MCP, and `phos-hw` JSON Lines protocol contracts;
+this migration applies only to the runtime configuration file.

@@ -45,6 +45,27 @@ def test_error_effect_is_restrained_and_not_a_continuous_flash():
     assert layer.primitives(error, 800, 600, 1.0) == layer.primitives(error, 800, 600, 100.0)
 
 
+def test_equivalent_state_effect_reconfiguration_preserves_active_resolver():
+    display, current = Display(), [RobotState.THINKING]
+    original = _resolver()
+    loop = _loop(display, original, current)
+
+    loop._replace_state_effect_resolver(_resolver())
+
+    assert loop._state_effect_resolver is original
+
+
+def test_changed_state_effect_reconfiguration_replaces_active_resolver():
+    display, current = Display(), [RobotState.THINKING]
+    original = _resolver()
+    loop = _loop(display, original, current)
+
+    loop._replace_state_effect_resolver(_resolver(state_effects_preset="expressive"))
+
+    assert loop._state_effect_resolver is not original
+    assert loop._state_effect_resolver.resolve(RobotState.THINKING).intensity > original.resolve(RobotState.THINKING).intensity
+
+
 def test_thinking_uses_a_peripheral_asymmetric_glow_constellation_that_moves():
     layer, thinking = StateEffectLayer(), _resolver().resolve(RobotState.THINKING)
     at_start = layer.primitives(thinking, 800, 600, 0)

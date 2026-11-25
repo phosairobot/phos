@@ -1,8 +1,55 @@
-# How PHOS Communicates with Its External Hardware Controller
+# External hardware controllers — phos-hw v1
 
-PHOS implements the `phos-hw` v1 external-controller boundary. It is a generic
-serial protocol that an ESP32 firmware can implement; PHOS does not embed or
-maintain that firmware in this repository.
+PHOS implements the `phos-hw` v1 external-controller boundary. The official
+companion ESP32 firmware is available at
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32), providing
+ENS160 + AHT21 telemetry and WS2812B semantic LED control over USB/serial JSONL.
+
+## A hardware boundary independent of the agent
+
+A compatible controller lets an agent use physical context without learning its
+board, sensor bus, pins, or firmware. PHOS accepts supported observations through
+`phos-hw` v1, adds availability and semantic interpretation, and exposes the
+result through MCP. In the other direction, PHOS resolves permitted LED intent
+before firmware executes it.
+
+`phos-hw` v1 is the hardware communication protocol; MCP is the agent-facing
+protocol. They serve different boundaries. The Raspberry Pi runs PHOS and owns
+semantics. The external controller acquires sensors and drives its supported
+outputs. It does not replace the Pi runtime.
+
+```mermaid
+flowchart TD
+  sensors[Physical sensors] --> controller[Compatible microcontroller]
+  controller -->|phos-hw v1 observations over serial| adapter[Pi controller adapter]
+  adapter --> context[PHOS semantic services and context]
+  context -->|MCP resources and notifications| agent[External MCP client / agent]
+  agent -->|MCP tools| services[Permission-checked application services]
+  services --> intent[Runtime LED arbitration]
+  intent -->|phos-hw v1 set_led_animation| controller
+  controller --> leds[Physical LED output]
+```
+
+ESP32 is the official reference firmware implementation. The protocol is not
+ESP32-specific: a developer could implement it on Arduino, RP2040, or STM32
+hardware with a suitable serial transport and firmware. These are potential
+ports, not supported board integrations. A port must implement the actual frame,
+capability, freshness, and command contracts below; protocol extensibility does
+not make arbitrary sensors automatically available through MCP.
+
+## Flash the companion firmware
+
+1. Open [phos-esp32](https://github.com/phosairobot/phos-esp32) and follow its
+   current build and flashing instructions for your ESP32 board.
+2. Configure the firmware's sensor wiring and WS2812B data pin/count for the
+   attached hardware, then build and upload as described there. Keep ENS160
+   and AHT21 on the ESP32 I2C bus and the LED ring on the ESP32 output.
+3. Connect the flashed ESP32 to the Pi with a USB data cable. Configure
+   `hardware_controller.enabled`, `hardware_controller.serial.device`, and
+   `hardware_controller.serial.baud_rate` in PHOS to match the connection.
+4. Confirm capability discovery, fresh sensor telemetry, and semantic LED
+   output. Use the [installation checks](installation.md#controller-backed-ens160-and-aht21)
+   for the PHOS side of the connection.
 
 ## Responsibilities
 
@@ -23,7 +70,36 @@ after transport failure using the configured delay, and exposes bounded
 connection status/recent diagnostics in Web Admin. Controller transport failure
 does not give Web clients direct serial access.
 
+`hardware_controller.serial.dtr` and `.rts` default to `false`. PHOS configures
+these values before opening pySerial so ESP32 USB-UART auto-reset circuitry is
+not unintentionally driven by the host's default asserted control lines. Boards
+with a documented different requirement may opt in through the same Hardware
+Controller configuration; changing either setting reconnects the controller and
+may briefly interrupt sensor readings and controller-backed LED output. Verify
+the selected levels on the target controller board.
+
 ## Protocol
+
+### WS2812B ring connection
+
+The WS2812B addressable RGB LED ring connects to and is driven by the **ESP32
+controller**. The Raspberry Pi sends resolved `phos-hw` v1 semantic
+`set_led_animation` commands over USB/serial; firmware owns the data pin,
+pixel count, channel ordering, and animation timing.
+
+Enable `hardware_controller.enabled` in `config/phos.yaml` and configure
+`hardware_controller.serial.device` and `hardware_controller.serial.baud_rate`
+for the attached ESP32. PHOS emits LED commands only when that serial session
+is connected and advertises LED support: a nonzero `led_count`, a nonzero
+`led.count`, or `"led"` in the payload's `capabilities` list.
+
+Keep the separate legacy `led_ring.enabled` setting false. Its pin/count
+settings do not configure ESP32 firmware. On disconnect, controller output
+becomes unavailable; after a new LED capability report, PHOS reapplies the
+resolved intent. See the [installation steps](installation.md#optional-ws2812b-rgb-led-ring)
+and [electrical guidance](hardware.md#ws2812b-rgb-led-ring).
+
+### Message envelope
 
 Messages are framed JSON objects with `protocol: "phos-hw"`, `version: 1`, a
 `type`, optional correlation fields, and an object `payload`. Capability reports
@@ -42,8 +118,8 @@ for configuration and Web Admin behavior.
 `phos-hw` v1 uses UTF-8 JSON Lines: one bounded JSON object per newline. Every
 message has `protocol: "phos-hw"`, `version: 1`, `type`, and object `payload`;
 `id`, `reply_to`, and `timestamp_ms` are optional correlation fields. PHOS
-starts a reader before capability discovery, retries discovery until a valid
-peer frame arrives, sends `ping` as its heartbeat, and reconnects after a
+starts a reader before capability discovery, retries discovery until a
+`capabilities` report arrives, sends `ping` as its heartbeat, and reconnects after a
 transport failure using the configured delay. A controller `heartbeat` updates
 the recorded heartbeat status. On disconnect, PHOS retains bounded diagnostics
 but disables active controller LED output.
@@ -101,7 +177,7 @@ as “currently emitted by PHOS”: the current serial adapter transmits only
 
 | Protocol name | Direction | Purpose / data | Response or unavailable behavior |
 | --- | --- | --- | --- |
-| `request_capabilities` | Pi → controller | Starts discovery; empty payload may carry an `id`. | Controller supplies `capabilities`; PHOS retries while connected until a valid peer frame. |
+| `request_capabilities` | Pi → controller | Starts (and resynchronizes) discovery; empty payload may carry an `id`. | Controller supplies `capabilities` for **every** request and resumes/reaffirms telemetry for the current host session. PHOS retries until a `capabilities` report arrives, even if stale telemetry or heartbeats are already arriving. |
 | `capabilities` | controller → Pi | Controller-defined feature metadata, including optional sensor/LED support. | Activates session capabilities; LEDs require advertised support. |
 | `ping` | Pi → controller | PHOS heartbeat; empty payload. | Peer activity keeps the session healthy; v1 requires no separate `pong`. |
 | `heartbeat` | controller → Pi | Controller liveness cue. | Updates PHOS's recorded heartbeat time. |
@@ -154,5 +230,5 @@ the protocol boundary.
 
 The PHOS controller protocol, reconnect lifecycle, capability discovery, and
 controller-backed sensor/LED integration are implemented and automatically
-tested. Controller firmware, wiring, and physical-device acceptance remain
-deployment-specific and should be verified with the matching hardware.
+tested. Use the [official companion firmware](https://github.com/phosairobot/phos-esp32)
+and follow the wiring and protocol setup instructions.

@@ -480,6 +480,25 @@ def test_new_serial_session_resets_driver_buffers_and_connection_local_decoder()
     assert first_deadline > 0
 
 
+def test_pyserial_control_lines_are_configured_before_open(monkeypatch):
+    import sys
+    calls = []
+    class Serial:
+        def __init__(self, *, port, baudrate, timeout, write_timeout):
+            assert port is None and baudrate == 115200 and timeout == .25 and write_timeout == 1
+            self.dtr, self.rts, self.port = None, None, None
+        def open(self): calls.append((self.dtr, self.rts, self.port))
+        @property
+        def in_waiting(self): return 0
+        def reset_input_buffer(self): pass
+        def close(self): pass
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=Serial))
+    transport = SerialControllerTransport("/dev/ttyUSB0", 115200, dtr=False, rts=False)
+    transport.open()
+    assert calls == [(False, False, "/dev/ttyUSB0")]
+    assert transport._serial.dtr is False and transport._serial.rts is False
+
+
 def test_serial_transport_reports_pyserial_write_result_after_flush():
     class Serial:
         def __init__(self): self.writes, self.flushed = [], False
@@ -516,7 +535,7 @@ def test_serial_transport_returns_a_short_jsonl_frame_without_waiting_for_the_re
     assert serial.read_sizes == [1, len(b'{"type":"heartbeat"}\n') - 1]
 
 
-def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
+def test_controller_retries_capabilities_request_until_capabilities_acknowledges_the_session():
     class Transport:
         device = "/dev/ttyUSB0"
         def __init__(self): self.writes = []
@@ -537,6 +556,66 @@ def test_controller_retries_capabilities_request_until_first_valid_peer_frame():
         assert len(requests) >= 2
         assert all(b'"id":"phos-1-cap-' in raw for raw in requests)
         assert len(set(requests)) == len(requests)
+
+    asyncio.run(exercise())
+
+
+def test_controller_retries_session_handshake_when_stale_telemetry_is_still_arriving():
+    class Transport:
+        device = "/dev/ttyUSB0"
+        def __init__(self): self.writes, self.reads = [], 0
+        def read(self):
+            self.reads += 1
+            time.sleep(.02)
+            return (b'{"protocol":"phos-hw","version":1,"type":"heartbeat","payload":{}}\n'
+                    if self.reads == 1 else b"")
+        async def write(self, raw): self.writes.append(raw); return len(raw)
+
+    async def exercise():
+        transport = Transport()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=10,
+                                    heartbeat_timeout_seconds=.8, touch_sink=lambda _event: None)
+        service._transport, service._state = transport, ControllerConnection.CONNECTED
+        _decoder, next_heartbeat = service._new_session()
+        await service._request_capabilities()
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(service._read_connected(JsonLinesDecoder(), next_heartbeat), timeout=.58)
+        requests = [raw for raw in transport.writes if b'"type":"request_capabilities"' in raw]
+        assert len(requests) >= 2
+        assert service.status()["last_heartbeat"] is not None
+
+    asyncio.run(exercise())
+
+
+def test_controller_stops_retrying_session_handshake_after_capabilities_ack():
+    class Transport:
+        device = "/dev/ttyUSB0"
+        def __init__(self): self.writes, self.reads = [], 0
+        def read(self):
+            self.reads += 1
+            time.sleep(.02)
+            return (b'{"protocol":"phos-hw","version":1,"type":"capabilities","payload":{"sensors":["temperature"]}}\n'
+                    if self.reads == 1 else b"")
+        async def write(self, raw): self.writes.append(raw); return len(raw)
+
+    async def exercise():
+        transport = Transport()
+        service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/ttyUSB0", baud_rate=115200,
+                                    reconnect_delay_seconds=1, heartbeat_interval_seconds=10,
+                                    heartbeat_timeout_seconds=.8, touch_sink=lambda _event: None)
+        service._transport, service._state = transport, ControllerConnection.CONNECTED
+        _decoder, next_heartbeat = service._new_session()
+        await service._request_capabilities()
+        reader = asyncio.create_task(service._read_connected(JsonLinesDecoder(), next_heartbeat))
+        try:
+            await asyncio.sleep(.55)
+            requests = [raw for raw in transport.writes if b'"type":"request_capabilities"' in raw]
+            assert len(requests) == 1
+            assert service.status()["active_capabilities"] == {"sensors": ["temperature"]}
+        finally:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
 
     asyncio.run(exercise())
 
@@ -657,16 +736,25 @@ def test_controller_reconfigure_replaces_only_connection_level_transport_and_res
                                              heartbeat_timeout_seconds=7)
         assert not reopened and len(transports) == 2
         assert service._reconnect_delay == .4 and service._heartbeat_interval == 5 and service._heartbeat_timeout == 7
-        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=57600,
+        # Control-line configuration is a transport property, so either
+        # change replaces the session while timing-only changes above do not.
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=115200,
                                              reconnect_delay_seconds=.4, heartbeat_interval_seconds=5,
-                                             heartbeat_timeout_seconds=7)
+                                             heartbeat_timeout_seconds=7, serial_dtr=True, serial_rts=True)
         assert reopened and transports[1].closed
         await asyncio.sleep(.03)
-        assert len(transports) == 3 and transports[2].baud_rate == 57600
+        assert len(transports) == 3
+        assert service._serial_dtr is True and service._serial_rts is True
+        reopened = await service.reconfigure(enabled=True, device="/dev/ttyUSB1", baud_rate=57600,
+                                             reconnect_delay_seconds=.4, heartbeat_interval_seconds=5,
+                                             heartbeat_timeout_seconds=7, serial_dtr=True, serial_rts=True)
+        assert reopened and transports[2].closed
+        await asyncio.sleep(.03)
+        assert len(transports) == 4 and transports[3].baud_rate == 57600
         await service.stop()
 
     asyncio.run(exercise())
-    assert disconnected == [True, True]
+    assert disconnected == [True, True, True]
 
 
 def test_controller_reconfigure_keeps_saved_failed_device_and_retries():
@@ -733,6 +821,69 @@ def test_controller_air_quality_notification_uses_canonical_reading_type():
     assert received[-1] == AirQualityReading(400, 0)
 
 
+@pytest.mark.parametrize("validity,status", [(1, "warming_up"), (2, "starting"), (3, "invalid")])
+def test_explicit_non_normal_ens160_status_survives_gas_updates(validity, status):
+    received = []
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True,
+                                  reading_sink=lambda reading, _now: received.append(reading))
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": validity, "compensation_active": False}, generation=1)
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 12, generation=1)
+
+    snapshot = air.snapshot()
+    assert snapshot["status"] == status
+    assert not snapshot["available"]
+    assert snapshot["measurements"]["eco2_ppm"] == 400
+    assert snapshot["measurements"]["tvoc_ppb"] == 12
+    assert not snapshot["measurement_usable"]["eco2_ppm"]
+    assert not snapshot["measurement_usable"]["tvoc_ppb"]
+    assert received == []
+
+
+def test_normal_ens160_status_requires_subsequent_fresh_gas_evidence():
+    received = []
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True,
+                                  reading_sink=lambda reading, _now: received.append(reading))
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": 2, "compensation_active": False}, generation=1)
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 12, generation=1)
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+
+    assert air.snapshot()["status"] == "starting"
+    assert not air.snapshot()["available"]
+    assert not air.snapshot()["measurement_usable"]["eco2_ppm"]
+    assert received == []
+    air.accept_controller_update("eco2", 401, generation=1)
+    assert not air.snapshot()["measurement_usable"]["tvoc_ppb"]
+    air.accept_controller_update("tvoc", 13, generation=1)
+
+    snapshot = air.snapshot()
+    assert snapshot["available"]
+    assert snapshot["measurement_usable"]["eco2_ppm"]
+    assert snapshot["measurement_usable"]["tvoc_ppb"]
+    assert received == [AirQualityReading(401, 13)]
+
+
+def test_repeated_normal_ens160_status_does_not_reset_available_state():
+    air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
+                                  stale_after_seconds=30, externally_managed=True)
+    air.activate_controller_generation(1)
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+    air.accept_controller_update("eco2", 400, generation=1)
+    air.accept_controller_update("tvoc", 12, generation=1)
+    assert air.snapshot()["available"]
+
+    air.accept_controller_status({"validity": 0, "compensation_active": True}, generation=1)
+    snapshot = air.snapshot()
+    assert snapshot["available"]
+    assert snapshot["status"] == "available"
+    assert snapshot["measurement_usable"]["eco2_ppm"]
+
+
 def test_air_quality_generation_activation_retirement_and_rejection_are_deterministic():
     now = [0.0]
     air = AirQualitySensorService(lambda: None, enabled=True, poll_interval_seconds=1,
@@ -791,14 +942,14 @@ def test_controller_read_boundary_propagates_controlled_failure_without_wall_clo
         reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
         touch_sink=lambda _event: None, clock=lambda: now[0], read_operation=failing_read)
     service._transport = SimpleNamespace()
-    _decoder, deadline = service._new_session()
+    _decoder, _deadline = service._new_session()
     async def exercise():
         with pytest.raises(OSError, match="controlled read failure"):
-            await service._read_connected(JsonLinesDecoder(), deadline)
+            await service._read_connected(JsonLinesDecoder(), 100.0)
     asyncio.run(exercise())
 
 
-def test_controller_heartbeat_timeout_uses_injected_clock_before_read():
+def test_controller_heartbeat_timeout_uses_injected_clock_after_empty_read():
     now = [0.0]
     called = []
     async def read_never(_transport, _started):
@@ -812,9 +963,50 @@ def test_controller_heartbeat_timeout_uses_injected_clock_before_read():
     now[0] = 4.0
     async def exercise():
         with pytest.raises(OSError, match="heartbeat timed out"):
-            await service._read_connected(JsonLinesDecoder(), deadline)
+            await service._read_connected(JsonLinesDecoder(), 100.0)
     asyncio.run(exercise())
-    assert called == []
+    assert called == [True]
+
+
+def test_buffered_valid_sensor_telemetry_refreshes_liveness_before_timeout():
+    now = [0.0]
+    received, reads = [], []
+    async def queued_read(_transport, _started):
+        reads.append(True)
+        if len(reads) == 1:
+            return b'{"protocol":"phos-hw","version":1,"type":"sensor_update","payload":{"sensor":"eco2","value":400,"unit":"ppm"}}\n'
+        now[0] = 8.0
+        return b""
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, sensor_update_sink=lambda name, value: received.append((name, value)),
+        clock=lambda: now[0], read_operation=queued_read)
+    service._transport = SimpleNamespace()
+    _decoder, _deadline = service._new_session()
+    now[0] = 4.0  # The watchdog deadline has elapsed before the queued read runs.
+    async def exercise():
+        with pytest.raises(OSError, match="heartbeat timed out"):
+            await service._read_connected(JsonLinesDecoder(), 100.0)
+    asyncio.run(exercise())
+    assert received == [("eco2", 400)]
+    assert service._last_peer_activity == 4.0
+
+
+def test_buffered_invalid_json_does_not_refresh_liveness_or_prevent_timeout():
+    now = [4.0]
+    async def invalid_read(_transport, _started):
+        return b"{not-json}\n"
+    service = ControllerService(SimpleNamespace(tasks=None), enabled=True, device="/dev/test", baud_rate=115200,
+        reconnect_delay_seconds=1, heartbeat_interval_seconds=2, heartbeat_timeout_seconds=3,
+        touch_sink=lambda _event: None, clock=lambda: now[0], read_operation=invalid_read)
+    service._transport = SimpleNamespace()
+    service._new_session()
+    service._last_peer_activity = 0.0
+    async def exercise():
+        with pytest.raises(OSError, match="heartbeat timed out"):
+            await service._read_connected(JsonLinesDecoder(), 100.0)
+    asyncio.run(exercise())
+    assert service._last_peer_activity == 0.0
 
 
 def test_controller_run_retires_failed_session_before_reconnect():

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-independent semantic physical-context read model."""
 from __future__ import annotations
 

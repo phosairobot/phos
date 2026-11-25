@@ -75,6 +75,39 @@ def test_state_change_switches_background_without_resolving_each_frame(tmp_path)
     assert display.calls[-1][1]["background"].path == listening
 
 
+def test_equivalent_background_reconfiguration_preserves_active_asset_cache(tmp_path):
+    idle = tmp_path / "idle.png"
+    idle.touch()
+    config = _config(tmp_path, background_idle=idle)
+    display, current = RecordingDisplay(), [RobotState.IDLE]
+    loop = _loop(display, BackgroundResolver(config), current)
+    frame = EyeRenderer().render(FaceState(), timestamp=0)
+    loop._draw(frame)
+    previous_asset, previous_state, previous_revision = loop._background_asset, loop._background_state, loop._background_revision
+
+    loop._replace_background_resolver(BackgroundResolver(config))
+
+    assert loop._background_asset is previous_asset
+    assert loop._background_state is previous_state
+    assert loop._background_revision == previous_revision
+
+
+def test_changed_background_reconfiguration_invalidates_active_asset_cache(tmp_path):
+    idle_a, idle_b = tmp_path / "idle-a.png", tmp_path / "idle-b.png"
+    idle_a.touch(); idle_b.touch()
+    display, current = RecordingDisplay(), [RobotState.IDLE]
+    loop = _loop(display, BackgroundResolver(_config(tmp_path, background_idle=idle_a)), current)
+    frame = EyeRenderer().render(FaceState(), timestamp=0)
+    loop._draw(frame)
+    revision = loop._background_revision
+
+    loop._replace_background_resolver(BackgroundResolver(_config(tmp_path, background_idle=idle_b)))
+    loop._draw(frame)
+
+    assert loop._background_revision == revision + 1
+    assert display.calls[-1][1]["background"].path == idle_b
+
+
 def test_unassigned_and_missing_assets_fall_back_to_legacy_background(tmp_path):
     frame = EyeRenderer().render(FaceState(), timestamp=0)
     for config in (_config(tmp_path), _config(tmp_path, background_speaking=tmp_path / "missing.png")):

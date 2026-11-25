@@ -169,6 +169,8 @@ hardware_controller:
   serial:
     device: /dev/ttyACM0
     baud_rate: 115200
+    dtr: false
+    rts: false
   reconnect:
     delay_seconds: 2
   heartbeat:

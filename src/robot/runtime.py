@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Thin application coordinator for Core, Vision, behavior, and display."""
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from robot.core import (BehaviorEngine, EnvironmentalInterpreter, EnvironmentalS
                         SemanticOverlayService)
 from robot.core.behavior_engine import ENVIRONMENTAL_STATE_CHANGED, IMU_MOTION_STATE
 from robot.core.semantic_led import SemanticLedService
+from robot.core.agent_visual_state import AgentVisualStateLeaseManager
 from robot.core.touch import TOUCH_EVENT, TOUCH_EVENT_NAMES, TouchStatus
 from robot.core.expression_reaction import ExpressionReactionPolicy
 from robot.core.startup import StartupReadiness, StartupState
@@ -84,6 +86,7 @@ class PhosRuntime:
         interaction_coordinator: Optional[InteractionCoordinator] = None,
         controller: Optional[ControllerService] = None, semantic_led: Optional[SemanticLedService] = None,
         semantic_overlay: Optional[SemanticOverlayService] = None,
+        agent_visual_state: Optional[AgentVisualStateLeaseManager] = None,
         tts_provider=None, audio_output=None, tts_status=None,
         object_awareness: Optional[ObjectAwarenessCoordinator] = None,
     ) -> None:
@@ -112,8 +115,11 @@ class PhosRuntime:
         self._pending_semantic_led_palette = None
         self._semantic_led_palette_metadata = {"state": "global", "skin_id": None, "colors": {}}
         self._semantic_overlay = semantic_overlay
+        self._agent_visual_state = agent_visual_state
         self._tts_provider, self._audio_output = tts_provider, audio_output
         self._object_awareness = object_awareness
+        self._object_awareness_lock = asyncio.Lock()
+        self._object_awareness_tasks = set()
         self._stt_enabled = bool(config.voice_enabled) if config else bool(voice_session)
         self._tts_enabled = bool(config.tts_enabled) if config else bool(tts_provider and audio_output)
         self._tts_status = tts_status or {"enabled": False, "configured_provider": None,
@@ -294,6 +300,10 @@ class PhosRuntime:
         self._state_effects = StateEffectResolver(config)
         self._eye_render_loop.request_state_effects(self._state_effects)
 
+    def visual_configuration_barrier(self):
+        """Acknowledge queued display appearance changes without polling."""
+        return self._eye_render_loop.visual_configuration_barrier()
+
     def apply_eye_safe_layer(self, config: RuntimeConfig) -> None:
         self._eye_safe = EyeSafeResolver(config)
         self._eye_render_loop.request_eye_safe_layer(self._eye_safe)
@@ -347,6 +357,8 @@ class PhosRuntime:
             enabled=config.hardware_controller_enabled,
             device=config.hardware_controller_serial_device,
             baud_rate=config.hardware_controller_serial_baud_rate,
+            serial_dtr=config.hardware_controller_serial_dtr,
+            serial_rts=config.hardware_controller_serial_rts,
             reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
             heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
             heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
@@ -441,6 +453,7 @@ class PhosRuntime:
                 return {key: plain(item) for key, item in value.items()}
             return value
         sensors = self.sensor_status()
+        object_awareness = self.object_awareness_status()
         return {
             "robot": {"state": self.core.state.value, "running": self.core.is_running},
             "visual": plain(self._behavior_engine.face_state),
@@ -470,7 +483,98 @@ class PhosRuntime:
                                  "active_device": getattr(self._audio_output, "device", None),
                                  "available": self._audio_output is not None, "last_activation_error": None},
             },
+            "object_awareness": object_awareness,
         }
+
+    def object_awareness_status(self) -> dict:
+        """Return a non-invasive, sanitized object-recognition health view."""
+        configured = bool(self._config and self._config.object_awareness_enabled)
+        coordinator = self._object_awareness
+        if not configured:
+            return {"state": "disabled", "enabled": False, "model": "not_configured",
+                    "backend": None, "reason": None}
+        if coordinator is None:
+            return {"state": "unavailable", "enabled": False, "model": "unavailable",
+                    "backend": None, "reason": "Vision is unavailable."}
+        detail = coordinator.status()
+        if detail["closed"]:
+            return {"state": "unavailable", "enabled": False, "model": "unavailable",
+                    "backend": "OpenCV DNN / NanoDet", "reason": "Object Recognition is stopping."}
+        return {"state": "busy" if detail["busy"] else "ready", "enabled": True,
+                "model": "initialized" if detail["detector_initialized"] else "configured",
+                "backend": "OpenCV DNN / NanoDet", "reason": detail["last_error"]}
+
+    def apply_object_awareness(self, config: RuntimeConfig) -> None:
+        """Apply only Object Recognition enablement from the lifecycle thread."""
+        loop = self._loop
+        if loop is None or not self._started or self._stopping:
+            raise RuntimeError("PHOS runtime is not ready for Object Recognition changes")
+        try:
+            caller_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            caller_loop = None
+        if caller_loop is loop:
+            raise RuntimeError("Object Recognition changes must use the lifecycle thread")
+        asyncio.run_coroutine_threadsafe(self._apply_object_awareness(config), loop).result()
+
+    def _new_object_awareness(self, config: RuntimeConfig) -> ObjectAwarenessCoordinator:
+        if self._vision_pipeline is None:
+            raise RuntimeError("Vision is unavailable")
+        model_path = config.resolve_path(config.object_awareness_model_path)
+        return ObjectAwarenessCoordinator(
+            self._vision_pipeline,
+            lambda: NanoDetDetector(model_path, confidence=config.object_awareness_confidence,
+                                    max_detections=config.object_awareness_max_detections),
+            timeout_seconds=config.object_awareness_timeout_seconds,
+        )
+
+    def _updated_object_awareness_config(self, config: RuntimeConfig, *, enabled_only: bool) -> RuntimeConfig:
+        """Update the in-memory config without invoking RuntimeConfig.__init__.
+
+        RuntimeConfig has a compatibility constructor that loads the default
+        repository.  ``dataclasses.replace`` therefore is not safe for live
+        runtime updates: it can resolve a deployment-default path rather than
+        the active configuration already owned by this runtime.
+        """
+        names = ("object_awareness_enabled",) if enabled_only else (
+            "object_awareness_enabled", "object_awareness_model_path",
+            "object_awareness_confidence", "object_awareness_max_detections",
+            "object_awareness_timeout_seconds",
+        )
+        return RuntimeConfig.from_dict(
+            self._config.to_dict(), base_dir=self._config._base_dir,
+            overrides={name: getattr(config, name) for name in names},
+        )
+
+    async def _apply_object_awareness(self, config: RuntimeConfig) -> None:
+        task = asyncio.current_task()
+        self._object_awareness_tasks.add(task)
+        try:
+            async with self._object_awareness_lock:
+                if self._stopping or not self._started:
+                    raise RuntimeError("PHOS runtime is stopping")
+                if config.object_awareness_enabled:
+                    if self._object_awareness is None:
+                        candidate = self._new_object_awareness(config)
+                        try:
+                            await candidate.prepare()
+                        except BaseException:
+                            await candidate.close()
+                            raise
+                        if self._stopping:
+                            await candidate.close()
+                            raise RuntimeError("PHOS runtime is stopping")
+                        self._object_awareness = candidate
+                    self._config = self._updated_object_awareness_config(config, enabled_only=False)
+                    return
+                previous = self._object_awareness
+                # Withdraw first so concurrent MCP calls cannot begin new work.
+                self._object_awareness = None
+                self._config = self._updated_object_awareness_config(config, enabled_only=True)
+                if previous is not None:
+                    await previous.close()
+        finally:
+            self._object_awareness_tasks.discard(task)
 
     def touch_status(self) -> dict:
         """Read-only completed-gesture state for application adapters."""
@@ -726,7 +830,7 @@ class PhosRuntime:
         splash = self._config.resolve_startup_splash_image() if self._config else None
         sound = self._config.resolve_startup_ready_sound() if self._config else None
         splash_configured = (self._config.startup_splash_image if self._config and self._config.startup_splash_image is not None
-                             else "package:robot.assets/images/phos-startup-800x600.png")
+                             else "package:robot.assets/images/neon_phos_logo-startup-800x600.png")
         sound_configured = (self._config.startup_ready_sound_file if self._config and self._config.startup_ready_sound_file is not None
                             else "package:robot.assets/audio/phos-startup.wav")
         player = self._config.startup_ready_sound_player if self._config else None
@@ -873,6 +977,10 @@ class PhosRuntime:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        object_tasks = tuple(task for task in self._object_awareness_tasks if task is not asyncio.current_task())
+        for task in object_tasks:
+            task.cancel()
+        await asyncio.gather(*object_tasks, return_exceptions=True)
         self._loop = None
         if self._led_ring_controller is not None:
             self._led_ring_controller.stop()
@@ -887,6 +995,7 @@ class PhosRuntime:
                 await self._object_awareness.close()
             except Exception:
                 logger.exception("PHOS object-awareness shutdown failed")
+            self._object_awareness = None
         if self._vision_started and self._vision_pipeline is not None:
             try:
                 await self._vision_pipeline.stop()
@@ -900,6 +1009,11 @@ class PhosRuntime:
             except Exception:
                 logger.exception("PHOS core shutdown failed")
             logger.info("PHOS core, renderer, and behavior engine stopped")
+        # The render loop reads the lease manager at frame cadence.  Close it
+        # only after Core has stopped that loop, so shutdown cannot turn a
+        # final frame into a presentation exception.
+        if self._agent_visual_state is not None:
+            self._agent_visual_state.shutdown()
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers = []
@@ -932,6 +1046,7 @@ def build_runtime(
     imu_provider_factory: Optional[Callable[[], IMUSensorProvider]] = None,
     led_ring_provider_factory: Optional[Callable[[LEDRingSettings], LEDRingProvider]] = None,
     secrets_service: Optional[SecretsService] = None,
+    agent_visual_state: Optional[AgentVisualStateLeaseManager] = None,
 ) -> PhosRuntime:
     """Compose a runtime; tests may inject Vision, display and sensor providers."""
     if vision_pipeline is not None and vision_factory is not None:
@@ -940,6 +1055,7 @@ def build_runtime(
     config.validate()
     config.validate_paths()
     core = RobotCore()
+    agent_visual_state = agent_visual_state or AgentVisualStateLeaseManager()
     temporal_history = TemporalHistoryService()
     def record_history(metric, value, unit, source):
         try:
@@ -962,6 +1078,7 @@ def build_runtime(
         presence_led_left_duration_seconds=config.presence_led_left_duration_ms / 1000,
         presence_led_entered_direction=config.presence_led_entered_direction,
         presence_led_left_direction=config.presence_led_left_direction,
+        visual_state_supplier=lambda: agent_visual_state.resolve(core.state),
     )
     behavior_engine.configure_base_visual_source(config.base_visual_source)
     behavior_engine.configure_environment_overlays(config.environment_overlays_enabled)
@@ -1102,6 +1219,8 @@ def build_runtime(
         core, enabled=config.hardware_controller_enabled,
         device=config.hardware_controller_serial_device,
         baud_rate=config.hardware_controller_serial_baud_rate,
+        serial_dtr=config.hardware_controller_serial_dtr,
+        serial_rts=config.hardware_controller_serial_rts,
         reconnect_delay_seconds=config.hardware_controller_reconnect_delay_seconds,
         heartbeat_interval_seconds=config.hardware_controller_heartbeat_interval_seconds,
         heartbeat_timeout_seconds=config.hardware_controller_heartbeat_timeout_seconds,
@@ -1139,10 +1258,12 @@ def build_runtime(
         touch_handler=publish_touch,
         touch_settings={"tap_max_duration_ms": config.touch_tap_max_duration_ms, "tap_max_movement_px": config.touch_tap_max_movement_px, "long_press_min_duration_ms": config.touch_long_press_min_duration_ms, "long_press_max_movement_px": config.touch_long_press_max_movement_px, "swipe_min_distance_px": config.touch_swipe_min_distance_px, "swipe_max_vertical_drift_px": config.touch_swipe_max_vertical_drift_px, "swipe_max_duration_ms": config.touch_swipe_max_duration_ms},
         background_resolver=background_resolver,
-        robot_state_supplier=lambda: behavior_engine.robot_state,
+        robot_state_supplier=lambda: behavior_engine.visual_state,
         state_effect_resolver=state_effect_resolver,
         eye_safe_resolver=eye_safe_resolver,
         transient_overlay_supplier=semantic_overlay.view_state,
+        frame_state_supplier=behavior_engine.visual_frame,
+        actual_robot_state_supplier=lambda: behavior_engine.robot_state,
     )
     core.add_behavior(presence)
     core.add_behavior(attention)
@@ -1235,6 +1356,7 @@ def build_runtime(
                        presence_interpreter=presence, attention_manager=attention, startup=startup, voice_session=voice,
                        interaction_coordinator=interaction, controller=controller, semantic_led=semantic_led,
                        semantic_overlay=semantic_overlay,
+                       agent_visual_state=agent_visual_state,
                        tts_provider=tts_provider, audio_output=audio_output, tts_status=tts_status,
                        object_awareness=object_awareness)
     runtime._temporal_history = temporal_history

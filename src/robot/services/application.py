@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Semantic PHOS commands and read models.
 
 This module deliberately knows only Core, BehaviorEngine, lifecycle and the
@@ -48,6 +49,7 @@ from robot.config import ConfigurationError, RuntimeConfig
 from robot.lifecycle import changed_fields
 from robot.admin_access import RecoveryState
 from robot.services.physical_context import SemanticPhysicalContextService
+from robot.services.physical_assessment import PhysicalContextAssessmentService
 from robot.services.semantic_events import SemanticEvent, SemanticEventPublisher, SemanticSubscription
 from robot.services.temporal_history import TemporalHistoryService
 from robot.services.agent_permissions import AgentApplicationService
@@ -324,6 +326,7 @@ class PhosApplicationService:
             history = TemporalHistoryService()
             setattr(runtime, "_temporal_history", history)
         self._temporal_history = history
+        self._physical_assessment = PhysicalContextAssessmentService(history)
         self._clock = clock
         self._started = clock()
         self._listeners: list[Callable[[dict], None]] = []
@@ -385,6 +388,10 @@ class PhosApplicationService:
 
     def list_physical_transitions(self, *, event_type: str | None = None, limit: int = 100) -> dict:
         return self._temporal_history.list_transitions(event_type=event_type, limit=limit)
+
+    def get_physical_assessment(self) -> dict:
+        """Read-only temporal evidence assessment; does not poll or retain data."""
+        return self._physical_assessment.assess(self.sensors())
 
     def subscribe(self, listener: Callable[[dict], None]) -> Callable[[], None]:
         with self._lock:
@@ -632,6 +639,14 @@ class PhosApplicationService:
                 "objects": [{"label": item.label, "confidence": item.confidence} for item in observation.objects],
                 "truncated": observation.truncated}
 
+    def object_awareness_status(self) -> dict:
+        """Read the runtime-owned, non-invasive Object Recognition status."""
+        reader = getattr(self._runtime, "object_awareness_status", None)
+        if callable(reader):
+            return self._plain(reader())
+        return {"state": "unavailable", "enabled": False, "model": "unknown",
+                "backend": None, "reason": "Runtime status is unavailable."}
+
     def get_camera_snapshot(self) -> bytes:
         """Return one bounded JPEG from the latest cached Vision frame."""
         pipeline = getattr(self._runtime, "_vision_pipeline", None)
@@ -731,7 +746,8 @@ class PhosApplicationService:
             },
             "features": {"vision": getattr(self._runtime, "_vision_pipeline", None) is not None,
                          "presence": getattr(self._runtime, "_presence_interpreter", None) is not None,
-                         "attention": getattr(self._runtime, "_attention_manager", None) is not None},
+                         "attention": getattr(self._runtime, "_attention_manager", None) is not None,
+                         "object_awareness": getattr(self._runtime, "_object_awareness", None) is not None},
         }
 
     def overlay(self) -> dict:
@@ -1587,6 +1603,43 @@ class PhosApplicationService:
                    "visual": self.visual_state()}
         self._emit("expression_changed", payload)
         return payload
+
+    def request_agent_visual_state(self, agent_id: str, state: str, duration_ms: int | None = None) -> dict:
+        """Apply one authenticated agent's temporary presentation lease.
+
+        This deliberately bypasses neither the Agent facade nor the actual
+        RobotCore state machine: it addresses only the manager composed by the
+        runtime for bounded visual requests.
+        """
+        manager = getattr(self._runtime, "_agent_visual_state", None)
+        if not self._core.is_running or manager is None:
+            raise ApplicationError("runtime_unavailable", "PHOS runtime is not running.", status=503)
+        # ``idle`` is always a release.  Discard an adapter's optional duration
+        # before the manager evaluates thinking-specific duration constraints.
+        if state == RobotState.IDLE.value:
+            duration_ms = None
+        try:
+            result = manager.request(agent_id, state, duration_ms=duration_ms,
+                                     actual_state=self._core.state)
+        except ValueError as error:
+            raise ApplicationError("invalid_visual_state_request", str(error), status=400) from error
+        except RuntimeError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS visual-state service is unavailable.", status=503) from error
+        return asdict(result)
+
+    async def wait_for_agent_visual_appearance(self) -> None:
+        """Wait for already-requested appearance work at the display boundary."""
+        barrier = getattr(self._runtime, "visual_configuration_barrier", None)
+        if not self._core.is_running or not callable(barrier):
+            raise ApplicationError("runtime_unavailable", "PHOS visual-state service is unavailable.", status=503)
+        try:
+            await asyncio.wait_for(asyncio.wrap_future(barrier()), timeout=STATE_COMMAND_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS appearance update timed out.", status=503) from error
+        except RuntimeError as error:
+            raise ApplicationError("runtime_unavailable", "PHOS appearance update is unavailable.", status=503) from error
+        except Exception as error:
+            raise ApplicationError("runtime_unavailable", "PHOS appearance update failed.", status=503) from error
 
     async def _accept_state_command(self, target: RobotState, submitted_at: float):
         """Run on the runtime loop and acknowledge immediately after commit."""

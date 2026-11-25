@@ -1,66 +1,88 @@
 <div class="phos-use-cases-hero" markdown>
 
-# Use cases
+# What you can build with PHOS
 
-These examples describe implemented interfaces and optional capabilities. A
-particular workflow still requires its listed hardware, provider, and
-configuration to be available.
+Use PHOS as the physical interface for your agent or application. These examples
+combine implemented PHOS capabilities with external logic you provide; they are
+not bundled coding-agent, personal-assistant, or automation workflows.
 
-</div>
-
-<div class="phos-flow phos-use-case-flow" aria-label="PHOS agent integration flow">
-  <span>AI Agent or person</span><b>→</b><span>PHOS</span><b>→</b><span>Safe physical interaction</span>
 </div>
 
 <div class="phos-use-case-grid" markdown>
 
-## AI Agent with a physical presence
+## Agent activity at a glance
 
-**Goal:** let an external AI Agent speak, express itself, and read semantic
-physical context.
+An agent requests `phos_set_state` with a bounded `thinking` duration while it
+works and releases its own visual lease with `idle`. Supported expressions add
+non-verbal feedback. People can notice activity without keeping chat open.
+Local robot states retain priority over the thinking visual.
 
-**What PHOS does:** exposes MCP tools/resources while retaining permission and
-hardware ownership. **AI Agent required:** yes. **Requires:** enabled MCP and
-an authenticated configured agent.
+**Requires:** a running display and an action-capable agent profile.
+[MCP visual-state contract](mcp.md).
 
-Example: an agent reads `phos://status`, asks PHOS to speak a concise response,
-then requests a supported expression. Start with
-[MCP & AI Agent Integration](mcp-overview.md).
+## Coding-agent feedback
 
-## Interactive desktop companion
+Your integration maps a completed task or request for attention to
+`phos_set_expression`, a supported `phos_signal_user` intent, or a short
+`phos_speak` request. The coding tool detects task progress; PHOS executes the
+permitted physical request.
 
-**Goal:** run an expressive local robot without external-agent orchestration.
+**Requires:** `standard` access; signals require available controller-backed
+LEDs, and speech requires configured TTS and playback.
+[Connect an MCP client](developer-quickstart.md).
 
-**What PHOS does:** renders visual state, accepts supported touch input, and
-can use configured voice/sensor services. **AI Agent required:** no.
-**Requires:** display; other capabilities are optional. See [Visual system](visual-system.md)
-and [Voice](voice.md).
+## Presence-aware interactions
 
-## Environmental awareness
+A compatible client subscribes to `phos://physical-context`, receives an update
+cue after a confirmed presence transition, and reads current presence and
+attention. Your host decides whether to invoke agent logic and request a reply.
+PHOS supplies anonymous context, not personal identity or proof of engagement.
 
-**Goal:** inspect temperature, humidity where available, pressure, and
-air-quality estimates.
+**Requires:** enabled camera-based presence, read access, and a client supporting
+`subscriptions/listen` for automatic change cues. On-demand reads work without
+subscriptions. [Resource update flow](mcp-overview.md#react-to-changes).
 
-**What PHOS does:** publishes fresh measurements and bounded semantic context.
-**AI Agent required:** no. **Requires:** configured supported sensors.
+## Environmental explanations
 
-Example: use the dashboard or REST environment endpoint; a connected agent may
-read the same semantic context through MCP. See [Hardware](hardware.md).
+An agent reads available temperature, humidity, pressure, or air-quality
+indicators and explains relevant observations. For a time-window question it
+can assess evidence and query bounded retained measurements. The external
+agent interprets the evidence; PHOS does not diagnose causes or guarantee
+measurement accuracy. ENS160 eCO2 is an estimated equivalent, not direct CO2.
 
-## Presence-aware interaction
+**Requires:** configured supported sensors. Historical assessment and queries
+require `read_physical_history`, included in `standard`; retained data is
+RAM-only, bounded, and lost on restart. [Physical evidence contract](mcp.md#physical-context-intelligence-v01-agent-composition-contract).
 
-**Goal:** respond when a person is in the camera view.
+## New hardware behind a stable agent interface
 
-**What PHOS does:** derives presence and attention from optional face detection.
-**AI Agent required:** no, but an agent can consume the observation.
-**Requires:** camera and enabled vision pipeline. See [Vision](vision.md).
+A maker implements `phos-hw` v1 on a controller, advertises capabilities, and
+pushes accepted observations to the Pi. PHOS maps them into shared services so
+agents consume physical context without controller-specific drivers. New
+measurement types still require PHOS mappings; arbitrary controller fields do
+not automatically become MCP resources.
 
-## Developer integration
+**Requires:** protocol-compatible firmware, serial setup, and supported PHOS
+sensor mappings. ESP32 is the reference implementation.
+[Hardware integration guide](hardware-controller.md).
 
-**Goal:** integrate an application without direct hardware access.
+## Multiple agents, one physical interface
 
-**What PHOS does:** provides authenticated semantic REST controls and MCP.
-**AI Agent required:** no for REST; optional for MCP. **Requires:** trusted LAN
-deployment and configured administration access. See [Remote API](remote-api.md).
+Give a context-reading application an `observer` identity and a feedback agent a
+separate `standard` identity. Their requests use the same PHOS runtime with
+independent credentials and permission checks. Your applications coordinate
+which activity to present; credentials do not reserve separate physical outputs.
+
+**Requires:** registered agents with issued credentials and compatible clients.
+[Multi-agent access and output limits](mcp-overview.md#multiple-agents-and-controlled-access).
+
+## Local operation and personalization
+
+Run the eyes, supported touch reactions, configured sensors, and finite voice
+sessions without an external agent. Use Web Admin or REST for local operation;
+choose skins and colors to personalize the interface.
+
+**Requires:** the local runtime and hardware/providers for each enabled feature.
+[Standalone operation](discover.md#standalone-operation) · [Visual system](visual-system.md).
 
 </div>

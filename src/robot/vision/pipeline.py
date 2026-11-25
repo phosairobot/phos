@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rate-limited local vision orchestration, independent of LLMs and hardware SDKs."""
 
 from __future__ import annotations

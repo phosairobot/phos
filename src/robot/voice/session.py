@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded explicit voice-capture session; it owns no UI, LLM or playback."""
 from __future__ import annotations
 import asyncio

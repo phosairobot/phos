@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Plain application-domain data for transcription and intent resolution."""
 from __future__ import annotations
 

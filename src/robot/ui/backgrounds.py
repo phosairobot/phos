@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Resolved, cached state-background presentation independent of display backend."""
 from __future__ import annotations
 
@@ -55,6 +56,11 @@ class BackgroundResolver:
             if asset.available:
                 logger.info("PHOS VISUAL: background changed state=%s asset=%s", asset.state, asset.name)
         return asset
+
+    @property
+    def configuration_key(self) -> tuple[bool, tuple[BackgroundAsset, ...]]:
+        """Stable identity for live updates; excludes reporting-only cache state."""
+        return self.enabled, tuple(self._assets[state] for state in _STATES)
 
     def status(self, state: RobotState | str) -> dict:
         asset = self.resolve(state)

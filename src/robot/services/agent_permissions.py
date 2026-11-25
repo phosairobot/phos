@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A small semantic permission boundary for authenticated agent adapters."""
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ class AgentPermission(str, Enum):
     READ_PERCEPTION = "read_perception"
     READ_CAMERA_SNAPSHOT = "read_camera_snapshot"
     CONTROL_EXPRESSION = "control_expression"
+    CONTROL_VISUAL_STATE = "control_visual_state"
     CONTROL_VOICE = "control_voice"
     CONTROL_SLEEP = "control_sleep"
     SIGNAL_USER = "signal_user"
@@ -30,6 +32,7 @@ class AgentOperation(str, Enum):
 
     STATUS = "status"
     GET_PHYSICAL_CONTEXT = "get_physical_context"
+    GET_PHYSICAL_ASSESSMENT = "get_physical_assessment"
     QUERY_PHYSICAL_HISTORY = "query_physical_history"
     PRESENCE = "presence"
     ATTENTION = "attention"
@@ -37,6 +40,7 @@ class AgentOperation(str, Enum):
     VISIBLE_OBJECTS = "visible_objects"
     CAMERA_SNAPSHOT = "camera_snapshot"
     SET_EXPRESSION = "set_expression"
+    SET_VISUAL_STATE = "set_visual_state"
     SPEAK = "speak"
     SLEEP = "sleep"
     WAKE = "wake"
@@ -46,6 +50,7 @@ class AgentOperation(str, Enum):
 OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyType({
     AgentOperation.STATUS: AgentPermission.READ_STATUS,
     AgentOperation.GET_PHYSICAL_CONTEXT: AgentPermission.READ_PHYSICAL_CONTEXT,
+    AgentOperation.GET_PHYSICAL_ASSESSMENT: AgentPermission.READ_PHYSICAL_HISTORY,
     AgentOperation.QUERY_PHYSICAL_HISTORY: AgentPermission.READ_PHYSICAL_HISTORY,
     AgentOperation.PRESENCE: AgentPermission.READ_PERCEPTION,
     AgentOperation.ATTENTION: AgentPermission.READ_PERCEPTION,
@@ -53,6 +58,7 @@ OPERATION_PERMISSIONS: Mapping[AgentOperation, AgentPermission] = MappingProxyTy
     AgentOperation.VISIBLE_OBJECTS: AgentPermission.READ_PERCEPTION,
     AgentOperation.CAMERA_SNAPSHOT: AgentPermission.READ_CAMERA_SNAPSHOT,
     AgentOperation.SET_EXPRESSION: AgentPermission.CONTROL_EXPRESSION,
+    AgentOperation.SET_VISUAL_STATE: AgentPermission.CONTROL_VISUAL_STATE,
     AgentOperation.SPEAK: AgentPermission.CONTROL_VOICE,
     AgentOperation.SLEEP: AgentPermission.CONTROL_SLEEP,
     AgentOperation.WAKE: AgentPermission.CONTROL_SLEEP,
@@ -215,6 +221,10 @@ class AgentApplicationService:
         self._require(AgentOperation.GET_PHYSICAL_CONTEXT)
         return self._application.get_physical_context()
 
+    def get_physical_assessment(self) -> dict[str, Any]:
+        self._require(AgentOperation.GET_PHYSICAL_ASSESSMENT)
+        return self._application.get_physical_assessment()
+
     def query_measurements(self, metric: str, start: str | None = None, end: str | None = None, limit: int = 360) -> dict[str, Any]:
         self._require(AgentOperation.QUERY_PHYSICAL_HISTORY)
         return self._application.query_measurements(metric, start=start, end=end, limit=limit)
@@ -272,6 +282,19 @@ class AgentApplicationService:
         self._require(AgentOperation.SET_EXPRESSION)
         value = self._application.set_expression(expression)
         return {"expression": value.get("expression", expression), "applied": True}
+
+    def request_visual_state(self, state: str, duration_ms: int | None = None) -> dict[str, Any]:
+        """Request only this authenticated identity's temporary visual lease."""
+        self._require(AgentOperation.SET_VISUAL_STATE)
+        if self._identity is None:
+            raise RuntimeError("Visual-state requests require an authenticated agent identity.")
+        return self._application.request_agent_visual_state(self._identity.id, state, duration_ms)
+
+    async def _wait_for_visual_appearance(self) -> None:
+        self._require(AgentOperation.SET_VISUAL_STATE)
+        if self._identity is None:
+            raise RuntimeError("Visual-state requests require an authenticated agent identity.")
+        await self._application.wait_for_agent_visual_appearance()
 
     def speak(self, text: str) -> dict[str, Any]:
         self._require(AgentOperation.SPEAK)

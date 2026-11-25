@@ -2,12 +2,14 @@
 
 ## PHOS 1.9.0
 
-**Physical Context & Object Awareness.** The authoritative source version is
-**1.9.0**. It adds bounded RAM-only temporal physical history, a documented
-agent composition pattern for physical context, and optional on-demand NanoDet
-object awareness through MCP. Object awareness remains disabled by default and
-requires an operator-supplied local model; no images, identities, boxes, or
-object history are retained.
+**Physical Context & Object Awareness.** The checked-out commit is tagged
+**1.9.0**, but `robot.__version__` and its release test still report **1.8.0**.
+This must be resolved before treating 1.9.0 as the authoritative package
+release. The source includes bounded RAM-only temporal physical history, a
+documented agent composition pattern for physical context, and optional
+on-demand NanoDet object awareness through MCP. Object awareness remains
+disabled by default and requires an operator-supplied local model; no images,
+identities, boxes, or object history are retained.
 
 [Read the 1.9.0 release record](release-1.9.0.md){ .md-button .md-button--primary }
 
@@ -18,8 +20,7 @@ version is **1.8.0**. It includes permission-checked semantic MCP tools and
 Resources over Streamable HTTP, stdio bridge Resource forwarding, the
 on-demand `phos://vision/snapshot` JPEG Resource, and immediate Web Admin
 Camera Preview/log-level updates through the runtime lifecycle boundary.
-Automated coverage is in place; physical Raspberry Pi acceptance remains a
-separate release gate.
+Automated coverage is in place.
 
 [Read the 1.8.0 release record](release-1.8.0.md){ .md-button .md-button--primary }
 
@@ -30,8 +31,7 @@ source version is **1.7.0**. It adds the generic `phos-hw` v1 serial controller
 boundary, controller-backed semantic sensors, capability-aware LED output, and
 the semantic LED API/control path. The Raspberry implementation is covered by
 hardware-free protocol, controller, lifecycle, Web Admin, and semantic-LED
-tests; matching controller firmware and physical-device acceptance remain
-separate deployment responsibilities.
+tests. Use the official [phos-esp32 companion firmware](https://github.com/phosairobot/phos-esp32).
 
 [Read the 1.7.0 release record](release-1.7.0.md){ .md-button .md-button--primary }
 
@@ -48,8 +48,7 @@ and provider-neutral Vosk STT baseline validated on Raspberry Pi 3.
 The authoritative source version is **1.3.0**. It adds semantic Presence and
 Attention, transient LED arrival/departure reactions, observed facial-expression
 telemetry, and cautious expression reactions with realtime Web Admin visibility.
-Automated regression has passed; target-Pi acceptance remains required before
-tagging.
+Automated regression has passed.
 
 [Read the 1.3.0 release record](release-1.3.0.md){ .md-button .md-button--primary }
 
@@ -58,7 +57,6 @@ tagging.
 The authoritative source version is **1.2.0**. It adds the authenticated,
 provider-neutral Remote API, capability discovery, temporary overlay control,
 local OpenAPI/Swagger documentation, and SSE event compatibility transport.
-Target-Pi acceptance remains required before tagging.
 
 [Read the 1.2.0 release record](release-1.2.0.md){ .md-button .md-button--primary }
 
@@ -67,7 +65,7 @@ Target-Pi acceptance remains required before tagging.
 The authoritative source version is **1.1.0**. It extends the 1.0 baseline with
 implemented optional environmental sensing, air-quality interpretation, motion
 awareness, WS2812B behavior, overlays and visual-source arbitration. It is **not
-ready to tag** until complete-suite and target-Pi acceptance gates pass.
+ready to tag** until full-suite and Pi integration tests pass.
 
 [Read the 1.1.0 release record](release-1.1.0.md){ .md-button }
 

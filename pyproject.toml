@@ -2,6 +2,7 @@
 name = "phos-robot"
 dynamic = ["version"]
 description = "Modular personal robot for Raspberry Pi"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
 dependencies = ["PyYAML>=6.0,<7", "cryptography>=42,<45"]
 
@@ -35,10 +36,10 @@ pythonpath = ["src"]
 
 [tool.setuptools.package-data]
 "robot.assets" = ["images/*.png", "audio/*.wav"]
-"robot.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/swagger-ui/*"]
+"robot.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/images/*.png", "static/swagger-ui/*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "robot.__version__"}
 
 [tool.setuptools.data-files]
-"share/phos/config" = ["config/phos.yaml", "config/phos.json"]
+"share/phos/config" = ["config/phos.yaml"]

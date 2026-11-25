@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Compatibility entry point; PHOS now starts MCP with ``robot.main``."""
 from robot.main import main
 

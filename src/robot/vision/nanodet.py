@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small, on-demand OpenCV DNN NanoDet detector; it owns neither camera nor frames."""
 from __future__ import annotations
 

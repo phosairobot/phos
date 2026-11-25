@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Start the PHOS robot runtime.
 
 The default renderer opens the face fullscreen on the Pi's HDMI desktop.
@@ -247,6 +248,9 @@ async def async_main(*, config: RuntimeConfig | None = None, lifecycle=None, web
             preview_applier = getattr(runtime, "apply_camera_preview", None)
             if preview_applier is not None:
                 lifecycle.register_camera_preview_applier(preview_applier)
+            object_awareness_applier = getattr(runtime, "apply_object_awareness", None)
+            if object_awareness_applier is not None:
+                lifecycle.register_object_awareness_applier(object_awareness_applier)
             motion_applier = getattr(runtime, "apply_imu_motion", None)
             if motion_applier is not None:
                 lifecycle.register_imu_motion_applier(motion_applier)
@@ -293,7 +297,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Start the PHOS robot runtime.",
                                      argument_default=argparse.SUPPRESS,
                                      epilog="All individual setting flags are deprecated overrides; edit the active configuration file instead.")
-    parser.add_argument("--config", type=Path, help="explicit PHOS configuration file; otherwise discover phos.yaml, phos.yml, then phos.json")
+    parser.add_argument("--config", type=Path, help="explicit PHOS YAML configuration file; otherwise use phos.yaml")
     parser.add_argument("--expression-provider", choices=("local", "aws"), help="deprecated: override expression.provider and enable expressions")
     parser.add_argument("--aws-region", help="deprecated: override expression.aws.region")
     parser.add_argument(
@@ -345,7 +349,7 @@ def main() -> None:
     arguments = vars(parser.parse_args())
     config_path = arguments.pop("config", None)
     try:
-        # Compatibility flags become typed overrides of the one JSON model.
+            # Compatibility flags become typed overrides of the one YAML model.
         # No flag supplies a separate default or persists its override.
         aliases = {"face_tracking": "face_tracking_enabled", "expression_model": "expression_model_path",
                    "expression_debug": "expression_diagnostics"}

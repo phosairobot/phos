@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 from .provider import (CartesiaSTTProvider, SpeechRecognitionResult, STTConfigurationError, STTError,
                        STTProvider, STTProviderError, STTProviderFactory, UnavailableSTTProvider,
                        VoskSTTProvider)

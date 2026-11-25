@@ -1,4 +1,6 @@
 :root {
+  --phos-purple: #8b5cf6;
+  --phos-purple-bright: #a855f7;
   --phos-bg: #050b18;
   --phos-surface: #0b1730;
   --phos-surface-soft: #101f3e;
@@ -9,6 +11,140 @@
 
   --phos-text: #eef6ff;
   --phos-muted: #a9bbd2;
+}
+
+/* Purple accents extend the existing palette without replacing base tokens. */
+.phos-purple-hero {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+}
+
+.phos-purple-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 30%, rgba(139, 92, 246, 0.24), transparent 65%);
+  pointer-events: none;
+  animation: phos-breathe 7s ease-in-out infinite;
+}
+
+.phos-purple-hero .phos-landing-logo {
+  box-shadow: 0 0 2rem rgba(168, 85, 247, 0.3);
+}
+
+.phos-gradient-accent {
+  position: relative;
+  color: #c4b5fd;
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .phos-gradient-accent {
+    background: linear-gradient(100deg, #c4b5fd, #a5b4fc, #e9d5ff, #c4b5fd);
+    background-size: 200% auto;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: phos-shimmer 10s linear infinite;
+  }
+}
+
+.phos-gradient-accent::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -0.08em;
+  height: 0.035em;
+  background: linear-gradient(90deg, transparent, var(--phos-purple-bright), transparent);
+  transform: scaleX(0.65);
+  transition: transform 250ms ease;
+}
+
+.phos-purple-hero:hover .phos-gradient-accent::after,
+.phos-purple-hero:focus-within .phos-gradient-accent::after {
+  transform: scaleX(1);
+}
+
+.md-typeset .grid.cards > ul > li {
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ul > li:focus-within {
+  transform: translateY(-4px);
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 0.5rem 1.2rem rgba(139, 92, 246, 0.14);
+}
+
+.md-typeset .phos-purple-cards .twemoji {
+  color: var(--phos-purple-bright);
+}
+
+.phos-entrance,
+.md-typeset .mermaid {
+  animation: fadeInUp 600ms ease both;
+}
+
+.md-typeset .mermaid {
+  margin-block: 1.5rem;
+  overflow-x: auto;
+}
+
+/* Keep new surfaces and typography readable if the light scheme is selected. */
+[data-md-color-scheme='default'] .md-typeset,
+[data-md-color-scheme='default'] .md-typeset :is(p, li, td, h1, h2) {
+  color: var(--md-default-fg-color);
+}
+
+[data-md-color-scheme='default'] .md-typeset a:not(.md-button) {
+  color: #6d28d9;
+}
+
+[data-md-color-scheme='default'] .phos-purple-hero {
+  background: linear-gradient(135deg, #faf5ff, #eef2ff);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+[data-md-color-scheme='default'] .phos-purple-hero .phos-hero-lede {
+  color: #475569 !important;
+}
+
+[data-md-color-scheme='default'] .phos-gradient-accent {
+  background-image: linear-gradient(100deg, #6d28d9, #4338ca, #7e22ce, #6d28d9);
+}
+
+@keyframes phos-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+@keyframes phos-shimmer {
+  to { background-position: 200% center; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phos-entrance,
+  .md-typeset .mermaid,
+  .phos-purple-hero::before,
+  .phos-gradient-accent,
+  .phos-eye {
+    animation: none !important;
+  }
+
+  .phos-gradient-accent::after,
+  .md-typeset .grid.cards > ul > li {
+    transition: none !important;
+  }
+
+  .md-typeset .grid.cards > ul > li:hover,
+  .md-typeset .grid.cards > ul > li:focus-within {
+    transform: none;
+  }
 }
 
 /* =========================================================
@@ -52,7 +188,7 @@
 }
 
 .md-header__button.md-logo img {
-  border-radius: 50%;
+  border-radius: 0;
 }
 
 /* =========================================================
@@ -212,7 +348,7 @@
 
 .phos-logo {
   width: 5.5rem;
-  border-radius: 50%;
+  border-radius: 0;
   box-shadow: 0 0 35px rgba(73, 231, 255, 0.5);
 }
 
@@ -693,12 +829,42 @@
   text-align: center;
 }
 
+/* Static corner glows are limited to the homepage Hero. */
+.phos-landing-hero.phos-purple-hero {
+  background:
+    radial-gradient(ellipse 65% 60% at 0% 100%, rgba(139, 92, 246, 0.20), transparent 72%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, rgba(168, 85, 247, 0.18), transparent 72%),
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.08), transparent 35%),
+    linear-gradient(180deg, #0b1b38 0%, #080f24 58%, #14122e 100%);
+}
+
+.phos-landing-hero.phos-purple-hero::before {
+  content: none;
+}
+
+[data-md-color-scheme='default'] .phos-landing-hero.phos-purple-hero {
+  background:
+    radial-gradient(ellipse 65% 60% at 0% 100%, rgba(139, 92, 246, 0.14), transparent 72%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, rgba(168, 85, 247, 0.12), transparent 72%),
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.06), transparent 35%),
+    linear-gradient(180deg, #f8faff 0%, #f4f5fc 58%, #f1edfb 100%);
+}
+
 .phos-landing-logo {
   width: clamp(5rem, 13vw, 8rem);
   height: auto;
   margin: 0 auto 1rem;
-  border-radius: 50%;
+  border-radius: 0;
   box-shadow: 0 0 2.2rem rgba(73, 231, 255, 0.34);
+}
+
+.phos-landing-hero .phos-landing-logo {
+  display: inline-block;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  object-fit: contain;
+  object-position: center;
+  overflow: hidden;
 }
 
 .phos-landing-hero h1 {
@@ -912,5 +1078,113 @@
   .phos-flow,
   .phos-pipeline {
     justify-content: center;
+  }
+}
+
+/* Shared link interactions; buttons retain their existing contrast and effects. */
+[data-md-color-scheme='default'] {
+  --phos-link-hover: #9333ea;
+  --phos-link-glow: rgba(147, 51, 234, 0.16);
+}
+
+[data-md-color-scheme='slate'] {
+  --phos-link-hover: #c084fc;
+  --phos-link-glow: rgba(192, 132, 252, 0.22);
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button),
+[data-md-color-scheme] .md-nav__link,
+[data-md-color-scheme] .md-footer__link,
+[data-md-color-scheme] .md-tabs__link {
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button):is(:hover, :focus-visible),
+[data-md-color-scheme] .md-nav__link:is(:hover, :focus-visible),
+[data-md-color-scheme] .md-footer__link:is(:hover, :focus-visible),
+[data-md-color-scheme] .md-tabs__link:is(:hover, :focus-visible) {
+  color: var(--phos-link-hover);
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button):is(:hover, :focus-visible) {
+  text-shadow: 0 0 0.65rem var(--phos-link-glow);
+  text-decoration: underline;
+  text-decoration-color: var(--phos-link-hover);
+  text-underline-offset: 0.18em;
+}
+
+/* Privacy-enhanced YouTube showcase: two columns, stacked on small screens. */
+.md-typeset .video-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-block: 1.5rem;
+}
+
+.md-typeset .video-card {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 12px;
+  background: var(--md-default-bg-color);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.video-wrapper {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.35);
+  background: #0f172a;
+}
+
+.video-wrapper iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.md-typeset .video-card figcaption {
+  display: block;
+  max-width: none;
+  margin: 0;
+  padding: 0.85rem 1rem;
+  color: var(--md-default-fg-color);
+  font-style: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.md-typeset .video-card:is(:hover, :focus-within) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25);
+}
+
+.md-typeset .video-card .video-description {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .md-typeset .video-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .video-card {
+    transition: none;
+  }
+
+  .md-typeset .video-card:is(:hover, :focus-within) {
+    transform: none;
   }
 }

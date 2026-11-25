@@ -105,6 +105,16 @@ def test_physical_context_uses_existing_application_read_models():
     assert context["observed_expression"]["available"] is False
 
 
+def test_physical_assessment_reuses_runtime_history_without_polling_or_mutation():
+    runtime = Runtime()
+    service = PhosApplicationService(runtime)
+    before = runtime._temporal_history.query_measurements("temperature_c")
+    assessment = service.get_physical_assessment()
+    assert assessment["assessment_version"] == "pci-01a"
+    assert assessment["metrics"]["temperature_c"]["reason"] == "no_retained_samples"
+    assert runtime._temporal_history.query_measurements("temperature_c") == before
+
+
 def test_semantic_presence_transitions_are_recorded_once_without_identity():
     runtime = Runtime(); service = PhosApplicationService(runtime)
     async def publish():

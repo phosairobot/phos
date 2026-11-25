@@ -2,7 +2,7 @@
 
 The public overview pages explain PHOS at a glance. The documents below are the
 canonical engineering references: they contain the detailed commands, thresholds,
-configuration fields and acceptance limits that the overview intentionally does
+configuration fields and operating limits that the overview intentionally does
 not duplicate.
 
 <div class="phos-grid" markdown>
@@ -14,7 +14,7 @@ not duplicate.
 
 <article class="phos-card" markdown>
 ### Appearance
-[Creating a PHOS Skin](appearance/creating-skins.md) · [Web Admin appearance controls](web-administration.md#appearance)
+[Skins guide and reference](skins/index.md) · [Creating a Custom Skin](appearance/creating-skins.md) · [Web Admin appearance controls](web-administration.md#appearance)
 </article>
 
 <article class="phos-card" markdown>

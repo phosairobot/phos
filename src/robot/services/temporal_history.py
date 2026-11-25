@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded, process-local physical observation history.
 
 This deliberately stores compact semantic facts, never provider packets, media,
@@ -74,6 +75,16 @@ class TemporalHistoryService:
     def close(self) -> None:
         with self._lock:
             self._samples.clear(); self._events.clear()
+
+    @property
+    def retention_seconds(self) -> int:
+        """Maximum age of retained observations, for read-only consumers."""
+        return _RETENTION_SECONDS
+
+    @property
+    def sample_interval_seconds(self) -> int:
+        """Minimum interval between retained samples of one metric."""
+        return _SAMPLE_INTERVAL_SECONDS
 
     def _expire(self, now: float) -> None:
         cutoff = now - _RETENTION_SECONDS

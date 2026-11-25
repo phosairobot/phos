@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure, interpolated eye geometry for the PHOS face."""
 
 from __future__ import annotations
@@ -293,6 +294,8 @@ class EyeRenderer:
             raise ValueError(f"Unsupported iris color: {iris_color}") from error
         self._values: Optional[_AnimatedValues] = None
         self._last_timestamp: Optional[float] = None
+        self._visual_state = None
+        self._last_transition_progress = 1.0
 
     @property
     def iris_color(self) -> str:
@@ -302,6 +305,11 @@ class EyeRenderer:
     @property
     def shape(self) -> str:
         return self._shape
+
+    @property
+    def last_transition_progress(self) -> float:
+        """Most recent geometry interpolation fraction for transition diagnostics."""
+        return self._last_transition_progress
 
     def update_appearance(self, *, iris_color: str | None = None, shape: str | None = None) -> None:
         """Update render-loop-owned appearance without resetting animation state."""
@@ -317,16 +325,29 @@ class EyeRenderer:
         if shape is not None and shape != self._shape:
             self._shape = shape
 
-    def render(self, face_state: FaceState, *, timestamp: float) -> EyeFrame:
+    def render(self, face_state: FaceState, *, timestamp: float, visual_state=None) -> EyeFrame:
         state = face_state.normalized()
         target = _target_values(state, self._iris_color)
+        state_key = getattr(visual_state, "value", visual_state)
+        semantic_transition = (state_key is not None and self._visual_state is not None and
+                               state_key != self._visual_state)
         if self._values is None:
             self._values = target
+            self._last_transition_progress = 1.0
         else:
             previous_timestamp = timestamp if self._last_timestamp is None else self._last_timestamp
             elapsed = max(0.0, timestamp - previous_timestamp)
-            self._values = _interpolate(self._values, target, min(elapsed / self._transition_seconds, 1.0))
+            self._last_transition_progress = min(elapsed / self._transition_seconds, 1.0)
+            self._values = _interpolate(self._values, target, self._last_transition_progress)
+            if semantic_transition:
+                # State-selected backgrounds and effects change immediately.
+                # Keep eye geometry interpolated, but snap colors so an Idle
+                # palette cannot appear beneath a Thinking surface (or reverse).
+                self._values = replace(self._values, background=target.background, eye_color=target.eye_color,
+                                       pupil_color=target.pupil_color, iris_color=target.iris_color)
         self._last_timestamp = timestamp
+        if state_key is not None:
+            self._visual_state = state_key
         blink_amount = _blink_openness(state.blink_phase, state.blink_progress)
         return EyeFrame(
             width=self._width,

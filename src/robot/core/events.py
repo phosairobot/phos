@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small, in-process event primitives used to connect robot subsystems."""
 
 from __future__ import annotations

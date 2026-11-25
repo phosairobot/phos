@@ -18,6 +18,11 @@ overlays.
 
 </div>
 
+Use [Skins](skins/index.md) to choose iris colour, supported eye shape,
+state backgrounds, visual effects, and optional LED theming. Skins define
+presentation; the expression and behavior paths below retain control of
+semantic intent.
+
 ## A persistent baseline, with temporary reactions
 
 The selected persistent visual source is one of **manual**, **environment** or
@@ -38,13 +43,14 @@ SURPRISED's yellow eye-body accents are intentional exceptions rather than a
 generic emotion-color mapping: eye geometry carries the expression. FURIOUS and
 expression intensity are not implemented.
 
-## One intent, three outputs
+## Visual output paths
 
 - **Eyes:** `EyeRenderer` applies `FaceState` expression, gaze, blink, semantic
   accent and the named base iris theme.
-- **LED ring:** the optional low-rate controller consumes the same
-  provider-neutral semantic intent, including environmental colors and motion
-  fills, without accessing vision or sensor objects.
+- **LED ring:** the ESP32 drives the optional WS2812B ring from `phos-hw` v1
+  semantic commands. `SemanticLedService` resolves robot-state, environmental,
+  and temporary user signals; LED output requires an active serial controller
+  session with advertised LED capability.
 - **Overlays:** independently confirmed environmental markers—sweat, snow/ice
   and haze—decorate a safe band without changing eye geometry or pupils.
 

@@ -1,8 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
 """Fixed-rate UI runtime, independent from behavior and Vision timing."""
 
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Future
 from functools import partial
 import logging
 import time
@@ -47,6 +49,8 @@ class EyeRenderLoop(Behavior):
         state_effect_resolver: Optional[StateEffectResolver] = None,
         eye_safe_resolver: Optional[EyeSafeResolver] = None,
         transient_overlay_supplier: Optional[Callable[[], object]] = None,
+        frame_state_supplier: Optional[Callable[[], tuple[object, object]]] = None,
+        actual_robot_state_supplier: Optional[Callable[[], object]] = None,
     ) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive.")
@@ -70,9 +74,17 @@ class EyeRenderLoop(Behavior):
         self._pending_state_effect_resolver: Optional[StateEffectResolver] = None
         self._eye_safe_resolver = eye_safe_resolver
         self._transient_overlay_supplier = transient_overlay_supplier
+        self._frame_state_supplier = frame_state_supplier
+        self._actual_robot_state_supplier = actual_robot_state_supplier
+        self._frame_sequence = 0
+        self._last_visual_state = object()
+        self._diagnostic_frames_remaining = 0
         self._pending_eye_safe_resolver: Optional[EyeSafeResolver] = None
         self._effect_dimensions = None
         self._state_effect_prewarm_handle = None
+        self._visual_config_requested = self._visual_config_applied = 0
+        self._visual_config_waiters: list[tuple[int, Future]] = []
+        self._visual_config_failures: dict[int, Exception] = {}
         self._task: Optional[asyncio.Task[None]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._appearance_lock = Lock()
@@ -132,7 +144,15 @@ class EyeRenderLoop(Behavior):
                                             shape if shape is not None else pending_shape)
                 return
             loop = self._loop
-        loop.call_soon_threadsafe(partial(self._renderer.update_appearance, iris_color=iris_color, shape=shape))
+        if self._on_display_loop(loop):
+            logger.debug("PHOS VISUAL CONFIG appearance apply=inline")
+            self._renderer.update_appearance(iris_color=iris_color, shape=shape)
+            self._complete_visual_configuration(self._next_visual_configuration())
+            return
+        logger.debug("PHOS VISUAL CONFIG appearance apply=queued")
+        generation = self._next_visual_configuration()
+        loop.call_soon_threadsafe(self._apply_visual_configuration, generation,
+                                  partial(self._renderer.update_appearance, iris_color=iris_color, shape=shape))
 
     def request_preview_settings(self, settings: CameraPreviewSettings) -> None:
         with self._appearance_lock:
@@ -149,7 +169,15 @@ class EyeRenderLoop(Behavior):
                 self._pending_background_resolver = resolver
                 return
             loop = self._loop
-        loop.call_soon_threadsafe(self._replace_background_resolver, resolver)
+        if self._on_display_loop(loop):
+            logger.debug("PHOS VISUAL CONFIG backgrounds apply=inline")
+            self._replace_background_resolver(resolver)
+            self._complete_visual_configuration(self._next_visual_configuration())
+            return
+        logger.debug("PHOS VISUAL CONFIG backgrounds apply=queued")
+        generation = self._next_visual_configuration()
+        loop.call_soon_threadsafe(self._apply_visual_configuration, generation,
+                                  lambda: self._replace_background_resolver(resolver))
 
     def request_state_effects(self, resolver: StateEffectResolver) -> None:
         """Publish effect semantics through the render-loop boundary."""
@@ -158,7 +186,15 @@ class EyeRenderLoop(Behavior):
                 self._pending_state_effect_resolver = resolver
                 return
             loop = self._loop
-        loop.call_soon_threadsafe(self._replace_state_effect_resolver, resolver)
+        if self._on_display_loop(loop):
+            logger.debug("PHOS VISUAL CONFIG state_effects apply=inline")
+            self._replace_state_effect_resolver(resolver)
+            self._complete_visual_configuration(self._next_visual_configuration())
+            return
+        logger.debug("PHOS VISUAL CONFIG state_effects apply=queued")
+        generation = self._next_visual_configuration()
+        loop.call_soon_threadsafe(self._apply_visual_configuration, generation,
+                                  lambda: self._replace_state_effect_resolver(resolver))
 
     def request_eye_safe_layer(self, resolver: EyeSafeResolver) -> None:
         with self._appearance_lock:
@@ -166,9 +202,70 @@ class EyeRenderLoop(Behavior):
                 self._pending_eye_safe_resolver = resolver
                 return
             loop = self._loop
-        loop.call_soon_threadsafe(setattr, self, "_eye_safe_resolver", resolver)
+        if self._on_display_loop(loop):
+            self._eye_safe_resolver = resolver
+            self._complete_visual_configuration(self._next_visual_configuration())
+            return
+        generation = self._next_visual_configuration()
+        loop.call_soon_threadsafe(self._apply_visual_configuration, generation,
+                                  partial(setattr, self, "_eye_safe_resolver", resolver))
+
+    @staticmethod
+    def _on_display_loop(loop: asyncio.AbstractEventLoop) -> bool:
+        """Whether a runtime update already executes at the render boundary."""
+        try:
+            return asyncio.get_running_loop() is loop
+        except RuntimeError:
+            return False
+
+    def _next_visual_configuration(self) -> int:
+        with self._appearance_lock:
+            self._visual_config_requested += 1
+            return self._visual_config_requested
+
+    def _apply_visual_configuration(self, generation: int, action) -> None:
+        try:
+            action()
+        except Exception as error:
+            self._complete_visual_configuration(generation, error)
+            raise
+        self._complete_visual_configuration(generation)
+
+    def _complete_visual_configuration(self, generation: int, error: Exception | None = None) -> None:
+        with self._appearance_lock:
+            if error is not None:
+                self._visual_config_failures[generation] = error
+            self._visual_config_applied = max(self._visual_config_applied, generation)
+            ready, self._visual_config_waiters = (
+                [item for item in self._visual_config_waiters if item[0] <= self._visual_config_applied],
+                [item for item in self._visual_config_waiters if item[0] > self._visual_config_applied],
+            )
+        for _target, waiter in ready:
+            failure = next((failure for failed_at, failure in self._visual_config_failures.items()
+                            if failed_at <= _target), None)
+            if not waiter.done():
+                if failure is None: waiter.set_result(None)
+                else: waiter.set_exception(failure)
+
+    def visual_configuration_barrier(self) -> Future:
+        """Resolve when every visual update queued before this call has applied."""
+        waiter = Future()
+        with self._appearance_lock:
+            target = self._visual_config_requested
+            if self._visual_config_applied >= target:
+                failure = next((failure for failed_at, failure in self._visual_config_failures.items()
+                                if failed_at <= target), None)
+                if failure is None: waiter.set_result(None)
+                else: waiter.set_exception(failure)
+            else:
+                self._visual_config_waiters.append((target, waiter))
+        return waiter
 
     def _replace_state_effect_resolver(self, resolver: StateEffectResolver) -> None:
+        if (self._state_effect_resolver is not None and
+                resolver.configuration_key == self._state_effect_resolver.configuration_key):
+            logger.debug("PHOS VISUAL CONFIG state_effects unchanged action=preserve")
+            return
         self._state_effect_resolver = resolver
         if self._effect_dimensions is not None and hasattr(self._display, "prewarm_state_effect"):
             state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
@@ -195,6 +292,10 @@ class EyeRenderLoop(Behavior):
         self._display.prewarm_state_effect(effect, *dimensions, time.monotonic())
 
     def _replace_background_resolver(self, resolver: BackgroundResolver) -> None:
+        if (self._background_resolver is not None and
+                resolver.configuration_key == self._background_resolver.configuration_key):
+            logger.debug("PHOS VISUAL CONFIG backgrounds unchanged action=preserve")
+            return
         self._background_resolver = resolver
         self._background_state = object()
         self._background_revision += 1
@@ -238,11 +339,12 @@ class EyeRenderLoop(Behavior):
                 self._pending_eye_safe_resolver = None
             if pending_eye_safe is not None:
                 self._eye_safe_resolver = pending_eye_safe
-            initial = self._renderer.render(self._state_supplier(), timestamp=time.monotonic())
+            face_state, visual_state = self._frame_state()
+            initial = self._renderer.render(face_state, timestamp=time.monotonic(), visual_state=visual_state)
             self._display.open(initial.width, initial.height, fullscreen=self._fullscreen)
             if self._touch_handler is not None and hasattr(self._display, "set_touch_handler"):
                 self._display.set_touch_handler(self._touch_handler, **self._touch_settings)
-            self._draw(initial)
+            self._draw(initial, visual_state=visual_state, face_state=face_state)
             self._display.poll_keys()
             self._task = asyncio.create_task(self._run(), name="eye-render-loop")
             with self._appearance_lock:
@@ -269,6 +371,10 @@ class EyeRenderLoop(Behavior):
         with self._appearance_lock:
             self._appearance_ready = False
             self._loop = None
+            waiters, self._visual_config_waiters = self._visual_config_waiters, []
+        for _target, waiter in waiters:
+            if not waiter.done():
+                waiter.set_exception(RuntimeError("Eye render loop stopped before visual configuration applied."))
         if self._state_effect_prewarm_handle is not None:
             self._state_effect_prewarm_handle.cancel()
             self._state_effect_prewarm_handle = None
@@ -299,13 +405,20 @@ class EyeRenderLoop(Behavior):
     async def _run(self) -> None:
         while True:
             started_at = time.monotonic()
-            frame = self._renderer.render(self._state_supplier(), timestamp=started_at)
+            face_state, visual_state = self._frame_state()
+            frame = self._renderer.render(face_state, timestamp=started_at, visual_state=visual_state)
             preview = self._preview_supplier() if self._preview_supplier is not None and self._preview_settings.enabled else None
-            self._draw(frame, preview, timestamp=started_at)
+            self._draw(frame, preview, timestamp=started_at, visual_state=visual_state, face_state=face_state)
             self._display.poll_keys()
             await asyncio.sleep(max(0.0, self._frame_interval - (time.monotonic() - started_at)))
 
-    def _draw(self, frame, preview=None, *, timestamp=None) -> None:
+    def _frame_state(self) -> tuple[object, object]:
+        if self._frame_state_supplier is not None:
+            return self._frame_state_supplier()
+        state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
+        return self._state_supplier(), state
+
+    def _draw(self, frame, preview=None, *, timestamp=None, visual_state=None, face_state=None) -> None:
         if self._admin_overlay.expired(timestamp if timestamp is not None else time.monotonic()):
             # The expiration instant comes from RecoveryState; this only drops
             # the local presentation copy once that authoritative deadline is reached.
@@ -319,19 +432,19 @@ class EyeRenderLoop(Behavior):
                 self._display.draw_startup(state=state, message="Starting..." if state == "starting" else "Unable to start",
                                            image_path=splash.get("image"), title=splash.get("title", "PHOS"), subtitle=splash.get("subtitle", "Starting..."))
                 return
-        effect = self._state_effect()
+        effect = self._state_effect(visual_state)
         eye_safe = self._eye_safe()
         safe_kwargs = {"eye_safe": eye_safe} if eye_safe.enabled else {}
         effect_kwargs = ({"state_effect": effect, "effect_timestamp": timestamp or 0.0}
                          if effect.intensity > 0 else {})
+        background = self._background(visual_state)
+        self._log_transition_frame(frame, face_state, visual_state, background, effect, timestamp)
         if self._preview_settings.enabled:
-            background = self._background()
             if background.available:
                 self._display.draw(frame, preview, self._preview_settings, background=background, transient_overlay=self._transient_overlay(), **safe_kwargs, **effect_kwargs)
             else:
                 self._display.draw(frame, preview, self._preview_settings, transient_overlay=self._transient_overlay(), **effect_kwargs)
         else:
-            background = self._background()
             if background.available:
                 self._display.draw(frame, background=background, transient_overlay=self._transient_overlay(), **safe_kwargs, **effect_kwargs)
             else:
@@ -342,21 +455,46 @@ class EyeRenderLoop(Behavior):
     def _transient_overlay(self):
         return self._transient_overlay_supplier() if self._transient_overlay_supplier is not None else None
 
-    def _state_effect(self) -> StateEffectParams:
+    def _state_effect(self, visual_state=None) -> StateEffectParams:
         if self._state_effect_resolver is None:
             return StateEffectParams("idle")
-        state = self._robot_state_supplier() if self._robot_state_supplier is not None else "idle"
+        state = (visual_state if visual_state is not None else
+                 self._robot_state_supplier() if self._robot_state_supplier is not None else "idle")
         return self._state_effect_resolver.resolve(state)
 
     def _eye_safe(self) -> EyeSafeParams:
         return self._eye_safe_resolver.resolve() if self._eye_safe_resolver is not None else EyeSafeParams()
 
-    def _background(self) -> BackgroundAsset:
+    def _background(self, visual_state=None) -> BackgroundAsset:
         """Resolve only on semantic state changes, never in EyeRenderer."""
         if self._background_resolver is None or self._robot_state_supplier is None:
             return self._background_asset
-        state = self._robot_state_supplier()
+        state = visual_state if visual_state is not None else self._robot_state_supplier()
         if state != self._background_state:
             self._background_state = state
             self._background_asset = self._background_resolver.resolve(state)
         return self._background_asset
+
+    def _log_transition_frame(self, frame, face_state, visual_state, background, effect, timestamp) -> None:
+        """Emit only the first few frames of a visual-state transition at DEBUG."""
+        self._frame_sequence += 1
+        state = getattr(visual_state, "value", visual_state)
+        if state != self._last_visual_state:
+            self._last_visual_state = state
+            self._diagnostic_frames_remaining = 3
+        if self._diagnostic_frames_remaining <= 0 or not logger.isEnabledFor(logging.DEBUG):
+            return
+        self._diagnostic_frames_remaining -= 1
+        core = self._actual_robot_state_supplier() if self._actual_robot_state_supplier is not None else None
+        core_state = getattr(core, "value", core)
+        logger.debug(
+            "PHOS VISUAL FRAME seq=%d monotonic=%.6f core=%s effective=%s face_background=%s "
+            "frame_background=%s expression=%s accent=%s transition_progress=%.3f "
+            "background_state=%s background_asset=%s effect_state=%s effect_mode=%s",
+            self._frame_sequence, timestamp if timestamp is not None else time.monotonic(), core_state, state,
+            getattr(face_state, "background", None), frame.background,
+            getattr(getattr(face_state, "expression", None), "value", None),
+            getattr(getattr(face_state, "accent", None), "value", None),
+            getattr(self._renderer, "last_transition_progress", 1.0), background.state, background.name,
+            effect.state, effect.mode,
+        )

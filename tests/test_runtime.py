@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import yaml
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,61 @@ class FakeFrame:
 
     def __getitem__(self, item):
         return item
+
+
+def test_object_awareness_status_reports_configuration_without_initializing_model():
+    class Coordinator:
+        def status(self):
+            return {"closed": False, "busy": False, "detector_initialized": False, "last_error": None}
+    runtime = object.__new__(PhosRuntime)
+    runtime._config = SimpleNamespace(object_awareness_enabled=True)
+    runtime._object_awareness = Coordinator()
+    assert runtime.object_awareness_status() == {
+        "state": "ready", "enabled": True, "model": "configured",
+        "backend": "OpenCV DNN / NanoDet", "reason": None,
+    }
+
+
+def test_object_awareness_live_toggle_reuses_existing_vision_and_closes_previous(monkeypatch, tmp_path):
+    import robot.runtime as runtime_module
+    from robot.config import ConfigRepository
+    class Detector:
+        created = []
+        def __init__(self, *_args, **_kwargs): self.loaded = False; self.closed = False; self.__class__.created.append(self)
+        def load(self): self.loaded = True; return self
+        def close(self): self.closed = True
+        def detect(self, _frame): return []
+    monkeypatch.setattr(runtime_module, "NanoDetDetector", Detector)
+    model = tmp_path / "nanodet.onnx"; model.write_bytes(b"model")
+    document = RuntimeConfig.from_file().to_dict()
+    document["logging"]["file"] = None
+    document["object_awareness"].update(enabled=False, model_path=str(model))
+    config = RuntimeConfig.from_dict(document, base_dir=tmp_path)
+    runtime = object.__new__(PhosRuntime)
+    runtime._config = config
+    runtime._vision_pipeline = object()
+    runtime._object_awareness = None
+    runtime._object_awareness_lock = asyncio.Lock()
+    runtime._object_awareness_tasks = set()
+    runtime._stopping = False
+    runtime._started = True
+    # Reproduce an installed deployment whose default discovery path is absent:
+    # live updates must use the already-owned in-memory configuration instead.
+    monkeypatch.setattr(ConfigRepository, "document", lambda _self: (_ for _ in ()).throw(FileNotFoundError("missing default config")))
+
+    async def exercise():
+        document = config.to_dict()
+        document["object_awareness"]["enabled"] = True
+        enabled = RuntimeConfig.from_dict(document, base_dir=config._base_dir)
+        await runtime._apply_object_awareness(enabled)
+        coordinator = runtime._object_awareness
+        assert coordinator is not None and runtime._vision_pipeline is coordinator._pipeline
+        await runtime._apply_object_awareness(config)
+        assert runtime._object_awareness is None
+        return coordinator
+    coordinator = asyncio.run(exercise())
+    assert Detector.created[0].loaded and Detector.created[0].closed
+    assert coordinator.status()["closed"]
 
 
 def test_runtime_freshness_check_publishes_one_edge_triggered_sensor_transition():
@@ -381,8 +437,8 @@ def test_reloading_iris_appearance_updates_running_renderer_without_restarting_r
         document = load_document()
         document["display"]["iris_color"] = "cyan"
         document["startup"]["ready_sound"]["enabled"] = False
-        path = tmp_path / "phos.json"
-        path.write_text(json.dumps(document))
+        path = tmp_path / "phos.yaml"
+        path.write_text(yaml.safe_dump(document, sort_keys=False))
         config = RuntimeConfig.from_file(path)
         display, vision = MemoryEyeDisplay(), StableVision()
         runtime = build_runtime(config=config, eye_display=display, vision_pipeline=vision)
@@ -394,7 +450,7 @@ def test_reloading_iris_appearance_updates_running_renderer_without_restarting_r
         service.register_camera_preview_applier(runtime.apply_camera_preview)
         document["display"]["iris_color"] = "violet"
         document["vision"]["camera_preview"]["position"] = "top_left"
-        path.write_text(json.dumps(document))
+        path.write_text(yaml.safe_dump(document, sort_keys=False))
         result = await asyncio.to_thread(service.execute, "reload")
         await asyncio.sleep(.25)
         applied = display.frames[-1].iris_color

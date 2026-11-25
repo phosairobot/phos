@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral speech rendering; logical response text is never mutated."""
 from __future__ import annotations
 

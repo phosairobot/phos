@@ -1,7 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
 """Canonical, secret-free PHOS settings. No hardware, SDK or CLI dependencies."""
 from __future__ import annotations
 
-import json
 import ipaddress
 import logging
 import math
@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Source checkouts use the one canonical document. Wheels install that same
 # source file as data; no independent defaults are maintained in the package.
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "phos.json"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "phos.yaml"
 if not DEFAULT_CONFIG_PATH.is_file():
-    DEFAULT_CONFIG_PATH = Path(sys.prefix) / "share" / "phos" / "config" / "phos.json"
+    DEFAULT_CONFIG_PATH = Path(sys.prefix) / "share" / "phos" / "config" / "phos.yaml"
 
 
 # Logical RGB values sent by PHOS.  The WS2812B adapter owns conversion to its
@@ -71,38 +71,45 @@ def atomic_write_text(path: Path, content: str) -> None:
             temporary.unlink()
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects ambiguous duplicate mapping keys."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ConfigurationError(f"Duplicate configuration key: {key}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+                                 _construct_unique_mapping)
+
+
 class ConfigRepository:
-    """One active configuration source and its validation/persistence boundary."""
-    _legacy_json_warning_emitted = False
+    """One active YAML configuration source and its validation/persistence boundary."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
         self._active_path = (self.discover_active_path() if path is None else Path(path).resolve())
         self._format = self._format_for_path(self._active_path)
-        if self._format == "json" and not self._legacy_json_warning_emitted:
-            logger.warning("PHOS CONFIG: legacy JSON configuration loaded from %s; YAML is preferred",
-                           self._active_path)
-            type(self)._legacy_json_warning_emitted = True
 
     @staticmethod
     def discover_active_path() -> Path:
         """Choose one default source, without merging or later rediscovery."""
-        candidates = (
-            DEFAULT_CONFIG_PATH.with_suffix(".yaml"),
-            DEFAULT_CONFIG_PATH.with_suffix(".yml"),
-            DEFAULT_CONFIG_PATH,
-        )
-        return next((path.resolve() for path in candidates if path.is_file()),
-                    DEFAULT_CONFIG_PATH.resolve())
+        return DEFAULT_CONFIG_PATH.resolve()
 
     @staticmethod
     def _format_for_path(path: Path) -> str:
-        formats = {".json": "json", ".yaml": "yaml", ".yml": "yaml"}
+        formats = {".yaml": "yaml", ".yml": "yaml"}
         try:
             return formats[path.suffix.lower()]
         except KeyError as error:
             raise ConfigurationError(
                 f"Unsupported configuration file extension: {path.suffix or '<none>'}; "
-                "expected .json, .yaml, or .yml"
+                "expected a YAML file (.yaml or .yml); JSON configuration is no longer supported"
             ) from error
 
     @property
@@ -112,32 +119,17 @@ class ConfigRepository:
     def format(self) -> str: return self._format
 
     def document(self) -> dict:
-        if self.format == "json":
-            return load_document(self._active_path)
-        try:
-            document = yaml.safe_load(self._active_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as error:
-            raise ConfigurationError(f"{self._active_path}: invalid YAML") from error
-        except (OSError, UnicodeError) as error:
-            raise ConfigurationError(
-                f"Cannot read configuration file: {self._active_path} ({type(error).__name__})"
-            ) from error
-        if not isinstance(document, dict):
-            raise ConfigurationError(f"{self._active_path}: YAML root must be an object")
-        return document
+        return load_document(self._active_path)
 
     def load(self, document=None, *, overrides=None) -> "RuntimeConfig":
         return RuntimeConfig.from_dict(self.document() if document is None else document,
                                        base_dir=self._active_path.parent, overrides=overrides)
 
     def save(self, config: "RuntimeConfig") -> None:
-        if self.format == "json":
-            content = config.serialized_json(self._active_path)
-        else:
-            content = yaml.safe_dump(config.persistence_document(self._active_path),
-                                     default_flow_style=False, allow_unicode=True, sort_keys=False)
-            if not content.endswith("\n"):
-                content += "\n"
+        content = yaml.safe_dump(config.persistence_document(self._active_path),
+                                 default_flow_style=False, allow_unicode=True, sort_keys=False)
+        if not content.endswith("\n"):
+            content += "\n"
         atomic_write_text(self._active_path, content)
 
 
@@ -152,22 +144,23 @@ def _keys(value, expected, location):
 
 
 def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    """Read a legacy JSON document; ConfigRepository owns format dispatch."""
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ConfigurationError(f"Duplicate configuration key: {key}")
-            result[key] = value
-        return result
+    """Read a YAML configuration document and apply explicit schema evolution."""
     try:
-        document = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+        path = Path(path).resolve()
+        if path.suffix.lower() not in {".yaml", ".yml"}:
+            raise ConfigurationError(
+                f"Unsupported configuration file extension: {path.suffix or '<none>'}; "
+                "expected a YAML file (.yaml or .yml); JSON configuration is no longer supported"
+            )
+        document = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+        if not isinstance(document, dict):
+            raise ConfigurationError(f"{path}: YAML root must be an object")
         if isinstance(document, dict):
             document.setdefault("object_awareness", {"enabled": False, "model_path": None,
                                                        "confidence": .35, "max_detections": 5,
                                                        "timeout_seconds": 2.0})
         # Explicit schema evolution only: no general missing-key permissiveness.
-        if isinstance(document, dict) and Path(path).resolve() != DEFAULT_CONFIG_PATH.resolve():
+        if path != DEFAULT_CONFIG_PATH.resolve():
             evolving_sections = ("presence", "attention", "expression_reactions", "startup", "touch", "voice", "tts")
             missing_sections = tuple(section for section in evolving_sections if section not in document)
             voice_document = document.get("voice")
@@ -203,7 +196,7 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                                              or "volume" not in tts_document.get("cartesia", {})))
             # A complete explicit config is self-contained; do not consult a
             # separate default document merely to validate it.
-            default = (json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+            default = (load_document(DEFAULT_CONFIG_PATH)
                        if missing_sections or needs_voice_defaults or needs_tts_audio_defaults else None)
             for section in missing_sections:
                 if section not in document:
@@ -251,8 +244,8 @@ def load_document(path: Path = DEFAULT_CONFIG_PATH) -> dict:
                         for key, default_value in default_startup[section].items():
                             value.setdefault(key, copy.deepcopy(default_value))
         return document
-    except json.JSONDecodeError as error:
-        raise ConfigurationError(f"{path}: invalid JSON at line {error.lineno}, column {error.colno}") from error
+    except yaml.YAMLError as error:
+        raise ConfigurationError(f"{path}: invalid YAML") from error
     except (OSError, UnicodeError) as error:
         raise ConfigurationError(f"Cannot read configuration file: {path} ({type(error).__name__})") from error
 
@@ -313,7 +306,7 @@ class CloudExpressionConfig:
 
 
 # The section structure maps to the existing typed RuntimeConfig surface. Values
-# live only in phos.json; this mapping is schema, not a second set of defaults.
+# Values live only in phos.yaml; this mapping is schema, not a second set of defaults.
 _SCHEMA = {
     "web": {"enabled": "web_enabled", "host": "web_host", "port": "web_port"},
     "mcp": {"enabled": "mcp_enabled", "host": "mcp_host", "port": "mcp_port", "path": "mcp_path",
@@ -354,7 +347,7 @@ _SCHEMA = {
     "voice": {"enabled": "voice_enabled", "input": {"device": "voice_input_device", "device_index": "voice_input_device_index", "sample_rate": "voice_capture_sample_rate", "channels": "voice_channels", "chunk_ms": "voice_chunk_ms"}, "processing": {"sample_rate": "voice_processing_sample_rate"}, "vad": {"speech_start_ms": "voice_speech_start_ms", "silence_end_ms": "voice_silence_end_ms", "min_utterance_ms": "voice_min_utterance_ms", "max_utterance_ms": "voice_max_utterance_ms", "pre_roll_ms": "voice_pre_roll_ms", "threshold": "voice_vad_threshold"}, "debug": {"dump_utterance_wav": "voice_debug_dump_utterance_wav", "utterance_wav_path": "voice_debug_utterance_wav_path"}, "stt": {"provider": "voice_stt_provider", "model_path": "voice_stt_model_path", "language": "voice_stt_language", "cartesia": {"model_id": "voice_stt_cartesia_model_id", "language": "voice_stt_cartesia_language", "sample_rate": "voice_stt_cartesia_sample_rate"}}},
     "tts": {"enabled": "tts_enabled", "provider": "tts_provider", "local": {"engine": "tts_local_engine", "executable": "tts_local_executable", "model_path": "tts_local_model_path", "speaker_id": "tts_local_speaker_id"}, "elevenlabs": {"voice_id": "tts_elevenlabs_voice_id", "model_id": "tts_elevenlabs_model_id", "output_format": "tts_elevenlabs_output_format"}, "cartesia": {"voice_id": "tts_cartesia_voice_id", "model_id": "tts_cartesia_model_id", "sample_rate": "tts_cartesia_sample_rate", "speed": "tts_cartesia_speed", "volume": "tts_cartesia_volume"}, "audio_output": {"player": "tts_audio_output_player", "device": "tts_audio_output_device", "sample_rate": "tts_audio_output_sample_rate", "channels": "tts_audio_output_channels", "sample_width": "tts_audio_output_sample_width", "preroll_ms": "tts_audio_output_preroll_ms", "retry": {"max_attempts": "tts_audio_output_retry_max_attempts", "delay_ms": "tts_audio_output_retry_delay_ms"}, "debug": {"retain_final_wav": "tts_audio_output_debug_retain_final_wav"}}},
     "touch": {"enabled": "touch_enabled", "tap": {"max_duration_ms": "touch_tap_max_duration_ms", "max_movement_px": "touch_tap_max_movement_px"}, "long_press": {"min_duration_ms": "touch_long_press_min_duration_ms", "max_movement_px": "touch_long_press_max_movement_px"}, "swipe": {"min_distance_px": "touch_swipe_min_distance_px", "max_vertical_drift_px": "touch_swipe_max_vertical_drift_px", "max_duration_ms": "touch_swipe_max_duration_ms"}, "reaction": {"enabled": "touch_reaction_enabled", "duration_ms": "touch_reaction_duration_ms", "cooldown_ms": "touch_reaction_cooldown_ms"}},
-    "hardware_controller": {"enabled": "hardware_controller_enabled", "transport": "hardware_controller_transport", "serial": {"device": "hardware_controller_serial_device", "baud_rate": "hardware_controller_serial_baud_rate"}, "reconnect": {"delay_seconds": "hardware_controller_reconnect_delay_seconds"}, "heartbeat": {"interval_seconds": "hardware_controller_heartbeat_interval_seconds", "timeout_seconds": "hardware_controller_heartbeat_timeout_seconds"}},
+    "hardware_controller": {"enabled": "hardware_controller_enabled", "transport": "hardware_controller_transport", "serial": {"device": "hardware_controller_serial_device", "baud_rate": "hardware_controller_serial_baud_rate", "dtr": "hardware_controller_serial_dtr", "rts": "hardware_controller_serial_rts"}, "reconnect": {"delay_seconds": "hardware_controller_reconnect_delay_seconds"}, "heartbeat": {"interval_seconds": "hardware_controller_heartbeat_interval_seconds", "timeout_seconds": "hardware_controller_heartbeat_timeout_seconds"}},
     "startup": {"splash": {"enabled": "startup_splash_enabled", "image": "startup_splash_image", "title": "startup_splash_title", "subtitle": "startup_splash_subtitle"},
                 "ready_sound": {"enabled": "startup_ready_sound_enabled", "file": "startup_ready_sound_file", "player": "startup_ready_sound_player", "device": "startup_ready_sound_device"}},
     "behavior": {"blink_interval_seconds": "blink_interval_seconds", "gaze_interval_seconds": "gaze_interval_seconds",
@@ -554,6 +547,8 @@ class RuntimeConfig:
     hardware_controller_transport: str
     hardware_controller_serial_device: str
     hardware_controller_serial_baud_rate: int
+    hardware_controller_serial_dtr: bool
+    hardware_controller_serial_rts: bool
     hardware_controller_reconnect_delay_seconds: float
     hardware_controller_heartbeat_interval_seconds: float
     hardware_controller_heartbeat_timeout_seconds: float
@@ -798,9 +793,13 @@ class RuntimeConfig:
                 document["mcp"].setdefault("authentication", {"mode": "bearer", "anonymous_permission_profile": "standard"})
             document.setdefault("agents", {"default_agent": "local-agent", "entries": [{"id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard"}]})
             document.setdefault("hardware_controller", {"enabled": False, "transport": "serial",
-                "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200},
+                "serial": {"device": "/dev/ttyACM0", "baud_rate": 115200, "dtr": False, "rts": False},
                 "reconnect": {"delay_seconds": 2},
                 "heartbeat": {"interval_seconds": 5, "timeout_seconds": 15}})
+            controller = document.get("hardware_controller")
+            if isinstance(controller, dict) and isinstance(controller.get("serial"), dict):
+                controller["serial"].setdefault("dtr", False)
+                controller["serial"].setdefault("rts", False)
             sensors = document.get("sensors")
             if isinstance(sensors, dict):
                 for name in ("environmental", "ens160", "imu"):
@@ -813,7 +812,7 @@ class RuntimeConfig:
         return result
 
     def to_dict(self) -> dict:
-        """Return the complete secret-free JSON structure for editing/persistence."""
+        """Return the complete secret-free dictionary used for editing/persistence."""
         def encode(schema):
             result = {}
             for key, target in schema.items():
@@ -851,13 +850,9 @@ class RuntimeConfig:
         validated = self.from_dict(document, base_dir=path.parent)
         return validated.to_dict()
 
-    def serialized_json(self, path: Path) -> str:
-        """Return validated JSON persistence content, rebased for *path*."""
-        return json.dumps(self.persistence_document(path), indent=2, allow_nan=False) + "\n"
-
     def save(self, path: Path) -> None:
         """Atomically persist validated settings, rebasing paths if relocated."""
-        atomic_write_text(path, self.serialized_json(path))
+        ConfigRepository(path).save(self)
 
     def resolve_path(self, path: Optional[Path]) -> Optional[Path]:
         return None if path is None else (self._base_dir / path).resolve()
@@ -867,7 +862,7 @@ class RuntimeConfig:
         return Path(str(resources.files("robot.assets").joinpath(relative_path)))
 
     def resolve_startup_splash_image(self) -> Path:
-        return self.resolve_path(self.startup_splash_image) or self._bundled_asset_path("images/phos-startup-800x600.png")
+        return self.resolve_path(self.startup_splash_image) or self._bundled_asset_path("images/neon_phos_logo-startup-800x600.png")
 
     def resolve_startup_ready_sound(self) -> Path:
         return self.resolve_path(self.startup_ready_sound_file) or self._bundled_asset_path("audio/phos-startup.wav")
@@ -898,6 +893,8 @@ class RuntimeConfig:
         if not isinstance(self.hardware_controller_serial_device, str) or not self.hardware_controller_serial_device.strip():
             raise ConfigurationError("hardware_controller.serial.device must be a nonempty path")
         number("hardware_controller_serial_baud_rate", minimum=1200, inclusive=True, maximum=3000000, integer=True)
+        if type(self.hardware_controller_serial_dtr) is not bool or type(self.hardware_controller_serial_rts) is not bool:
+            raise ConfigurationError("hardware_controller.serial.dtr and rts must be booleans")
         for name in ("hardware_controller_reconnect_delay_seconds", "hardware_controller_heartbeat_interval_seconds", "hardware_controller_heartbeat_timeout_seconds"):
             number(name, minimum=.1, inclusive=True, maximum=3600)
         if self.hardware_controller_heartbeat_timeout_seconds <= self.hardware_controller_heartbeat_interval_seconds:

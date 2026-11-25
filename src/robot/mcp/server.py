@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Streamable HTTP MCP adapter over the permission-checked semantic boundary."""
 from __future__ import annotations
 
@@ -10,10 +11,10 @@ from threading import RLock
 import time
 from typing import Annotated, Any, Callable
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, StrictInt
 
 from robot.services import (AgentApplicationService, AgentPermissionDenied, ApplicationError, SemanticEvent,
-                            USER_SIGNAL_INTENTS, AgentIdentity, LocalAgentAuthenticator)
+                            USER_SIGNAL_INTENTS, AgentIdentity, AgentOperation, LocalAgentAuthenticator)
 from robot.services.application import COMMANDS
 
 logger = logging.getLogger(__name__)
@@ -24,24 +25,26 @@ _REQUEST_WITHOUT_AUTHORIZATION: ContextVar[bool] = ContextVar("mcp_request_witho
 MCP_TOOL_NAMES = frozenset({
     "phos_get_status", "phos_get_physical_context", "phos_get_presence", "phos_get_attention",
     "phos_get_observed_expression", "phos_get_camera_snapshot", "phos_capture_camera_snapshot", "phos_set_expression", "phos_speak", "phos_sleep",
-    "phos_wake", "phos_signal_user", "phos_query_measurements", "phos_list_physical_transitions", "phos_get_visible_objects",
+    "phos_wake", "phos_signal_user", "phos_query_measurements", "phos_list_physical_transitions", "phos_get_visible_objects", "phos_set_state", "phos_get_physical_assessment",
 })
-MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://environment", "phos://vision/snapshot"})
+MCP_RESOURCE_URIS = frozenset({"phos://status", "phos://physical-context", "phos://physical-context/assessment", "phos://environment", "phos://vision/snapshot"})
+PHYSICAL_CONTEXT_TOOL_DESCRIPTION = "Get PHOS's current semantic physical context, including available environmental, air-quality, motion, presence, and attention information. Use this tool to answer questions about what PHOS currently perceives. This tool does not establish historical continuity, measurement trends, or sufficient temporal evidence for longitudinal analysis. For evidence quality, use phos_get_physical_assessment."
+PHYSICAL_ASSESSMENT_TOOL_DESCRIPTION = "Assess the temporal quality of PHOS's retained physical measurements, including source availability, freshness, sample coverage, observed discontinuities, and post-recovery evidence. Use this tool before interpreting changes over time or determining whether measurements collected after a sensor interruption are suitable for analysis. This tool does not return a current environmental reading as its primary purpose, calculate rising/falling/stable trends, or guarantee physical sensor accuracy. For current perceived conditions, use phos_get_physical_context."
 _SNAPSHOT_TOOL_MIN_INTERVAL_SECONDS = 1.0
 _SNAPSHOT_TOOL_MAX_IDENTITIES = 64
 
 _EVENT_RESOURCE_URIS = {
     "robot_state_changed": frozenset({"phos://status", "phos://physical-context"}),
-    "environment_condition_changed": frozenset({"phos://environment", "phos://physical-context"}),
-    "air_quality_condition_changed": frozenset({"phos://physical-context"}),
+    "environment_condition_changed": frozenset({"phos://environment", "phos://physical-context", "phos://physical-context/assessment"}),
+    "air_quality_condition_changed": frozenset({"phos://physical-context", "phos://physical-context/assessment"}),
     "motion_state_changed": frozenset({"phos://physical-context"}),
     "presence_changed": frozenset({"phos://physical-context"}),
     "attention_changed": frozenset({"phos://physical-context"}),
     "observed_expression_changed": frozenset({"phos://physical-context"}),
     "capability_changed": frozenset({"phos://status"}),
     "system_health_changed": frozenset({"phos://status"}),
-    "environment_availability_changed": frozenset({"phos://environment", "phos://physical-context"}),
-    "air_quality_availability_changed": frozenset({"phos://physical-context"}),
+    "environment_availability_changed": frozenset({"phos://environment", "phos://physical-context", "phos://physical-context/assessment"}),
+    "air_quality_availability_changed": frozenset({"phos://physical-context", "phos://physical-context/assessment"}),
     "motion_availability_changed": frozenset({"phos://physical-context"}),
 }
 
@@ -52,6 +55,11 @@ SpeechText = Annotated[str, Field(min_length=1, max_length=500)]
 SignalIntent = Annotated[str, Field(min_length=1, json_schema_extra={
     "enum": sorted(USER_SIGNAL_INTENTS),
 })]
+VisualState = Annotated[str, Field(json_schema_extra={"enum": ["thinking", "idle"]})]
+# Bounds are state-dependent: MCP validates an integer here, while the shared
+# manager applies 250..60000 only when the request is ``thinking``.  For
+# ``idle``, any supplied integer is compatibility input and is discarded.
+VisualStateDuration = Annotated[StrictInt, Field()]
 
 
 class McpToolError(Exception):
@@ -214,6 +222,13 @@ class McpSemanticAdapter:
     def get_physical_context(self) -> dict[str, Any]:
         return self._call("phos_get_physical_context", self._request_agent_service().get_physical_context)
 
+    def get_physical_assessment(self) -> dict[str, Any]:
+        return self._call("phos_get_physical_assessment", self._request_agent_service().get_physical_assessment)
+
+    def physical_assessment(self) -> dict[str, Any]:
+        """Compatibility path for the assessment Resource."""
+        return self.get_physical_assessment()
+
     def get_presence(self) -> dict[str, Any]:
         return self._call("phos_get_presence", self._request_agent_service().presence)
 
@@ -241,6 +256,31 @@ class McpSemanticAdapter:
 
     def set_expression(self, expression: str) -> dict[str, Any]:
         return self._call("phos_set_expression", lambda: self._request_agent_service().set_expression(expression))
+
+    def set_visual_state(self, state: str, duration_ms: int | None = None) -> dict[str, Any]:
+        # An accepted state request is normal agent activity.  In follow-agent
+        # mode this is how an authenticated agent's assigned appearance becomes
+        # active before subsequent visual frames consume the thinking lease.
+        # Anonymous identities remain constrained by the existing low-priority
+        # fallback policy in AgentAppearanceActivityTracker.
+        return self._call("phos_set_state",
+                          lambda: self._request_agent_service().request_visual_state(state, duration_ms))
+
+    async def set_visual_state_async(self, state: str, duration_ms: int | None = None) -> dict[str, Any]:
+        service = self._request_agent_service()
+        # Validate authorization before activity arbitration, then let existing
+        # follow-agent reconciliation queue its appearance before the lease.
+        service._require(AgentOperation.SET_VISUAL_STATE)
+        self._record_accepted_activity()
+        try:
+            await service._wait_for_visual_appearance()
+            return service.request_visual_state(state, duration_ms)
+        except AgentPermissionDenied as error:
+            raise McpToolError(
+                f"permission_denied: operation={error.operation.value} required_permission={error.permission.value}"
+            ) from None
+        except ApplicationError as error:
+            raise McpToolError(_application_error_message(error)) from None
 
     def speak(self, text: str) -> dict[str, Any]:
         return self._call("phos_speak", lambda: self._request_agent_service().speak(text))
@@ -287,6 +327,7 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     try:
         from mcp.server.mcpserver import MCPServer
         from mcp.server.mcpserver.exceptions import ToolError
+        from mcp.types import ToolAnnotations
     except ImportError as error:
         raise RuntimeError("MCP support requires the optional 'mcp' dependency on Python 3.11+.") from error
 
@@ -309,8 +350,8 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     server = MCPServer("PHOS", instructions="Trusted-local semantic PHOS adapter; no hardware controls.",
                        subscriptions=subscriptions, middleware=[authenticate_request])
 
-    def tool(name: str, description: str):
-        return server.tool(name=name, description=description, structured_output=True)
+    def tool(name: str, description: str, *, annotations=None):
+        return server.tool(name=name, description=description, annotations=annotations, structured_output=True)
 
     def resource(uri: str, name: str, description: str, mime_type="application/json"):
         return server.resource(uri, name=name, description=description, mime_type=mime_type)
@@ -323,6 +364,11 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
               "Current provider-independent semantic physical context.")
     def physical_context_resource() -> dict[str, Any]:
         return _resource_result(adapter.get_physical_context)
+
+    @resource("phos://physical-context/assessment", "PHOS physical assessment evidence",
+              "Read-only bounded temporal evidence and source availability; no trend classification.")
+    def physical_assessment_resource() -> dict[str, Any]:
+        return _resource_result(adapter.physical_assessment)
 
     @resource("phos://environment", "PHOS semantic environment",
               "Current environmental section of PHOS semantic physical context.")
@@ -338,9 +384,14 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     def get_status() -> dict[str, Any]:
         return _tool_result(adapter.get_status, ToolError)
 
-    @tool("phos_get_physical_context", "Return the compact semantic physical context.")
+    @tool("phos_get_physical_context", PHYSICAL_CONTEXT_TOOL_DESCRIPTION)
     def get_physical_context() -> dict[str, Any]:
         return _tool_result(adapter.get_physical_context, ToolError)
+
+    @tool("phos_get_physical_assessment", PHYSICAL_ASSESSMENT_TOOL_DESCRIPTION,
+          annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
+    def get_physical_assessment() -> dict[str, Any]:
+        return _tool_result(adapter.get_physical_assessment, ToolError)
 
     @tool("phos_get_presence", "Return semantic presence state without identity.")
     def get_presence() -> dict[str, Any]:
@@ -377,6 +428,27 @@ def create_mcp_server(agent_service: AgentApplicationService, *, subscriptions=N
     @tool("phos_set_expression", "Set a supported semantic expression.")
     def set_expression(expression: Expression) -> dict[str, Any]:
         return _tool_result(lambda: adapter.set_expression(expression), ToolError)
+
+    @tool("phos_set_state", "Request a bounded agent-owned thinking visual state, or release it with idle.")
+    async def set_state(state: VisualState, duration_ms: VisualStateDuration | None = None) -> dict[str, Any]:
+        if state not in {"thinking", "idle"}:
+            raise ToolError("invalid_argument: state must be thinking or idle.")
+        if state == "thinking" and duration_ms is None:
+            raise ToolError("invalid_argument: thinking requires duration_ms.")
+        if state == "thinking" and not 250 <= duration_ms <= 60_000:
+            raise ToolError("invalid_argument: thinking duration_ms must be from 250 to 60000.")
+        return await _async_tool_result(lambda: adapter.set_visual_state_async(
+            state, duration_ms if state == "thinking" else None), ToolError)
+
+    # MCP's generated function models otherwise ignore unknown object keys.
+    # This tool intentionally has a closed public vocabulary: callers cannot
+    # smuggle an identity or any future Core state parameter into its request.
+    visual_state_tool = server._tool_manager.get_tool("phos_set_state")
+    assert visual_state_tool is not None
+    argument_model = visual_state_tool.fn_metadata.arg_model
+    argument_model.model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+    argument_model.model_rebuild(force=True)
+    visual_state_tool.parameters = argument_model.model_json_schema(by_alias=True)
 
     @tool("phos_speak", "Request bounded semantic speech text.")
     async def speak(text: SpeechText) -> dict[str, Any]:

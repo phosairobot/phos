@@ -1,10 +1,28 @@
 # Hardware
 
+PHOS runs on Raspberry Pi; external controllers are an optional integration
+boundary. The hardware-agnostic `phos-hw` v1 serial protocol carries accepted
+sensor observations and semantic LED commands between a compatible controller
+and the local runtime. MCP separately connects external agents to PHOS's
+permission-checked services. ESP32 is the reference controller implementation.
+See [hardware architecture](hardware-overview.md) and the
+[controller protocol](hardware-controller.md) before extending a build.
+
+Use the [Hardware BOM](hardware-bom.md) to plan parts and build tiers; this page
+provides the wiring, addresses, power, and device setup details.
+
+The official companion firmware is
+[phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32). Follow its
+board-specific build and flashing instructions for ENS160 + AHT21 telemetry
+and WS2812B semantic LED control, then enable the serial connection through the
+[controller setup guide](hardware-controller.md#flash-the-companion-firmware).
+
 > Current environmental baseline: ENS160 and AHT21 share the ESP32 I2C bus (ENS160 `0x53` or `0x52`; AHT21 `0x38`). The ESP32 publishes phos-hw v1 `sensor_update` and ENS160 `sensor_status` JSONL telemetry. The Pi owns freshness, validity, reconnect/session isolation and semantic decisions; it does not poll these devices directly.
 
 This document records the physical hardware that is part of PHOS or has been selected for a future integration milestone.
 
-Hardware listed here does **not** imply that its software integration is already implemented. Software behavior, providers, events, state mapping, and runtime integration must be designed separately before code is added.
+The table identifies current adapters and planned components. Choose parts with
+implemented providers for the capabilities you want to enable.
 
 ## Installed / available
 
@@ -18,7 +36,7 @@ Hardware listed here does **not** imply that its software integration is already
 | BME280 / BMP280 | Integrated optional sensor | I2C bus 1, 3.3 V logic | Temperature, relative humidity where supported, atmospheric pressure | Verify actual breakout/address for each installation |
 | ENS160 + AHT21 | ESP32 controller telemetry | I2C on controller | eCO2/TVOC/AQI-UBA plus temperature/humidity | ENS160 eCO2 is not direct NDIR CO2; controller reports validity and compensation |
 | GY-521 (MPU-6050)     | Integrated optional sensor | I2C | 6-axis inertial sensing and interpreted motion | Verify mounting, wiring and thresholds for each installation |
-| WS2812B RGB LED ring  | Software integrated; physical acceptance pending | Single-wire addressable data; typically 5 V LED supply | Semantic color and temporary directional motion animation | LED count, GPIO assignment, power budget, level shifting and placement remain to verify |
+| WS2812B RGB LED ring  | Optional controller-backed output | ESP32 data output; typically 5 V LED supply | Semantic color and bounded animations via `phos-hw` v1 | Firmware-selected ESP32 pin/count; check power budget and level shifting |
 | Servos/motors         | Planned              | TBD                                                    | Future physical movement                                               | Not yet specified                                                                    |
 
 ## Face display session
@@ -58,8 +76,7 @@ PHOS supports a BME280 through `robot.hardware.bme280.BME280Provider` and the
 provider-neutral environmental service. Web Admin → Sensors shows temperature
 in °C, relative humidity in %, and station pressure in hPa (not sea-level adjusted).
 Fresh readings can drive the confirmed environmental interpreter; raw values do
-not reach eyes, LEDs or Vision. Software tests use fakes; the exact
-breakout and physical installation have **not** been verified.
+not reach eyes, LEDs or Vision.
 
 Expected wiring for a **3.3 V-compatible I2C breakout**, with the Pi powered off:
 
@@ -101,7 +118,7 @@ The 3.3 V-compatible I2C wiring assumptions in the BME280 table above apply to
 BMP280 breakouts too; confirm the actual board schematic and pin labels. Address
 is configurable as 0x76 or 0x77. Power off before changing modules. Follow the
 single [installation procedure](installation.md#optional-environmental-sensor)
-for dependencies, bus enablement and verification. Real BMP280 acceptance is pending.
+for dependencies, bus enablement and verification.
 
 ### ENS160 and AHT21 through the ESP32 controller
 
@@ -121,7 +138,7 @@ BME280/BMP280 and MPU-6050 can share the Raspberry Pi I2C bus if their actual
 module configuration and addresses are compatible. ENS160 and AHT21 use the
 ESP32 bus instead.
 
-Before physical acceptance:
+Wiring and setup checklist:
 
 - verify the exact I2C addresses of both physical modules;
 - verify module voltage requirements and whether each breakout includes regulation/level shifting;
@@ -155,7 +172,7 @@ interrupts. These observations drive documented eye and LED semantic intent
 through BehaviorEngine; raw IMU data does not control GPIO, renderer or LEDs
 directly.
 
-Before physical acceptance:
+Wiring and setup checklist:
 
 - verify the exact GY-521 board revision and pin labels;
 - verify its supply and logic-level requirements on the actual breakout board;
@@ -166,69 +183,45 @@ Before physical acceptance:
 
 ## WS2812B RGB LED ring
 
-PHOS supports an optional WS2812B addressable RGB LED ring for visual feedback
-in addition to the face displayed on screen. `robot.hardware.ws2812b.WS2812BProvider`
-uses the optional `rpi-ws281x` library; a separate low-rate controller consumes
-only provider-neutral `FaceState` semantic accent and strength. Vision, IMU and
-sensors never address the ring directly.
+The optional WS2812B addressable RGB LED ring connects to the **ESP32
+controller**, which drives its data line and animation timing. The Raspberry Pi
+sends resolved `phos-hw` v1 `set_led_animation` messages over USB/serial; it
+does not drive the ring's data line.
 
-Intended role:
+`SemanticLedService` arbitrates robot-state, environmental, and temporary user
+signals. Output requires an active serial connection and LED capability
+advertised by the controller for that session. Firmware owns the physical data
+pin, LED count, color-channel ordering, and logical direction/origin mapping.
 
-- communicate PHOS states through color;
-- provide short visual reactions;
-- provide activity/attention feedback;
-- potentially complement states such as listening, thinking, speaking, sleeping, warning, or error.
+### Connection prerequisites
 
-The controller uses uniform, lightweight effects: configured base color is
-steady for neutral; warm and curious pulse gently; alert pulses yellow; sleepy
-fades dim violet; error is steady red. The normal semantic alert state covers
-short IMU shake/impact behavior through its existing transient FaceState intent.
+- Enable `hardware_controller.enabled` in `config/phos.yaml`.
+- Select the actual `hardware_controller.serial.device` and `baud_rate`.
+- Flash [phos-esp32](https://github.com/phosairobot/phos-esp32) for `phos-hw` v1
+  capability discovery, heartbeats, and `set_led_animation`.
+- Leave the separate legacy `led_ring.enabled` setting disabled for this build.
+  Its pin/count and per-pixel settings do not configure the ESP32 ring.
 
-Environmental LED intent is persistent context rather than an IMU animation:
-cold is blue, warm is orange, air-quality warning is yellow, and bad air quality
-is red. `STILL` means no active IMU animation, so it preserves the active
-environmental color; after a tilt fill ends, the next frame resolves the current
-environmental intent again. Only when no semantic environmental intent is active
-does the ring return to the configured base color.
+See the [controller guide](hardware-controller.md#ws2812b-ring-connection) and
+[installation steps](installation.md#optional-ws2812b-rgb-led-ring).
 
 ### Electrical considerations
 
-WS2812B LEDs are normally powered from a 5 V supply and can draw significant current depending on LED count and brightness.
+Power the ring from a regulated supply sized for its specified voltage,
+LED count, and worst-case brightness. WS2812B rings commonly use 5 V; consult
+the actual ring's specifications when sizing the supply and wiring.
 
-Before wiring the ring:
+Connect the ring's data input to the **firmware-selected ESP32 output**, and
+connect ESP32 ground to LED-supply ground. Use a suitable 3.3 V-to-5 V data-level
+shifter where required, plus the manufacturer's recommended data-line protection
+and supply decoupling. Do not power the ring from a GPIO pin. Keep the Pi
+connection to the controller on USB/serial.
 
-- determine the exact number of LEDs in the ring;
-- calculate the required 5 V power budget;
-- do not assume the Raspberry Pi 5 V rail is suitable for the final LED load;
-- ensure the Raspberry Pi and LED power supply share a common ground;
-- verify whether a 3.3 V to 5 V logic-level shifter is required for reliable data signaling;
-- select and document the final GPIO only after checking compatibility with the chosen Raspberry Pi LED driver/library;
-- consider the usual WS2812B data-line protection and supply decoupling recommended for the final wiring.
-
-PHOS limits configured brightness to 0–1 and defaults to 30%, but this is not a
-power-supply guarantee. Estimate worst-case current from the exact LED count and
-manufacturer data (commonly up to roughly 60 mA per LED at full white) before
-selecting a supply. Use a suitably rated external 5 V supply where that estimate
-or the ring's documentation requires it; do not power a substantial ring from a
-Pi GPIO pin. Connect the Pi ground and LED supply ground together. A 3.3 V to 5 V
-data-level shifter may be needed for reliable operation; add sensible data-line
-protection and supply decoupling according to the actual ring documentation.
-
-The LED palette is logical RGB: green `#00FF40`, red `#FF1A1A`, yellow
-`#FFD400`, blue `#007BFF`, violet `#A020F0`, white `#FFFFFF`, cyan `#00E5FF`,
-turquoise `#00FFC8`, orange `#FF7A00`, and magenta `#FF00C8`. Brightness scales
-all three logical RGB channels equally; PHOS applies no gamma correction or
-per-channel normalization. The WS2812B adapter explicitly selects the library's
-`WS2811_STRIP_GRB` transport order, so application and configuration values stay
-RGB and must not be manually channel-swapped.
-
-`led_ring.gpio_pin` and `led_ring.led_count` are hardware settings and require
-restart. Because the selected driver requires mailbox/physical-memory access, a
-root-owned LED-only helper owns GPIO/DMA and exposes a group-writable local Unix
-socket to the normal PHOS user service. Enabled, brightness, base color, semantic
-following and update rate are live-reloadable. Missing helper/GPIO/write failures
-mark the ring unavailable and are rate-limited in logs; eye rendering and PHOS
-continue normally.
+Start at low brightness. Robot-state and user signals resolve to bounded
+animations such as solid, breathe, pulse, blink, and spin. On reconnect and a
+fresh LED capability report, PHOS reapplies the currently resolved intent.
+Loss of controller connectivity makes LED output unavailable while the display
+and other robot services continue.
 
 ## Hardware/software boundary
 
@@ -262,7 +255,7 @@ The following details must be filled in after verifying the physical components:
 - sensor power/logic voltage for the exact breakout boards;
 - WS2812B ring LED count;
 - WS2812B external power-supply specification;
-- WS2812B data GPIO;
+- firmware-selected ESP32 WS2812B data pin;
 - logic-level shifter choice, if required;
 - final connector/wiring scheme;
 - microphone interface;
@@ -289,10 +282,8 @@ Already operational:
 - Raspberry Pi Camera and face tracking.
 
 BME280/BMP280 and controller-backed ENS160/AHT21 integration is implemented;
-wiring, address and real readings await Pi acceptance. Their fresh usable
-readings may feed the provider-neutral environmental behavior interpreter.
+fresh usable readings feed the provider-neutral environmental behavior interpreter.
 ENS160 eCO2 remains an estimated/equivalent value, not direct NDIR CO2.
 
-MPU-6050 motion behavior and WS2812B semantic/directional rendering are software
-integrated. Their wiring, driver/helper setup, physical orientation and Pi 3
-acceptance remain outstanding.
+MPU-6050 motion behavior and controller-backed WS2812B semantic output are
+implemented. Follow the sensor mounting and ESP32 ring setup instructions above.

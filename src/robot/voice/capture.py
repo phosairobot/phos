@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PyAudio input negotiation and the one PCM16 resampling boundary."""
 from __future__ import annotations
 

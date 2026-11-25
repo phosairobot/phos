@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Semantic arbitration between environmental and temporary overlay intent."""
 from __future__ import annotations
 

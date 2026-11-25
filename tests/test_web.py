@@ -132,8 +132,8 @@ def test_sensors_page_renders_available_bmp280_and_mpu6050_live_shapes(setup):
 def setup(tmp_path):
     document = load_document()
     document["logging"]["file"] = None
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     now = [100.0]
     app = create_app(path, active_document=document, clock=lambda: now[0])
     app.testing = True
@@ -172,8 +172,8 @@ def _agent_admin(tmp_path):
          "credential": {"type": "bearer", "secret_ref": "mcp.observer.token"}},
         {"id": "uncredentialed", "display_name": "Uncredentialed Agent", "permission_profile": "observer"},
     ]}
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     store = SecretsService(tmp_path / ".phos-secrets")
     return create_app(path, secrets_service=store), store
 
@@ -213,8 +213,8 @@ class _McpConfigurationManager:
 def _mcp_configuration_admin(tmp_path):
     document = load_document()
     document["logging"]["file"] = None
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     repository = ConfigRepository(path)
     active = repository.load()
     lifecycle = SimpleNamespace(config_repository=repository, path=path, active=active.to_dict())
@@ -433,7 +433,7 @@ def test_agents_page_rejects_unknown_skin_and_renders_missing_assignment(tmp_pat
         {"id": "missing", "display_name": "Missing Skin", "permission_profile": "observer",
          "skin": {"enabled": True, "id": "removed-skin"}},
     ]}
-    path = missing_dir / "phos.json"; path.write_text(json.dumps(document))
+    path = missing_dir / "phos.yaml"; path.write_text(yaml.safe_dump(document, sort_keys=False))
     page = authorize(create_app(path)).get("/agents").get_data(as_text=True)
     assert "Missing · removed-skin" in page
     assert "Saved skin <code>removed-skin</code> is unavailable" in page
@@ -468,7 +468,7 @@ def test_agents_page_renders_lifecycle_owned_presentation_activation_status(tmp_
             if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "follow_agent", "selected_agent_id": "owner", "selected_display_name": "Owner", "effective_priority": 50, "remaining_lease_seconds": 10}}
             if operation == "application.presentation_activation": return {"ok": True, "result": {"state": state, "message": message, "resolved": {"effective_skin_id": "ambient", "skin_display_name": "Ambient", "fallback_reason": None}}}
             return {"ok": True, "result": {}}
-    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    path = tmp_path / "phos.yaml"; path.write_text(yaml.safe_dump(load_document(), sort_keys=False))
     page = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents").get_data(as_text=True)
     assert "Runtime activation" in page and expected in page and message in page
     assert "Owner" in page and "Ambient" in page
@@ -480,7 +480,7 @@ def test_agents_page_lists_agents_when_optional_lifecycle_appearance_reads_fail(
             if operation == "application.agents":
                 return {"ok": True, "result": [{"agent_id": "local-agent", "display_name": "Local MCP agent", "permission_profile": "standard", "default": True, "credential_configured": False, "credential_active": None, "skin": {"enabled": True, "id": "missing"}, "skin_assignment": {"state": "missing", "id": "missing"}, "appearance_policy": {"participate": True, "priority": 50, "activity_timeout_seconds": 30, "reason": "active"}}]}
             return {"ok": False, "error": {"code": "service_unavailable"}}
-    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    path = tmp_path / "phos.yaml"; path.write_text(yaml.safe_dump(load_document(), sort_keys=False))
     response = authorize(create_app(path, lifecycle=Lifecycle())).get("/agents")
     text = response.get_data(as_text=True)
     assert response.status_code == 200
@@ -528,8 +528,8 @@ def test_agents_page_uses_lifecycle_agent_management_boundary(tmp_path):
             if operation == "application.presentation_activation": return {"ok": True, "result": {"state": "global_active", "message": "", "resolved": {}}}
             return {"ok": True, "result": {}}
 
-    path = tmp_path / "phos.json"
-    path.write_text(json.dumps(load_document()))
+    path = tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(load_document(), sort_keys=False))
     lifecycle = Lifecycle()
     client = authorize(create_app(path, lifecycle=lifecycle))
     assert client.get("/agents").status_code == 200
@@ -572,7 +572,7 @@ def test_agents_page_set_default_requires_csrf_and_uses_lifecycle(tmp_path):
             if operation == "application.appearance_arbitration": return {"ok": True, "result": {"mode": "global", "selected_agent_id": None, "selected_display_name": None, "effective_priority": None, "remaining_lease_seconds": None}}
             if operation == "application.presentation_activation": return {"ok": True, "result": {"state": "global_active", "message": "", "resolved": {}}}
             return {"ok": True, "result": {}}
-    path = tmp_path / "phos.json"; path.write_text(json.dumps(load_document()))
+    path = tmp_path / "phos.yaml"; path.write_text(yaml.safe_dump(load_document(), sort_keys=False))
     lifecycle = Lifecycle(); client = authorize(create_app(path, lifecycle=lifecycle))
     assert client.post("/agents", data={"action": "set_default_agent", "agent_id": "two"}).status_code == 400
     assert post(client, "/agents", {"action": "set_default_agent", "agent_id": "two"}).status_code == 302
@@ -733,9 +733,9 @@ def test_eye_safe_layer_mode_posts_the_canonical_application_payload(setup, prev
         def configure_eye_safe_layer(self, payload): self.calls.append(payload); return {"saved": payload}
 
     _, path, now = setup
-    document = json.loads(path.read_text())
+    document = yaml.safe_load(path.read_text())
     document["display"]["eye_safe_layer"]["mode"] = previous
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     service = EyeSafeService()
     app = create_app(path, clock=lambda: now[0], application_service=service)
     client = authorize(app)
@@ -810,10 +810,10 @@ def test_background_upload_accepts_the_configured_size_and_refreshes_the_canonic
 
 def test_state_effects_page_renders_canonical_values_and_appearance_navigation(setup):
     app, path, _ = setup
-    document = json.loads(path.read_text())
+    document = yaml.safe_load(path.read_text())
     document["display"]["state_effects"] = {"enabled": True, "preset": "expressive", "palette": "violet",
                                              "reduce_motion": True}
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     page = authorize(app).get("/appearance/state-effects")
     text = page.get_data(as_text=True)
     assert page.status_code == 200
@@ -941,16 +941,26 @@ def test_credentials_are_write_only_csrf_protected_and_persist_encrypted(setup, 
     assert value not in caplog.text
 
 
-def test_existing_phos_images_are_used_as_responsive_visuals(setup):
+def test_neon_phos_branding_is_served_on_login_dashboard_and_navigation(setup):
     app, _, _ = setup
     login_page = app.test_client().get("/login").get_data(as_text=True)
     dashboard = authorize(app).get("/").get_data(as_text=True)
-    assert 'images/phos-login-black.webp' in login_page and 'alt="PHOS"' in login_page
-    assert 'images/phos-dashboard-black.webp' in dashboard and 'alt="" loading="lazy"' in dashboard
+    assert 'images/neon_phos_logo.png' in login_page and 'alt="PHOS"' in login_page
+    assert 'images/neon_phos_logo-224.png' in dashboard and 'alt="" loading="lazy"' in dashboard
+    assert 'images/neon_phos_logo-96.png' in dashboard
+    assert 'rel="icon"' in login_page and 'rel="apple-touch-icon"' in login_page
+    # Logos and icons must be public static assets, including before login.
+    client = app.test_client()
+    for path in set(re.findall(r'/static/images/neon_phos_logo[^"\s]+', login_page + dashboard)):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.mimetype == "image/png"
+        assert response.data.startswith(b"\x89PNG\r\n\x1a\n")
     css = (app.root_path and __import__("pathlib").Path(app.root_path) / "static" / "admin.css").read_text()
     assert ".login-panel { display: grid" in css
     assert ".login-branding img" in css and "height: auto" in css
-    assert "mask-image: radial-gradient" in css
+    assert "mask-image" not in css
+    assert ".brand-mark img" in css and "object-fit: contain" in css
     assert ".dashboard-phos-image" in css and "@media (max-width: 430px)" in css
 
 
@@ -1325,7 +1335,7 @@ skins:
 
 def test_skins_page_persists_anonymous_mcp_default_skin_fallback(tmp_path):
     document = load_document(); document["logging"]["file"] = None
-    path = tmp_path / "phos.json"; path.write_text(json.dumps(document))
+    path = tmp_path / "phos.yaml"; path.write_text(yaml.safe_dump(document, sort_keys=False))
     repository = ConfigRepository(path)
     lifecycle = SimpleNamespace(config_repository=repository, path=path,
                                 active=repository.load().to_dict())
@@ -1799,16 +1809,14 @@ def test_safe_save_failure_keeps_existing_configuration(setup, monkeypatch):
     monkeypatch.setattr("robot.config.os.replace", fail)
     assert client.post("/", data=data).status_code == 503
     assert path.read_bytes() == original
-    assert not list(path.parent.glob(".phos.json.*"))
+    assert not list(path.parent.glob(".phos.yaml.*"))
 
 
-def test_web_save_uses_explicit_canonical_yaml_without_rewriting_json(tmp_path):
+def test_web_save_uses_explicit_canonical_yaml(tmp_path):
     document = load_document()
     document["logging"]["file"] = None
     yaml_path = tmp_path / "phos.yaml"
-    json_path = tmp_path / "phos.json"
     yaml_path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
-    json_path.write_text(json.dumps(document))
     app = create_app(yaml_path, active_document=document)
     app.testing = True
     client = authorize(app)
@@ -1817,7 +1825,6 @@ def test_web_save_uses_explicit_canonical_yaml_without_rewriting_json(tmp_path):
 
     assert client.post("/", data=data).status_code == 302
     assert yaml.safe_load(yaml_path.read_text())["display"]["fps"] == 19
-    assert json.loads(json_path.read_text()) == document
 
 
 def test_configuration_editor_renders_and_validates_yaml_without_writing(tmp_path):
@@ -1868,22 +1875,21 @@ def test_configuration_editor_rejects_invalid_yaml_and_stale_edits(setup):
     _, stale = editor_form(client)
     changed = load_document(path)
     changed["display"]["fps"] = 19
-    path.write_text(json.dumps(changed))
+    path.write_text(yaml.safe_dump(changed, sort_keys=False))
     stale["action"] = "save"
     response = client.post("/configuration/editor", data=stale)
     assert response.status_code == 400
     assert b"Configuration changed since this page was loaded" in response.data
 
 
-def test_configuration_editor_saves_yaml_or_legacy_json_in_active_format(tmp_path):
+def test_configuration_editor_saves_yaml_in_active_format(tmp_path):
     document = load_document()
     document["logging"]["file"] = None
-    for index, (suffix, loader) in enumerate(((".yaml", yaml.safe_load), (".json", json.loads))):
+    for index, (suffix, loader) in enumerate(((".yaml", yaml.safe_load), (".yml", yaml.safe_load))):
         directory = tmp_path / str(index)
         directory.mkdir()
         path = directory / f"phos{suffix}"
-        path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False)
-                        if suffix == ".yaml" else json.dumps(document))
+        path.write_text(yaml.safe_dump(document, default_flow_style=False, sort_keys=False))
         app = create_app(path, active_document=document)
         app.testing = True
         client = authorize(app)
@@ -1897,7 +1903,7 @@ def test_configuration_editor_saves_yaml_or_legacy_json_in_active_format(tmp_pat
         assert response.status_code == 200
         assert b"Configuration saved successfully. Restart PHOS to apply changes." in response.data
         assert loader(path.read_text())["display"]["fps"] == 19
-        assert path.read_text().lstrip().startswith("{") is (suffix == ".json")
+        assert not path.read_text().lstrip().startswith("{")
 
 
 def test_missing_active_model_can_be_repaired_in_editor(setup):
@@ -1905,7 +1911,7 @@ def test_missing_active_model_can_be_repaired_in_editor(setup):
     client = authorize(app)
     document = load_document(path)
     document["expression"]["enabled"] = True
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     assert client.get("/").status_code == 200
     data = form(client, "expression")
     data.pop("expression.enabled")
@@ -1994,7 +2000,7 @@ def test_main_owns_enabled_worker_and_cleans_up_on_runtime_failure(setup, monkey
     app, path, _ = setup
     document = load_document(path)
     document["web"]["enabled"] = True
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     seen = []
     repositories = []
     repository_factory = main.ConfigRepository
@@ -2032,7 +2038,7 @@ def test_main_owns_enabled_worker_and_cleans_up_on_runtime_failure(setup, monkey
 def test_disabled_worker_does_not_spawn_or_create_credentials(tmp_path, monkeypatch):
     config = RuntimeConfig.from_file()
     monkeypatch.setattr("robot.web.server.multiprocessing.get_context", lambda *a: pytest.fail("disabled web spawned"))
-    with WebServer(tmp_path / "phos.json", config) as worker:
+    with WebServer(tmp_path / "phos.yaml", config) as worker:
         assert worker.process is None
     assert not (tmp_path / ".phos-admin").exists()
 
@@ -2122,7 +2128,7 @@ def test_cross_domain_validation_links_to_relevant_area(setup):
     document = load_document(path)
     document["expression"]["enabled"] = True
     document["expression"]["local"]["model_path"] = "missing.onnx"
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     before = path.read_bytes()
     data = form(client, "appearance")
     data["display.width"] = "777"
@@ -2152,6 +2158,71 @@ def test_expression_groups_status_and_separate_password_page(setup, monkeypatch)
     assert 'name="logging.level"' in logging and 'name="logging.file"' in logging
     assert 'name="logging.expression_diagnostics"' in logging
     assert "secret-never-rendered" not in page + status + security + logging
+
+
+def test_object_recognition_controls_persist_and_mark_only_enablement_live(setup):
+    app, path, _ = setup
+    model = path.parent / "nanodet.onnx"
+    model.write_bytes(b"placeholder")
+    client = authorize(app)
+    page = client.get("/configuration/runtime/vision").get_data(as_text=True)
+    assert "Object Recognition" in page
+    for name in ("object_awareness.enabled", "object_awareness.model_path",
+                 "object_awareness.confidence", "object_awareness.max_detections",
+                 "object_awareness.timeout_seconds"):
+        assert f'name="{name}"' in page
+    assert "Object Recognition enable or disable applies immediately" in page
+    assert 'name="object_awareness.enabled" type="checkbox"' in page
+    assert "Applies immediately" in page
+    form_data = form(client, "runtime/vision")
+    form_data.update({"object_awareness.enabled": "on", "object_awareness.model_path": "nanodet.onnx",
+                      "object_awareness.confidence": "0.5", "object_awareness.max_detections": "3",
+                      "object_awareness.timeout_seconds": "4"})
+    assert client.post("/configuration/runtime/vision", data=form_data).status_code == 302
+    saved = load_document(path)["object_awareness"]
+    assert saved == {"enabled": True, "model_path": "nanodet.onnx", "confidence": 0.5,
+                     "max_detections": 3, "timeout_seconds": 4}
+    form_data = form(client, "runtime/vision")
+    form_data.pop("object_awareness.enabled")
+    form_data["object_awareness.model_path"] = ""
+    assert client.post("/configuration/runtime/vision", data=form_data).status_code == 302
+    assert load_document(path)["object_awareness"]["enabled"] is False
+    assert load_document(path)["object_awareness"]["model_path"] is None
+
+
+def test_object_recognition_rejects_missing_model_without_persisting(setup):
+    app, path, _ = setup
+    client = authorize(app)
+    before = path.read_bytes()
+    form_data = form(client, "runtime/vision")
+    form_data.update({"object_awareness.enabled": "on", "object_awareness.model_path": "missing.onnx"})
+    response = client.post("/configuration/runtime/vision", data=form_data)
+    assert response.status_code == 400
+    assert b"object_awareness.model_path" in response.data
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("field, value", (("object_awareness.confidence", "1.1"),
+                                           ("object_awareness.max_detections", "6"),
+                                           ("object_awareness.timeout_seconds", "31")))
+def test_object_recognition_rejects_invalid_limits_without_persisting(setup, field, value):
+    app, path, _ = setup
+    model = path.parent / "nanodet.onnx"
+    model.write_bytes(b"placeholder")
+    client = authorize(app)
+    before = path.read_bytes()
+    form_data = form(client, "runtime/vision")
+    form_data.update({"object_awareness.enabled": "on", "object_awareness.model_path": "nanodet.onnx",
+                      field: value})
+    assert client.post("/configuration/runtime/vision", data=form_data).status_code == 400
+    assert path.read_bytes() == before
+
+
+def test_object_recognition_page_omits_redundant_runtime_status(setup):
+    _app, path, _ = setup
+    page = authorize(_app).get("/configuration/runtime/vision").get_data(as_text=True)
+    assert "Effective state" not in page and "Inference backend" not in page
+    assert str(path.parent) not in page
 
 
 def test_domain_error_hints_match_fields_without_matching_unrelated_words():
@@ -2307,7 +2378,7 @@ def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setu
     document = load_document(path)
     document["logging"]["level"] = "ERROR"
     document["display"]["fps"] = 22
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     token = csrf(client.get("/system"))
     assert client.post("/system/reload", data={"csrf_token": token, "command": "anything"}).status_code == 400
     assert service.active["logging"]["level"] == "INFO"
@@ -2321,7 +2392,7 @@ def test_web_reload_reports_active_and_saved_and_rejects_commands(lifecycle_setu
     assert status.status_code == 200
     document["display"]["fps"] = 0
     document["logging"]["level"] = "DEBUG"
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     response = client.post("/system/reload", data={"csrf_token": token})
     assert response.status_code == 400
     assert service.active["logging"]["level"] == "ERROR"
@@ -2339,7 +2410,7 @@ def test_real_worker_reload_reaches_parent_application(setup):
         port = sock.getsockname()[1]
     document = load_document(path)
     document["web"].update(enabled=True, port=port)
-    path.write_text(json.dumps(document))
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     worker = WebServer(path, RuntimeConfig.from_file(path))
     browser = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
     base = f"http://127.0.0.1:{port}"
@@ -2358,7 +2429,7 @@ def test_real_worker_reload_reaches_parent_application(setup):
             page = get("/system")
             assert '<form action="/system/reload" method="post">' in page
             document["logging"]["level"] = "ERROR"
-            path.write_text(json.dumps(document))
+            path.write_text(yaml.safe_dump(document, sort_keys=False))
             response = send("/system/reload", {"csrf_token": token(page)})
             assert "Applied: logging.level" in response
             assert worker.lifecycle.active["logging"]["level"] == "ERROR"
@@ -2411,10 +2482,10 @@ def test_hardware_controller_page_uses_application_read_models_and_persists_conf
             self.updated = patch
             document = load_document(path)
             document["hardware_controller"] = patch["hardware_controller"]
-            path.write_text(json.dumps(document))
+            path.write_text(yaml.safe_dump(document, sort_keys=False))
             return {"applied": ["hardware_controller.serial.device"]}
-    document, path = load_document(), tmp_path / "phos.json"
-    path.write_text(json.dumps(document))
+    document, path = load_document(), tmp_path / "phos.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
     service = ControllerAdmin()
     app = create_app(path, active_document=document, application_service=service)
     app.testing = True
@@ -2426,6 +2497,12 @@ def test_hardware_controller_page_uses_application_read_models_and_persists_conf
     assert "sensor_update" in page and ">heartbeat</td>" not in page and "&lt;script&gt;" in page
     assert 'class="controller-message-scroll"' in page and 'data-controller-message-scroll' in page
     assert '<select id="hardware_controller.transport"' in page and '<option value="serial"' in page
+    assert 'label for="hardware_controller.serial.dtr">DTR (Data Terminal Ready)</label>' in page
+    assert 'label for="hardware_controller.serial.rts">RTS (Request to Send)</label>' in page
+    assert page.count('this signal affects reset or boot behavior.') == 2
+    assert 'Changing DTR or RTS reconnects the hardware controller' in page
+    assert 'name="hardware_controller.serial.dtr" type="checkbox" checked' not in page
+    assert 'name="hardware_controller.serial.rts" type="checkbox" checked' not in page
     diagnostics = client.get("/controller/diagnostics")
     assert diagnostics.status_code == 200
     assert diagnostics.get_json()["messages"][0]["type"] == "sensor_update"
@@ -2433,10 +2510,16 @@ def test_hardware_controller_page_uses_application_read_models_and_persists_conf
     data = form(client, "controller")
     data.update({"hardware_controller.enabled": "on", "hardware_controller.serial.device": "/dev/ttyUSB0",
                  "hardware_controller.serial.baud_rate": "115200", "hardware_controller.reconnect.delay_seconds": "2",
-                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10"})
+                 "hardware_controller.heartbeat.interval_seconds": "5", "hardware_controller.heartbeat.timeout_seconds": "10",
+                 "hardware_controller.serial.dtr": "on"})
     assert client.post("/configuration/controller", data=data).status_code == 302
     assert load_document(path)["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
     assert service.updated["hardware_controller"]["serial"]["device"] == "/dev/ttyUSB0"
+    assert service.updated["hardware_controller"]["serial"]["dtr"] is True
+    assert service.updated["hardware_controller"]["serial"]["rts"] is False
+    reloaded = client.get("/configuration/controller").get_data(as_text=True)
+    assert 'name="hardware_controller.serial.dtr" type="checkbox" checked' in reloaded
+    assert 'name="hardware_controller.serial.rts" type="checkbox" checked' not in reloaded
     assert 'renderStatus(data.status);' in Path("src/robot/web/static/admin.js").read_text(encoding="utf-8")
     token = csrf(client.get("/configuration/controller"))
     assert client.post("/controller/diagnostics/clear", data={"csrf_token": token}).status_code == 302

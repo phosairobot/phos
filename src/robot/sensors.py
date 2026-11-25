@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider-neutral measurements and the shared bounded sensor worker.
 
 One worker per enabled sensor owns its provider. No driver work runs on the asyncio/render thread,
@@ -367,6 +368,7 @@ class AirQualitySensorService(_SensorService):
         self._compensation_source = None
         self._field_times = {}
         self._status_time = None
+        self._normal_since = None
         self._controller_generation = None
         self._retired_generations = set()
 
@@ -376,7 +378,7 @@ class AirQualitySensorService(_SensorService):
                 return
             self._controller_generation = generation
             self._retired_generations.discard(generation)
-            self._field_times.clear(); self._status_time = None
+            self._field_times.clear(); self._status_time = self._normal_since = None
             self._status, self._error = "starting", "Awaiting current controller telemetry"
 
     def retire_controller_generation(self, generation: int) -> None:
@@ -385,7 +387,7 @@ class AirQualitySensorService(_SensorService):
             if self._controller_generation != generation:
                 return
             self._controller_generation = None
-            self._status_time = None
+            self._status_time = self._normal_since = None
             self._status, self._error = "unavailable", "External sensor provider disconnected"
 
     def _read(self, provider):
@@ -419,7 +421,7 @@ class AirQualitySensorService(_SensorService):
             ages = {name: max(0.0, now - at) for name, at in self._field_times.items()}
             validity = values.get("ens160_validity")
             status_fresh = self._status_time is not None and now - self._status_time < self._stale_after
-            normal_after = self._status_time if validity == 0 else None
+            normal_after = self._normal_since if validity == 0 else None
             fresh = {name: age < self._stale_after for name, age in ages.items()}
             gas = ("eco2_ppm", "tvoc_ppb", "aqi_uba")
             usable = {name: fresh.get(name, False) for name in values}
@@ -451,13 +453,35 @@ class AirQualitySensorService(_SensorService):
                 self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self._status_sink()
         else:
-            self._accept_external_fields({field: value})
+            self._accept_controller_gas_field(field, value)
         with self._lock:
             self._field_times[field] = self._clock()
-        measurements = self.snapshot()["measurements"]
-        if name in {"eco2", "tvoc", "aqi"} and measurements is not None and {"eco2_ppm", "tvoc_ppb"} <= measurements.keys():
+        snapshot = self.snapshot()
+        measurements = snapshot["measurements"]
+        if (name in {"eco2", "tvoc", "aqi"} and measurements is not None
+                and {"eco2_ppm", "tvoc_ppb"} <= measurements.keys()
+                and all(snapshot["measurement_usable"].get(gas, False)
+                        for gas in ("eco2_ppm", "tvoc_ppb"))):
             self._reading_sink(AirQualityReading(measurements["eco2_ppm"], measurements["tvoc_ppb"],
                                                  measurements.get("aqi_uba")), self._clock())
+
+    def _accept_controller_gas_field(self, field: str, value: int) -> None:
+        """Merge gas telemetry without allowing it to contradict explicit status.
+
+        Legacy controllers do not publish ``ens160_validity``; their fresh
+        gas frames keep the established available-on-data behavior.  Once the
+        controller has provided a validity status, only normal validity (0)
+        can make this aggregate sensor available.
+        """
+        with self._lock:
+            current = dict(self._reading) if isinstance(self._reading, dict) else {}
+            current[field] = value
+            self._reading = current
+            self._sample_time = self._clock()
+            self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if current.get("ens160_validity") in {None, 0}:
+                self._status, self._error = "available", None
+        self._status_sink()
 
     def accept_controller_status(self, status: dict, *, generation=None) -> None:
         """Receive additive phos-hw v1 ENS160 status without fabricating a sample."""
@@ -465,13 +489,23 @@ class AirQualitySensorService(_SensorService):
             return
         if generation is not None: self._controller_generation = generation
         validity = status.get("validity")
-        state = {0: "available", 1: "warming_up", 2: "starting", 3: "invalid"}[validity]
         with self._lock:
+            previous_validity = (self._reading or {}).get("ens160_validity") if isinstance(self._reading, dict) else None
             self._reading = {**(self._reading or {}), "ens160_validity": validity,
                              "ens160_compensation_active": status.get("compensation_active")}
             self._status_time = self._clock()
             self._updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            self._status, self._error = state, None if validity == 0 else "ENS160 validity is not normal"
+            if validity == 0:
+                # A transition to normal does not revive values observed
+                # before that status.  Await fresh gas telemetry; duplicate
+                # normal reports keep an already available service stable.
+                if previous_validity != 0:
+                    self._normal_since = self._status_time
+                    self._status, self._error = "starting", "Awaiting fresh ENS160 telemetry after normal status"
+            else:
+                self._normal_since = None
+                state = {1: "warming_up", 2: "starting", 3: "invalid"}[validity]
+                self._status, self._error = state, "ENS160 validity is not normal"
         self._status_sink()
 
 class IMUSensorService(_SensorService):
