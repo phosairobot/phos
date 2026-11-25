@@ -1,176 +1,63 @@
-# Creating a PHOS Skin
+# Creating a Custom Skin
 
-A PHOS Skin is a portable appearance package. It can set eye colour and shape,
-a background for each robot state, the Eye Safe Layer, State Effects, an
-optional semantic LED palette, and Skin-owned Physical Personality. It does
-not change voice commands, sensors, or temporary runtime state.
+Build a portable `.phos-skin` package using the implemented version-3 manifest.
+This tutorial starts with the real Minimal built-in, creates an asset-free
+**Copper pulse** variant, validates it through PHOS, and installs it with Web
+Admin. It needs no camera, sensors, or LED hardware to display its eye styling.
 
-This guide is for designers, makers, and contributors. You need only a text
-editor for YAML, image files, and a way to create a ZIP archive.
+For field-by-field rules, use the [configuration reference](../skins/configuration.md).
+The [structure guide](../skins/structure.md) describes package paths and limits.
 
-## Package format
+## 1. Create a working directory
 
-A Skin is a ZIP-compatible archive with the recommended extension
-`.phos-skin`. The manifest, `skin.yaml`, must be at the root of the archive.
-`assets/` is optional; include it only when the manifest references images.
+Run the following commands from the repository root with PHOS installed in its
+existing `.venv`. The directory is an authoring workspace, not a runtime plugin
+folder:
 
-```text
-my-skin.phos-skin
-├── skin.yaml
-└── assets/
-    ├── idle.png
-    ├── listening.png
-    ├── thinking.png
-    ├── speaking.png
-    ├── sleeping.png
-    └── error.png
+```bash
+mkdir -p my-skin
 ```
 
-The archive must contain `skin.yaml`, not `my-skin/skin.yaml`. Asset paths are
-relative to the archive and use `assets/<filename>`.
+## 2. Start from a real built-in
 
-Only PNG, JPG, and JPEG background images are supported. Put only assets that
-are referenced by `skin.yaml` in the archive.
+Write Minimal's actual exported manifest shape into your workspace. This uses
+PHOS's serializer; it does not change the running robot or its configuration.
 
-## Complete Skin example
+```bash
+PYTHONPATH=src .venv/bin/python - <<'PY'
+from pathlib import Path
+import yaml
+from robot.ui.skins import built_in_skins, skin_to_manifest
 
-This is the canonical schema-version-3 manifest for a Skin with one image for
-each state. The filenames must exactly match the files in `assets/`.
+skin = next(item for item in built_in_skins() if item.id == "minimal")
+manifest = skin_to_manifest(skin, skin.appearance)
+Path("my-skin/skin.yaml").write_text(
+    yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
+)
+print("Wrote my-skin/skin.yaml")
+PY
+```
+
+Alternatively, export Minimal from **Appearance → Skins** and extract its
+`skin.yaml`. An exported archive has the manifest at its root, without a parent
+folder and without image assets for this built-in.
+
+## 3. Define metadata and visual properties
+
+Replace the workspace manifest with the complete example below. It selects an
+amber iris, an expressive eye contour, restrained amber State Effects, optional
+semantic LED colours, and calm idle timing.
+
+## Complete manifest
 
 ```yaml
 schema_version: 3
-name: Northern lights
-description: Cool aurora backgrounds with a violet iris.
+name: Copper pulse
+description: Warm irises and restrained effects, with calm idle timing.
 appearance:
   eyes:
-    iris_color: "#A670F5"
-    shape: classic_oval
-  backgrounds:
-    enabled: true
-    idle: assets/idle.png
-    listening: assets/listening.png
-    thinking: assets/thinking.png
-    speaking: assets/speaking.png
-    sleeping: assets/sleeping.png
-    error: assets/error.png
-  eye_safe_layer:
-    enabled: true
-    mode: balanced
-  state_effects:
-    enabled: true
-    preset: balanced
-    palette: aqua
-    reduce_motion: false
-```
-
-`schema_version` must be `3`. `name` and `description` must both be strings;
-an empty description is allowed.
-
-## Background states
-
-The `backgrounds` block always contains `enabled` and all six state keys:
-
-| State | Used while PHOS is… |
-| --- | --- |
-| `idle` | waiting normally |
-| `listening` | listening |
-| `thinking` | processing |
-| `speaking` | speaking |
-| `sleeping` | sleeping |
-| `error` | showing an error state |
-
-Set `enabled` to `true` to use configured backgrounds. Each state can use a
-different asset, or `null` when no image is assigned for that state. For
-example:
-
-```yaml
-backgrounds:
-  enabled: true
-  idle: assets/idle.png
-  listening: assets/listening.png
-  thinking: null
-  speaking: null
-  sleeping: null
-  error: null
-```
-
-Every non-`null` asset value must be a matching `assets/<safe-filename>.png`,
-`.jpg`, or `.jpeg` file in the package. The same asset may be used by more than
-one state.
-
-## Eyes, Eye Safe Layer, and State Effects
-
-### Eyes
-
-`eyes.iris_color` stores a canonical colour as `#RRGGBB`, for example
-`"#7A5CFF"`. Web Admin offers the existing presets `cyan`, `blue`, `green`,
-`turquoise`, `amber`, `violet`, and `white` as shortcuts; exported Skins store
-their resolved canonical colour. Custom colours must have exactly six hex digits
-and a leading `#`; alpha, gradients, textures, and animations are not supported.
-
-`eyes.shape` is optional and defaults to `classic_oval`. Supported values are
-`classic_oval`, `round`, `expressive`, `angular`, and `compact`. The Skin
-selection is applied through the existing runtime appearance queue. Legacy
-Skins without this field retain the `classic_oval` renderer behavior.
-
-### Physical Personality
-
-`physical_personality` is optional and belongs to the Skin, not to an Agent.
-Supported presets are `analytical`, `playful`, and `calm`; omitted values use
-the `analytical` fallback. It controls only bounded IDLE blink/gaze timing;
-attention, tracking, IMU reactions, and system expressions remain authoritative.
-
-```yaml
-physical_personality:
-  preset: playful
-```
-
-### Eye Safe Layer
-
-The Eye Safe Layer adds a contrast-friendly halo behind the eyes so they stay
-readable over a detailed or bright background. It does not alter your image
-file.
-
-```yaml
-eye_safe_layer:
-  enabled: true
-  mode: balanced
-```
-
-Supported modes are `subtle`, `balanced`, and `expressive`. `balanced` is the
-default and is a good starting point for photographic backgrounds.
-
-### State Effects
-
-State Effects add the selected visual treatment to the appearance. All four
-fields below are required even when effects are disabled:
-
-```yaml
-state_effects:
-  enabled: true
-  preset: balanced
-  palette: phos
-  reduce_motion: false
-```
-
-- `enabled` is `true` or `false`.
-- `preset` is `subtle`, `balanced`, or `expressive`.
-- `palette` is `phos`, `cyan`, `blue`, `violet`, `aqua`, `amber`, `white`, or
-  `green`.
-- `reduce_motion` is `true` or `false`.
-
-## Minimal Skin: no image assets
-
-Use this complete manifest when you only want to change the eyes, Eye Safe
-Layer, or State Effects. It needs no `assets/` directory.
-
-```yaml
-schema_version: 3
-name: Quiet cyan
-description: A background-free, low-motion appearance.
-appearance:
-  eyes:
-    iris_color: "#28CEEB"
+    iris_color: "#F4AB3D"
+    shape: expressive
   backgrounds:
     enabled: false
     idle: null
@@ -183,104 +70,156 @@ appearance:
     enabled: true
     mode: subtle
   state_effects:
-    enabled: false
+    enabled: true
     preset: subtle
-    palette: phos
+    palette: amber
     reduce_motion: true
+led_palette:
+  enabled: true
+  colors:
+    idle: "#F4AB3D"
+    thinking: "#B38CFF"
+    success: "#41CD7D"
+physical_personality:
+  preset: calm
 ```
 
-## Image requirements
+`led_palette` is optional and has no physical effect without available
+controller-backed LEDs. Warning/error colours remain protected. Physical
+Personality is applied through effective-skin reconciliation, not through the
+live Preview button.
 
-PHOS validates these hard limits when importing package images:
+### Optional background assets
 
-- PNG, JPG, and JPEG only.
-- Each image must be no larger than 4 MiB.
-- Each decoded image must be at most 1920×1080 pixels.
-- The entire archive must be no larger than 32 MiB, contain at most 16 entries,
-  and expand to at most 32 MiB.
+The complete example needs no assets. To add one:
 
-For the best result on the standard PHOS display, prepare backgrounds at
-800×600 pixels (4:3). This is a recommendation, not the maximum accepted
-size. An image with a different aspect ratio is still subject to the hard
-limits above, but may need cropping or scaling to look right.
+1. Create `my-skin/assets/` and copy your own PNG/JPEG image there, for example
+   `idle.png`.
+2. Set `appearance.backgrounds.enabled: true` and
+   `appearance.backgrounds.idle: assets/idle.png`.
+3. Keep unassigned states `null`. For another state, use a separate filename,
+   even when the image contents are identical.
+4. Prepare 800×600 images for the reference display. Check the
+   [package/image limits](../skins/structure.md#package-and-image-limits).
 
-## Create the archive
+Put only referenced image files in `assets/`. Do not include the PHOS logo as
+an eye replacement; backgrounds are composed beneath the animated eyes.
 
-### macOS and Linux
+## 4. Keep expressions and animations within supported controls
 
-Arrange the files in a directory named, for example, `my-skin`:
+A skin chooses an eye shape and an effect preset/palette; it does not provide
+new expression profiles or animation scripts. Test expressions using the
+existing [visual controls](../visual-system.md#eye-expressions). State Effects
+follow the actual robot state, and Physical Personality changes bounded idle
+blink/gaze timing. `reduce_motion` applies to State Effects, not all eye motion.
 
-```text
-my-skin/
-├── skin.yaml
-└── assets/
-    └── idle.png
+Do not add arbitrary `expressions`, `animations`, `geometry`, or timing fields:
+they are not manifest extensions and will be rejected.
+
+## 5. Validate the manifest
+
+This invokes the same manifest validator used during package import without
+writing any PHOS state:
+
+```bash
+PYTHONPATH=src .venv/bin/python - <<'PY'
+from pathlib import Path
+import yaml
+from robot.ui.skins import skin_from_manifest
+
+manifest = yaml.safe_load(Path("my-skin/skin.yaml").read_text(encoding="utf-8"))
+name, description, appearance, led_palette, personality = skin_from_manifest(manifest)
+print(f"Valid manifest: {name}")
+PY
 ```
 
-From inside that directory, create a clean archive:
+## 6. Build and validate the archive
+
+This command includes the manifest and immediate asset files, then performs a
+real package import into a temporary directory. Temporary validation does not
+activate the skin or edit your runtime configuration.
+
+```bash
+PYTHONPATH=src .venv/bin/python - <<'PY'
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from zipfile import ZIP_DEFLATED, ZipFile
+from robot.ui.skins import SkinRepository
+
+workspace = Path("my-skin")
+package = Path("copper-pulse.phos-skin")
+with ZipFile(package, "w", compression=ZIP_DEFLATED) as archive:
+    archive.write(workspace / "skin.yaml", "skin.yaml")
+    assets = workspace / "assets"
+    if assets.is_dir():
+        for asset in sorted(assets.iterdir()):
+            if not asset.is_file() or asset.is_symlink():
+                raise ValueError("assets/ must contain only regular image files")
+            archive.write(asset, f"assets/{asset.name}")
+
+with TemporaryDirectory() as temporary:
+    repository = SkinRepository(Path(temporary) / "phos.yaml")
+    installed = repository.import_package(package.read_bytes())
+    assert repository.get(installed.id).name == "Copper pulse"
+    print(f"Validated package: {package}")
+PY
+```
+
+Keep the example name unchanged for the assertion, or update that assertion
+when authoring your own named skin. Manifest validation checks schema and
+parameters; package validation additionally checks paths, entries, sizes, asset
+references, and supported image signatures. Decoded-image limits require
+OpenCV/NumPy, as explained in [Skin Structure](../skins/structure.md).
+
+### Other archive tools
+
+For an image-backed package, the equivalent macOS/Linux commands are separate
+operations:
 
 ```bash
 cd my-skin
-COPYFILE_DISABLE=1 zip -X -r ../my-skin.phos-skin skin.yaml assets
 ```
-
-This command adds the contents of `my-skin`, rather than the `my-skin`
-directory itself. `-X` omits extra file attributes and `COPYFILE_DISABLE=1`
-prevents macOS copy metadata from being added. Do not include `__MACOSX`,
-`.DS_Store`, or AppleDouble files whose names start with `._`.
-
-For the minimal example, omit `assets` from the command:
 
 ```bash
-cd my-skin
-zip -X ../my-skin.phos-skin skin.yaml
+COPYFILE_DISABLE=1 zip -X -r ../copper-pulse.phos-skin skin.yaml assets
 ```
 
-### Windows
+For an asset-free package, omit `assets`:
 
-In File Explorer, select `skin.yaml` and the `assets` folder themselves (not
-their parent folder), then use **Send to → Compressed (zipped) folder**. Rename
-or copy the resulting `.zip` file so it ends in `.phos-skin` if needed. Open
-the archive once to confirm that `skin.yaml` appears at its top level.
+```bash
+zip -X ../copper-pulse.phos-skin skin.yaml
+```
 
-## Before importing
+On Windows, select `skin.yaml` and `assets/` themselves, not their parent folder,
+then create a ZIP archive and give it the `.phos-skin` extension. Exclude
+`__MACOSX`, `.DS_Store`, AppleDouble `._*` files, and unrelated files.
 
-- [ ] `skin.yaml` is at the archive root.
-- [ ] `schema_version` is `2`.
-- [ ] The manifest has exactly `eyes`, `backgrounds`, `eye_safe_layer`, and
-      `state_effects` under `appearance`.
-- [ ] All six background-state keys are present, and every referenced asset
-      exists with exactly the same filename and extension.
-- [ ] The archive has no duplicate files, extra top-level files, nested asset
-      directories, `__MACOSX`, `.DS_Store`, or `._*` files.
-- [ ] Assets are PNG/JPG/JPEG files directly inside `assets/`.
-- [ ] No asset path is absolute, uses backslashes, or contains `..`.
-- [ ] The package and images meet the limits in [Image requirements](#image-requirements).
+## 7. Install and activate
 
-## Import, preview, apply, and export
+1. Open **Appearance → Skins** in authenticated Web Admin.
+2. Import `copper-pulse.phos-skin`. It receives a new local custom ID.
+3. Choose **Global Appearance** if you want to assess this global selection
+   without automatic active-agent changes.
+4. Use **Preview** for a temporary live visual check, then **Apply** to save it.
+5. Export the installed skin to keep a portable copy.
 
-In Web Admin, open **Appearance → Skins → Import Skin Package**. PHOS accepts
-`.phos-skin` (recommended) and `.zip` (compatibility) archives. `skin.yaml` is
-only the manifest inside a package; YAML files are not a public import format.
+Apply uses the shared configuration/lifecycle boundary. Import alone does not
+change the appearance. See [Installing and Activating](../skins/installing.md)
+for local catalogs, agent assignments, and restoring PHOS Default.
 
-**Preview** applies the Skin to the live appearance temporarily, without saving
-the configuration. Use **Apply** to validate and save the Skin as the persistent
-appearance. If a custom Skin is in use, PHOS will not let it be deleted while
-its own background assets are still referenced; apply a different Skin first.
+## 8. Test the result
 
-Use **Export** to create a `.phos-skin` package. When exporting a custom Skin,
-PHOS bundles its referenced backgrounds under `assets/`, making the package
-portable to another PHOS installation.
+- Verify the amber iris and expressive contour on the actual face display.
+  Static SVG Preview currently uses the classic shape.
+- Exercise supported expressions; the skin must leave their semantic behavior
+  and local state priorities intact.
+- Observe idle blink/gaze after **Apply** to assess the `calm` preset.
+- With supported hardware, inspect **Active LED Palette** and request only
+  permitted signals; no LED hardware is needed for the eye appearance.
+- If using backgrounds, inspect each assigned state and confirm the eyes remain
+  legible. Check centre-cropping on the target display.
+- Restart PHOS through your normal managed/foreground launch and confirm the
+  saved global skin still resolves.
 
-## Troubleshooting
-
-| Message or symptom | What to check |
-| --- | --- |
-| `Skin package has unsafe archive entries` | Recreate the archive with `skin.yaml` at its root. Remove `__MACOSX`, `.DS_Store`, `._*` files, nested directories, absolute paths, backslashes, and `..` paths. |
-| `Skin appearance must contain ...` | Use the exact `appearance` structure in this guide. All four blocks are required. |
-| `Skin state_effects is invalid` | Include `enabled`, `preset`, `palette`, and `reduce_motion`, using only the values listed above. |
-| A referenced asset is missing or invalid | Check spelling and case, including `.jpg` versus `.png`; place the image directly in `assets/`. |
-| Package or image is too large | Keep each image at or below 4 MiB, each decoded image within 1920×1080, and the archive within 32 MiB. |
-
-For Web Admin setup and the related appearance controls, see the
-[Web Administration manual](../web-administration.md#appearance).
+For errors or a difference between preview and the live display, use
+[Troubleshooting](../skins/troubleshooting.md).

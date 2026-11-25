@@ -8,6 +8,11 @@ Use interfaces and fakes/mocks for hardware.
 
 ## Configuration
 
+The dedicated [Skins configuration reference](skins/configuration.md) distinguishes
+portable `skin.yaml` manifests, the local YAML catalog, and runtime skin-selection
+settings. Follow [Installing and Activating Skins](skins/installing.md) for the
+supported lifecycle paths.
+
 `config/phos.yaml` is the **canonical configuration and complete example**.
 The complete YAML structure and authoritative default values are in
 [the canonical file](https://github.com/phosairobot/phos/blob/main/config/phos.yaml); edit it directly and restart PHOS:
@@ -254,7 +259,7 @@ audio-session environment variables. Package defaults therefore do not depend
 on either the working directory or a developer home directory; ALSA selection is
 limited to the optional `startup.ready_sound.device` value.
 The repository configuration selects the packaged
-`robot.assets/images/phos-startup-800x600.png` and `robot.assets/audio/phos-startup.wav`.
+`robot.assets/images/neon_phos_logo-startup-800x600.png` and `robot.assets/audio/phos-startup.wav`.
 `run_pi.sh` transfers them as part of `src/`, and a wheel includes them as package
 data. The helper deliberately preserves an existing Pi configuration; merge
 the `startup` block from the repository configuration into an already deployed

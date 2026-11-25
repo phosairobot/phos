@@ -1,9 +1,41 @@
-# How PHOS Communicates with Its External Hardware Controller
+# External hardware controllers — phos-hw v1
 
 PHOS implements the `phos-hw` v1 external-controller boundary. The official
 companion ESP32 firmware is available at
 [phosairobot/phos-esp32](https://github.com/phosairobot/phos-esp32), providing
 ENS160 + AHT21 telemetry and WS2812B semantic LED control over USB/serial JSONL.
+
+## A hardware boundary independent of the agent
+
+A compatible controller lets an agent use physical context without learning its
+board, sensor bus, pins, or firmware. PHOS accepts supported observations through
+`phos-hw` v1, adds availability and semantic interpretation, and exposes the
+result through MCP. In the other direction, PHOS resolves permitted LED intent
+before firmware executes it.
+
+`phos-hw` v1 is the hardware communication protocol; MCP is the agent-facing
+protocol. They serve different boundaries. The Raspberry Pi runs PHOS and owns
+semantics. The external controller acquires sensors and drives its supported
+outputs. It does not replace the Pi runtime.
+
+```mermaid
+flowchart TD
+  sensors[Physical sensors] --> controller[Compatible microcontroller]
+  controller -->|phos-hw v1 observations over serial| adapter[Pi controller adapter]
+  adapter --> context[PHOS semantic services and context]
+  context -->|MCP resources and notifications| agent[External MCP client / agent]
+  agent -->|MCP tools| services[Permission-checked application services]
+  services --> intent[Runtime LED arbitration]
+  intent -->|phos-hw v1 set_led_animation| controller
+  controller --> leds[Physical LED output]
+```
+
+ESP32 is the official reference firmware implementation. The protocol is not
+ESP32-specific: a developer could implement it on Arduino, RP2040, or STM32
+hardware with a suitable serial transport and firmware. These are potential
+ports, not supported board integrations. A port must implement the actual frame,
+capability, freshness, and command contracts below; protocol extensibility does
+not make arbitrary sensors automatically available through MCP.
 
 ## Flash the companion firmware
 

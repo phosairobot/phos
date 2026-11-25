@@ -38,11 +38,11 @@ the source URL remains unchanged, so no redirect is needed.
 | Canonical YAML configuration | `RuntimeConfig`, `config/phos.yaml`, migration guide | IMPLEMENTED | None identified | Retain YAML-only wording and historical JSON context only. | High |
 | Required/optional hardware | Hardware/install docs and providers | PARTIALLY IMPLEMENTED | Pi 4/5, BOM alternatives, prices, enclosure specs are unverified. | State only the Pi 3/display baseline; obtain physical evidence before expanding. | High |
 | MCP tool discovery | MCP server and MCP reference | IMPLEMENTED | Client-specific setup is external to this repository. | Keep the 17-tool/5-Resource reference canonical. | High |
-| Authentic product media | `docs/assets/images/phos.png` | NOT IMPLEMENTED | No verified reference-build photo/video is tracked. | Obtain approved media with provenance and alt text. | High |
+| Authentic product media | `docs/assets/images/neon_phos_logo.png` | NOT IMPLEMENTED | No verified reference-build photo/video is tracked. | Obtain approved media with provenance and alt text. | High |
 | License | Repository root | IMPLEMENTED | Apache License 2.0, NOTICE, and a dependency audit are present. | Confirm the copyright holder and complete release-specific third-party review before publication. | High |
 | Contribution workflow / discussion venue | GitHub issues and root `CONTRIBUTING.md` | PARTIALLY IMPLEMENTED | No documented Discussion venue. | Add a preferred discussion channel only after maintainer decision. | Medium |
 | GitHub Pages deployment | `.github/workflows/deploy-pages.yml` | IMPLEMENTED | Deployment uses a write token and third-party action; no issue for this content change. | Retain GitHub Pages-compatible MkDocs build. | Medium |
-| Social metadata / share image | MkDocs URL/description and logo | PARTIALLY IMPLEMENTED | No approved social-preview photo/metadata asset. | Add explicit social image once authentic media exists. | Medium |
+| Social metadata / share image | Open Graph/Twitter metadata and neon logo derivative | IMPLEMENTED | Branded share image is derived from the supplied logo, not a product photograph. | Regenerate branding derivatives when the source logo changes. | Medium |
 | Simulator without hardware | Tests use fakes/mocks | UNKNOWN / NOT VERIFIED | No end-user simulator is documented or verified. | Do not promise one. | Medium |
 
 ## Navigation changes

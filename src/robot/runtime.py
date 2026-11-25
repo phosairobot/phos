@@ -830,7 +830,7 @@ class PhosRuntime:
         splash = self._config.resolve_startup_splash_image() if self._config else None
         sound = self._config.resolve_startup_ready_sound() if self._config else None
         splash_configured = (self._config.startup_splash_image if self._config and self._config.startup_splash_image is not None
-                             else "package:robot.assets/images/phos-startup-800x600.png")
+                             else "package:robot.assets/images/neon_phos_logo-startup-800x600.png")
         sound_configured = (self._config.startup_ready_sound_file if self._config and self._config.startup_ready_sound_file is not None
                             else "package:robot.assets/audio/phos-startup.wav")
         player = self._config.startup_ready_sound_player if self._config else None

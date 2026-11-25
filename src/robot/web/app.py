@@ -163,6 +163,7 @@ def create_app(config_path: Path, *, active_document=None, password_store=None, 
         def api_docs():
             response = app.response_class("""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><title>PHOS API documentation</title>
+<link rel="icon" type="image/png" sizes="64x64" href="/static/images/neon_phos_logo-favicon.png">
 <link rel="stylesheet" href="/static/swagger-ui/swagger-ui.css"></head><body>
 <div id="swagger-ui"></div><script src="/static/swagger-ui/swagger-ui-bundle.js"></script>
 <script src="/static/swagger-ui/swagger-init.js"></script></body></html>""", mimetype="text/html")

@@ -941,16 +941,26 @@ def test_credentials_are_write_only_csrf_protected_and_persist_encrypted(setup, 
     assert value not in caplog.text
 
 
-def test_existing_phos_images_are_used_as_responsive_visuals(setup):
+def test_neon_phos_branding_is_served_on_login_dashboard_and_navigation(setup):
     app, _, _ = setup
     login_page = app.test_client().get("/login").get_data(as_text=True)
     dashboard = authorize(app).get("/").get_data(as_text=True)
-    assert 'images/phos-login-black.webp' in login_page and 'alt="PHOS"' in login_page
-    assert 'images/phos-dashboard-black.webp' in dashboard and 'alt="" loading="lazy"' in dashboard
+    assert 'images/neon_phos_logo.png' in login_page and 'alt="PHOS"' in login_page
+    assert 'images/neon_phos_logo-224.png' in dashboard and 'alt="" loading="lazy"' in dashboard
+    assert 'images/neon_phos_logo-96.png' in dashboard
+    assert 'rel="icon"' in login_page and 'rel="apple-touch-icon"' in login_page
+    # Logos and icons must be public static assets, including before login.
+    client = app.test_client()
+    for path in set(re.findall(r'/static/images/neon_phos_logo[^"\s]+', login_page + dashboard)):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.mimetype == "image/png"
+        assert response.data.startswith(b"\x89PNG\r\n\x1a\n")
     css = (app.root_path and __import__("pathlib").Path(app.root_path) / "static" / "admin.css").read_text()
     assert ".login-panel { display: grid" in css
     assert ".login-branding img" in css and "height: auto" in css
-    assert "mask-image: radial-gradient" in css
+    assert "mask-image" not in css
+    assert ".brand-mark img" in css and "object-fit: contain" in css
     assert ".dashboard-phos-image" in css and "@media (max-width: 430px)" in css
 
 

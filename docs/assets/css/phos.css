@@ -188,7 +188,7 @@
 }
 
 .md-header__button.md-logo img {
-  border-radius: 50%;
+  border-radius: 0;
 }
 
 /* =========================================================
@@ -348,7 +348,7 @@
 
 .phos-logo {
   width: 5.5rem;
-  border-radius: 50%;
+  border-radius: 0;
   box-shadow: 0 0 35px rgba(73, 231, 255, 0.5);
 }
 
@@ -829,12 +829,42 @@
   text-align: center;
 }
 
+/* Static corner glows are limited to the homepage Hero. */
+.phos-landing-hero.phos-purple-hero {
+  background:
+    radial-gradient(ellipse 65% 60% at 0% 100%, rgba(139, 92, 246, 0.20), transparent 72%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, rgba(168, 85, 247, 0.18), transparent 72%),
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.08), transparent 35%),
+    linear-gradient(180deg, #0b1b38 0%, #080f24 58%, #14122e 100%);
+}
+
+.phos-landing-hero.phos-purple-hero::before {
+  content: none;
+}
+
+[data-md-color-scheme='default'] .phos-landing-hero.phos-purple-hero {
+  background:
+    radial-gradient(ellipse 65% 60% at 0% 100%, rgba(139, 92, 246, 0.14), transparent 72%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, rgba(168, 85, 247, 0.12), transparent 72%),
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.06), transparent 35%),
+    linear-gradient(180deg, #f8faff 0%, #f4f5fc 58%, #f1edfb 100%);
+}
+
 .phos-landing-logo {
   width: clamp(5rem, 13vw, 8rem);
   height: auto;
   margin: 0 auto 1rem;
-  border-radius: 50%;
+  border-radius: 0;
   box-shadow: 0 0 2.2rem rgba(73, 231, 255, 0.34);
+}
+
+.phos-landing-hero .phos-landing-logo {
+  display: inline-block;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  object-fit: contain;
+  object-position: center;
+  overflow: hidden;
 }
 
 .phos-landing-hero h1 {

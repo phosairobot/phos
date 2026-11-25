@@ -36,7 +36,7 @@ pythonpath = ["src"]
 
 [tool.setuptools.package-data]
 "robot.assets" = ["images/*.png", "audio/*.wav"]
-"robot.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/swagger-ui/*"]
+"robot.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/images/*.png", "static/swagger-ui/*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "robot.__version__"}

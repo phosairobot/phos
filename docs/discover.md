@@ -2,75 +2,83 @@
 
 # Discover PHOS
 
-PHOS is a physical companion platform for AI Agents and people. It combines a
-small expressive display with optional sensing, voice, vision, touch, and
-network integration on a Raspberry Pi.
+**Bringing AI agents into the physical world.**
+
+**Eyes, voice and senses for AI agents.** PHOS is an open-source, bidirectional
+physical I/O layer for AI agents, powered by the Model Context Protocol.
 
 </div>
 
-## A companion, not only an MCP server
+## Give your agent a physical interface
 
-In standalone use, PHOS can render eyes and expressions, maintain robot state,
-respond to supported touch and sensor observations, and expose local Web Admin
-and REST controls. These capabilities do not depend on an external AI Agent.
+An agent can read selected physical context and communicate through a local
+expressive face, configured speech, and supported LED signals. People can notice
+activity or a request for attention beyond a chat window. PHOS handles devices,
+context, permissions, and execution; your agent supplies reasoning and decisions.
 
-When connected to an AI Agent, MCP gives the agent a constrained semantic view
-of PHOS and a controlled action surface. The agent reasons; PHOS owns the
-hardware and applies its permission and runtime boundaries.
+**Bring your own agent. Bring your own hardware.** Connect through a compatible
+MCP client. Use supported Raspberry Pi peripherals or an external controller
+implementing the `phos-hw` v1 protocol. The runtime targets Raspberry Pi 3;
+controller extensibility does not imply support for every board or sensor.
 
-## Capabilities by outcome
+## Perceive, react, express
 
 <div class="phos-discover-grid" markdown>
 
-### Visual expression
+### Perceive physical context
 
-PHOS renders animated eyes, blink and gaze behavior, supported expressions,
-robot-state visuals, and transient local overlays. See [Visual system](visual-system.md).
+Read available temperature, humidity, pressure, air-quality indicators, motion,
+anonymous presence, attention, and observed expressions. Measurements are
+accompanied by availability and semantic context where implemented. Authorized
+camera snapshots and optional on-demand object labels are separate interfaces.
+See [core capabilities](features.md).
 
-### Speech and interaction
+### React to meaningful changes
 
-With configured hardware/providers, PHOS captures bounded voice sessions and
-can synthesize short speech. Local Vosk/Piper and optional Cartesia/ElevenLabs
-providers are documented in [Voice](voice.md). Touch gestures are local input,
-including top-left voice control and top-right Admin Access double-tap.
+Subscription-capable clients receive resource change cues and read updated
+context. PHOS reports selected semantic transitions rather than pushing every
+sensor sample. The external host or agent decides whether to reason or act;
+notifications are best-effort and have no replay. See [MCP integration](mcp-overview.md).
 
-### Physical awareness
+### Express through a physical presence
 
-Optional BME280/BMP280, controller-backed ENS160/AHT21, and MPU-6050 adapters provide temperature,
-humidity where supported, pressure, air-quality estimates, and motion data.
-PHOS distinguishes measurements from semantic interpretations; ENS160 eCO2 is
-an estimate, not a direct CO2 measurement. See [Hardware & sensors](hardware-overview.md).
+Animated eyes combine blink, local gaze behavior, expressions, and state
+visuals. Agents can request supported expressions and temporary thinking
+visuals, speak through configured TTS, or signal through available controller
+LEDs. There is no direct MCP gaze or raw LED control. See [how PHOS works](how-phos-works.md).
 
-### Vision and human presence
+### Share controlled access
 
-The optional camera pipeline can detect faces, derive presence/attention, and
-produce a bounded visible-expression observation. It does not identify people
-or claim to know their emotions. See [Vision](vision.md).
-
-### Agent and application integration
-
-MCP clients can discover semantic tools/resources; REST clients can read status
-and request supported actions. Read [MCP & AI Agent Integration](mcp-overview.md)
-or the [Remote API](remote-api.md).
+Register distinct agent identities and credentials with `observer` or `standard`
+profiles. PHOS checks resource reads and tool operations through application
+services. Agents share the physical outputs; external applications coordinate
+their own tasks. See [agent access](mcp-overview.md#multiple-agents-and-controlled-access).
 
 </div>
 
-## Watch PHOS in Action
+## Standalone operation
 
-<div class="phos-media-callout" markdown>
+PHOS can also operate locally without an external agent. Its runtime renders
+eyes, responds to supported touch gestures, manages robot state, and applies
+configured sensor reactions. Optional voice services provide bounded microphone
+sessions, STT, TTS/playback, and the deterministic English/Italian
+[voice command catalog](voice-commands.md). End-to-end conversational LLM
+operation, wake words, and continuous listening remain outside the delivered
+local voice path.
 
-:fontawesome-brands-youtube:{ .phos-media-icon }
+Use this mode for a local expressive display, hardware checks, or
+personalization. Both standalone and agent-connected operation require the local
+runtime. [Installation](installation.md) explains setup;
+[Web Admin](web-administration.md) provides configuration and operational controls,
+and [skins](appearance/creating-skins.md) personalize the face.
 
-Explore videos, demonstrations and development updates from the PHOS project.
+## See PHOS and choose a path
 
-[Visit the PHOS YouTube Channel](https://www.youtube.com/@phosairobot){ .md-button .md-button--primary }
+Watch the [official demonstrations on the homepage](index.md#watch-phos-in-action)
+or visit the [PHOS YouTube channel](https://www.youtube.com/@phosairobot).
 
-</div>
-
-## Next steps
-
-- [Install PHOS](installation.md)
+- [Connect your first MCP client](developer-quickstart.md)
 - [Explore use cases](use-cases.md)
-- [Configure Web Admin](web-administration.md)
-- [Connect external AI agents with MCP](mcp-overview.md)
-- [Understand the architecture](architecture.md)
+- [Build PHOS](build-phos.md)
+- [Understand hardware integration](hardware-overview.md)
+- [Build integrations and contribute](contributing.md)

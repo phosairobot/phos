@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% set share_image = config.site_url ~ "assets/images/neon_phos_logo-social.png" %}
+  {% set share_description = page.meta.description if page and page.meta.description else config.site_description %}
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ 'assets/images/neon_phos_logo-touch.png' | url }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name | e }}">
+  <meta property="og:title" content="{{ (page.title if page else config.site_name) | e }}">
+  <meta property="og:description" content="{{ share_description | e }}">
+  {% if page and page.canonical_url %}<meta property="og:url" content="{{ page.canonical_url | e }}">{% endif %}
+  <meta property="og:image" content="{{ share_image | e }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="PHOS neon logo">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ (page.title if page else config.site_name) | e }}">
+  <meta name="twitter:description" content="{{ share_description | e }}">
+  <meta name="twitter:image" content="{{ share_image | e }}">
+  <meta name="twitter:image:alt" content="PHOS neon logo">
+{% endblock %}

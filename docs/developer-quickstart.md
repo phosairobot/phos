@@ -20,11 +20,17 @@ controls.
 For the full configuration and authentication matrix, use the
 [MCP reference](mcp.md#mcp-authentication-security).
 
-## A verified transport pattern
+## Choose your client path
+
+Use native Streamable HTTP when the client supports PHOS's protocol and safe
+bearer credential handling. Otherwise, use the stdio bridge below with a
+compatible client. Tools, resources, and notifications are separate client
+features; check the [capability table](mcp-overview.md#client-capabilities-and-transports).
+
+## Connect through the stdio bridge
 
 The recommended [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge)
-requires **Node.js 20+** and connects local `stdio` clients such as Claude
-Desktop, Claude Code, and Cursor to PHOS Streamable HTTP. Build it using its
+requires **Node.js 20+** and connects compatible local `stdio` clients to PHOS Streamable HTTP. Build it using its
 repository instructions and use an absolute path to its compiled entry point.
 It reads the issued bearer from `PHOS_MCP_TOKEN`, then
 connects upstream to PHOS; PHOS remains responsible for identity and permission
@@ -59,11 +65,24 @@ environment-variable pattern are documented and tested here.
 4. If your agent has the relevant permission, use
    `phos_get_physical_assessment` before making an interpretation from retained
    measurements across a sensor interruption.
-5. With deliberate authorization, request one bounded action such as
+5. With a `standard` profile and deliberate authorization, request one bounded
+   action such as
    `phos_set_expression`, `phos_speak`, or `phos_signal_user`.
 
 The response is semantic state, not a hardware driver handle. Capability and
 availability errors are expected when optional hardware is disabled or not ready.
+
+## Add event-driven interaction
+
+For change cues, use a client supporting MCP revision `2026-07-28` and
+`subscriptions/listen`. Open a listen stream for `phos://physical-context`,
+then read initial context. After `notifications/resources/updated`, read the
+resource again and let your external logic decide whether to call an output
+tool. The notification does not start agent reasoning by itself.
+
+Reopen the stream and read current context after disconnecting. PHOS has no
+notification replay, and numeric sensor samples alone do not trigger cues.
+Follow the [end-to-end sequence](mcp-overview.md#react-to-changes).
 
 ## What to build next
 

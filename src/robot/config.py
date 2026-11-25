@@ -862,7 +862,7 @@ class RuntimeConfig:
         return Path(str(resources.files("robot.assets").joinpath(relative_path)))
 
     def resolve_startup_splash_image(self) -> Path:
-        return self.resolve_path(self.startup_splash_image) or self._bundled_asset_path("images/phos-startup-800x600.png")
+        return self.resolve_path(self.startup_splash_image) or self._bundled_asset_path("images/neon_phos_logo-startup-800x600.png")
 
     def resolve_startup_ready_sound(self) -> Path:
         return self.resolve_path(self.startup_ready_sound_file) or self._bundled_asset_path("audio/phos-startup.wav")

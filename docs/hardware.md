@@ -1,5 +1,13 @@
 # Hardware
 
+PHOS runs on Raspberry Pi; external controllers are an optional integration
+boundary. The hardware-agnostic `phos-hw` v1 serial protocol carries accepted
+sensor observations and semantic LED commands between a compatible controller
+and the local runtime. MCP separately connects external agents to PHOS's
+permission-checked services. ESP32 is the reference controller implementation.
+See [hardware architecture](hardware-overview.md) and the
+[controller protocol](hardware-controller.md) before extending a build.
+
 Use the [Hardware BOM](hardware-bom.md) to plan parts and build tiers; this page
 provides the wiring, addresses, power, and device setup details.
 

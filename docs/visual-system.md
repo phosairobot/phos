@@ -18,6 +18,11 @@ overlays.
 
 </div>
 
+Use [Skins](skins/index.md) to choose iris colour, supported eye shape,
+state backgrounds, visual effects, and optional LED theming. Skins define
+presentation; the expression and behavior paths below retain control of
+semantic intent.
+
 ## A persistent baseline, with temporary reactions
 
 The selected persistent visual source is one of **manual**, **environment** or

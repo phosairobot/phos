@@ -29,8 +29,24 @@ The [roadmap](roadmap.md) records planned and unverified work; the
 and external integrations with their configuration
 requirements and test results.
 
-## Maintainer decisions still needed
+## Build on PHOS
 
-- Publish a contribution process and preferred discussion channel, if desired.
-- Supply authentic reference-build photos, a demonstration video, and any
-  approved enclosure files before they are presented as project assets.
+- **External agent experiences:** demonstrate how an agent reads physical context,
+  chooses an action, and uses expressions, thinking visuals, or configured speech.
+- **MCP client integrations:** show discovery, permission failures, resource reads,
+  `subscriptions/listen`, reconnection, and explicit decisions before output calls.
+- **Hardware controllers:** implement the existing `phos-hw` v1 boundary on new
+  hardware, with capability discovery and the accepted observation mappings.
+  Document a board as supported only with implementation and hardware evidence.
+- **Sensors and providers:** extend existing adapters and shared semantic services;
+  explain units, freshness, failure behavior, and controller provenance.
+- **Physical communication and accessibility:** improve expression clarity,
+  reduced-motion experiences, documentation, or interaction examples using the
+  existing visual and application-service boundaries.
+- **Community demonstrations:** share reproducible configurations, hardware
+  reports, or videos that show what an integration actually does.
+
+Start with [use cases](use-cases.md), [MCP integration](mcp-overview.md),
+the [controller protocol](hardware-controller.md), and
+[skin authoring](appearance/creating-skins.md). Propose changes to public contracts
+or architecture through the contribution process before implementing them.

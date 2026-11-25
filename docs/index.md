@@ -7,160 +7,30 @@ classes:
 
 <div class="phos-landing-hero phos-purple-hero phos-entrance" markdown>
 
-![PHOS logo](assets/images/phos.png){ .phos-landing-logo width="128" height="128" }
+![PHOS neon logo](assets/images/neon_phos_logo.png){ .phos-landing-logo width="128" height="128" }
 
-# Build a <span class="phos-gradient-accent">physical presence</span> for your AI.
+# Bringing AI agents into the <span class="phos-gradient-accent">physical world.</span>
 
-<p class="phos-hero-lede">PHOS is an open-source Raspberry Pi robot with expressive eyes, optional vision, voice, and sensors. Build a local companion or give an external AI agent permission-controlled physical context through MCP.</p>
+**Eyes, voice and senses for AI agents.**
+
+<p class="phos-hero-lede">Give your agent physical context and a way to communicate beyond chat. PHOS connects supported sensors to AI agents and turns authorized requests into expressive eyes, speech, and visual signals.</p>
 
 <div class="phos-actions" markdown>
 
-[Get Started](build-phos.md){ .md-button .md-button--primary }
-[Explore Architecture](architecture.md){ .md-button }
+[Connect your agent](developer-quickstart.md){ .md-button .md-button--primary }
+[How PHOS works](how-phos-works.md){ .md-button }
 
 </div>
 
 </div>
 
-Start with the Raspberry Pi 3 and 5-inch 800×600 display baseline. Follow the
-[User Guide](build-phos.md) to install PHOS, configure your hardware, and try
-the capabilities you need. Camera, voice, sensors, external controllers, and
-Web Admin are opt-in; each guide explains its prerequisites.
+PHOS is **an open-source, bidirectional physical I/O layer for AI agents,
+powered by the Model Context Protocol.** Your external agent provides reasoning;
+the local Raspberry Pi runtime provides physical perception and execution.
 
-## How PHOS works
-
-```mermaid
-flowchart TD
-    standalone["Standalone runtime<br/>Local touch and configured behaviors"]
-    agent["AI agent or remote client"]
-    local["Local stdio client<br/>Claude Desktop / Claude Code / Cursor"]
-    bridge["phos-mcp-bridge<br/>Node.js 20+"]
-    mcp["MCP<br/>Identity and permission profiles"]
-    rest["REST API<br/>Authenticated semantic requests"]
-    services["PHOS application services<br/>Validation and bounded actions"]
-    runtime["Local runtime<br/>State and behavior"]
-    hardware["Display, voice, vision and Pi sensors"]
-    esp["phos-esp32<br/>ENS160 + AHT21 / WS2812B LEDs"]
-    standalone --> runtime
-    local <-->|stdio| bridge
-    bridge <-->|HTTP / bearer| mcp
-    agent <-->|Structured context and requests| mcp
-    agent <-->|Telemetry and controls| rest
-    mcp <--> services
-    rest <--> services
-    services <--> runtime
-    runtime <--> hardware
-    runtime <-->|phos-hw v1 serial JSONL| esp
-    style standalone fill:#2e1065,stroke:#a855f7,color:#fff
-    style agent fill:#2e1065,stroke:#a855f7,color:#fff
-    style bridge fill:#2e1065,stroke:#a855f7,color:#fff
-    style services fill:#2e1065,stroke:#a855f7,color:#fff
-    style runtime fill:#1e293b,stroke:#8b5cf6,color:#fff
-    style hardware fill:#1e293b,stroke:#8b5cf6,color:#fff
-    style esp fill:#1e293b,stroke:#8b5cf6,color:#fff
-```
-
-**Standalone:** run the animated face, supported local touch reactions, and
-configured sensor behaviors on the Pi. Add voice capture, speech output, or
-local administration when ready. These paths do not require an external agent.
-
-**AI agent-connected:** connect a compatible client through Streamable HTTP
-MCP. The agent reads structured observations and requests permitted expression,
-speech, state, or signal actions. PHOS authenticates requests, applies its
-permission profiles, and owns hardware execution. Reasoning stays with the
-external agent; end-to-end conversational LLM operation remains future work.
-
-Both modes use the same runtime and application services. You can start locally
-and [connect an agent later](developer-quickstart.md).
-
-## PHOS Ecosystem
-
-| Repository | Role in your build |
-| --- | --- |
-| [phos](https://github.com/phosairobot/phos) | Raspberry Pi runtime, Vision, Voice, Web Admin, REST API, and the MCP Streamable HTTP server. |
-| [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge) | Recommended Node.js 20+ adapter for local `stdio` clients such as Claude Desktop, Claude Code, and Cursor. |
-| [phos-esp32](https://github.com/phosairobot/phos-esp32) | Official `phos-hw` v1 firmware for ENS160 + AHT21 telemetry and ESP32-driven WS2812B LEDs. |
-
-The bridge reads its PHOS bearer from `PHOS_MCP_TOKEN` in the process
-environment, never CLI flags, and does not automatically retry `tools/call`.
-This avoids replaying a physical action when a response is lost. PHOS remains
-responsible for identity, permissions, and semantic decisions. Start with the
-[MCP client guide](developer-quickstart.md); use native Streamable HTTP directly
-when your client supports it.
-
-## Core capabilities
-
-<div class="grid cards phos-purple-cards phos-entrance" markdown>
-
--   :material-connection: **MCP integration**
-
-    ---
-
-    Share semantic physical context through permission-checked tools and
-    Resources. Read bounded RAM-only history or request an authorized camera
-    snapshot, without continuous video streaming.
-
-    [Connect an MCP client](mcp-overview.md)
-
--   :material-api: **REST API**
-
-    ---
-
-    Read status, health, and available sensor data; request supported semantic
-    actions through the authenticated API. Explore the supplied OpenAPI and
-    Swagger UI documentation.
-
-    [Use the REST API](remote-api.md)
-
--   :material-cog-outline: **Web administration**
-
-    ---
-
-    Inspect the live status dashboard, configure skins and settings, and manage
-    agent access. Apply supported changes through validated live activation,
-    reload, or restart paths.
-
-    [Set up Web Admin](web-admin-overview.md)
-
--   :material-eye-outline: **Vision & presence**
-
-    ---
-
-    Enable Picamera2 face tracking, presence, attention, and expression
-    observations. Optional on-demand NanoDet supplies object labels and
-    confidence; it requires a separately installed model.
-
-    [Explore vision and expressions](vision-expressions.md)
-
--   :material-account-voice: **Voice: STT & TTS**
-
-    ---
-
-    Capture bounded speech sessions with Vosk or Cartesia STT. Speak through
-    Piper, Cartesia, or ElevenLabs TTS and the separate audio playback path.
-    Configure explicit voice command sessions with the supported English/Italian
-    vocabulary. Audio hardware, models, and provider setup are required.
-
-    [Configure voice and speech](voice.md)
-
--   :material-chip: **Sensors & ESP32 hardware**
-
-    ---
-
-    Add BME280/BMP280 environmental readings, MPU6050 motion, or controller-backed
-    ENS160/AHT21 telemetry. ESP32 integration uses the serial `phos-hw` v1 JSONL
-    protocol with the official [phos-esp32 firmware](https://github.com/phosairobot/phos-esp32).
-
-    [Plan your Hardware BOM](hardware-bom.md) · [Check wiring](hardware.md)
-
-</div>
-
-## Choose your path
-
-| Journey | Start here | Next steps |
-| --- | --- | --- |
-| **Makers & users** | Choose parts from the [Hardware BOM](hardware-bom.md), [build PHOS](build-phos.md), and [install the runtime](installation.md). | Check [hardware](hardware-overview.md), configure [Web Admin](web-administration.md), then connect through [MCP](mcp-overview.md) or [REST](remote-api.md). |
-| **Developers & contributors** | Read the [architecture](architecture.md), [decisions](decisions.md), and [testing guide](development.md). | Explore [MCP specifications](mcp.md), the [controller protocol](hardware-controller.md), [provider boundaries](architecture.md#core-principles), and [skin extensions](appearance/creating-skins.md); follow the [contribution guide](contributing.md). |
+**Bring your own agent. Bring your own hardware.** Use a compatible MCP client
+and the supported Pi peripherals or a controller implementing `phos-hw` v1.
+Hardware features depend on the devices and providers configured in your build.
 
 ## Watch PHOS in Action
 
@@ -190,15 +60,115 @@ physical context through MCP and analysis of recent environmental history.
 
 [More Videos on @phosairobot](https://www.youtube.com/@phosairobot){ .md-button }
 
-## Follow PHOS and share your build
+## Perceive, react, express
 
-Find source code, report issues, and share hardware experiences on
-[GitHub](https://github.com/phosairobot/phos). A star helps other makers discover
-the project. For more development updates, follow
+<div class="grid cards phos-purple-cards phos-entrance" markdown>
+
+-   :material-eye-outline: **Perceive**
+
+    ---
+
+    Read available environmental measurements, motion, human presence, and
+    attention as structured physical context, with availability and freshness.
+    Your agent uses PHOS interfaces instead of managing sensor drivers.
+
+    [Explore physical awareness](features.md)
+
+-   :material-connection: **React**
+
+    ---
+
+    Compatible clients subscribe to resource changes and retrieve updated
+    context without continuously polling for semantic transitions. Your agent
+    or host decides whether to respond.
+
+    [Understand resource updates](mcp-overview.md#react-to-changes)
+
+-   :material-account-voice: **Express**
+
+    ---
+
+    Communicate activity through animated eyes, supported expressions, and a
+    temporary thinking state. Add configured speech or controller-backed LED
+    signals so people can notice agent activity away from a chat window.
+
+    [See the interaction model](how-phos-works.md)
+
+</div>
+
+## How PHOS works
+
+```mermaid
+flowchart TD
+    sensors["Physical sensors and controllers"]
+    runtime["PHOS runtime and semantic context"]
+    resources["MCP resources and update notifications"]
+    agent["External MCP client and agent"]
+    tools["MCP tools and permission checks"]
+    outputs["Eyes, speech and LED signals"]
+    sensors -->|Pi adapters or phos-hw v1| runtime
+    runtime --> resources --> agent
+    agent --> tools --> runtime
+    runtime --> outputs
+```
+
+MCP connects agents to PHOS. The separate `phos-hw` v1 serial protocol connects
+compatible external controllers to the Pi. The official ESP32 firmware is a
+reference implementation; an external controller is optional. The local PHOS
+runtime is required for physical execution.
+
+## One physical interface, different agents
+
+PHOS works through MCP rather than a particular model or agent framework.
+Register independent agent identities, issue separate bearer credentials, and
+choose read-only `observer` or action-capable `standard` access. Multiple clients
+use the same runtime; physical outputs remain shared and subject to PHOS
+arbitration. PHOS provides no agent orchestration or isolated output devices.
+
+Resource reads and tool calls pass through application permissions and runtime
+checks. Camera snapshots require separate permission and are requested on
+demand. Resource notifications contain a URI, not images or sensor payloads;
+they are best-effort cues rather than a guaranteed event stream.
+
+[Explore agent access and security](mcp-overview.md#multiple-agents-and-controlled-access)
+
+## What will you build?
+
+- **A physical presence for an agent:** express activity or speak a concise reply.
+- **Coding feedback you can notice:** have your integration request a thinking
+  visual during a task and a supported expression or LED signal on completion.
+- **Presence-aware interactions:** let external logic read confirmed anonymous
+  presence and decide when a response is useful.
+- **Environmental context:** let an agent retrieve available measurements or
+  bounded history and explain them to a person.
+
+These are integration ideas using implemented interfaces. The external workflow
+and its decision logic are yours to build. [Explore use cases](use-cases.md).
+
+## Get started
+
+| Your goal | Start here |
+| --- | --- |
+| Connect an external agent to a running PHOS | [Connect your first MCP client](developer-quickstart.md) |
+| Build the physical interface | [Build PHOS](build-phos.md) · [Hardware BOM](hardware-bom.md) |
+| Connect or develop compatible hardware | [Hardware architecture](hardware-overview.md) · [Controller protocol](hardware-controller.md) |
+| Run PHOS locally without an external agent | [Standalone operation](discover.md#standalone-operation) |
+| Build integrations and contribute | [Contribution opportunities](contributing.md) |
+
+The reference runtime targets Raspberry Pi 3 with a 5-inch 800×600 display.
+Camera, sensors, voice, and external controllers are optional; setup guides
+explain each capability's requirements. Personalize the face with
+[skins](appearance/creating-skins.md) after setting up your interaction.
+
+## PHOS ecosystem
+
+| Repository | Responsibility |
+| --- | --- |
+| [phos](https://github.com/phosairobot/phos) | Raspberry Pi runtime, semantic services, MCP server, REST API, and Web Admin. |
+| [phos-mcp-bridge](https://github.com/phosairobot/phos-mcp-bridge) | Local stdio to remote Streamable HTTP transport adapter. |
+| [phos-esp32](https://github.com/phosairobot/phos-esp32) | Reference ESP32 firmware for controller-backed sensors and LED output. |
+
+Follow demonstrations on [YouTube](https://www.youtube.com/@phosairobot), share
+a build on [GitHub](https://github.com/phosairobot/phos), or follow updates on
 [Instagram](https://www.instagram.com/phosairobot/) and
-[X](https://x.com/phosairobot).
-
-For implementation details and planned work, see the
-[current implementation state](current-state.md), [roadmap](roadmap.md), and
-[release records](releases.md). Verify wiring, power, device compatibility, and
-calibration for your own build before enabling optional hardware.
+[X](https://x.com/phosairobot). See the [roadmap](roadmap.md) for future work.

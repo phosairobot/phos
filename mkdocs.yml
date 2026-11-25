@@ -1,5 +1,5 @@
 site_name: PHOS
-site_description: Open-source physical perception and expressive feedback for AI Agents, built on Raspberry Pi.
+site_description: Bringing AI agents into the physical world. Eyes, voice and senses through MCP.
 site_url: https://phosairobot.github.io/phos/
 
 repo_url: https://github.com/phosairobot/phos
@@ -16,8 +16,9 @@ theme:
   name: material
   language: en
 
-  logo: assets/images/phos.png
-  favicon: assets/images/phos.png
+  custom_dir: overrides
+  logo: assets/images/neon_phos_logo.png
+  favicon: assets/images/neon_phos_logo-favicon.png
 
   palette:
     scheme: slate
@@ -96,13 +97,22 @@ nav:
           - Hardware BOM: hardware-bom.md
           - Installation overview: installation-overview.md
           - Installation & setup: installation.md
-          - Sensors, ESP32 & wiring: hardware.md
+          - Sensors, controllers & wiring: hardware.md
       - Connect & configure:
           - MCP agent integration: mcp-overview.md
           - Connect your first MCP client: developer-quickstart.md
           - REST API: remote-api.md
           - Web Admin overview: web-admin-overview.md
           - Web Admin manual: web-administration.md
+      - Skins:
+          - Overview: skins/index.md
+          - Built-in Skins: skins/built-in.md
+          - Skin Architecture: skins/architecture.md
+          - Skin Structure: skins/structure.md
+          - Configuration Reference: skins/configuration.md
+          - Creating a Custom Skin: appearance/creating-skins.md
+          - Installing and Activating Skins: skins/installing.md
+          - Troubleshooting: skins/troubleshooting.md
       - Perception & interaction:
           - Expressive behaviors: vision-expressions.md
           - Environmental sensors: environmental-awareness.md
@@ -121,13 +131,12 @@ nav:
       - Protocols & subsystem references:
           - MCP protocol reference: mcp.md
           - API contract notes: api.md
-          - ESP32 controller protocol: hardware-controller.md
+          - Hardware controller protocol: hardware-controller.md
           - Display & expressions: visual-system.md
           - Vision pipeline: vision.md
           - Vision model evaluation: vision-model-evaluation.md
           - TTS providers & playback: tts.md
       - Extend & contribute:
-          - Create appearance skins: appearance/creating-skins.md
           - Contributing & project status: contributing.md
           - Documentation guide: documentation.md
           - Website audit: website-audit.md

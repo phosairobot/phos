@@ -16,7 +16,7 @@
 {% endif %}
 {% if area in ('general', 'status', 'sensors', 'controls') %}
 <section id="phos-operations" class="status live-dashboard" data-phos-live aria-label="Live PHOS status">
-<div class="section-heading"><div><p class="eyebrow">LIVE OPERATIONS</p><h3>Current PHOS Status</h3></div><div class="status-heading-side"><span class="status-pulse">● Semantic runtime</span>{% if area == 'general' %}<img class="dashboard-phos-image" src="{{ url_for('static', filename='images/phos-dashboard-black.webp') }}" alt="" loading="lazy">{% endif %}</div></div>
+<div class="section-heading"><div><p class="eyebrow">LIVE OPERATIONS</p><h3>Current PHOS Status</h3></div><div class="status-heading-side"><span class="status-pulse">● Semantic runtime</span>{% if area == 'general' %}<img class="dashboard-phos-image" src="{{ url_for('static', filename='images/neon_phos_logo-224.png') }}" alt="" loading="lazy">{% endif %}</div></div>
 <p class="live-note">Loading the current semantic snapshot…</p>
 {% if area != 'controls' %}
 <div class="domain-cards live-cards status-summary">

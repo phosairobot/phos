@@ -1,7 +1,7 @@
-# MCP Semantic Adapter
+# MCP reference — physical context and controlled expression
 
-New to MCP with PHOS? Start with [PHOS & MCP — Give AI Agents a Physical
-Presence](mcp-overview.md) for the user-facing capabilities guide.
+New to MCP with PHOS? Start with
+[MCP — Eyes, voice and senses for AI agents](mcp-overview.md) for the capabilities guide.
 
 PHOS starts its trusted-local MCP Streamable HTTP endpoint as part of normal
 runtime startup. Install the `mcp` optional dependency, configure `mcp` in the
@@ -18,6 +18,23 @@ lifecycle, Web Admin enable/disable, and port rebinding in `McpServerManager`.
 Under SDK 2.x the ASGI app owns the protocol's per-client session handling and
 its lifespan cleanup; PHOS does not retain SDK session objects. Uvicorn closes
 that app as part of the existing listener shutdown path.
+
+### Protocol and SDK references
+
+The supported dependency range allows SDK 2.x rather than locking an exact
+version. This subscription contract uses MCP revision `2026-07-28`, as
+implemented by SDK `2.3.0` and checked by PHOS's transport regression. PHOS uses
+`MCPServer`, `InMemorySubscriptionBus`, and `ResourceUpdated` from the official SDK.
+
+Use the [2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28),
+its [resources](https://modelcontextprotocol.io/specification/2026-07-28/server/resources)
+and [subscriptions](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions)
+contracts, and the official
+[Python SDK v2 subscription guide](https://py.sdk.modelcontextprotocol.io/handlers/subscriptions/).
+PHOS publishes its change cues through `subscriptions/listen`; do not substitute
+the older `resources/subscribe` mechanism. For client feature requirements and
+an end-to-end interaction diagram, see the
+[MCP integration guide](mcp-overview.md#client-capabilities-and-transports).
 
 The committed default endpoint is `http://127.0.0.1:8001/mcp`. MCP is enabled
 by default, binds only to loopback, and uses one listener in the same process,
@@ -47,7 +64,7 @@ non-loopback host is allowed only by explicit configuration and emits a warning.
 Bearer authentication is available when configured, but deployment/TLS policy
 remains the operator's responsibility; do not expose this endpoint publicly.
 
-## Agent identity and transitional local authentication
+## Agent identity and local compatibility
 
 Every inbound MCP request passes through one authentication middleware boundary
 before any tool or Resource reaches `AgentApplicationService`. The middleware
@@ -56,19 +73,18 @@ existing permission-profile reference); the application facade then applies the
 existing profile permissions before capability and runtime checks. Identity,
 permission, capability, and current activity remain separate concerns.
 
-Without configured credential references, the Stage 3.1 compatibility mode uses
-`LocalAgentAuthenticator`, a deliberately transitional resolver
-that identifies every trusted-local client as `local-agent` with the existing
-`standard` profile. It does not verify credentials and must not be treated as
-production-grade authentication. This preserves existing clients while a later
-stage adds credential-backed authentication, persistence, and per-client policy.
+When bearer mode has no configured credential references, the compatibility
+path resolves the configured default agent without verifying credentials. The
+committed configuration selects `local-agent` with the `standard` profile. This
+path must not be treated as credential-backed authentication; configure agent
+credential references and issue credentials to establish independent callers.
 
-Stage 3.2 persists the default identity in the canonical `agents` configuration.
-`agents` absent from an older configuration retains `local-agent`/`standard`.
-Once present, invalid records, duplicate IDs, unknown profiles, or an unknown
-default fail configuration loading; no fallback grants broader access. Web
-Admin updates replace the complete validated runtime registry, so agent
-create/edit/delete changes apply to subsequent MCP requests without restart.
+The canonical `agents` configuration persists identities and the default agent.
+Older configurations without `agents` retain `local-agent`/`standard`. Invalid
+records, duplicate IDs, unknown profiles, or an unknown default fail loading;
+no fallback grants broader access. Web Admin updates replace the complete
+validated registry, so agent create/edit/delete changes apply to subsequent
+MCP requests without restart.
 
 ## Bearer authentication
 

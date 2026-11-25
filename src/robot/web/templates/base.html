@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PHOS administration</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='images/neon_phos_logo-favicon.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/neon_phos_logo-touch.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
   <script src="{{ url_for('static', filename='admin.js') }}" defer></script>
 </head>
 <body><div class="admin-shell{% if not session.get('sid') %} login-shell{% endif %}">
 {% if session.get('sid') %}
-<aside class="sidebar"><a class="brand" href="{{ url_for('configuration') }}"><span class="brand-mark" aria-hidden="true">◉</span><span>PHOS <small>ADMIN</small></span></a>
+<aside class="sidebar"><a class="brand" href="{{ url_for('configuration') }}"><span class="brand-mark" aria-hidden="true"><img src="{{ url_for('static', filename='images/neon_phos_logo-96.png') }}" width="36" height="36" alt=""></span><span>PHOS <small>ADMIN</small></span></a>
 <nav class="side-nav" aria-label="PHOS administration">
 <p class="nav-heading">Basic</p>
 <a href="{{ url_for('configuration') }}" {% if area is defined and area == 'general' %}aria-current="page"{% endif %}><i>⌂</i>Dashboard</a>

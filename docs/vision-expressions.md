@@ -60,6 +60,13 @@ expression inference have independent cadences.
     Test both provider modes with your camera and lighting, then calibrate
     confidence thresholds and reaction timing using the Vision reference.
 
+## Personalise the visual response
+
+[Skins](skins/index.md) choose the base iris colour, supported eye contour,
+backgrounds, and state effects. They do not change how camera evidence is
+classified or which behavior reaction is selected. See
+[Skin Architecture](skins/architecture.md) for the rendering boundary.
+
 ## Next steps
 
 Read the [canonical Vision reference](vision.md) for crop, smoothing, provider,
