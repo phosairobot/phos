@@ -1,0 +1,1190 @@
+:root {
+  --phos-purple: #8b5cf6;
+  --phos-purple-bright: #a855f7;
+  --phos-bg: #050b18;
+  --phos-surface: #0b1730;
+  --phos-surface-soft: #101f3e;
+
+  --phos-blue: #1976ff;
+  --phos-blue-bright: #42a5ff;
+  --phos-cyan: #49e7ff;
+
+  --phos-text: #eef6ff;
+  --phos-muted: #a9bbd2;
+}
+
+/* Purple accents extend the existing palette without replacing base tokens. */
+.phos-purple-hero {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+}
+
+.phos-purple-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 30%, rgba(139, 92, 246, 0.24), transparent 65%);
+  pointer-events: none;
+  animation: phos-breathe 7s ease-in-out infinite;
+}
+
+.phos-purple-hero .phos-landing-logo {
+  box-shadow: 0 0 2rem rgba(168, 85, 247, 0.3);
+}
+
+.phos-gradient-accent {
+  position: relative;
+  color: #c4b5fd;
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .phos-gradient-accent {
+    background: linear-gradient(100deg, #c4b5fd, #a5b4fc, #e9d5ff, #c4b5fd);
+    background-size: 200% auto;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: phos-shimmer 10s linear infinite;
+  }
+}
+
+.phos-gradient-accent::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -0.08em;
+  height: 0.035em;
+  background: linear-gradient(90deg, transparent, var(--phos-purple-bright), transparent);
+  transform: scaleX(0.65);
+  transition: transform 250ms ease;
+}
+
+.phos-purple-hero:hover .phos-gradient-accent::after,
+.phos-purple-hero:focus-within .phos-gradient-accent::after {
+  transform: scaleX(1);
+}
+
+.md-typeset .grid.cards > ul > li {
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ul > li:focus-within {
+  transform: translateY(-4px);
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 0.5rem 1.2rem rgba(139, 92, 246, 0.14);
+}
+
+.md-typeset .phos-purple-cards .twemoji {
+  color: var(--phos-purple-bright);
+}
+
+.phos-entrance,
+.md-typeset .mermaid {
+  animation: fadeInUp 600ms ease both;
+}
+
+.md-typeset .mermaid {
+  margin-block: 1.5rem;
+  overflow-x: auto;
+}
+
+/* Keep new surfaces and typography readable if the light scheme is selected. */
+[data-md-color-scheme='default'] .md-typeset,
+[data-md-color-scheme='default'] .md-typeset :is(p, li, td, h1, h2) {
+  color: var(--md-default-fg-color);
+}
+
+[data-md-color-scheme='default'] .md-typeset a:not(.md-button) {
+  color: #6d28d9;
+}
+
+[data-md-color-scheme='default'] .phos-purple-hero {
+  background: linear-gradient(135deg, #faf5ff, #eef2ff);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+[data-md-color-scheme='default'] .phos-purple-hero .phos-hero-lede {
+  color: #475569 !important;
+}
+
+[data-md-color-scheme='default'] .phos-gradient-accent {
+  background-image: linear-gradient(100deg, #6d28d9, #4338ca, #7e22ce, #6d28d9);
+}
+
+@keyframes phos-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+@keyframes phos-shimmer {
+  to { background-position: 200% center; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phos-entrance,
+  .md-typeset .mermaid,
+  .phos-purple-hero::before,
+  .phos-gradient-accent,
+  .phos-eye {
+    animation: none !important;
+  }
+
+  .phos-gradient-accent::after,
+  .md-typeset .grid.cards > ul > li {
+    transition: none !important;
+  }
+
+  .md-typeset .grid.cards > ul > li:hover,
+  .md-typeset .grid.cards > ul > li:focus-within {
+    transform: none;
+  }
+}
+
+/* =========================================================
+   MkDocs Material dark scheme
+   ========================================================= */
+
+[data-md-color-scheme='slate'] {
+  --md-default-bg-color: var(--phos-bg);
+  --md-default-fg-color: var(--phos-text);
+  --md-default-fg-color--light: var(--phos-muted);
+
+  --md-primary-fg-color: #081329;
+  --md-primary-fg-color--light: #0c1b38;
+  --md-primary-fg-color--dark: #040915;
+
+  --md-accent-fg-color: var(--phos-cyan);
+
+  --md-code-bg-color: #0a1428;
+  --md-code-fg-color: #d9ebff;
+
+  --md-typeset-color: var(--phos-text);
+  --md-typeset-a-color: var(--phos-cyan);
+}
+
+/* =========================================================
+   Header / tabs
+   ========================================================= */
+
+.md-header,
+.md-tabs {
+  background: rgba(5, 11, 24, 0.94);
+  backdrop-filter: blur(14px);
+}
+
+.md-header {
+  border-bottom: 1px solid rgba(73, 231, 255, 0.15);
+}
+
+.md-tabs {
+  border-bottom: 1px solid rgba(25, 118, 255, 0.16);
+}
+
+.md-header__button.md-logo img {
+  border-radius: 0;
+}
+
+/* =========================================================
+   Typography
+   ========================================================= */
+
+.md-typeset {
+  color: var(--phos-text);
+}
+
+.md-typeset p,
+.md-typeset li,
+.md-typeset td {
+  color: #e6efff;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  color: var(--phos-text);
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h1 {
+  font-weight: 750;
+}
+
+.md-typeset h2 {
+  border-bottom: 1px solid rgba(73, 231, 255, 0.16);
+  padding-bottom: 0.35em;
+  margin-top: 2.2em;
+}
+
+.md-typeset a {
+  color: var(--phos-cyan);
+}
+
+.md-typeset a:hover {
+  color: #9af4ff;
+}
+
+/* =========================================================
+   Buttons
+   ========================================================= */
+
+.md-typeset .md-button {
+  border-color: rgba(73, 231, 255, 0.52);
+  border-radius: 0.45rem;
+  background-color: rgba(11, 23, 48, 0.94);
+  color: var(--phos-text);
+  font-weight: 650;
+}
+
+.md-typeset .md-button:hover {
+  background-color: rgba(16, 31, 62, 1);
+  color: var(--phos-text);
+  border-color: var(--phos-cyan);
+}
+
+.md-typeset .md-button--primary {
+  background-color: var(--phos-blue);
+  border-color: var(--phos-blue);
+  color: #ffffff;
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:active {
+  background-color: #0f64df;
+  border-color: #0f64df;
+  color: #ffffff;
+}
+
+.md-typeset .md-button:focus-visible {
+  outline: 0.18rem solid var(--phos-cyan);
+  outline-offset: 0.18rem;
+}
+
+/* =========================================================
+   Footer
+   ========================================================= */
+
+.md-footer {
+  background: #030713;
+}
+
+/* =========================================================
+   PHOS homepage hero
+   ========================================================= */
+
+.phos-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  min-height: 31rem;
+
+  padding: clamp(2rem, 6vw, 4.5rem);
+  margin: -1rem auto 3rem;
+
+  text-align: center;
+
+  border: 1px solid rgba(73, 231, 255, 0.16);
+  border-radius: 1.2rem;
+
+  background:
+    radial-gradient(
+      circle at 50% 25%,
+      rgba(25, 118, 255, 0.22),
+      transparent 32%
+    ),
+    linear-gradient(135deg, #06122a, #050914 65%);
+
+  overflow: hidden;
+  position: relative;
+}
+
+.phos-hero::after {
+  content: '';
+  position: absolute;
+
+  width: 28rem;
+  height: 28rem;
+
+  right: -14rem;
+  bottom: -18rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.16);
+  border-radius: 50%;
+
+  box-shadow:
+    0 0 0 3rem rgba(25, 118, 255, 0.03),
+    0 0 0 6rem rgba(25, 118, 255, 0.025);
+
+  pointer-events: none;
+}
+
+.phos-hero-copy {
+  position: relative;
+  z-index: 1;
+
+  width: 100%;
+  max-width: 56rem;
+
+  margin: 0 auto;
+
+  text-align: center;
+}
+
+.phos-hero-copy h1,
+.phos-hero-copy h2,
+.phos-hero-copy p {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.phos-logo {
+  width: 5.5rem;
+  border-radius: 0;
+  box-shadow: 0 0 35px rgba(73, 231, 255, 0.5);
+}
+
+.phos-hero h1 {
+  font-size: clamp(3.5rem, 10vw, 7rem);
+  line-height: 0.9;
+
+  margin: 0.6rem auto;
+
+  background: linear-gradient(100deg, #ffffff, var(--phos-cyan));
+
+  -webkit-background-clip: text;
+  background-clip: text;
+
+  color: transparent;
+}
+
+.phos-hero h2 {
+  max-width: 46rem;
+
+  margin-left: auto;
+  margin-right: auto;
+
+  color: #dceeff;
+  border: 0;
+
+  font-size: clamp(1.25rem, 2.5vw, 1.8rem);
+  font-weight: 500;
+}
+
+.phos-version {
+  text-align: center;
+  color: var(--phos-muted);
+}
+
+/* =========================================================
+   Hero actions
+   ========================================================= */
+
+.phos-actions {
+  display: flex;
+  flex-wrap: wrap;
+
+  justify-content: center;
+  align-items: center;
+
+  gap: 0.7rem;
+  margin-top: 1.7rem;
+}
+
+.phos-actions .md-button {
+  border-color: rgba(73, 231, 255, 0.6);
+  color: var(--phos-text);
+  background-color: rgba(11, 23, 48, 0.88);
+  text-shadow: none;
+}
+
+.phos-actions .md-button--primary,
+.phos-media-callout .md-button--primary {
+  background: var(--phos-blue);
+  border-color: var(--phos-blue);
+  color: #ffffff;
+}
+
+.phos-actions .md-button:hover,
+.phos-actions .md-button:active,
+.phos-media-callout .md-button:hover,
+.phos-media-callout .md-button:active {
+  color: var(--phos-text);
+  background-color: rgba(16, 31, 62, 1);
+}
+
+.phos-actions .md-button--primary:hover,
+.phos-actions .md-button--primary:active,
+.phos-media-callout .md-button--primary:hover,
+.phos-media-callout .md-button--primary:active {
+  color: #ffffff;
+  background-color: #0f64df;
+  border-color: #0f64df;
+}
+
+.phos-actions .md-button:focus-visible,
+.phos-media-callout .md-button:focus-visible {
+  outline: 0.18rem solid var(--phos-cyan);
+  outline-offset: 0.18rem;
+}
+
+/* =========================================================
+   PHOS eyes
+   ========================================================= */
+
+.phos-eyes {
+  position: relative;
+  z-index: 1;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  width: 100%;
+
+  gap: clamp(0.4rem, 2vw, 1.2rem);
+
+  margin: 2.5rem auto 0;
+
+  transform: none;
+}
+
+.phos-eye {
+  width: min(15vw, 205px);
+  aspect-ratio: 1.65;
+
+  justify-self: center;
+
+  border-radius: 50% 50% 48% 48%;
+
+  background: radial-gradient(
+    ellipse at center,
+    #effcff 0 8%,
+    #8ef4ff 9% 13%,
+    #1789ff 14% 25%,
+    #07152e 26% 48%,
+    transparent 49%
+  );
+
+  filter: drop-shadow(0 0 28px #1976ff)
+    drop-shadow(0 0 75px rgba(73, 231, 255, 0.3));
+
+  position: relative;
+
+  animation: phos-float 6s ease-in-out infinite;
+}
+
+.phos-eye--right {
+  animation-delay: -2.2s;
+}
+
+.phos-eye::before,
+.phos-eye::after {
+  content: '';
+
+  position: absolute;
+
+  inset: -15%;
+
+  border: 1px solid rgba(73, 231, 255, 0.22);
+  border-radius: 50%;
+
+  transform: rotate(-18deg);
+}
+
+.phos-eye::after {
+  inset: -29% 0;
+  transform: rotate(25deg);
+}
+
+.phos-eye-iris {
+  position: absolute;
+
+  inset: 28% 36%;
+
+  border-radius: 50%;
+
+  background: #07101f;
+  box-shadow: inset 0 0 10px #000;
+}
+
+.phos-eye-pupil,
+.phos-eye-glint {
+  position: absolute;
+
+  border-radius: 50%;
+
+  background: white;
+}
+
+.phos-eye-pupil {
+  width: 28%;
+  height: 28%;
+
+  left: 38%;
+  top: 30%;
+
+  box-shadow: 0 0 14px white;
+}
+
+.phos-eye-glint {
+  width: 6%;
+  height: 6%;
+
+  left: 48%;
+  top: 35%;
+}
+
+@keyframes phos-float {
+  50% {
+    transform: translateY(-10px) scale(1.02);
+  }
+}
+
+/* =========================================================
+   Intro blocks
+   ========================================================= */
+
+.phos-intro {
+  max-width: 52rem;
+
+  margin: 0 auto 2.5rem;
+
+  text-align: center;
+
+  font-size: 1.15rem;
+
+  color: var(--phos-muted);
+}
+
+.phos-page-intro {
+  max-width: 48rem;
+
+  margin: 0.4rem 0 2rem;
+
+  color: var(--phos-muted);
+
+  font-size: 1.08rem;
+}
+
+.phos-kicker {
+  display: block;
+
+  margin-bottom: 0.55rem;
+
+  color: var(--phos-cyan);
+
+  font-size: 0.72rem;
+  font-weight: 800;
+
+  letter-spacing: 0.13em;
+}
+
+/* =========================================================
+   Stats
+   ========================================================= */
+
+.phos-stat-row {
+  display: grid;
+
+  grid-template-columns: repeat(3, 1fr);
+
+  gap: 1px;
+
+  margin: 0 0 2.8rem;
+
+  background: rgba(73, 231, 255, 0.18);
+
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-radius: 0.8rem;
+
+  overflow: hidden;
+}
+
+.phos-stat-row > div {
+  padding: 1.1rem 1.25rem;
+
+  background: var(--phos-surface);
+}
+
+.phos-stat-row strong {
+  display: block;
+
+  color: var(--phos-cyan);
+
+  font-size: 1.25rem;
+}
+
+.phos-stat-row span {
+  color: var(--phos-muted);
+
+  font-size: 0.85rem;
+}
+
+/* =========================================================
+   Cards
+   ========================================================= */
+
+.phos-grid {
+  display: grid;
+
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+  gap: 1rem;
+
+  margin: 1.5rem 0 2.5rem;
+}
+
+.phos-card {
+  min-height: 100%;
+
+  padding: 1.35rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.15);
+  border-radius: 0.8rem;
+
+  background: linear-gradient(
+    145deg,
+    rgba(16, 31, 62, 0.85),
+    rgba(7, 15, 31, 0.9)
+  );
+
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.phos-card:hover {
+  transform: translateY(-3px);
+
+  border-color: rgba(73, 231, 255, 0.44);
+
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.25),
+    0 0 24px rgba(25, 118, 255, 0.08);
+}
+
+.phos-card h3 {
+  color: #dff7ff;
+  margin-top: 0.1rem;
+}
+
+.phos-card-icon {
+  color: var(--phos-cyan);
+
+  font-size: 1.45rem;
+
+  text-shadow: 0 0 16px var(--phos-cyan);
+}
+
+/* =========================================================
+   Status badges
+   ========================================================= */
+
+.phos-status {
+  display: inline-block;
+
+  margin-bottom: 0.7rem;
+
+  padding: 0.2rem 0.45rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.42);
+  border-radius: 99px;
+
+  color: var(--phos-cyan);
+
+  font-size: 0.62rem;
+  font-weight: 800;
+
+  letter-spacing: 0.08em;
+}
+
+.phos-status--optional {
+  color: #a9c6ff;
+
+  border-color: rgba(122, 164, 255, 0.45);
+}
+
+/* =========================================================
+   Flow / pipeline
+   ========================================================= */
+
+.phos-flow,
+.phos-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 0.6rem;
+
+  padding: 1.2rem;
+  margin: 1.5rem 0;
+
+  border-radius: 0.8rem;
+
+  background: #08172f;
+
+  color: #dff7ff;
+}
+
+.phos-flow span,
+.phos-pipeline span {
+  padding: 0.35rem 0.65rem;
+
+  border: 1px solid rgba(73, 231, 255, 0.3);
+
+  border-radius: 99px;
+}
+
+.phos-flow b {
+  color: var(--phos-cyan);
+}
+
+/* =========================================================
+   Callout
+   ========================================================= */
+
+.phos-callout {
+  margin: 1.5rem 0;
+
+  padding: 1rem 1.2rem;
+
+  border-left: 3px solid var(--phos-cyan);
+
+  border-radius: 0 0.55rem 0.55rem 0;
+
+  background: linear-gradient(
+    90deg,
+    rgba(25, 118, 255, 0.14),
+    rgba(25, 118, 255, 0.03)
+  );
+
+  color: #dcecff;
+}
+
+/* =========================================================
+   Tables
+   ========================================================= */
+
+.md-typeset table:not([class]) {
+  border: 1px solid rgba(73, 231, 255, 0.2);
+}
+
+.md-typeset table:not([class]) th {
+  background: #10264b;
+
+  color: #effaff;
+}
+
+/* =========================================================
+   Accessibility / reduced motion
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================================
+   Landing and discovery presentation
+   Stronger illumination is intentionally limited to the discovery journey.
+   Technical pages retain the restrained Material reading surface above.
+   ========================================================= */
+
+.phos-landing-hero,
+.phos-discover-hero,
+.phos-use-cases-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(2rem, 6vw, 4.5rem);
+  margin: -0.8rem 0 2.5rem;
+  border: 1px solid rgba(73, 231, 255, 0.19);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.12), transparent 30%),
+    radial-gradient(circle at 84% 82%, rgba(25, 118, 255, 0.16), transparent 37%),
+    linear-gradient(135deg, rgba(11, 27, 56, 0.96), rgba(5, 11, 24, 0.96));
+  box-shadow: 0 1.25rem 3.5rem rgba(0, 0, 0, 0.18);
+}
+
+.phos-landing-hero {
+  text-align: center;
+}
+
+/* Static corner glows are limited to the homepage Hero. */
+.phos-landing-hero.phos-purple-hero {
+  background:
+    radial-gradient(ellipse 65% 60% at 0% 100%, rgba(139, 92, 246, 0.20), transparent 72%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, rgba(168, 85, 247, 0.18), transparent 72%),
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.08), transparent 35%),
+    linear-gradient(180deg, #0b1b38 0%, #080f24 58%, #14122e 100%);
+}
+
+.phos-landing-hero.phos-purple-hero::before {
+  content: none;
+}
+
+[data-md-color-scheme='default'] .phos-landing-hero.phos-purple-hero {
+  background:
+    radial-gradient(ellipse 65% 60% at 0% 100%, rgba(139, 92, 246, 0.14), transparent 72%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, rgba(168, 85, 247, 0.12), transparent 72%),
+    radial-gradient(circle at 18% 12%, rgba(73, 231, 255, 0.06), transparent 35%),
+    linear-gradient(180deg, #f8faff 0%, #f4f5fc 58%, #f1edfb 100%);
+}
+
+.phos-landing-logo {
+  width: clamp(5rem, 13vw, 8rem);
+  height: auto;
+  margin: 0 auto 1rem;
+  border-radius: 0;
+  box-shadow: 0 0 2.2rem rgba(73, 231, 255, 0.34);
+}
+
+.phos-landing-hero .phos-landing-logo {
+  display: inline-block;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  object-fit: contain;
+  object-position: center;
+  overflow: hidden;
+}
+
+.phos-landing-hero h1 {
+  max-width: 13ch;
+  margin: 0 auto 0.65rem;
+  border: 0;
+  color: var(--phos-text);
+  font-size: clamp(2.25rem, 6vw, 4.75rem);
+  line-height: 1.03;
+}
+
+.phos-hero-lede {
+  max-width: 46rem;
+  margin: 0 auto;
+  color: var(--phos-muted) !important;
+  font-size: clamp(1.06rem, 2vw, 1.28rem);
+}
+
+.phos-mode-grid,
+.phos-capability-grid,
+.phos-discover-grid,
+.phos-use-case-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin: 1.4rem 0 2.5rem;
+}
+
+.phos-mode-card,
+.phos-capability-card,
+.phos-discover-grid > h3,
+.phos-discover-grid > p,
+.phos-use-case-grid > h2,
+.phos-use-case-grid > p {
+  min-width: 0;
+}
+
+.phos-mode-card,
+.phos-capability-card {
+  padding: 1.3rem;
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-radius: 0.85rem;
+  background: linear-gradient(145deg, rgba(16, 31, 62, 0.9), rgba(7, 15, 31, 0.92));
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.15);
+}
+
+.phos-mode-card h2,
+.phos-capability-card h3 {
+  margin-top: 0;
+  border: 0;
+}
+
+.phos-capability-card {
+  min-height: 11.5rem;
+}
+
+.phos-capability-card h3 {
+  margin-bottom: 0.45rem;
+  color: #dff7ff;
+}
+
+.phos-capability-icon,
+.phos-media-icon {
+  display: inline-block;
+  margin-bottom: 0.65rem;
+  color: var(--phos-cyan);
+  font-size: 1.65rem;
+}
+
+.phos-discover-hero,
+.phos-use-cases-hero {
+  padding: clamp(1.7rem, 4vw, 3rem);
+}
+
+.phos-discover-hero h1,
+.phos-use-cases-hero h1 {
+  margin-top: 0;
+  border: 0;
+}
+
+.phos-discover-grid > h3,
+.phos-discover-grid > p,
+.phos-use-case-grid > h2,
+.phos-use-case-grid > p {
+  grid-column: 1 / -1;
+}
+
+.phos-discover-grid > h3,
+.phos-use-case-grid > h2 {
+  margin: 0;
+  padding: 1.1rem 1.25rem 0;
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-bottom: 0;
+  border-radius: 0.8rem 0.8rem 0 0;
+  background: rgba(16, 31, 62, 0.7);
+}
+
+.phos-discover-grid > p,
+.phos-use-case-grid > p {
+  margin: -1rem 0 0;
+  padding: 0 1.25rem 1.2rem;
+  border: 1px solid rgba(73, 231, 255, 0.18);
+  border-top: 0;
+  border-radius: 0 0 0.8rem 0.8rem;
+  background: rgba(16, 31, 62, 0.7);
+}
+
+.phos-media-callout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 1rem;
+  align-items: center;
+  padding: 1.3rem;
+  border: 1px solid rgba(255, 71, 71, 0.38);
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(100deg, rgba(186, 27, 27, 0.18), rgba(25, 118, 255, 0.08)),
+    var(--phos-surface);
+}
+
+.phos-media-callout > p:first-child {
+  grid-row: span 2;
+  margin: 0;
+}
+
+.phos-media-callout .phos-media-icon {
+  color: #ff6b6b;
+  font-size: 2rem;
+}
+
+.phos-media-callout p {
+  margin: 0;
+}
+
+.phos-media-callout .md-button {
+  justify-self: start;
+  margin-top: 0.8rem;
+}
+
+.phos-home-flow,
+.phos-use-case-flow {
+  margin: 1.5rem 0 2.5rem;
+  background:
+    linear-gradient(90deg, rgba(25, 118, 255, 0.1), rgba(73, 231, 255, 0.06)),
+    #08172f;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .phos-landing-hero,
+  .phos-discover-hero,
+  .phos-use-cases-hero {
+    margin-top: 0;
+    border-radius: 0.8rem;
+  }
+
+  .phos-media-callout {
+    grid-template-columns: 1fr;
+  }
+
+  .phos-media-callout > p:first-child {
+    grid-row: auto;
+    margin-bottom: 0.6rem;
+  }
+}
+
+/* =========================================================
+   Mobile
+   ========================================================= */
+
+@media screen and (max-width: 720px) {
+  .phos-hero {
+    min-height: auto;
+
+    padding: 2.4rem 1.2rem;
+
+    margin: 0 auto 2rem;
+
+    border-radius: 0.8rem;
+
+    text-align: center;
+  }
+
+  .phos-hero-copy {
+    width: 100%;
+
+    text-align: center;
+  }
+
+  .phos-eyes {
+    margin-top: 1.8rem;
+
+    transform: none;
+  }
+
+  .phos-eye {
+    width: min(31vw, 155px);
+  }
+
+  .phos-logo {
+    width: 4.2rem;
+  }
+
+  .phos-actions {
+    justify-content: center;
+  }
+
+  .phos-stat-row {
+    grid-template-columns: 1fr;
+  }
+
+  .phos-flow,
+  .phos-pipeline {
+    justify-content: center;
+  }
+}
+
+/* Shared link interactions; buttons retain their existing contrast and effects. */
+[data-md-color-scheme='default'] {
+  --phos-link-hover: #9333ea;
+  --phos-link-glow: rgba(147, 51, 234, 0.16);
+}
+
+[data-md-color-scheme='slate'] {
+  --phos-link-hover: #c084fc;
+  --phos-link-glow: rgba(192, 132, 252, 0.22);
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button),
+[data-md-color-scheme] .md-nav__link,
+[data-md-color-scheme] .md-footer__link,
+[data-md-color-scheme] .md-tabs__link {
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button):is(:hover, :focus-visible),
+[data-md-color-scheme] .md-nav__link:is(:hover, :focus-visible),
+[data-md-color-scheme] .md-footer__link:is(:hover, :focus-visible),
+[data-md-color-scheme] .md-tabs__link:is(:hover, :focus-visible) {
+  color: var(--phos-link-hover);
+}
+
+[data-md-color-scheme] .md-typeset a:not(.md-button):is(:hover, :focus-visible) {
+  text-shadow: 0 0 0.65rem var(--phos-link-glow);
+  text-decoration: underline;
+  text-decoration-color: var(--phos-link-hover);
+  text-underline-offset: 0.18em;
+}
+
+/* Privacy-enhanced YouTube showcase: two columns, stacked on small screens. */
+.md-typeset .video-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-block: 1.5rem;
+}
+
+.md-typeset .video-card {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 12px;
+  background: var(--md-default-bg-color);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.video-wrapper {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.35);
+  background: #0f172a;
+}
+
+.video-wrapper iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.md-typeset .video-card figcaption {
+  display: block;
+  max-width: none;
+  margin: 0;
+  padding: 0.85rem 1rem;
+  color: var(--md-default-fg-color);
+  font-style: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.md-typeset .video-card:is(:hover, :focus-within) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25);
+}
+
+.md-typeset .video-card .video-description {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .md-typeset .video-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .video-card {
+    transition: none;
+  }
+
+  .md-typeset .video-card:is(:hover, :focus-within) {
+    transform: none;
+  }
+}
