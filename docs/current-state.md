@@ -21,11 +21,7 @@ to enable the Pi-side serial connection and check advertised capabilities.
 
 ## Current source version
 
-`robot.__version__` and the release test report **1.8.0**. The checked-out
-commit is also tagged **1.9.0**, and the source contains the 1.9.0 feature set.
-This release-version discrepancy must be resolved by maintainers before a
-publication can call 1.9.0 the authoritative package version. The following
-records retain implementation milestones as historical context.
+`robot.__version__` and the release test report **`robot.__version__`**. 
 
 ## Transient Overlay System v1
 

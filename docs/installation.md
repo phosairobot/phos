@@ -11,9 +11,7 @@ launch is the user systemd service below; terminal launch is for diagnostics.
 These instructions use the desktop user's `~/phos` (`/home/pi/phos` for user `pi`).
 
 This is a reproducible source/dependency procedure for the checked-out source,
-not a frozen OS image. The checkout is tagged `1.9.0`, but its package source
-currently reports `1.8.0`; record both until maintainers resolve that release
-metadata discrepancy. Also record
+not a frozen OS image. 
 `cat /etc/os-release`, `uname -m`, `python3 --version` and apt package versions
 with your setup notes. See [current state](current-state.md) and the
 [roadmap](roadmap.md) for implementation details and planned work.
@@ -197,8 +195,7 @@ cd ~/phos
 PYTHONPATH=src .venv/bin/python -m robot.main --config config/phos.yaml
 ```
 
-Check that the startup version matches `robot.__version__` in this checkout
-(currently `1.8.0`) and that the logged configuration path is the file you
+Check that the startup version matches `robot.__version__`  and that the logged configuration path is the file you
 edited. The checked-out commit is tagged `1.9.0`; do not treat that mismatch as
 resolved release metadata. Escape leaves fullscreen; Ctrl+C stops PHOS. Stop
 this process before installing/starting the production service below.
